@@ -1,5 +1,5 @@
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
-import { catalogSearchExplanation } from './catalogSearchExplanation'
+import { catalogSearchDiagnostics, catalogSearchExplanation } from './catalogSearchExplanation'
 import { repairBudgetFacts, repairTargetLabel, reviewDecision, reviewOwnerLabel, reviewObligationLabel, reviewIssueLabels } from './reviewDecision'
 
 type Row = Record<string, unknown>
@@ -601,20 +601,27 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const used = Object.entries(input).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query'].includes(key))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   const found = Object.entries(output).filter(([key]) => labels[key] && !['decision', 'query', 'catalog_query', 'coverage_locked'].includes(key)
+    && !(step.key === 'catalog_embedding_search' && key === 'model')
     && !(key === 'selected_unit_ids' && Array.isArray(output.selected_unit_numbers)))
     .map(([key, value]) => fact(labels[key], humanValue(value, snapshots, key)))
   if (step.key === 'catalog_embedding_search') {
+    const search = catalogSearchDiagnostics(output)
     if (output.optimized === true) found.push(
       fact('Coincidencias confirmadas en toda la consulta', String(output.matched_count)),
       fact('Unidades pendientes de comprobar por falta de datos', String(output.unknown_count)),
       fact('Unidades que no cumplen requisitos', String(output.excluded_count)),
       fact('Números de las fichas incluidas', Array.isArray(output.selected_unit_numbers) ? output.selected_unit_numbers.join(', ') : 'Sin registro'),
       fact('Cobertura de fichas', output.examples_complete === true ? 'Todas las coincidencias confirmadas' : 'Ejemplos dentro del límite de contexto; el resumen incluye todas las coincidencias'))
-    found.push(fact('Método utilizado', catalogSearchExplanation(output).title),
+    found.push(fact('Método utilizado', search.method),
+      fact('Modelo de embeddings previsto', search.plannedModel),
+      fact('Modelo de embeddings consultado', search.consultedModel),
       fact('Motivo de esta ruta', catalogSearchExplanation(output).reason),
       fact('Unidades seleccionadas', String(Array.isArray(output.selected_unit_ids) ? output.selected_unit_ids.length : 0)),
       fact('Tokens para la consulta de embeddings', String(output.embedding_input_tokens ?? 'Sin registro')),
       fact('Duración de la búsqueda', typeof output.duration_ms === 'number' ? `${output.duration_ms} ms` : 'Sin registro'))
+    if (search.querySource) used.push(fact('Origen de la consulta ejecutada', search.querySource))
+    if (typeof output.exact_filter_applied === 'boolean') found.push(fact('Filtrado exacto aplicado', output.exact_filter_applied ? 'Sí' : 'No'))
+    if (search.requested === true && output.embedding_usage_recorded !== true) found.push(fact('Consumo de la solicitud vectorial', 'Se solicitó la consulta; su consumo no quedó confirmado. No se interpreta como gasto cero.'))
   }
   if (step.key === 'response_coverage' && output.prompt_context_selection) {
     const names: Record<string, string> = { catalogo: 'Catálogo de partida', instalaciones: 'Amenidades', lugares_cercanos: 'Lugares cercanos', contexto_sector: 'Datos del sector', politicas_negocio: 'Políticas específicas' }
@@ -638,7 +645,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   if (step.key === 'interest_evaluation') found.push(...interestDecisionFacts(output))
   if (step.key === 'lead_profile_resolution') found.push(...leadProfileSections(output.profile, output).flatMap(section => section.facts))
   if (step.key === 'lead_introduction') found.push(...leadProfileSections(row(output.profile_introduction).profile_state, output.profile_introduction).flatMap(section => section.facts))
-  const query = output.catalog_query || output.query || input.catalog_query || input.query
+  const query = output.resolved_query || output.catalog_query || output.query || input.catalog_query || input.query
   const queryText = queryDescription(query, snapshots)
   if (step.key === 'catalog_resolution') {
     const before = row(input.previous_query), after = row(query)

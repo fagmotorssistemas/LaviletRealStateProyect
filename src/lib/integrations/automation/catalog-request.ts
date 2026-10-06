@@ -1,7 +1,7 @@
 import { object, text, type Row } from './data'
 
 export const CATALOG_NUMBER_FIELDS = ['bedrooms', 'bathrooms_full', 'floor_number', 'area_internal_m2', 'area_exterior_m2', 'area_total_m2', 'published_commercial_price'] as const
-const purposes = ['search', 'count', 'list', 'range', 'min', 'max', 'none']
+const purposes = ['search', 'details', 'compare', 'select', 'count', 'list', 'range', 'min', 'max', 'none']
 const operators = ['eq', 'gt', 'gte', 'lt', 'lte', 'between', 'contains', 'not_contains']
 const fields = [...CATALOG_NUMBER_FIELDS, 'spaces', 'unmodeled']
 const closed = (properties: Row): Row => ({ type: 'object', additionalProperties: false, properties, required: Object.keys(properties) })
@@ -18,7 +18,7 @@ export const CATALOG_REQUEST_SCHEMA = closed({
 export const CATALOG_REQUEST_RULES = `Interprete catalog_request dentro de esta MISMA extracción; no resuelva la consulta ni cuente el inventario.
 Los campos de CATALOG_REQUEST_SCHEMA describen las dimensiones que el código puede consultar en las fichas completas. catalogo_unidades es un índice abreviado: que no muestre superficies, precios o espacios NO convierte esas dimensiones en unmodeled. Elija field por el significado de lo solicitado; el código consultará el valor después. Desconocer el VALOR es distinto de carecer de un CAMPO. Para cualquier requisito cuantificable use su campo disponible, incluidos requisitos de existencia (mayor que cero) aunque no se haya indicado una cantidad.
 Una consulta general de precios («qué precio tiene», incluso junto con nombre o residencia) usa purpose=range y metric=published_commercial_price, con el alcance conocido; no use none por no haberse elegido unidad o categoría. Mantenga las solicitudes de presupuesto o financiamiento separadas sin borrar la consulta de catálogo simultánea. Una recomendación familiar conserva los dormitorios solicitados y sus preferencias; las personas no son un filtro de dormitorios.
-purpose distingue search (buscar opciones), count (cantidad de unidades), list (todas las opciones), range (intervalo), min y max (extremo), none (sin consulta simple). «Cuántos departamentos de 3 dormitorios», «dime la cantidad de opciones de tres cuartos» y variantes son count, metric=unit_count. «De cuántos dormitorios tienen» pide tipos de dormitorios, no cantidad de unidades: range, metric=bedrooms. Mantenga property.operation=search para búsquedas, conteos, listados y rangos; las demás operaciones existentes siguen vigentes.
+purpose distingue search (buscar opciones), details (caracteristicas de una categoria o unidades), compare (comparar referentes), select (eleccion explicita), count (cantidad de unidades), list (todas las opciones), range (intervalo), min y max (extremo), none (sin consulta de catalogo). Una consulta de detalles o continuacion conserva su operacion y sus referentes; no use none solo porque ya se conocen preferencias o presupuesto. Cuantos inmuebles hay es count y metric=unit_count; de cuantos dormitorios hay es range y metric=bedrooms. Los filtros exactos y la memoria confirmada se resuelven en codigo. semantic_preferences describe preferencias cualitativas para ordenar, no prueba que una ficha cumpla una condicion no documentada.
 requirements expresa TODOS los requisitos explícitos actuales mediante field, operator, value y upper_value (solo between), strength=required o preferred y evidencia literal. Represente superficies interiores/exteriores/totales, baños, dormitorios, plantas y precios en sus campos respectivos. «Con espacio exterior» es area_exterior_m2 gt 0; «sin espacio exterior» es eq 0; «al menos 20 m² exteriores» es gte 20. No convierta superficie exterior en terraza o balcón: son características distintas. «Plantas altas» es una preferencia relativa, no invente un número exacto. «Por debajo de 300 mil» es lt 300000; no cambie operadores estrictos por inclusivos. Preserve negaciones, intervalos y unidades. Un presupuesto declarado sigue también su contrato de budget; no lo convierta en precio de una unidad.
 spaces contiene nombres de espacios documentados (Balcón, Terraza, Estudio, etc.); use contains/not_contains y el nombre, nunca atribuya amenidades comunes a una unidad. Si una condición obligatoria no tiene campo fiable (vista, orientación, accesibilidad, uso permitido...), use field=unmodeled y conserve la condición en value. Las preferencias descriptivas van además en semantic_preferences, como citas literales. No omita condiciones para hacer parecer completa una búsqueda. Cantidad familiar no equivale a dormitorios.
 evidence y cada requisito deben citar el mensaje actual sin corregir su ortografía. Historial y consulta resuelta conservan las restricciones anteriores por separado. Si no hay petición de catálogo, use purpose=none, metric=null, requirements=[], semantic_preferences=[], evidence="". No invente valores por ser desconocidos.`
@@ -41,6 +41,16 @@ export function normalizeCatalogRequest(raw: unknown, current: string): Row | nu
   if (['range', 'min', 'max'].includes(text(input.purpose)) && !CATALOG_NUMBER_FIELDS.includes(input.metric as typeof CATALOG_NUMBER_FIELDS[number])) return null
   return { version: 'catalog-request-v1', purpose: input.purpose, metric: input.purpose === 'count' ? 'unit_count' : input.metric ?? null,
     requirements, semantic_preferences: input.semantic_preferences, evidence: input.evidence, confidence: 'high' }
+}
+
+export function catalogRequestStatus(raw: unknown, normalized: Row | null): string {
+  if (normalized) return 'validated'
+  const input = object(raw)
+  if (!Object.keys(input).length) return 'unavailable'
+  return input.purpose === 'none' && input.metric == null
+    && Array.isArray(input.requirements) && !input.requirements.length
+    && Array.isArray(input.semantic_preferences) && !input.semantic_preferences.length
+    && !text(input.evidence).trim() ? 'not_requested' : 'invalid'
 }
 
 export const catalogNumber = (value: unknown): number | null =>

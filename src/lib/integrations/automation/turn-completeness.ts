@@ -8,7 +8,7 @@ import { taskVerifiedContext, taskModelEvidence, addTaskQueryEvidence, TASK_CONT
 import { FINANCING_COLLECTION_WRITER_RULES } from './financing-prompt'
 import { catalogCostBaseline } from './catalog-cost-baseline'
 import { withPromptCostComparison } from './prompt-cost-comparison'
-import { turnBudgetAssessment, effectiveTurnBudget, budgetContinuationInstruction } from './turn-budget'
+import { turnBudgetAssessment, effectiveTurnBudget, budgetContinuationInstruction, budgetForCommercialPlan } from './turn-budget'
 import { commercialJourneyPlan, COMMERCIAL_JOURNEY_RULES } from './commercial-journey'
 import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
@@ -353,7 +353,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const normalRuleSets = new Map<string, { actual: string; normal: string }>()
   // Diagnostic failure must never interrupt delivery or change model inputs.
   let normalContext: ReturnType<typeof catalogCostBaseline> | null = null
-  if (input.costBaseline && object(input.costBaseline.catalog_search).embeddingsEnabled === true) {
+  if (input.costBaseline) {
     try { normalContext = catalogCostBaseline(input.costBaseline, input.audit || {}, input.current, input.history) } catch { /* estimate unavailable */ }
   }
   if (normalContext) {
@@ -379,18 +379,20 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     input = { ...input, verified: taskVerifiedContext(input.verified, input.audit || {}, input.current) }
   const catalogEvidence = turnEvidence(input.verified, input.audit)
   input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
-  const budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
-  if (budgetAssessment) recordBudgetDecision(budgetAssessment)
+  let budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
   if (budgetAssessment) input = { ...input, verified: { ...input.verified, presupuesto_del_turno: budgetAssessment } }
   if (input.verified.recorrido_comercial) {
     const journey = commercialJourneyPlan(input.verified, input.audit || {})
+    if (budgetAssessment) budgetAssessment = budgetForCommercialPlan(budgetAssessment, journey)
     input = { ...input, verified: { ...input.verified, siguiente_paso_comercial: journey }, audit: { ...input.audit, commercial_journey: journey } }
+    if (budgetAssessment) input.verified.presupuesto_del_turno = budgetAssessment
     if (journey.question_id || journey.action === 'leave_open') {
       input.preserveOperationalQuestion = false
       delete input.audit!.progressive_selection
       delete input.audit!.post_tour_continuation
     }
   }
+  if (budgetAssessment) recordBudgetDecision(budgetAssessment)
   const originalBase = input.baseReply
   const adaptiveContinuation = commercialContinuationSources.has(text(input.audit?.source))
   if (adaptiveContinuation) input = { ...input, preserveOperationalQuestion: false }
@@ -520,8 +522,12 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     material_protegido: { cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
       enlaces_obligatorios: linkContract.required_links, enlaces_permitidos: linkContract.allowed_links } }
   const optimizedPrompt = optimizedCatalogPrompt(context)
-  const financialTask = /^financing/.test(text(input.audit?.source)) || !!budgetAssessment
-    || object(input.verified.etapa_financiamiento).accepted === true
+  // A known budget or accepted financing while choosing a property does not
+  // need the entire collection procedure in both prompts. The shared journey
+  // obligation supplies the current offer/selection step and its safeguards.
+  const financialTask = financingCollectionActive(input.audit || {})
+    || /^financing/.test(text(input.audit?.source))
+    || object(input.verified.siguiente_paso_comercial).action === 'continue_financing'
     || (Array.isArray(turnIntent.requests) && turnIntent.requests.some(r => object(r).domain === 'financing'))
   let requests: Coverage[] = []
   try {

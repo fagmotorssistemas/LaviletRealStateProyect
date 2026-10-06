@@ -14,6 +14,33 @@ const prices: Record<string, { input: number; cached: number; output: number; ve
 }
 
 export const tokens = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+
+export const promptCharacterFields = ['instructions', 'context', 'schema', 'user_prefix', 'total'] as const
+type PromptCharacterField = typeof promptCharacterFields[number]
+export type PromptCharacters = Record<PromptCharacterField, number | null>
+
+/** Use the measurement made before privacy filtering. A protected or limited
+ * snapshot cannot reconstruct the size of the request actually sent. */
+export function promptCharacters(step: Pick<WorkflowExecutionStep, 'key' | 'input'>): PromptCharacters | null {
+  if (step.key !== 'model_request') return null
+  const size = step.input.prompt_size as Record<string, unknown> | undefined
+  const result = Object.fromEntries(promptCharacterFields.map(key => [key,
+    size?.unit === 'characters' ? tokens(size[key]) : null])) as PromptCharacters
+  const parts = promptCharacterFields.filter(key => key !== 'total').map(key => result[key])
+  if (parts.every(value => value !== null) && result.total !== null
+    && parts.reduce((sum: number, value) => sum + (value ?? 0), 0) !== result.total) result.total = null
+  return result
+}
+
+/** Compare the same recorded metric across every call, including rewrites.
+ * Missing measurements make that field unavailable instead of a partial sum. */
+export function sumPromptCharacters(steps: Pick<WorkflowExecutionStep, 'key' | 'input'>[]): PromptCharacters | null {
+  const sizes = steps.map(promptCharacters).filter((size): size is PromptCharacters => size !== null)
+  if (!sizes.length) return null
+  return Object.fromEntries(promptCharacterFields.map(key => [key,
+    sizes.every(size => size[key] !== null) ? sizes.reduce((sum, size) => sum + size[key]!, 0) : null])) as PromptCharacters
+}
+
 const modelName = (value: unknown) => {
   const name = typeof value === 'string' ? value.trim() : ''
   if (name === 'text-embedding-3-small') return name

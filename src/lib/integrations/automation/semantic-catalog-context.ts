@@ -36,33 +36,29 @@ export function selectPolicies(verified: Row, current: string, domains = new Set
     || policy.topic === 'visitas' && domains.has('visit'))
 }
 
-/** Strictly opt-in. Off, skipped and failed retrieval return the original object.
+/** Exact or semantic retrieval can both qualify for context selection.
  * This projection is shared by writing and review, before evidence is built.
  * The extractor, operational state, global guardrails and tone are unchanged. */
 export function semanticCatalogContext(verified: Row, audit: Row, current: string): Row {
-  if (object(verified.catalog_search).embeddingsEnabled !== true
-    || !(object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true)
+  if (!(object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true)
     || !['semantic_candidates', 'optimized_catalog'].includes(text(object(verified.catalog_context_scope).kind))) return verified
 
   const result = { ...verified }
-  const query = normalize(current)
-  const profile = object(verified.perfil_lead)
-  const abroad = text(profile.residence_country) && !/^(?:ecuador|ec|ecu)$/.test(normalize(text(profile.residence_country)))
-  const policies = rows(verified.politicas_negocio)
-  // Unknown/general policy topics are always retained. Topic-specific policies
-  // are omitted only on this already qualified, single-request property route.
-  result.politicas_negocio = policies.filter(policy => !policyTriggers[text(policy.topic)]
-    || policyTriggers[text(policy.topic)].test(query) || policy.topic === 'compra_exterior' && !!abroad)
+  const requests = [...rows(object(verified.contrato_turno).requests), ...rows(verified.solicitudes_interpretadas), ...rows(verified.consultas_pendientes)]
+  const queryText = [current, ...requests.map(r => text(r.evidence) || text(r.request) || text(r.content))].join('\n')
+  // Select against every request, including pending questions. A short
+  // follow-up cannot erase a policy needed by another part of this turn.
+  result.politicas_negocio = selectPolicies(verified, queryText, new Set(requests.map(r => text(r.domain))))
   result.business_policy_context = { ...object(verified.business_policy_context),
     selection: 'semantic_property_search', included_count: rows(result.politicas_negocio).length }
-  result.instalaciones = relevantFacts(verified.instalaciones, current, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/)
-  result.lugares_cercanos = relevantFacts(verified.lugares_cercanos, current, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
-  result.contexto_sector = relevantFacts(verified.contexto_sector, current, /entorno|sector|ubicacion|zona|barrio|plusval/)
+  result.instalaciones = relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/)
+  result.lugares_cercanos = relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
+  result.contexto_sector = relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
   // Project identity/location suffice for the opening. Keep a requested
   // description when its facts overlap with this search.
   const project = object(verified.proyecto)
   result.proyecto = { name: project.name, address: project.address,
-    ...(relevantFacts([{ description: project.description }], current, /proyecto|edificio/).length ? { description: project.description } : {}) }
+    ...(relevantFacts([{ description: project.description }], queryText, /proyecto|edificio/).length ? { description: project.description } : {}) }
   delete result.posicionamiento_proyecto
   const blocks = ['instalaciones', 'lugares_cercanos', 'contexto_sector', 'politicas_negocio']
   result.prompt_context_selection = {

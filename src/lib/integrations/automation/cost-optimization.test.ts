@@ -8,6 +8,7 @@ import { taskVerifiedContext, taskModelEvidence } from './task-context'
 import { turnEvidence } from './turn-evidence'
 import { interpretationInput, reconcilePassivePropertyMemory, interpretationSourceIssues } from './turn-interpretation-input'
 import { aiRequestBody } from './ai-request-body'
+import { aiPromptCacheKey } from './ai-prompt-cache'
 import { object, type Row } from './data'
 
 const units = [
@@ -57,9 +58,10 @@ test('disabling vector ranking still compacts extraction while preserving identi
 
 test('cache routing is stable across leads, changes with contracts, and never changes models or storage', () => {
   const options={ model:'gpt-4.1',instructions:'same instructions',schema:{ type:'object' },input:{ lead:'A' } }
-  const first=aiRequestBody(options),second=aiRequestBody({ ...options,input:{ lead:'B' } })
+  const first=aiRequestBody({ ...options,promptCacheKey:aiPromptCacheKey(options) }),second=aiRequestBody({ ...options,input:{ lead:'B' },promptCacheKey:aiPromptCacheKey(options) })
+  assert.equal(first.prompt_cache_key,'lavilet:73a3c9b9ffc913ec8022275dd936dcabf650101158aacfd8','preserve the deployed cache route')
   assert.equal(first.prompt_cache_key,second.prompt_cache_key)
-  assert.notEqual(first.prompt_cache_key,aiRequestBody({ ...options,instructions:'changed' }).prompt_cache_key)
+  assert.notEqual(first.prompt_cache_key,aiPromptCacheKey({ ...options,instructions:'changed' }))
   assert.equal(first.store,false)
   assert.equal(first.model,'gpt-4.1')
   assert.equal(JSON.parse(second.input[0].content[0].text!.split('\n')[1]).lead,'B')

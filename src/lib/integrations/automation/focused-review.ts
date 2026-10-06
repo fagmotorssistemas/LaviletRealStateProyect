@@ -41,8 +41,10 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
     instruction: 'Evalúe el TEXTO del borrador según estado_comercial.brochure. Con share_now debe incluir el enlace autorizado. Con offer_after_profile basta ofrecer el brochure al pedir los datos pendientes: eso CUMPLE la obligación, sin esperar datos del cliente ni comprobante de envío. No exija entregar el brochure en una etapa que solo pide ofrecerlo.' })
   const policy = object(verified.politica_comercial)
   const journey = object(verified.siguiente_paso_comercial)
+  const continuation = turnContinuation(audit, verified)
   if (Object.keys(journey).length) obligations.push({ id: 'commercial_next_step',
-    ...journey, continuation_required: turnContinuation(audit, verified).required,
+    ...journey, continuation_required: continuation.required,
+    response_connection: continuation.response_connection,
     instruction: text(journey.instruction) + ' Atienda primero cualquier consulta concreta; si hay pregunta de presentación pendiente, tiene prioridad y no añada otra. Con continuation_required=true, la pregunta debe aparecer en el mensaje real y cumplir esta decisión pendiente: responder la duda o entregar el brochure no basta. La formulación admite redacción equivalente, pero no omisión ni cambio de finalidad. No exija repetir detalles del sistema.' })
   if (!journey.action && needsPropertyPurpose(verified, audit, stage)) obligations.push({ id: 'property_purpose',
     instruction: 'Después de responder el precio o la oferta general, presente brevemente los tipos autorizados disponibles (suites, departamentos, penthouses y locales, según las fuentes) y pregunte si busca vivienda o un espacio para comercio. El propósito aún no se conoce; no termine solamente con el brochure. No vuelva a pedir un propósito ya confirmado.' })

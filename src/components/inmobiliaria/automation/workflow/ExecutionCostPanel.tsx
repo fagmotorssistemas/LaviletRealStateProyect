@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
-import { executionCost } from './executionCost'
+import { executionCost, promptCharacters, sumPromptCharacters } from './executionCost'
+import { catalogSearchDiagnostics } from './catalogSearchExplanation'
 import { callCatalogMode, comparisonCandidates, executionCatalogMode, isCostStep, normalCallEstimate, normalExecutionEstimate } from './embeddingCostComparison'
 import { stepTitle } from './messageExplanation'
 import { executionTiming, durationLabel } from './executionTiming'
@@ -15,15 +16,23 @@ const price = (cost: ReturnType<typeof executionCost>) => cost.pricedCalls ? `${
 const role = (s: WorkflowExecutionStep) => s.key === 'catalog_embedding_search' ? 'Consulta de embeddings'
   : ({ scope: 'Clasificador', extractor: 'Extractor', writer: 'Redactor', reviewer: 'Revisor' }[String(s.input.ai_role)]
     || (s.input.task === 'writing' ? 'Redactor' : s.input.task === 'review' ? 'Revisor' : 'Otros agentes'))
+const characters = (value: number | null | undefined) => value == null ? 'Sin dato' : number(value)
+const modelLabel = (step: WorkflowExecutionStep) => {
+  if (step.key !== 'catalog_embedding_search') return String(step.output.model || step.input.model || 'Modelo sin registrar')
+  const diagnostics = catalogSearchDiagnostics(step.output)
+  return `Previsto: ${diagnostics.plannedModel}. Consultado: ${diagnostics.consultedModel}.`
+}
 
 export function AgentCallCost({ step }: { step: WorkflowExecutionStep }) {
-  const cost = executionCost([step]), estimate = normalCallEstimate(step)
+  const cost = executionCost([step]), estimate = normalCallEstimate(step), size = promptCharacters(step)
   return <div className={styles.call}>
-    <strong>{callCatalogMode(step)} · Costo calculado: {price(cost)}</strong>
+    <strong>{callCatalogMode(step)} · Costo calculado con uso registrado: {price(cost)}</strong>
+    {size && <p><strong>Caracteres enviados:</strong> instrucciones: {characters(size.instructions)} · contexto: {characters(size.context)} · formato: {characters(size.schema)} · prefijo: {characters(size.user_prefix)} · total: {characters(size.total)}.</p>}
     {cost.measuredCalls > 0 && <p>Entrada: {number(cost.inputTokens)} tokens, incluidos {number(cost.cachedInputTokens)} en caché. Salida: {number(cost.outputTokens)}. Total: {number(cost.totalTokens)}.</p>}
     {cost.pricedCalls > 0 && <p>Entrada sin caché: {money(cost.inputUsd)} · Entrada en caché: {money(cost.cachedUsd)} · Salida: {money(cost.outputUsd)}.</p>}
     {!cost.complete && <p>Registro parcial: falta uso o tarifa; los importes disponibles no representan el costo completo.</p>}
-    {estimate && <p><strong>Recorrido anterior, estimación de esta llamada:</strong> ≈ {number(estimate.totalTokens)} tokens ({number(estimate.inputTokens)} de entrada + {number(estimate.outputTokens)} de salida); ≈ {money(estimate.cost.estimatedUsd)} manteniendo la proporción de caché. Con entrada totalmente en caché: {money(estimate.allCachedUsd)}; sin caché: {money(estimate.noCacheUsd)}. La salida se mantiene igual solo para comparar.</p>}
+    {size && <p>Las instrucciones son las reglas compuestas de esta llamada. Los caracteres miden texto; el costo se calcula con tokens del proveedor. Un dato ausente no se reconstruye desde la captura protegida.</p>}
+    {estimate && <p><strong>Escenario de contexto anterior, estimación de esta llamada:</strong> ≈ {number(estimate.totalTokens)} tokens ({number(estimate.inputTokens)} de entrada + {number(estimate.outputTokens)} de salida); ≈ {money(estimate.cost.estimatedUsd)} manteniendo la proporción de caché. Con entrada totalmente en caché: {money(estimate.allCachedUsd)}; sin caché: {money(estimate.noCacheUsd)}. La salida se mantiene igual solo para comparar.</p>}
   </div>
 }
 
@@ -52,16 +61,17 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
     {!cost.complete && <p className={styles.notice}>Total parcial: {cost.pricedCalls} de {cost.calls} llamadas con uso y tarifa conocidos. No se interpreta un dato ausente como gasto cero.</p>}
     {cost.unmeasuredTransportAttempts > 0 && <p className={styles.notice}>{cost.unmeasuredTransportAttempts} intento(s) de conexión anterior(es) sin consumo confirmado. El proveedor podría haberlos procesado; no se inventa su costo.</p>}
     <details open>
-      <summary>Desglose por llamada y recorrido normal estimado</summary>
+      <summary>Desglose por llamada: uso registrado y escenario estimado</summary>
       <div className={styles.scroll} tabIndex={0} role="region" aria-label="Tabla de costos por agente">
-        <table><thead><tr><th>Agente / paso</th><th>Contexto usado</th><th>Entrada</th><th>En caché¹</th><th>Salida</th><th>Duración</th><th>Costo registrado²</th><th>Recorrido anterior³</th></tr></thead>
+        <table><thead><tr><th>Agente / paso</th><th>Contexto usado</th><th>Instrucciones (car.)</th><th>Contexto (car.)</th><th>Formato (car.)</th><th>Prefijo (car.)</th><th>Total (car.)</th><th>Entrada (tokens)</th><th>En caché¹</th><th>Salida (tokens)</th><th>Duración</th><th>Costo calculado²</th><th>Escenario estimado³</th></tr></thead>
           <tbody>{calls.map(step => {
-            const actual = executionCost([step]), normal = normalCallEstimate(step)
-            return <tr key={step.order}><th><button type="button" onClick={() => onStep(step.order)}>{stepTitle(step)} · {step.order}</button><small>{String(step.output.model || step.input.model || '')}</small></th>
-              <td>{callCatalogMode(step)}</td><td>{actual.measuredCalls ? number(actual.inputTokens) : actual.calls ? 'Sin dato' : '0'}</td>
+            const actual = executionCost([step]), normal = normalCallEstimate(step), size = promptCharacters(step)
+            return <tr key={step.order}><th><button type="button" onClick={() => onStep(step.order)}>{stepTitle(step)} · {step.order}</button><small>{modelLabel(step)}</small></th>
+              <td>{callCatalogMode(step)}</td>{(['instructions', 'context', 'schema', 'user_prefix', 'total'] as const).map(key => <td key={key}>{size ? characters(size[key]) : 'No aplica'}</td>)}<td>{actual.measuredCalls ? number(actual.inputTokens) : actual.calls ? 'Sin dato' : '0'}</td>
               <td>{actual.complete ? number(actual.cachedInputTokens) : 'Sin dato'}</td><td>{actual.measuredCalls ? number(actual.outputTokens) : actual.calls ? 'Sin dato' : '0'}</td><td>{durationLabel(step.durationMs)}</td><td>{price(actual)}</td>
               <td>{normal ? <>≈ {number(normal.totalTokens)} tokens<small>≈ {money(normal.cost.estimatedUsd)}</small></>
-                : step.key === 'catalog_embedding_search' ? 'Sin consulta: 0' : callCatalogMode(step) === 'Recorrido normal' ? 'Este es el uso real' : 'Sin estimación'}</td></tr>
+                : step.key === 'catalog_embedding_search' ? actual.calls > 0 ? 'Uso incluido en el costo calculado' : catalogSearchDiagnostics(step.output).requested === false ? 'Sin consulta: 0' : 'Sin estimación'
+                  : callCatalogMode(step) === 'Recorrido normal' ? 'Este es el uso real' : 'Sin estimación'}</td></tr>
           })}</tbody>
         </table>
       </div>
@@ -70,6 +80,7 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
         : <p>{['Con embeddings', 'Consulta exacta reducida'].includes(mode) ? 'No hay una estimación completa del recorrido normal para este registro. Puede compararlo con otra ejecución real abajo.'
           : 'Este mensaje muestra el gasto del recorrido ejecutado. Para conocer el gasto con embeddings, seleccione una prueba real que los haya utilizado. No se inventa una selección semántica ni se genera otra respuesta automáticamente.'}</p>}
       <p className={styles.notes}>¹ La caché es parte de la entrada, no se suma otra vez. ² Tokens informados por la API; dólares calculados, no factura. Incluye borradores descartados, revisiones y consulta de embeddings, incluso si la búsqueda terminó usando el catálogo normal.</p>
+      <p className={styles.notes}>Caracteres (car.): medición del texto antes de proteger o abreviar la captura. Incluye instrucciones compuestas, contexto JSON, formato exigido y prefijo; excluye archivos binarios. No equivale a tokens ni incluye el tamaño de los adjuntos. «Sin dato» indica que ese registro no conservó la medición.</p>
       <p className={styles.notes}>Tiempo de procesamiento: {durationLabel(timing.processingMs)}. Espera previa desde la recepción: {durationLabel(timing.waitingMs)}. Los tiempos de pasos que se solapan no se suman.</p>
       <p className={styles.notes}>³ Estimación aproximada por tamaño del contexto ampliado, calibrada con los tokens reales de cada llamada. Conserva modelo, salida, número de llamadas y proporción de caché; esas condiciones podrían cambiar en una ejecución real. No predice otra respuesta ni si sería aprobada. La comparación se calcula localmente, sin llamadas adicionales a la IA.</p>
     </details>
@@ -91,6 +102,15 @@ export function ExecutionCostPanel({ execution, executions, onStep }: {
             <tr><th>Total</th><td>{cost.calls} / {number(cost.totalTokens)} / {price(cost)}</td><td>{otherCost.calls} / {number(otherCost.totalTokens)} / {price(otherCost)}</td></tr>
           </tbody></table>
         </div>
+        <div className={styles.scroll} tabIndex={0} role="region" aria-label="Comparación de caracteres registrados por agente">
+          <table><thead><tr><th>Agente</th><th>Ejecución / llamadas</th><th>Instrucciones (car.)</th><th>Contexto (car.)</th><th>Formato (car.)</th><th>Prefijo (car.)</th><th>Total (car.)</th></tr></thead><tbody>
+            {roles.filter(name => name !== 'Consulta de embeddings').flatMap(name => ([['Actual', calls], ['Comparada', compared.steps.filter(isCostStep)]] as const).map(([label, source]) => {
+              const agentCalls = source.filter(step => role(step) === name), size = sumPromptCharacters(agentCalls)
+              return <tr key={`${name}:${label}`}><th>{name}</th><td>{label} · {agentCalls.length} llamada{agentCalls.length === 1 ? '' : 's'}</td>{(['instructions', 'context', 'schema', 'user_prefix', 'total'] as const).map(key => <td key={key}>{size ? characters(size[key]) : 'Sin dato'}</td>)}</tr>
+            }))}
+          </tbody></table>
+        </div>
+        <p className={styles.notes}>Se suman todas las llamadas de cada agente, incluidas correcciones. Si alguna llamada no registró una medida, ese total se muestra como «Sin dato»; no se compara una suma parcial con una completa.</p>
         {cost.complete && otherCost.complete ? <p><strong>Diferencia registrada (comparada menos actual):</strong> {number(otherCost.totalTokens - cost.totalTokens)} tokens · {money(otherCost.estimatedUsd - cost.estimatedUsd)}.</p>
           : <p>Alguno de los totales es parcial; no se calcula un ahorro con registros incompletos.</p>}
       </>}

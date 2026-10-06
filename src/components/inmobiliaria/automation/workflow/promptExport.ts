@@ -19,6 +19,7 @@ export function promptExport(step: WorkflowExecutionStep) {
   const body = aiRequestBody({ model: typeof model === 'string' ? model : '', instructions: String(snapshot.instructions || ''),
     input: snapshot.data, userPrefix: String(snapshot.user_prefix || ''),
     schema: snapshot.response_schema ? row(snapshot.response_schema) : undefined,
+    promptCacheKey: typeof parameters.prompt_cache_key === 'string' ? parameters.prompt_cache_key : undefined,
     maxOutputTokens: typeof maxTokens === 'number' ? maxTokens : undefined,
     reasoningEffort: String(parameters.reasoning_effort || step.input.reasoning_effort || '') || undefined })
   return {

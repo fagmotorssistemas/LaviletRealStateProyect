@@ -136,17 +136,24 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
     info = { ...info, referencia_unidad: reference, property_context: reference.context }
   }
-  if (object(info.catalog_search).embeddingsEnabled === true) {
+  {
     await guard()
     const retrieval = await retrieveCatalogByEmbeddings(info, current)
     recordCatalogRetrieval(retrieval.audit)
-    const optimized = optimizedCatalogReply(retrieval)
+    const operation = text(object(retrieval.audit.resolved_query).operation)
+    // Details, comparisons and selections keep their existing operational
+    // contract (including the selected unit and 360 link). Retrieval selects
+    // facts, never an action or the next commercial decision.
+    const optimized = operation === 'search' ? optimizedCatalogReply(retrieval) : null
     if (optimized) return optimized
     if (retrieval.units) {
       const selectedInfo = { ...info, catalogo: retrieval.units, catalog_retrieval: retrieval.audit,
+        catalog_summary: retrieval.audit.catalog_summary,
         catalog_context_scope: semanticCatalogScope(retrieval.audit) }
       const answer = catalogDialogueReply(selectedInfo, current)
-      if (answer) return answer
+      if (answer) return { ...answer, audit: { ...answer.audit, catalog_retrieval: retrieval.audit,
+        catalog_summary: retrieval.audit.catalog_summary, catalog_aggregate_groups: retrieval.audit.catalog_aggregate_groups,
+        catalog_context_scope: semanticCatalogScope(retrieval.audit) } }
     }
   }
   const preferenceAnswer = preferenceOptionsReply(info)

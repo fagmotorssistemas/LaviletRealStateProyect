@@ -26,7 +26,7 @@ execution('3', 'Diagnóstico de ficha del revisor', [
 ]), execution('4', 'Local con espacio exterior: embeddings aplicados', [
   step(1, 'catalog_embedding_search', { enabled: true, applied: true, model: 'text-embedding-3-small', reason: 'semantic_candidates', selected_unit_ids: ['local-1'], embedding_input_tokens: 10 }),
   step(2, 'model_request', { token_usage: { input_tokens: 10000, cached_input_tokens: 2000, output_tokens: 1000 } },
-    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: { catalog_context_scope: { kind: 'semantic_candidates', complete: false } },
+    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_size: { unit: 'characters', instructions: 12000, context: 25000, schema: 2970, user_prefix: 30, total: 40000 }, prompt_snapshot: { data: { contexto_verificado: { catalog_context_scope: { kind: 'semantic_candidates', complete: false } },
       evidencia_turno: { units: [{ id: 'local-1', unit_number: 'LC-02', category: 'local', area_internal_m2: 95.37, area_exterior_m2: 46.74 }],
         groups: [{ id: 'group:local:all:range', category: 'local', aggregation: 'range', member_ids: ['local-1'], area_internal_m2: 95.37, upper_values: { area_internal_m2: 95.37 } }] } } },
       context_cost_comparison: { version: 'context-size-v1', actual_prompt_characters: 40000, normal_prompt_characters: 80000 } }),
@@ -34,9 +34,11 @@ execution('3', 'Diagnóstico de ficha del revisor', [
   { ...step(1, 'catalog_embedding_search', { enabled: true, applied: false, reason: 'budget_context', embedding_input_tokens: 0 }), status: 'skipped' },
 ]), execution('6', 'Local con espacio exterior: prueba sin embeddings', [
   step(1, 'model_request', { token_usage: { input_tokens: 22000, cached_input_tokens: 0, output_tokens: 1500 } },
-    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_snapshot: { data: { contexto_verificado: {} } } }),
+    { model: 'gpt-4.1', task: 'writing', ai_role: 'writer', prompt_size: { unit: 'characters', instructions: 12000, context: 68000, schema: 2970, user_prefix: 30, total: 83000 }, prompt_snapshot: { data: { contexto_verificado: {} } } }),
 ]), execution('7', 'Cuatro departamentos: consulta exacta reducida', [
   step(1, 'catalog_embedding_search', { enabled: true, optimized: true, applied: false, method: 'structured_catalog', reason: 'exact_catalog_query',
+    version: 'catalog-retrieval-v3', embedding_model_planned: 'text-embedding-3-small', embedding_model_consulted: null, embedding_requested: false,
+    exact_filter_applied: true, query_source: 'catalog_request', resolved_query: { operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } }, ranking_reason: 'not_needed_for_exact_query',
     embedding_input_tokens: 0, candidate_count: 4, matched_count: 4, unknown_count: 0, selected_count: 4, selected_unit_numbers: ['202','302','402','502'] }),
 ]), execution('8', 'Locales: resumen completo y datos pendientes', [
   step(1, 'catalog_embedding_search', { enabled: true, optimized: true, applied: true, method: 'structured_catalog_and_embeddings', reason: 'complete_filtered_catalog',
@@ -126,6 +128,13 @@ async function main() {
         await page.locator(`[data-id="${node}"]`).click()
         assert.equal(await page.locator(`[data-id="${node}"] [data-state="${state}"]`).count(), 1)
         assert.match(await inspector.innerText(), new RegExp(title))
+        if (node === 'catalog_exact') {
+          await inspector.getByRole('button', { name: 'Ver explicación y borrador de este paso', exact: true }).click()
+          const searchDetail = page.getByRole('region', { name: 'Explicación del paso seleccionado', exact: true })
+          assert.match(await searchDetail.innerText(), /Modelo de embeddings previsto.*text-embedding-3-small/s)
+          assert.match(await searchDetail.innerText(), /Modelo de embeddings consultado.*No se consultó/s)
+          assert.match(await searchDetail.innerText(), /Los filtros exactos bastaron/)
+        }
         await page.screenshot({ path: path.join(dir, `${node}-${width}.png`), fullPage: false })
       }
       await selector.selectOption({ label: await selector.locator('option').filter({ hasText: 'Local con espacio exterior: embeddings aplicados' }).innerText() })
@@ -154,10 +163,17 @@ async function main() {
       await costs.getByLabel('Ejecución de comparación').selectOption('6')
       await costs.getByRole('region', { name: 'Comparación de costos reales', exact: true }).waitFor()
       assert.match(await costs.innerText(), /23[.\s]?500/)
+      const characterComparison = costs.getByRole('region', { name: 'Comparación de caracteres registrados por agente', exact: true })
+      await characterComparison.waitFor()
+      assert.match(await characterComparison.innerText(), /25[.\s]?000/)
+      assert.match(await characterComparison.innerText(), /68[.\s]?000/)
+      assert.match(await characterComparison.innerText(), /40[.\s]?000/)
+      assert.match(await characterComparison.innerText(), /83[.\s]?000/)
       await costs.screenshot({ path: path.join(dir, `cost-comparison-${width}.png`) })
       await costs.getByRole('button', { name: /Redactor.*2/ }).click()
       const detail = page.getByRole('region', { name: 'Explicación del paso seleccionado', exact: true })
-      await detail.getByText('Recorrido anterior, estimación de esta llamada:', { exact: true }).waitFor()
+      await detail.getByText('Escenario de contexto anterior, estimación de esta llamada:', { exact: true }).waitFor()
+      assert.match(await detail.innerText(), /instrucciones: 12[.\s]?000.*contexto: 25[.\s]?000.*total: 40[.\s]?000/s)
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), `Horizontal overflow at ${width}`)
       assert.deepEqual(errors, [])
       await page.close()

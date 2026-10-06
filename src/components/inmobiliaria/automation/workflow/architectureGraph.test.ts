@@ -52,3 +52,24 @@ test('budget decision distinguishes incomplete evidence from verified unaffordab
   assert.equal(nodeState(node('budget_below_available_prices'), steps), 'not_selected')
   assert.equal(nodeState(node('budget_incomplete_prices'), []), 'unknown')
 })
+
+test('exact filtering can reduce context without selecting the vector or fallback route', () => {
+  const steps = [step('catalog_embedding_search', { optimized: true, applied: false, method: 'structured_catalog',
+    embedding_model_planned: 'text-embedding-3-small', embedding_model_consulted: null, embedding_requested: false })]
+  assert.equal(nodeState(node('catalog_exact'), steps), 'observed')
+  assert.equal(nodeState(node('embedding_applied'), steps), 'not_selected')
+  assert.equal(nodeState(node('embedding_bypassed'), steps), 'not_selected')
+  assert.equal(linkObserved({ from: 'embedding_search', to: 'catalog_exact' }, steps), true)
+  assert.equal(linkObserved({ from: 'embedding_search', to: 'embedding_bypassed' }, steps), false)
+  assert.match(node('embedding_search').description, /reducirse sin consultar embeddings/)
+  assert.doesNotMatch(node('embedding_bypassed').description, /Conservar el recorrido y contexto anteriores/)
+})
+
+test('vector ranking and historical fallback stay distinct without asserting full context or a model call', () => {
+  const vector = [step('catalog_embedding_search', { optimized: true, applied: true, method: 'structured_catalog_and_embeddings' })]
+  const fallback = [step('catalog_embedding_search', { applied: false, method: 'current_catalog', reason: 'budget_context' }, {}, 1, 'skipped')]
+  assert.equal(nodeState(node('embedding_applied'), vector), 'observed')
+  assert.equal(nodeState(node('embedding_bypassed'), fallback), 'skipped')
+  assert.match(node('embedding_bypassed').description, /contexto puede reducirse después/)
+  assert.equal(links.find(link => link.from === 'embedding_search' && link.to === 'catalog_exact')?.label, 'Filtros exactos')
+})

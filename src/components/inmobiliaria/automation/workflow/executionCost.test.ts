@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { executionCost } from './executionCost'
+import { executionCost, promptCharacters, sumPromptCharacters } from './executionCost'
 
 const call = (model: string, input: number, cached: number, output: number) => ({ key: 'model_request',
   input: { model }, output: { token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output } } })
@@ -61,4 +61,31 @@ test('missing usage or unpriced models are flagged instead of shown as a complet
   assert.equal(result.measuredCalls, 1)
   assert.equal(result.pricedCalls, 1)
   assert.equal(result.complete, false)
+})
+
+test('prompt character counts use pre-redaction measurements without changing billed token usage', () => {
+  const step = call('gpt-4.1', 100, 0, 10)
+  const measured = { ...step, input: { ...step.input, prompt_size: {
+    unit: 'characters', instructions: 10000, context: 5000, schema: 900, user_prefix: 30, total: 15930 },
+    prompt_snapshot: { instructions: '[dato protegido]', data: '[resumen limitado]', limited: true } } }
+  assert.deepEqual(promptCharacters(measured), { instructions: 10000, context: 5000, schema: 900, user_prefix: 30, total: 15930 })
+  assert.deepEqual(executionCost([measured]), executionCost([step]))
+  assert.deepEqual(promptCharacters(step), { instructions: null, context: null, schema: null, user_prefix: null, total: null })
+})
+
+test('character comparisons include rewrites and do not hide missing historical measurements', () => {
+  const measured = { key: 'model_request', input: { prompt_size: { unit: 'characters',
+    instructions: 120, context: 50, schema: 20, user_prefix: 10, total: 200 } } }
+  assert.deepEqual(sumPromptCharacters([measured, measured]), { instructions: 240, context: 100, schema: 40, user_prefix: 20, total: 400 })
+  assert.deepEqual(sumPromptCharacters([measured, { key: 'model_request', input: {} }]), {
+    instructions: null, context: null, schema: null, user_prefix: null, total: null })
+  assert.equal(sumPromptCharacters([{ key: 'catalog_embedding_search', input: {} }]), null)
+})
+
+test('invalid or inconsistent character measurements are not converted to a plausible total', () => {
+  const step = { key: 'model_request', input: { prompt_size: { unit: 'characters',
+    instructions: 0, context: 50, schema: 20, user_prefix: 10, total: 100 } } }
+  assert.deepEqual(promptCharacters(step), { instructions: 0, context: 50, schema: 20, user_prefix: 10, total: null })
+  assert.equal(promptCharacters({ ...step, input: { prompt_size: { unit: 'tokens', context: 20 } } })?.context, null)
+  assert.equal(promptCharacters({ ...step, input: { prompt_size: { unit: 'characters', context: -1 } } })?.context, null)
 })

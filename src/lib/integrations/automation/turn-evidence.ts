@@ -16,6 +16,12 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
       { source: 'comparison_context', units: comparisonEvidence(verified, audit) }]
     : [{ source: 'context', units: rows(verified.catalogo) }]
   sources.push({ source: 'budget_alternatives', units: rows(object(verified.presupuesto_del_turno).alternatives) })
+  const proposed = object(verified.siguiente_paso_comercial)
+  if (proposed.action === 'clarify_requirements') {
+    const alternativeIds = new Set(Array.isArray(proposed.alternative_unit_ids) ? proposed.alternative_unit_ids : [])
+    sources.push({ source: 'requirement_alternatives', units: rows(verified.catalogo_verificacion)
+      .filter(unit => alternativeIds.has(unit.id)) })
+  }
   const byId = new Map<string, Row>()
   const conflicts: Row[] = []
   for (const { source, units } of sources) for (const unit of units) {

@@ -27,16 +27,48 @@ const reasons: Record<string, string> = {
   search_unavailable: 'La búsqueda por embeddings no estuvo disponible; se continuó con la búsqueda anterior.',
 }
 
+const rankingReasons: Record<string, string> = {
+  not_needed_for_exact_query: 'Los filtros exactos bastaron; no se solicitó ordenación por similitud.',
+  disabled: 'La ordenación por similitud estaba desactivada.',
+  similarity_orders_confirmed_matches: 'La similitud ordenó unidades que ya cumplían los requisitos exactos.',
+  semantic_ranking_unavailable: 'La ordenación semántica no estuvo disponible; se conservaron el filtrado y el resumen completos.',
+  no_confirmed_matches: 'No hubo coincidencias confirmadas que ordenar; no se solicitó una consulta vectorial.',
+}
+
+const text = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : null
+
+/** A configured model is not proof of a provider call. Historical records
+ * without request diagnostics remain unknown, even when a model is present. */
+export function catalogSearchDiagnostics(output: Record<string, unknown>) {
+  const plannedModel = text(output.embedding_model_planned) || text(output.model) || 'Sin registro'
+  const model = text(output.embedding_model_consulted)
+  const requested = model ? true : Object.hasOwn(output, 'embedding_model_consulted')
+    ? output.embedding_model_consulted === null ? false : null
+    : typeof output.embedding_requested === 'boolean' ? output.embedding_requested : null
+  const consultedModel = requested === true ? model || text(output.model) || 'Sin registro'
+    : requested === false ? 'No se consultó' : 'Sin registro de consulta'
+  const method = output.method === 'structured_catalog_and_embeddings' ? 'Filtros exactos y ordenación vectorial'
+    : output.method === 'structured_catalog' || output.optimized === true && output.applied !== true ? 'Filtros exactos, sin ordenación vectorial'
+      : output.method === 'embeddings' || output.applied === true ? 'Consulta vectorial por similitud'
+        : output.method === 'current_catalog' ? 'Catálogo anterior, sin reducción por búsqueda' : 'Método sin registrar'
+  const rankingReason = rankingReasons[String(output.ranking_reason)] || null
+  const querySource = output.query_source === 'catalog_request' ? 'Solicitud estructurada del catálogo'
+    : output.query_source === 'resolved_property_query' ? 'Consulta de inmuebles resuelta' : null
+  return { plannedModel, consultedModel, requested, method, rankingReason, querySource }
+}
+
 export function catalogSearchExplanation(output: Record<string, unknown>) {
   const applied = output.applied === true
+  const diagnostics = catalogSearchDiagnostics(output)
   if (output.optimized === true) {
     const title = applied ? 'Catálogo filtrado y ordenado por embeddings' : 'Consulta exacta con contexto reducido'
     const reason = (reasons[String(output.reason)] || reasons.exact_catalog_query)
-      + (output.ranking_reason === 'semantic_ranking_unavailable' ? ' La ordenación semántica no estuvo disponible; se conservaron el filtrado y el resumen completos.' : '')
+      + (diagnostics.rankingReason ? ` ${diagnostics.rankingReason}` : '')
     return { title, reason, summary: `${title}. ${output.matched_count} coincidencias confirmadas; ${output.unknown_count} unidades sin datos suficientes; ${output.selected_count} fichas incluidas. ${reason}` }
   }
   const title = applied ? 'Embeddings utilizados' : output.applied === false ? 'Búsqueda anterior utilizada' : 'Búsqueda: resultado sin registrar'
-  const reason = reasons[String(output.reason)] || 'Consulte el motivo técnico registrado; no hay una explicación disponible para este código.'
+  const reason = (reasons[String(output.reason)] || 'Consulte el motivo técnico registrado; no hay una explicación disponible para este código.')
+    + (diagnostics.rankingReason ? ` ${diagnostics.rankingReason}` : '')
   const selected = Array.isArray(output.selected_unit_ids) ? output.selected_unit_ids.length : 0
   return { title, reason, summary: applied
     ? `${title}: ${selected} candidatas. ${reason} La selección no representa el catálogo completo.`

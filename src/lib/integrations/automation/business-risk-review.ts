@@ -4,6 +4,7 @@ import { effectiveTurnBudget } from './turn-budget'
 import { FINANCING_PROCESS_RULES } from './financing-guidance'
 import { catalogOverviewSummary } from './task-context'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
+import { CONVERSATION_BRIDGE_RULES } from './turn-continuation'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -76,6 +77,7 @@ No convierta una imprecisión de denominación en un riesgo material si el conju
 Compruebe únicamente obligaciones_del_turno. current_request exige atender las solicitudes actuales, incluso con una aclaración pertinente o explicando una limitación real de las fuentes. Para bloquear por turn_goal identifique en reason la obligación concreta omitida y su efecto. No cree obligaciones adicionales de preguntas, brochure, alternativas, perfilamiento o derivación. Una consulta atendida puede terminar sin pregunta si ninguna obligación exige hacerla. Acepte expresiones equivalentes; no espere que el cliente ya haya respondido una captura solicitada en el borrador.
 Cuando commercial_next_step incluya selection_scope, compruebe la pregunta realmente escrita: debe permitir elegir entre las categorías pendientes de ese alcance. Mencionarlas en el cuerpo no justifica una pregunta que solo permite continuar con una de ellas o con sus plantas. Una pregunta abierta que abarque todas las opciones presentadas también cumple; no exija enumerarlas otra vez. No reconstruya en question.next_decision alternativas que la pregunta del borrador excluye.
 Si commercial_next_step.continuation_required=true, omitir la pregunta o sustituir su finalidad es un incumplimiento turn_goal, aunque la explicación factual y el brochure sean correctos. Compruebe su presencia en el texto, no solo en los metadatos. Acepte paráfrasis que pidan la misma decisión; una invitación genérica a más información no sustituye una elección concreta pendiente. La corrección debe preservar la respuesta válida y completar su continuación; no es un missing_fact ni requiere asesor. Si no hay continuación obligatoria, no invente una ni reabra pasos resueltos o rechazados.
+${CONVERSATION_BRIDGE_RULES}
 Si presentation=floors, la siguiente elección es una planta entre las categorías compatibles; todavía no enumere códigos. Con presentation=units se elige entre unidades de la planta definida; single_unit presenta características y recorrido disponible, sin inventar aceptación. En financing_collection deben pedirse requested_fields y conservarse la entidad guardada. Una identidad incompleta requiere aclaración del cliente, no traspaso por missing_fact del proyecto.
 consultas_pendientes conserva mensajes sin respuesta: current_request incluye sus consultas informativas aún vigentes. Compruebe su atención junto con mensaje_actual; no repita acciones ni reabra consultas canceladas o sustituidas por el cliente. Un aviso de recuperación no las atiende.
 
@@ -88,7 +90,7 @@ Describir una unidad como disponible en el catálogo autorizado del turno no con
 
 # Criterios excluidos
 
-No evalúe estilo, tono, elegancia, longitud sugerida, saludo, sintaxis ni número de frases. No cree inventarios por oración ni referencias cruzadas complejas. Una respuesta clara que cumple las obligaciones y respeta los datos pasa aunque usted la redactaría distinto. Un error administrativo no demuestra un riesgo comercial.
+No evalúe estilo, tono, elegancia, longitud sugerida, saludo, sintaxis ni número de frases. La conexión semántica exigida por commercial_next_step.response_connection pertenece a las obligaciones del turno: compruebe que enlaza la consulta atendida con la decisión pendiente sin reiniciar la presentación, aceptando cualquier formulación que lo cumpla. No bloquee por preferir otro conector o una transición más elegante. No cree inventarios por oración ni referencias cruzadas complejas. Una respuesta clara que cumple las obligaciones y respeta los datos pasa aunque usted la redactaría distinto. Un error administrativo no demuestra un riesgo comercial.
 
 # Salida
 

@@ -64,7 +64,7 @@ test('bedroom follow-up replaces commercial context and respects minimum plus fl
     const retrieval = await retrieveCatalogByEmbeddings(info, message, {
       embed: async () => { calls++; return { vector: [1], tokens: 1 } }, match: async () => [],
     })
-    assert.equal(calls, 0, 'budget query follows the full commercial route')
+    assert.equal(calls, enabled ? 1 : 0, 'A known budget does not prevent ranking descriptive preferences; switch off performs only exact filtering.')
     assert.equal(retrieval.audit.applied, false)
     const result = catalogDialogueReply(info, message)!
     assert.ok(result)

@@ -26,16 +26,19 @@ export function resolveCatalogRequirements(info: Row, query: CatalogQuery, reque
     ...(covered.has('floor_number') ? { floor_number: null } : {}),
     ...(covered.has('area_internal_m2') ? { min_area_m2: null, max_area_m2: null } : {}),
   } })
-  return { query: resolved, request: { ...request, requirements } }
+  const sameScope = prior.category === query.category && prior.group === query.group
+  const preferences = [...new Set([...(sameScope && Array.isArray(prior.semantic_preferences) ? prior.semantic_preferences : []),
+    ...(Array.isArray(request.semantic_preferences) ? request.semantic_preferences : [])])]
+  return { query: resolved, request: { ...request, requirements, semantic_preferences: preferences } }
 }
 export const compactCatalogUnit = (unit: Row, prices: boolean): Row => Object.fromEntries(fields
   .filter(field => field !== 'published_commercial_price' || prices).filter(field => unit[field] !== undefined).map(field => [field, unit[field]]))
 
-export function completeCatalogResult(info: Row, query: CatalogQuery, request: Row) {
+export function completeCatalogResult(info: Row, query: CatalogQuery, request: Row, scopedIds?: string[]) {
   const prices = object(info.politica_comercial).precios_autorizados === true
   const catalog = rows(info.catalogo).map(u => compactCatalogUnit(u, prices))
   const categoryExclusions = object(object(info.semantica_turno).property).excluded_categories
-  const base = filterCatalog(catalog, catalogQuery({ ...query, requirements: [], filters: {} })).filter(u => !Array.isArray(categoryExclusions) || !categoryExclusions.includes(u.category))
+  const base = filterCatalog(catalog, catalogQuery({ ...query, requirements: [], filters: {} }), scopedIds).filter(u => !Array.isArray(categoryExclusions) || !categoryExclusions.includes(u.category))
   const requirements = rows(request.requirements), required = requirements.filter(r => r.strength === 'required')
   const exact: Row[] = [], unknown: Row[] = [], rejected: Row[] = []
   const unknownReasons: Row[] = []

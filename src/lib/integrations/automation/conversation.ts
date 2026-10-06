@@ -1392,10 +1392,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true) {
       // Both writer and reviewer receive the same fresh partial selection.
       // Do not silently re-expand it through comparison evidence.
-      info.catalogo_verificacion = info.catalogo
+      // Keep the immutable full snapshot for planning/validation. Model-only
+      // context selection below decides which units are actually sent.
+      info.catalogo_verificacion = commercialInfo.catalogo
       info.catalog_context_scope = audit.catalog_context_scope
       info.catalog_retrieval = audit.catalog_retrieval
-      info.catalog_read = { complete: object(audit.catalog_retrieval).optimized === true && object(audit.catalog_results).complete === true,
+      info.catalog_read = { complete: object(commercialInfo.catalog_read).complete === true,
         scope: object(audit.catalog_retrieval).optimized === true ? 'optimized_catalog' : 'semantic_candidates' }
       if (object(audit.catalog_retrieval).optimized === true) info.catalog_summary = audit.catalog_summary
       const ids = new Set((Array.isArray(info.catalogo) ? info.catalogo : []).map(unit => object(unit).id))

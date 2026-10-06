@@ -174,6 +174,20 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     if (seen.has(key)) return false
     seen.add(key); return true
   })
+  // Complete aggregate references are useful; repeated source sets are not.
+  // Keep one range for an identical set and attribute scope, preferring the
+  // exact-query source. Its endpoints support min/max as well as ranges.
+  if (selection.task !== 'multiple_requests') {
+    const scopes = new Set<string>()
+    groups = [...groups].sort((a, b) => Number(b.source_scope === 'complete_query') - Number(a.source_scope === 'complete_query'))
+      .filter(group => {
+        if (group.aggregation !== 'range') return false
+        const key = JSON.stringify([Array.isArray(group.member_ids) ? [...group.member_ids].sort() : [],
+          group.category ?? null, group.bedrooms_filter ?? null, group.budget_amount ?? null])
+        if (scopes.has(key)) return false
+        scopes.add(key); return true
+      })
+  }
   if (clarifyRequirements && !relatedIds.size) {
     // First resolve the unmet requirement. Irrelevant prices and dimensions
     // invite the model to sell incompatible alternatives before consent.

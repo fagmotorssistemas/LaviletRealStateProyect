@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import Ajv from 'ajv'
 import { object, scope, type Row } from './data'
-import { normalizeCatalogRequest, CATALOG_REQUEST_SCHEMA, requirementMatch } from './catalog-request'
+import { catalogRequestStatus, normalizeCatalogRequest, CATALOG_REQUEST_SCHEMA, requirementMatch } from './catalog-request'
 import { completeCatalogResult, resolveCatalogRequirements, selectCatalogExamples } from './catalog-result'
 import { catalogQuery } from './catalog-dialogue'
 import { retrieveCatalogByEmbeddings, semanticCatalogScope } from './catalog-embeddings'
@@ -76,6 +76,13 @@ test('typed query validates the schema and literal evidence, retaining unknown m
   const validate = new Ajv({strict:false}).compile(CATALOG_REQUEST_SCHEMA)
   assert.ok(validate(raw), JSON.stringify(validate.errors))
   assert.equal(normalizeCatalogRequest(raw, exteriorMessage)?.purpose, 'search')
+  assert.equal(catalogRequestStatus(raw, normalizeCatalogRequest(raw, exteriorMessage)), 'validated')
+  assert.equal(catalogRequestStatus(undefined, null), 'unavailable')
+  const emptyRequest = { purpose: 'none', metric: null, requirements: [], semantic_preferences: [], evidence: '' }
+  assert.equal(catalogRequestStatus(emptyRequest, null), 'not_requested')
+  assert.equal(catalogRequestStatus({ ...emptyRequest, requirements: raw.requirements }, null), 'invalid')
+  assert.equal(catalogRequestStatus({ ...emptyRequest, semantic_preferences: ['vista panoramica'] }, null), 'invalid')
+  assert.equal(catalogRequestStatus({ ...emptyRequest, metric: 'unit_count' }, null), 'invalid')
   assert.equal(normalizeCatalogRequest({...raw,requirements:[requirement('area_exterior_m2','gt',0,{evidence:'invented'})]},exteriorMessage),null)
   assert.equal(normalizeCatalogRequest({...raw,requirements:[requirement('unmodeled','contains','vista panorámica')]},exteriorMessage)?.version,'catalog-request-v1')
   assert.equal(requirementMatch({area_exterior_m2:null}, requirement('area_exterior_m2','eq',0)),null)
@@ -87,7 +94,8 @@ test('typed query validates the schema and literal evidence, retaining unknown m
 
 test('real exterior query keeps all 13 confirmed locals and global extrema; 3 missing areas remain unknown', async () => {
   const result = await retrieveCatalogByEmbeddings(info(),exteriorMessage,provider)
-  assert.equal(result.audit.optimized,true); assert.equal(result.audit.applied,true)
+  assert.equal(result.audit.optimized,true); assert.equal(result.audit.applied,false)
+  assert.equal(result.audit.embedding_requested,false, 'Exterior area is an exact field, not a reason for an embedding call.')
   assert.equal(result.audit.candidate_count,16); assert.equal(result.audit.matched_count,13)
   assert.equal(result.audit.unknown_count,3); assert.equal(result.units?.length,13)
   assert.equal(result.audit.examples_complete,true); assert.equal(result.audit.exhaustive,false)
@@ -158,15 +166,16 @@ test('large result sets retain full counts and extrema even when only examples f
   assert.ok(selected.units.some(u=>u.unit_number==='0'));assert.ok(selected.units.some(u=>u.unit_number==='69'))
 })
 
-test('semantic service failure keeps the exact result; invalid interpretation and switch off preserve normal route', async () => {
-  const failure=await retrieveCatalogByEmbeddings(info(),exteriorMessage,never)
+test('semantic service failure and switch off keep exact results; invalid conditions do not silently lose requirements', async () => {
+  const semanticInfo=info(request('search',[requirement('area_exterior_m2','gt',0)],{semantic_preferences:['vistas abiertas']}))
+  const failure=await retrieveCatalogByEmbeddings(semanticInfo,exteriorMessage,never)
   assert.equal(failure.audit.optimized,true);assert.equal(failure.units?.length,13)
   assert.equal(failure.audit.ranking_reason,'semantic_ranking_unavailable')
   const input=info(), original=structuredClone(input)
   const off=await retrieveCatalogByEmbeddings({...input,catalog_search:{embeddingsEnabled:false}},exteriorMessage,never)
-  assert.equal(off.units,null);assert.equal(off.audit.reason,'disabled');assert.deepEqual(input,original)
-  const invalid=await retrieveCatalogByEmbeddings({...input,semantica_turno:{...object(input.semantica_turno),catalog_request:null}},exteriorMessage,never)
-  assert.equal(invalid.units,null);assert.equal(invalid.audit.reason,'structured_query_unavailable')
+  assert.equal(off.units?.length,13);assert.equal(off.audit.ranking_reason,'disabled');assert.deepEqual(input,original)
+  const invalid=await retrieveCatalogByEmbeddings({...input,semantica_turno:{...object(input.semantica_turno),catalog_request:null,catalog_request_status:'invalid'}},exteriorMessage,never)
+  assert.equal(invalid.units,null);assert.equal(invalid.audit.reason,'invalid_structured_requirements')
 })
 
 test('typed unit count and floor metadata are validated without confusing count with bedrooms or currency', () => {
@@ -231,7 +240,7 @@ test('exterior search removes duplicate prompts while keeping every confirmed lo
   assert.equal(object(evidence.catalog_summary).matching_count, 13)
   assert.equal(object(evidence.catalog_summary).unknown_count, 3)
   assert.equal(object(evidence.catalog_summary).exact_count, false)
-  assert.equal((evidence.groups as Row[]).length, 3, 'the same min/max/range is not repeated four times')
+  assert.equal((evidence.groups as Row[]).length, 1, 'one complete range contains both extrema without repeated sources')
   assert.equal(object(calls[0].data.contexto_verificado).estado_operativo, undefined)
   assert.equal(calls[0].data.evidencia_afirmaciones, undefined)
   assert.ok(calls.every(call => !call.rules.includes(FINANCING_PROCESS_RULES)), 'simple search does not require the financial collection procedure')

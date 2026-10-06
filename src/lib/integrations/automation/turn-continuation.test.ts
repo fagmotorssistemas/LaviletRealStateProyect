@@ -4,7 +4,9 @@ import { object, type Row } from './data'
 import { commercialJourneyPlan, journeyPendingQuestion, rememberCommercialJourney } from './commercial-journey'
 import { finalWriterContract } from './response-plan'
 import { reviewObligations } from './focused-review'
-import { turnContinuation, turnContinuationIssues } from './turn-continuation'
+import { turnContinuation, turnContinuationIssues, CONVERSATION_BRIDGE_RULES } from './turn-continuation'
+import { businessRiskReviewInstructions } from './business-risk-review'
+import { DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
 import { completeTurnReply } from './turn-completeness'
 import { withResponseReviewPolicy } from './response-review-policy'
 import { responseReviewSettings } from '@/lib/inmobiliaria/responseReview'
@@ -16,6 +18,8 @@ const audit = { source: 'project_overview', semantic_review_enabled: true, busin
 const fresh = (): Row => ({ recorrido_comercial: {}, lead: {}, perfil_lead: {}, property_context: { query: {} },
   financiamiento: {}, catalogo: [], semantica_turno: { primary_intent: 'project_information' } })
 const reviewPass = { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+const compatibleCatalog = { catalogo: [{ id: 'd304', unit_number: '304', category: 'departamento', bedrooms: 2, floor_number: 3 }],
+  catalog_read: { complete: true } }
 function draft(reply: string) { return { reply, requests: [], question: null } }
 
 test('the same pending decision applies across information topics, without a keyword-specific reply patch', async () => {
@@ -47,7 +51,7 @@ test('the same pending decision applies across information topics, without a key
 })
 
 test('known preferences choose the remaining decision rather than repeating the initial categories', () => {
-  const info = { ...fresh(), lead: { purchase_purpose: 'vivir', preferred_bedrooms: 2 },
+  const info = { ...fresh(), ...compatibleCatalog, lead: { purchase_purpose: 'vivir', preferred_bedrooms: 2 },
     property_context: { query: { group: 'residential', category: 'departamento', filters: { bedrooms: 2 } } } }
   const plan = commercialJourneyPlan(info, audit), verified = { ...info, siguiente_paso_comercial: plan }
   assert.equal(plan.action, 'ask_budget')
@@ -59,9 +63,86 @@ test('known preferences choose the remaining decision rather than repeating the 
   assert.equal(obligation.question_id, contract.continuacion_del_turno.question_id)
 })
 
+test('writer and both review contracts share a semantic connection obligation, independent of a happy-path draft', () => {
+  const info = fresh(), journey = commercialJourneyPlan(info, audit)
+  const verified = { ...info, siguiente_paso_comercial: journey }
+  const contract = finalWriterContract('', audit, { verified })
+  const obligation = reviewObligations(audit, verified, contract).find(item => item.id === 'commercial_next_step')!
+  assert.equal(contract.continuacion_del_turno.response_connection, 'answer_to_pending_decision')
+  assert.equal(obligation.response_connection, contract.continuacion_del_turno.response_connection)
+  for (const rules of [businessRiskReviewInstructions(), businessRiskReviewInstructions(true), DIALOGUE_REVIEW_RULES]) {
+    assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, 1)
+    assert.ok(rules.includes('no exige un conector, una frase literal'))
+    assert.ok(rules.includes('no es información faltante del proyecto ni requiere un asesor'))
+  }
+  for (const action of ['leave_open', 'await_reservation', 'visit_pending', 'current_operation']) {
+    const plan = { action, question: '', question_id: '' }
+    assert.equal(turnContinuation({ commercial_journey: plan }).response_connection, null)
+    const noQuestion = { ...info, siguiente_paso_comercial: plan }
+    const closing = reviewObligations(audit, noQuestion, finalWriterContract('', audit, { verified: noQuestion }))
+      .find(item => item.id === 'commercial_next_step')!
+    assert.equal(closing.response_connection, null)
+  }
+})
+
+test('an intermediate answer keeps its semantic connection contract in the real review bypass', async () => {
+  const current = '¿Cuándo estará listo el proyecto?'
+  const reply = 'Aún no hay una fecha de entrega confirmada. El proyecto tendrá viviendas y locales. ¿Busca vivienda o un local?'
+  const calls: string[] = [], errors: unknown[] = []
+  const result = await withResponseReviewPolicy(off, () => completeTurnReply({ current, baseReply: reply, verified: fresh(), audit },
+    async (rules, raw, _schema, _image, _file, _tone, task) => {
+      calls.push(String(task))
+      try {
+        const context = object(raw)
+        assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, 1)
+        assert.equal(object(object(context.contrato_redaccion).continuacion_del_turno).response_connection, 'answer_to_pending_decision')
+        assert.equal((context.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')?.response_connection,
+          'answer_to_pending_decision')
+      } catch (error) { errors.push(error); throw error }
+      return draft(reply)
+    }))
+  assert.deepEqual(errors, [])
+  assert.deepEqual(calls, ['writing'])
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.status, 'review_disabled')
+})
+
+test('the existing reviewer can repair a disconnected answer with a present CTA without losing the factual answer', async () => {
+  const answer = 'Aún no hay una fecha de entrega confirmada.'
+  const disconnected = `${answer} El proyecto tendrá viviendas y locales. ¿Busca vivienda o un local?`
+  const connected = `${answer} Mientras conoce las opciones del proyecto, ¿busca vivienda o un local?`
+  const calls: string[] = [], errors: unknown[] = []
+  const result = await completeTurnReply({ current: '¿Cuándo estará listo el proyecto?', baseReply: answer, verified: fresh(), audit },
+    async (rules, raw, _schema, _image, _file, _tone, task) => {
+      calls.push(String(task))
+      const data = object(raw)
+      try {
+        const step = (data.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
+        assert.equal(step.response_connection, 'answer_to_pending_decision')
+        assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, 1)
+        if (calls.length === 3) {
+          const repair = object(data.reparacion)
+          assert.ok(JSON.stringify(repair.correcciones_concretas).includes('commercial_next_step.response_connection'))
+          assert.ok(String(repair.instruccion).includes('Conserve literalmente las demás frases'))
+        }
+      } catch (error) { errors.push(error); throw error }
+      if (task === 'writing') return draft(calls.length === 1 ? disconnected : connected)
+      return calls.length === 2 ? { ...reviewPass, verdict: 'block', findings: [{ category: 'turn_goal',
+        statement: 'El proyecto tendrá viviendas y locales. ¿Busca vivienda o un local?',
+        reason: 'commercial_next_step.response_connection exige retomar la decisión tras responder la fecha; el borrador reinicia la presentación y no enlaza ambas partes.',
+        authoritative_fact: 'Conserve la respuesta de entrega y enlace la decisión pendiente sin reiniciar la presentación.' }] } : reviewPass
+    })
+  assert.deepEqual(errors, [])
+  assert.deepEqual(calls, ['writing', 'review', 'writing', 'review'])
+  assert.equal(result.reply, connected)
+  assert.equal(result.needsAdvisor, false)
+  assert.equal(result.audit.status, 'checked')
+  assert.ok((result.audit.repair_attempts as Row[]).some(row => object(row.rejected_review).verdict === 'block'))
+})
+
 test('a delivery inquiry preserves known preferences and carries the same timeline to writer and reviewer', async () => {
   const entrega_proyecto=deliveryContext({project_delivery:{current:{...emptyProjectDelivery(),enabled:true,timing:'year',year:2028,source:'Dirección del proyecto'}}},'2026-10-05')
-  const info={...fresh(),entrega_proyecto,lead:{purchase_purpose:'vivir',preferred_bedrooms:2},
+  const info={...fresh(),...compatibleCatalog,entrega_proyecto,lead:{purchase_purpose:'vivir',preferred_bedrooms:2},
     property_context:{query:{group:'residential',category:'departamento',filters:{bedrooms:2}}}}
   const reply='La entrega se estima para 2028; aún no hay un mes definido. Para orientarle entre las opciones de dos dormitorios, ¿tiene un presupuesto estimado?'
   const errors:unknown[]=[],calls:string[]=[]

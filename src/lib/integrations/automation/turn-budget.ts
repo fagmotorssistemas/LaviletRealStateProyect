@@ -19,6 +19,7 @@ export const BUDGET_CONTINUATION_RULES = `La continuación del presupuesto es un
 /** Select one obligation, instead of asking the reviewer to choose between
  * mutually exclusive branches in a generic financial procedure. */
 export function budgetContinuationInstruction(assessment: Row): string {
+  if (assessment.continuation === 'commercial_next_step') return 'Use los hechos del presupuesto para responder. La única continuación autorizada es siguiente_paso_comercial; no proponga alternativas, financiamiento ni otra pregunta desde este bloque.'
   const actions: Record<string, string> = {
     continue_property_selection: 'El financiamiento ya fue aceptado. Atienda cualquier nuevo importe sin volver a descartar al lead por falta de efectivo. Si falta unidad, continúe eligiéndola; si ya está elegida, siga siguiente_paso_comercial sin reabrir la selección. No repita consentimiento ni afirme viabilidad o inviabilidad del crédito.',
     offer_financing_undefined: 'El lead declaró no tener presupuesto definido. Explique que puede explorar financiamiento con las entidades autorizadas y pregunte si desea continuar. No exija una cifra ni suponga un presupuesto cero.',
@@ -33,6 +34,18 @@ export function budgetContinuationInstruction(assessment: Row): string {
     offer_financing: 'Las opciones compatibles verificadas superan el presupuesto. Explique esa relación y ofrezca revisar financiamiento con las entidades autorizadas y acompañamiento, salvo negativa actual. No prometa aprobación, cuotas ni trámites realizados.',
   }
   return actions[text(assessment.continuation)] || BUDGET_CONTINUATION_RULES
+}
+
+/** Budget calculations supply facts; one journey plan owns the continuation.
+ * Affordable alternatives are not an instruction to switch the client's query. */
+export function budgetForCommercialPlan(assessment: Row, plan: Row): Row {
+  if (!plan.action) return assessment
+  const alternativesRequested = plan.action === 'present_affordable_alternatives'
+    || plan.presentation === 'affordable_alternatives'
+  return { ...assessment, continuation: 'commercial_next_step',
+    continuation_instruction: budgetContinuationInstruction({ continuation: 'commercial_next_step' }),
+    alternatives: alternativesRequested ? assessment.alternatives : [],
+    commercial_plan_action: plan.action }
 }
 
 /** Compute affordability from this turn's interpreted budget and complete

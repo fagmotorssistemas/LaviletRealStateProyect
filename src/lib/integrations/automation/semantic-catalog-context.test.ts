@@ -15,9 +15,12 @@ const units = Array.from({ length: 65 }, (_, i) => ({ id: `unit-${i}`, unit_numb
   bathrooms_full: null, area_internal_m2: 60 + i, area_exterior_m2: 20, area_total_m2: null,
   description: null, spaces: ['Área exterior'], published_commercial_price: 145000 + i * 1000 }))
 const rows = (v: unknown): Row[] => Array.isArray(v) ? v.map(object) : []
-function input(enabled = true): Row {
+function input(enabled = true, withPreference = false): Row {
   return { catalog_search: { embeddingsEnabled: enabled }, catalogo: units, catalog_read: { complete: true },
-    semantica_turno: fixture.semantics, contrato_turno: fixture.intent, referencia_unidad: { reason: 'category_change', explicit: false },
+    semantica_turno: { ...fixture.semantics, catalog_request: { version: 'catalog-request-v1', purpose: 'search', metric: null,
+      requirements: [{ field: 'area_exterior_m2', operator: 'gt', value: 0, upper_value: null, strength: 'required', evidence: 'espacio exterior' }],
+      semantic_preferences: withPreference ? ['buenas vistas'] : [], confidence: 'high', evidence: fixture.message } },
+    contrato_turno: fixture.intent, referencia_unidad: { reason: 'category_change', explicit: false },
     property_context: {}, consultas_pendientes: [], lead: { budget: null, budget_max: null },
     proyecto: { name: 'La Vilet', address: 'Puertas del Sol, Cuenca', description: 'Proyecto con viviendas y comercios.' },
     politica_comercial: { precios_autorizados: true, garantizar_disponibilidad_sin_reserva: false },
@@ -32,16 +35,18 @@ const provider = () => ({ embed: async () => ({ vector: [1], tokens: 9 }), match
   similarity: .8 - i * .002, metadata: { ...unit, ...scope, unit_id: unit.id,
     embedding_model: 'text-embedding-3-small', embedding_dimensions: 1536, index_version: 'unit-facts-v1' } })) })
 
-test('real first-message interpretation reaches embeddings without changing the extractor objective', async () => {
+test('interpreted exterior requirement uses the exact catalogue without a needless embedding request or objective change', async () => {
   assert.equal(embeddingSearchPlan(input(), fixture.message).reason, 'eligible')
   const result = await retrieveCatalogByEmbeddings(input(), fixture.message, provider())
-  assert.equal(result.audit.applied, true)
-  assert.equal(result.units?.length, 6)
+  assert.equal(result.audit.applied, false)
+  assert.equal(result.audit.embedding_requested, false)
+  assert.equal(result.audit.exact_filter_applied, true)
+  assert.equal(result.units?.length, 16)
   assert.ok(result.units?.every(u => u.category === 'local'))
   assert.equal(fixture.intent.objective, 'project_information')
 })
 
-test('off and failed retrieval preserve the entire original context, including every policy', () => {
+test('an unscoped or skipped retrieval cannot project the original context, including its policies', () => {
   const original = input(false), before = structuredClone(original)
   assert.equal(semanticCatalogContext(original, { catalog_retrieval: { applied: true } }, fixture.message), original)
   assert.deepEqual(original, before)
@@ -70,24 +75,28 @@ test('supplementary evidence retains applicable facts, restrictions and unknown 
   assert.equal(rows(verified.instalaciones).length, 1)
 })
 
-async function run(enabled: boolean, failSearch = false, compareCosts = false) {
-  const info = input(enabled)
+async function run(enabled: boolean, failSearch = false, compareCosts = false, withPreference = false) {
+  const info = input(enabled, withPreference)
+  const message = fixture.message + (withPreference ? ', con buenas vistas' : '')
   let embeddings = 0
   const dependencies = provider()
-  const retrieved = await retrieveCatalogByEmbeddings(info, fixture.message, { ...dependencies,
+  const retrieved = await retrieveCatalogByEmbeddings(info, message, { ...dependencies,
     embed: async () => { embeddings++; if (failSearch) throw Error('unavailable'); return dependencies.embed() } })
   retrieved.audit.duration_ms = 0 // Independently timed runs compare behavior, not wall-clock noise.
   const selected: Row = retrieved.units ? { ...info, catalogo: retrieved.units,
     catalog_retrieval: retrieved.audit, catalog_context_scope: semanticCatalogScope(retrieved.audit) } : info
-  const base = catalogDialogueReply(selected, fixture.message)!
-  const opening = leadIntroductionTurn({ current: fixture.message, history: [], summary: {}, catalog: units,
-    extracted: { turn_semantics: fixture.semantics, preferred_category: 'local' }, reply: base.reply, audit: base.audit })
+  const original = catalogDialogueReply(selected, message)!
+  const base = { ...original, audit: { ...original.audit, catalog_retrieval: retrieved.audit,
+    catalog_summary: retrieved.audit.catalog_summary, catalog_aggregate_groups: retrieved.audit.catalog_aggregate_groups,
+    catalog_context_scope: semanticCatalogScope(retrieved.audit) } }
+  const opening = leadIntroductionTurn({ current: message, history: [], summary: {}, catalog: units,
+    extracted: { turn_semantics: info.semantica_turno, preferred_category: 'local' }, reply: base.reply, audit: base.audit })
   const verified: Row = { ...selected, catalogo: object(base.audit.catalog_results).units,
     catalogo_verificacion: retrieved.units || units, estado_operativo: opening.audit }
   const calls: { task: string; instructions: string; context: Row }[] = []
   const costComparisons: unknown[] = []
   const reply = 'En La Vilet contamos con locales con espacio exterior. Para compartirle el brochure y una guía personalizada, ¿podría indicarme su nombre y en qué ciudad o país reside actualmente?'
-  const result = await completeTurnReply({ current: fixture.message, history: [], baseReply: opening.reply, verified,
+  const result = await completeTurnReply({ current: message, history: [], baseReply: opening.reply, verified,
     costBaseline: compareCosts ? { ...info, catalogo_verificacion: units } : undefined,
     audit: { ...opening.audit, resolved_turn_intent: fixture.intent, semantic_review_enabled: true, business_risk_review_enabled: true } },
   async (instructions, context, _schema, _image, _file, _tone, task) => {
@@ -101,9 +110,10 @@ async function run(enabled: boolean, failSearch = false, compareCosts = false) {
   return { calls, result, embeddings, costComparisons }
 }
 
-test('real-message pipeline sends six candidates to both agents, preserves capture and restores the old prompts after switch off', async () => {
-  const off = await run(false), on = await run(true), offAgain = await run(false), failure = await run(true, true)
-  for (const r of [off, on, offAgain, failure]) {
+test('exact contexts are compact with the switch on or off; optional ranking failure never loses matches or capture', async () => {
+  const off = await run(false), on = await run(true), offAgain = await run(false)
+  const ranked = await run(true, false, false, true), failure = await run(true, true, false, true)
+  for (const r of [off, on, offAgain, ranked, failure]) {
     assert.equal(r.result.audit.status, 'checked')
     assert.deepEqual(r.calls.map(c => c.task), ['writing', 'review'])
     for (const call of r.calls) {
@@ -113,17 +123,23 @@ test('real-message pipeline sends six candidates to both agents, preserves captu
     }
   }
   assert.equal(off.embeddings, 0)
-  assert.equal(on.embeddings, 1)
+  assert.equal(on.embeddings, 0)
+  assert.equal(ranked.embeddings, 1)
+  assert.equal(failure.embeddings, 1)
   assert.deepEqual(offAgain.calls, off.calls)
   const writer = on.calls[0].context, reviewer = on.calls[1].context
-  assert.equal(rows(object(writer.evidencia_turno).units).length, 6)
-  assert.equal(rows(object(reviewer.fuentes_autorizadas).unidades).length, 6)
+  assert.equal(rows(object(writer.evidencia_turno).units).length, 16)
+  assert.equal(rows(object(reviewer.fuentes_autorizadas).unidades).length, 16)
   assert.equal(rows(object(off.calls[0].context.evidencia_turno).units).length, 16)
   assert.equal(rows(object(failure.calls[0].context.evidencia_turno).units).length, 16)
   assert.equal(rows(object(writer.contexto_verificado).politicas_negocio).length, 0)
-  assert.equal(rows(object(off.calls[0].context.contexto_verificado).politicas_negocio).length, 4)
+  assert.equal(rows(object(off.calls[0].context.contexto_verificado).politicas_negocio).length, 0)
   assert.equal(rows(object(failure.calls[0].context.contexto_verificado).politicas_negocio).length, 0)
-  assert.ok(JSON.stringify(on.calls).length < JSON.stringify(off.calls).length)
+  const withoutVectorSwitch = (calls: typeof on.calls) => calls.map(call => call.task === 'writing' ? {
+    ...call, context: { ...call.context, contexto_verificado: { ...object(call.context.contexto_verificado),
+      catalog_search: { ...object(object(call.context.contexto_verificado).catalog_search), embeddingsEnabled: false } } },
+  } : call)
+  assert.deepEqual(withoutVectorSwitch(on.calls), withoutVectorSwitch(off.calls))
   assert.equal(object(on.result.audit.prompt_context_selection).mode, 'task_context')
 })
 
@@ -139,6 +155,7 @@ test('cost comparison observes both agents without changing their inputs, output
     assert.ok(Number(comparison.normal_prompt_characters) > Number(comparison.actual_prompt_characters))
   }
   const off = await run(false, false, true)
-  assert.ok(off.costComparisons.every(c => c === null))
+  assert.ok(off.costComparisons.every(c => object(c).version === 'context-size-v1'))
+  assert.equal(off.costComparisons.length, 2)
   assert.deepEqual(off.calls, (await run(false)).calls)
 })

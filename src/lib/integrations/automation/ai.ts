@@ -14,6 +14,7 @@ import { aiOutputBudget, modelResponseDiagnostics, type ModelResponseDiagnostics
 import { atomicNumericSchema, materializeNumericReview, ATOMIC_NUMERIC_RULES, ASSERTED_QUANTITY_RULES } from './atomic-numeric-review'
 import { FOCUSED_NUMERIC_COVERAGE_RULES } from './focused-numeric-coverage'
 import { aiRequestBody } from './ai-request-body'
+import { aiPromptCacheKey } from './ai-prompt-cache'
 
 const jsonReplySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
 export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}, toneOverride?: ToneSettings, task: ToneTask = 'data'): Promise<Row> {
@@ -52,7 +53,7 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   try {
     const result = object(await requestOpenAI('https://api.openai.com/v1/responses', { method: 'POST', redirect: 'error',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(aiRequestBody({ model, instructions, input, schema, maxOutputTokens: outputBudget,
+      body: JSON.stringify(aiRequestBody({ model, instructions, input, schema, promptCacheKey: aiPromptCacheKey({ model, instructions, schema }), maxOutputTokens: outputBudget,
         reasoningEffort, image, file })),
     }, {}, response => response.json(), { ...requestOptions, deadlineAt, policy,
       onDiagnostics: value => { transport = value } }))

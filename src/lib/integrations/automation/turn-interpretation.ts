@@ -8,7 +8,7 @@ import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES } from './turn-routing'
 import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
 import { promptSections } from './prompt-sections'
-import { CATALOG_REQUEST_SCHEMA, CATALOG_REQUEST_RULES, normalizeCatalogRequest } from './catalog-request'
+import { CATALOG_REQUEST_SCHEMA, CATALOG_REQUEST_RULES, catalogRequestStatus, normalizeCatalogRequest } from './catalog-request'
 import { FINANCING_IDENTITY_SCHEMA, FINANCING_IDENTITY_RULES } from './financing-identity'
 import { FINANCING_AMOUNTS_SCHEMA, FINANCING_AMOUNTS_RULES, financingAmounts } from './financing-amounts'
 import { compactFinancingExtraction, FINANCING_EXTRACTION_RULES } from './financing-prompt'
@@ -187,7 +187,9 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
   semantics.financing_amounts = Object.entries(financingAmounts({}, raw.financing_amounts, actionMessage))
     .map(([role, value]) => ({ role, ...object(value) }))
-  semantics.catalog_request = normalizeCatalogRequest(raw.catalog_request, actionMessage)
+  const catalogRequest = normalizeCatalogRequest(raw.catalog_request, actionMessage)
+  semantics.catalog_request = catalogRequest
+  semantics.catalog_request_status = catalogRequestStatus(raw.catalog_request, catalogRequest)
   extracted.household = semantics.household
   if (Object.hasOwn(object(raw.turn_semantics), 'housing_quantities')) {
     const quantities = Array.isArray(semantics.housing_quantities) ? semantics.housing_quantities.map(object) : []

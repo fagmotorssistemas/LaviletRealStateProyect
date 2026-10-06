@@ -1,18 +1,16 @@
 import type { Row } from './data'
-import { createHash } from 'node:crypto'
 
 export const AI_USER_PREFIX = 'Responda en JSON. Datos de entrada:\n'
 
 /** Shared by transport and diagnostic export; never includes HTTP credentials. */
 export function aiRequestBody(options: {
   model: string; instructions: string; input: unknown; schema?: Row;
-  maxOutputTokens?: number; reasoningEffort?: string; userPrefix?: string;
+  maxOutputTokens?: number; reasoningEffort?: string; userPrefix?: string; promptCacheKey?: string;
   image?: string; file?: { name: string; data: string };
 }) {
-  // Route identical instruction/schema prefixes together. No lead identifiers,
-  // persistent response storage, model changes or extended retention needed.
-  const cacheKey = createHash('sha256').update(JSON.stringify([options.model, options.instructions, options.schema])).digest('hex')
-  return { model: options.model, store: false, prompt_cache_key: `lavilet:${cacheKey.slice(0, 48)}`,
+  // The server supplies its cache route. Keep this shared constructor usable by
+  // the browser's diagnostic export without importing Node-only modules.
+  return { model: options.model, store: false, ...(options.promptCacheKey ? { prompt_cache_key: options.promptCacheKey } : {}),
     ...(options.maxOutputTokens !== undefined ? { max_output_tokens: options.maxOutputTokens } : {}),
     ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
     instructions: options.instructions,

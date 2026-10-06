@@ -5,6 +5,7 @@ import { aiRequestRole, type ReviewReasoningEffort } from './ai-model-routing'
 import type { ModelResponseDiagnostics } from './ai-output'
 import type { OpenAIRequestDiagnostics } from './openai-request'
 import { AI_USER_PREFIX } from './ai-request-body'
+import { aiPromptCacheKey } from './ai-prompt-cache'
 import { promptCostComparison } from './prompt-cost-comparison'
 import { object } from './data'
 
@@ -81,7 +82,8 @@ export function beginModelTrace(instructions: string, model: string, task: strin
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     prompt_snapshot: { capture_version: 2, instructions, user_prefix: AI_USER_PREFIX,
       data: JSON.parse(JSON.stringify(input ?? null)), response_schema: schema ? JSON.parse(JSON.stringify(schema)) : null,
-      request_parameters: { model, max_output_tokens: outputBudget, reasoning_effort: reasoningEffort || null } },
+      request_parameters: { model, max_output_tokens: outputBudget, reasoning_effort: reasoningEffort || null,
+        prompt_cache_key: aiPromptCacheKey({ model, instructions, schema }) } },
   })
   return { finish: (error?: unknown, usage?: Usage, result?: unknown, diagnostics?: ModelResponseDiagnostics, transport?: OpenAIRequestDiagnostics) => context.trace.finish(order, error ? 'failed' : 'succeeded', {
     model, prompt_revision: revision, task, result: error ? 'failed' : 'structured_result_received',
