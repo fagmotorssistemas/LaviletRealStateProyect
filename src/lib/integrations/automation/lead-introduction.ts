@@ -106,6 +106,7 @@ export function hasProfileAnswer(raw: unknown) {
   const profile = object(raw)
   return ['full_name', 'residence_city', 'residence_country'].some(key => text(profile[key]).trim())
     || Object.keys(object(profile.declared_location)).length > 0 || Object.keys(object(profile.residence_confirmation)).length > 0
+    || profile.residence_status === 'declined'
 }
 
 function nameAcknowledgement(profile: Row, prior: Row) {
@@ -118,19 +119,62 @@ function questionPurpose(missing: string[]) {
   return missing.length === 2 ? 'collect_profile' : missing[0] === 'full_name' ? 'collect_name' : 'collect_residence'
 }
 
+function profileQuestionId(purpose: unknown) {
+  return purpose === 'confirm_residence' ? 'lead_residence_confirmation'
+    : purpose === 'collect_profile' ? 'lead_profile' : purpose === 'collect_name' ? 'lead_profile_name'
+      : purpose === 'collect_residence' ? 'lead_profile_residence' : ''
+}
+
+/** Missing data is not permission to request it. This decision is shared by the
+ * writer, reviewer and delivered-question receipt, including deferred turns. */
+export function leadProfileCollectionDecision(planRaw: unknown, profileRaw: unknown = {}, previousRaw: unknown = {}): Row {
+  const plan = object(planRaw), profile = confirmedLeadProfile(profileRaw), previous = object(previousRaw)
+  const purpose = text(plan.question_purpose), id = profileQuestionId(purpose)
+  const missing = missingFields(profile)
+  const declined = plan.profile_declined === true || profile.residence_status === 'declined'
+    || previous.collection_status === 'declined' || previous.status === 'skipped'
+  const action = declined ? 'declined' : purpose === 'confirm_residence' ? 'confirm'
+    : id ? profileRequestWasSent(previous) ? 'remind' : 'capture' : missing.length ? 'defer' : 'complete'
+  const allowed = declined ? [] : id ? [id] : []
+  return { version: 'profile-collection-v1', action, question_purpose: purpose || 'none',
+    requires_question: allowed.length > 0, allowed_question_ids: allowed,
+    allowed_fields: allowed.length ? purpose === 'collect_profile' ? ['full_name', 'current_residence']
+      : purpose === 'collect_name' ? ['full_name'] : ['current_residence'] : [],
+    missing_fields: missing, reminder_limit: 1, reminders_sent: Number(previous.reminder_count) || 0,
+    reason: text(plan.collection_reason) || (declined ? 'profile_declined' : action === 'complete' ? 'profile_complete'
+      : action === 'capture' ? 'first_profile_request' : action === 'remind' ? 'partial_profile_answer'
+        : action === 'confirm' ? 'declared_location_confirmation' : 'continue_current_need') }
+}
+
+/** Validate the independently identified question, never vocabulary or a
+ * template. Formal financing collection has its own separate authorization. */
+export function leadProfileQuestionIssues(questionRaw: unknown, auditRaw: unknown): string[] {
+  const question = object(questionRaw), audit = object(auditRaw), plan = object(audit.profile_introduction)
+  const decision = object(audit.profile_collection_decision || plan.collection_decision)
+  if (decision.version !== 'profile-collection-v1') return []
+  const semantic = continuationMetadata(question), id = text(semantic.continuation_id)
+  const isProfile = id.startsWith('lead_') || question.purpose === 'collect_lead_profile'
+  if (!isProfile) return []
+  const allowed = Array.isArray(decision.allowed_question_ids) ? decision.allowed_question_ids : []
+  if (!allowed.length) return ['lead_profile_question_not_authorized']
+  return Object.hasOwn(question, 'continuation_id') && !allowed.includes(id)
+    ? ['lead_profile_question_mismatch'] : []
+}
+
 /** Persist the referent of the question actually sent, including paraphrases. */
 export function leadProfilePendingQuestion(reply: string, auditRaw: unknown): Row {
   const audit = object(auditRaw), plan = object(audit.profile_introduction)
   const purpose = text(plan.question_purpose)
   const review = object(audit.turn_completeness)
   if (Object.keys(review).length && !responseSupportsContinuity(review)) return {}
+  if (leadProfileQuestionIssues(review.question, audit).length) return {}
   const semanticQuestion = continuationMetadata(review.question)
   if (Object.keys(semanticQuestion).length && !text(semanticQuestion.continuation_id).startsWith('lead_')) return {}
   if (!purpose || purpose === 'none' || leadIntroductionIssues(reply, auditRaw).some(issue => /question|confirmation/.test(issue))) return {}
   const question = replyQuestions(reply).join(' ')
   if (!question) return {}
-  const id = purpose === 'confirm_residence' ? 'lead_residence_confirmation'
-    : purpose === 'collect_profile' ? 'lead_profile' : purpose === 'collect_name' ? 'lead_profile_name' : 'lead_profile_residence'
+  const id = profileQuestionId(purpose)
+  if (Object.keys(semanticQuestion).length && semanticQuestion.continuation_id !== id) return {}
   return { id, act: 'profile', question, ...(purpose === 'confirm_residence' ? { residence_candidate: object(plan.candidate) } : {}) }
 }
 
@@ -213,7 +257,7 @@ function commercialContinuation(input: LeadIntroductionInput, category: string, 
 export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const summary = object(input.summary), prior = object(summary._lead_introduction)
   const material = brochureDeliveryIntent(input.current, input.history, object(input.extracted), object(summary._pending_question))
-  const audit = { ...object(input.audit), brochure_intent: material }
+  const audit: Row = { ...object(input.audit), brochure_intent: material }
   const extracted = object(input.extracted), profile = knownProfile(input), missing = missingFields(profile)
   const unchanged = { reply: input.reply, state: prior, audit, applied: false, brochureDeferred: false }
   const currentProfile = object(extracted.lead_profile)
@@ -227,19 +271,25 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const suppliedCandidate = Boolean(object(currentProfile.residence_candidate).city || object(currentProfile.residence_candidate).country)
     && profile.residence_status === 'pending_confirmation'
   const asked = profileRequestWasSent(prior)
-  const declined = declinedProfile(input.current) || prior.collection_status === 'declined' || prior.status === 'skipped'
+  const declined = currentProfile.residence_status === 'declined' || profile.residence_status === 'declined'
+    || declinedProfile(input.current) || prior.collection_status === 'declined' || prior.status === 'skipped'
+  const deferredDecision = leadProfileCollectionDecision({ question_purpose: 'none', profile_declined: declined,
+    collection_reason: declined ? 'profile_declined' : !missing.length ? 'profile_complete'
+      : Number(prior.reminder_count || 0) >= 1 ? 'reminder_limit_reached' : 'continue_current_need' }, profile, prior)
+  unchanged.audit.profile_collection_decision = deferredDecision
   const resumed = !declined && (suppliedCandidate
     || suppliedProfile && missing.length > 0 && asked && Number(prior.reminder_count || 0) < 1)
   const acknowledgeOnly = () => {
     if (!acknowledgement || !text(currentProfile.full_name)) return unchanged
     return { ...unchanged, applied: true, reply: join(acknowledgement, input.reply),
-      audit: { ...audit, profile_introduction: { profile_state: profile, question_purpose: 'none', name_acknowledgement: acknowledgement } } }
+      audit: { ...audit, profile_introduction: { profile_state: profile, question_purpose: 'none',
+        collection_decision: deferredDecision, name_acknowledgement: acknowledgement } } }
   }
   if (prior.collection_status === 'declined' || prior.status === 'skipped') return acknowledgeOnly()
   if (prior.status === 'complete' && !resumed && !declinedProfile(input.current)
     && (asked || !missing.length && prior.brochure_sent === true)) return acknowledgeOnly()
   const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
-  if (protectedCurrentOperation(audit, extracted) && !onlyProfile) return acknowledgeOnly()
+  if (protectedCurrentOperation(audit, extracted)) return acknowledgeOnly()
   const url = input.brochureUrl || BROCHURE_URL
   const category = categoryFor(input), overview = generalInformation(input.current, audit)
   if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
@@ -267,12 +317,19 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
     state = { ...prior, version: 3, status: 'pending', reminder_count: 0, brochure_sent: prior.brochure_sent === true,
       category, continuation_reply: commercialContinuation(input, category, overview) }
   } else {
-    const continuation = text(prior.continuation_reply) || commercialContinuation(input, category, overview)
+    // A mixed profile/consultation answer may already advance the needs. Keep
+    // its current commercial question while the one profile reminder is asked;
+    // a prior generic presentation must not replace that newer continuation.
+    const continuation = !onlyProfile && lastQuestion(base) || text(prior.continuation_reply)
+      || commercialContinuation(input, category, overview)
     // Clarifying a supplied place is progress, not a second generic reminder.
     // Persist a separate limit so an evasive answer cannot cause an endless loop.
     const denial = object(currentProfile.residence_confirmation).decision === 'deny'
     const firstCapture = !asked && missing.length > 0 && !materialRequested
-    const remind = !declined && (confirm || firstCapture || onlyProfile && missing.length > 0 && (reminderCount < 1 || denial && prior.denial_followup_asked !== true))
+    const nameWithoutResidence = asked && !!text(currentProfile.full_name).trim()
+      && missing.length === 1 && missing[0] === 'residence'
+    const remind = !declined && (confirm || firstCapture || (onlyProfile || nameWithoutResidence) && missing.length > 0
+      && (reminderCount < 1 || denial && prior.denial_followup_asked !== true))
     if (remind) {
       if (confirm) { question = `Entiendo que es de ${candidatePlace}. ¿Es también su lugar de residencia actual?`; purpose = 'confirm_residence' }
       else { question = profileQuestion(missing, true); purpose = questionPurpose(missing); if (asked) reminderCount += 1 }
@@ -288,8 +345,15 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   state.collection_status = collectionStatus(profile, state, declined)
   state.missing_fields = missing
   const stage = question ? asked ? 'reminder' : 'request' : 'deliver'
+  const collectionDecision = leadProfileCollectionDecision({ question_purpose: purpose, profile_declined: declined,
+    collection_reason: purpose !== 'none' ? purpose === 'confirm_residence' ? 'declared_location_confirmation'
+      : asked ? 'partial_profile_answer' : 'first_profile_request' : declined ? 'profile_declined'
+        : !missing.length ? 'profile_complete' : Number(prior.reminder_count || 0) >= 1 ? 'reminder_limit_reached'
+          : suppliedProfile && !onlyProfile ? 'current_request_priority' : 'profile_request_ignored' }, profile, prior)
+  state.collection_decision = collectionDecision.action
   return { reply: result, state, applied: true, brochureDeferred,
-    audit: { ...audit, brochure_sent: deliverBrochure || prior.brochure_sent === true, profile_introduction: { stage, question, brochure_deferred: brochureDeferred,
+    audit: { ...audit, profile_collection_decision: collectionDecision, brochure_sent: deliverBrochure || prior.brochure_sent === true, profile_introduction: { stage, question, brochure_deferred: brochureDeferred,
+      collection_decision: collectionDecision,
       brochure_required: deliverBrochure, brochure_url: url, generic_introduction: overview && !deliver,
       brochure_previously_sent: prior.brochure_sent === true,
       missing_fields: missing, reminder_count: reminderCount, residence_meaning: 'current_residence', profile_declined: declined,
@@ -302,7 +366,8 @@ export const LEAD_INTRODUCTION_RULES = `
 APERTURA Y PERFIL DEL LEAD
 - Esta secuencia es una regla comercial obligatoria y prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor elige cómo expresarlos y el revisor comprueba su significado en el mensaje real.
 - Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después formule una sola pregunta con question_purpose. Puede reformularla conservando los datos faltantes y el propósito de brochure más guía personalizada; no se exige copiar toda la frase. Solicite únicamente nombre y ciudad o país de residencia actual, nunca dirección domiciliaria, desde dónde escribe ni el lugar donde quiere comprar. Un intercambio anterior sobre otro tema no acredita que estos datos ya se hayan solicitado.
-- full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si missing_fields incluye full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden los datos pendientes, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla.
+- profile_collection_decision autoriza la captura del turno. capture solicita los datos iniciales; remind permite una sola pregunta por el dato faltante cuando responde parcialmente al perfil, también cuando aporta nombre y consulta precios u otro detalle: responda primero la consulta y después pida únicamente la residencia pendiente. No añada simultáneamente otra pregunta comercial. La identificación de necesidades continúa después, conservando categorías, dormitorios y preferencias ya definidos. Una consulta sin aportar datos de perfil no autoriza repetir la captura. confirm aclara el lugar declarado; defer, declined y complete prohíben solicitar o confirmar datos de presentación. Que missing_fields contenga un dato no autoriza pedirlo. Si tras el único recordatorio no entrega la residencia o la rechaza, continúe con las necesidades conocidas sin insistir. Una operación protegida de reserva, visita o financiamiento aceptado conserva su propia pregunta y no autoriza captura de residencia. Estos límites de presentación no sustituyen los requisitos de un trámite financiero expresamente aceptado.
+- full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si la decisión autoriza pedir full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden únicamente los datos autorizados, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla.
 - declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
 - Si name_acknowledgement tiene contenido, incluya «Mucho gusto, Nombre» usando ese nombre verificado, una sola vez. Es un reconocimiento del nombre recién declarado, no una cortesía opcional ni un saludo que deba suprimirse. No añada saludos adicionales.
 - Si generic_introduction=true, presente brevemente La Vilet y su ubicación, y solicite los datos pendientes. Puede describir de forma breve el sector donde se ubica con información verificada; por ejemplo, que Puertas del Sol es una zona residencial describe la ubicación, no los tipos de inmuebles en venta. Todavía no presente los tipos de inmuebles que ofrece el proyecto, ni describa su combinación o usos residenciales/comerciales. La restricción es de significado: sustituir suites, departamentos, penthouses o locales por expresiones como «unidades residenciales y espacios comerciales» sigue adelantando las opciones. Esa presentación corresponde a la continuación después de los datos. No añada una segunda pregunta comercial. Las recomendaciones generales de explicar el concepto o la comodidad del proyecto no autorizan adelantar esta etapa.
@@ -377,6 +442,8 @@ export function leadIntroductionRepairs(issues: string[], auditRaw: unknown): Ro
   const instructions: Record<string, string> = {
     lead_profile_categories_premature: 'Elimine la enumeración y cualquier presentación de tipos de inmuebles de esta apertura, también si usa sinónimos o describe sus usos. No basta con cambiar suites, departamentos, penthouses y locales por «unidades residenciales y espacios comerciales». Presente brevemente el proyecto y su ubicación; conserve la pregunta de los datos pendientes. La presentación de opciones corresponde al siguiente intercambio.',
     lead_profile_question_missing: 'Incluya la pregunta de perfil exigida por la etapa, solicitando solamente los datos pendientes y explicando el propósito de brochure y guía personalizada. Para confirm_residence confirme el lugar candidato, sin pedir otra ciudad desde cero.',
+    lead_profile_question_not_authorized: 'Retire la solicitud o confirmación de datos de presentación: su captura está pospuesta, rechazada o completa en profile_collection_decision. Conserve la respuesta a la consulta actual y continúe identificando las necesidades del lead según la decisión comercial vigente; no sustituya ese paso por nombre o residencia.',
+    lead_profile_question_mismatch: 'Conserve la pregunta de perfil autorizada en profile_collection_decision.allowed_question_ids y solicite únicamente allowed_fields. No cambie la residencia pendiente por el nombre ya confirmado, ni aclare el origen si corresponde confirmar la residencia del candidato.',
     lead_profile_name_acknowledgement_missing: 'Incluya el reconocimiento name_acknowledgement del nombre declarado, una sola vez.',
     lead_profile_unconfirmed_residence: 'No afirme como residencia el lugar de origen o estancia temporal. Confirme si el candidato es su residencia actual.',
     lead_profile_brochure_premature: 'Retire el enlace del brochure: su entrega está prevista para el siguiente intercambio.',

@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 import { commercialJourneyPlan } from './commercial-journey'
+import { budgetKindQuestion } from './budget-state'
 
 type BudgetStatus = 'not_discussed' | 'unknown' | 'amount' | 'maximum_total' | 'initial_capital'
   | 'sufficient_for_selected_unit' | 'insufficient_for_selected_unit' | 'declines_to_disclose'
@@ -124,7 +125,8 @@ export function tourContinuation(info: Row, unit: Row = {}, current = ''): TourC
   if (budget.status === 'initial_capital' && budget.amount === null) {
     return answer('¿Con qué monto aproximado cuenta para la entrada?', 'initial_capital_amount_missing', 'budget_amount')
   }
-  if (budget.status === 'amount') return answer('¿Ese monto corresponde a su presupuesto total para la compra o al dinero disponible para la entrada?', 'budget_kind_missing', 'budget_kind')
+  const kindQuestion = budgetKindQuestion(budget)
+  if (kindQuestion) return answer(kindQuestion, 'budget_kind_missing', 'budget_kind')
   const detailQuestion = '¿Qué le gustaría revisar con más detalle de esta opción?'
   if (budget.status === 'declines_to_disclose') return answer(detailQuestion, 'budget_declined')
   if (budget.status === 'unknown') return answer(detailQuestion, 'budget_deferred')

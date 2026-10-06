@@ -4,7 +4,8 @@ import { commercialJourneyPlan, interpretCommercialJourney, journeyPendingQuesti
 import { financingStage } from './financing-stage'
 import { financingInputs } from './financing'
 import { financingPrerequisiteReply } from './property-selection'
-import { leadBudget } from './budget-state'
+import { leadBudget, budgetKindQuestion } from './budget-state'
+import { tourContinuation } from './tour-continuation'
 import { turnBudgetAssessment } from './turn-budget'
 import { normalizeTurnSemantics, normalizedPendingQuestion } from './turn-semantics'
 import { reservationRequest } from './reservation-action'
@@ -13,7 +14,7 @@ import { object, type Row } from './data'
 
 const unit = { id: 'u502', unit_number: '502', category: 'departamento', bedrooms: 3, status: 'disponible', is_published: true, published_commercial_price: 310000 }
 const profile = { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed', sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Carlos' }, residence_city: { source: 'lead_declaration', evidence: 'Vivo en Cuenca' } } }
-const money = (amount: number): Row => ({ status: 'amount', amount, confidence: 'high', evidence: `Tengo ${amount}` })
+const money = (amount: number): Row => ({ status: 'maximum_total', amount, confidence: 'high', evidence: `Mi presupuesto total para la compra es ${amount}` })
 function info(budget: Row = money(350000), selected = true): Row {
   return { lead: { purchase_purpose: 'vivir', preferred_bedrooms: 3 }, perfil_lead: profile,
     catalogo: [unit], catalog_read: { complete: true }, politica_comercial: { precios_autorizados: true },
@@ -267,4 +268,76 @@ test('financing continuation sends the same floor choice across compatible categ
   assert.equal(result.audit.status, 'checked')
   assert.deepEqual(object(object(result.audit.commercial_journey).selection_scope).categories, categories)
   assert.deepEqual(calls, ['writing', 'review'])
+})
+
+
+test('an unspecified monetary amount asks its meaning before financing or reservation, with or without a unit', () => {
+  for (const amount of [70000, 600000]) for (const selected of [false, true]) {
+    const data = info({ status: 'amount', amount, confidence: 'high', evidence: 'Cuento con ese dinero' }, selected)
+    const plan = commercialJourneyPlan(data), budget = leadBudget(data)
+    assert.equal(plan.action, 'clarify_budget_kind')
+    assert.equal(plan.question_id, 'budget_kind')
+    assert.equal(plan.question, budgetKindQuestion(budget))
+    assert.equal(plan.financing_offer_allowed, false)
+    assert.equal(plan.visit_offer_allowed, false)
+    assert.equal(purchaseReadiness(data).can_offer_reservation, false)
+    assert.equal(purchaseReadiness(data).coverage, 'unconfirmed')
+    assert.equal(tourContinuation(data, unit).question, plan.question)
+    const simpleTour = { ...data, recorrido_comercial: undefined, semantica_turno: { budget }, lead: { ...object(data.lead), budget: amount } }
+    assert.equal(tourContinuation(simpleTour, unit).question, plan.question)
+    assert.match(String(plan.question), /total.*entrada/)
+    assert.doesNotMatch(String(plan.question), /de cuánto|qué presupuesto/i)
+  }
+})
+
+test('a known total or initial capital never receives an additional meaning or amount question', () => {
+  for (const budget of [money(70000), money(600000), { status: 'initial_capital', amount: 70000, confidence: 'high', evidence: 'Dinero para la entrada' }]) {
+    const data = info(budget), plan = commercialJourneyPlan(data)
+    assert.equal(budgetKindQuestion(leadBudget(data)), '')
+    assert.notEqual(plan.question_id, 'budget_kind')
+    assert.notEqual(plan.question_id, 'budget_amount')
+    assert.equal(purchaseReadiness(data).can_offer_reservation, budget.status === 'maximum_total' && Number(budget.amount) >= 310000)
+  }
+})
+
+test('declined or deferred budget discovery does not ask the amount or meaning again', () => {
+  for (const status of ['declines_to_disclose', 'no_defined_budget']) {
+    const data = info({ status, confidence: 'high', evidence: 'No deseo indicar mi presupuesto' })
+    data.financiamiento = { partners: [], current: {}, journey: {} }
+    const plan = commercialJourneyPlan(data)
+    assert.notEqual(plan.question_id, 'budget_kind')
+    assert.notEqual(plan.question_id, 'budget_amount')
+    assert.equal(purchaseReadiness(data).can_offer_reservation, false)
+  }
+  const deferred = info({ status: 'amount', amount: 70000, confidence: 'high', evidence: 'Cuento con 70 mil' })
+  deferred.memoria_comercial = { deferred_fields: ['presupuesto'] }
+  assert.equal(commercialJourneyPlan(deferred).question, '')
+  assert.equal(commercialJourneyPlan(deferred).financing_offer_allowed, false)
+  deferred.semantica_turno = { budget: { status: 'amount', amount: 600000, confidence: 'high', evidence: 'Ahora cuento con 600 mil' } }
+  assert.equal(commercialJourneyPlan(deferred).question_id, 'budget_kind', 'A new explicit declaration may reopen the clarification')
+})
+
+test('an accepted financial operation is preserved and an ambiguous amount cannot authorize a cash reservation', () => {
+  const data = info({ status: 'amount', amount: 600000, confidence: 'high', evidence: 'Cuento con ese dinero' })
+  data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true }, current: { explicit_consent: true } }
+  assert.equal(commercialJourneyPlan(data).action, 'continue_financing')
+  assert.equal(purchaseReadiness(data).can_offer_reservation, false)
+  assert.equal(commercialJourneyPlan(data, { action: 'collecting', source: 'financing_handoff' }).action, 'current_operation')
+})
+
+
+test('a clarification preserves the actual prior category, floor or unit decision and its candidate scope', () => {
+  for (const [id, act] of [['property_category', 'choose_category'], ['property_floor', 'choose_floor'], ['unit_choice', 'choose_unit']]) {
+    const data = info(), question = '¿Cuál de las alternativas de la pregunta anterior prefiere?'
+    const pending = { id, act, question, candidate_ids: ['u502', 'u605'], target_ids: [] }
+    const plan = commercialJourneyPlan(data, { source: 'clarify_previous_choice', pending_question: pending })
+    assert.equal(plan.action, 'clarify_choice')
+    assert.equal(plan.question, question)
+    assert.equal(plan.question_id, id)
+    assert.equal(plan.question_act, act)
+    assert.deepEqual(object(plan.selection_scope).unit_ids, pending.candidate_ids)
+    assert.equal(plan.financing_offer_allowed, false)
+    assert.equal(plan.visit_offer_allowed, false)
+    assert.equal(journeyPendingQuestion(question, plan, true).act, act)
+  }
 })

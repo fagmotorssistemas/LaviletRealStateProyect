@@ -25,6 +25,24 @@ export function continuationMetadata(raw: unknown): Row {
 const same = (a: unknown, b: unknown) => text(a).replace(/\s+/g, ' ').trim().toLocaleLowerCase() === text(b).replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 const ids = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
 const collectionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation', 'financing_data'])
+/** Semantic metadata can identify a question without carrying its referent.
+ * Combine only receipts for that same emitted question and meaning; an empty
+ * semantic receipt must not hide the catalogue receipt's verified scope. */
+function matchingReceiptScope(candidates: Row[]): Row {
+  const result: Row = {}
+  for (const key of ['target_ids', 'candidate_ids'] as const) {
+    const values = candidates.map(candidate => ids(candidate[key])).filter(value => value.length)
+    if (!values.length) continue
+    const signatures = new Set(values.map(value => JSON.stringify([...value].sort())))
+    // Contradictory non-empty receipts cannot silently choose or widen a set.
+    result[key] = signatures.size === 1 ? values[0] : []
+  }
+  const queries = candidates.map(candidate => object(candidate.proposed_query)).filter(query => Object.keys(query).length)
+  if (queries.length) result.proposed_query = new Set(queries.map(query => JSON.stringify(query))).size === 1 ? queries[0] : {}
+  const residences = candidates.map(candidate => object(candidate.residence_candidate)).filter(candidate => Object.keys(candidate).length)
+  if (residences.length) result.residence_candidate = new Set(residences.map(candidate => JSON.stringify(candidate))).size === 1 ? residences[0] : null
+  return result
+}
 function purposeSupports(id: unknown, purpose: unknown) {
   if (!purpose) return true // Delivered legacy questions have no metadata sheet.
   if (text(id).startsWith('lead_')) return purpose === 'collect_lead_profile'
@@ -43,9 +61,13 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   const question = questions.join(' '), metadata = object(input.metadata), plan = object(input.plan)
   const semantic = continuationMetadata(metadata)
   if (Object.keys(semantic).length && metadata.text && !same(metadata.text, question)) return {}
-  const matchingQuestion = (input.candidates || []).find(candidate =>
+  const matchingQuestions = (input.candidates || []).filter(candidate =>
     (same(candidate.question, question) || questions.length > 1 && same(candidate.question, questions.at(-1)))
-    && purposeSupports(candidate.id, metadata.purpose)) || {}
+    && purposeSupports(candidate.id, metadata.purpose))
+    .map(candidate => normalizedPendingQuestion({ ...candidate, question }, catalog))
+    .filter(candidate => candidate.id)
+  const matchingQuestion = matchingQuestions.find(candidate => !Object.keys(semantic).length
+    || candidate.id === semantic.continuation_id && candidate.act === semantic.continuation_act) || {}
   // Several fields may share one required collection (legal name, document,
   // employment). Keep that collection, never infer consent to several actions.
   if (questions.length > 1 && !collectionIds.has(text(Object.keys(semantic).length
@@ -63,7 +85,7 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
       ? { ...matchingQuestion, question } : inferred)
   }
   if (!pending.id || !purposeSupports(pending.id, metadata.purpose)) return {}
-  const matching = matchingQuestion.id === pending.id && matchingQuestion.act === pending.act ? matchingQuestion : {}
+  const matching = matchingReceiptScope(matchingQuestions.filter(candidate => candidate.id === pending.id && candidate.act === pending.act))
   const planMatches = plan.question_id === pending.id && (!plan.question_act || plan.question_act === pending.act)
   const scope = object(plan.selection_scope)
   const scoped: Row = planMatches ? {
@@ -71,7 +93,7 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
     candidate_ids: ids(pending.act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
     ...(pending.act === 'explore_alternatives' && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),
   } : {}
-  return normalizedPendingQuestion({ ...matching, ...scoped, ...pending,
-    target_ids: matching.target_ids || scoped.target_ids || pending.target_ids,
-    candidate_ids: matching.candidate_ids || scoped.candidate_ids || pending.candidate_ids }, catalog)
+  return normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
+    target_ids: matching.target_ids ?? scoped.target_ids ?? pending.target_ids,
+    candidate_ids: matching.candidate_ids ?? scoped.candidate_ids ?? pending.candidate_ids }, catalog)
 }

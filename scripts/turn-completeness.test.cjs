@@ -154,7 +154,10 @@ test('writer and reviewer share the price objective while allowing natural prose
   const question = { text: PROFILE_INVITATION, purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia', next_decision: 'Compartir brochure y orientar la consulta' }
   const generate = model({ reply, requests: [covered(current)], question }, approved)
   const result = await completeTurnReply({ current, baseReply,
-    audit: { resolved_turn_intent: contract }, verified: { respuesta_precio_verificada: 'Desde $100.000 USD.' } }, generate.generate)
+    audit: { resolved_turn_intent: contract, profile_introduction: {
+      stage: 'request', question: PROFILE_INVITATION, question_purpose: 'collect_profile',
+      brochure_deferred: true, brochure_url: BROCHURE_URL, missing_fields: ['full_name', 'residence'],
+    } }, verified: { respuesta_precio_verificada: 'Desde $100.000 USD.' } }, generate.generate)
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.reply, reply)
   assert.equal(generate.calls.length, 2)
@@ -163,6 +166,49 @@ test('writer and reviewer share the price objective while allowing natural prose
     assert.match(call[0], /CONTRATO COMPARTIDO DEL TURNO/)
   }
   assert.deepEqual(result.audit.resolved_turn_intent, contract)
+})
+
+test('a price answer cannot revive an unauthorized profile question and a repair keeps the next needs question', async () => {
+  const current = '¿Y qué precios tienen?'
+  const contract = { version: 'turn-intent-v1', objective: 'ask_price', required_facts: ['price'] }
+  const price = 'Los precios parten de $100.000 USD.'
+  const next = '¿Busca una vivienda o un local para su negocio?'
+  // This turn supplies no new name. A residence reminder was already sent;
+  // its omission must not let the writer interrupt needs identification again.
+  const profile = { full_name: 'Carlos', sources: { full_name: { source: 'lead_declaration', evidence: 'Me llamo Carlos' } } }
+  const planned = leadIntroductionTurn({ current, reply: `${price} ${next}`, audit: { source: 'unit_price', resolved_turn_intent: contract },
+    summary: { _lead_profile: profile, _lead_introduction: { version: 3, status: 'pending', request_sent: true,
+      requested_fields: ['full_name', 'residence'], reminder_count: 1, acknowledged_name: 'Carlos', brochure_sent: true } },
+    extracted: { turn_semantics: { primary_intent: 'ask_price', primary_evidence: current, confidence: 'high' } } })
+  assert.equal(planned.audit.profile_collection_decision.action, 'defer')
+  assert.equal(planned.audit.profile_collection_decision.reason, 'reminder_limit_reached')
+  const input = { current, baseReply: planned.reply, audit: planned.audit,
+    verified: { respuesta_precio_verificada: 'Desde $100.000 USD.' } }
+  const residence = '¿En qué ciudad o país reside actualmente?'
+  const bad = { reply: `${price} ${residence}`, requests: [covered(current)],
+    question: { text: residence, purpose: 'collect_lead_profile', missing_datum: 'Residencia actual', next_decision: 'Completar el perfil' } }
+  const good = { reply: `${price} ${next}`, requests: [covered(current)],
+    question: { text: next, purpose: 'choose_property', missing_datum: 'Uso residencial o comercial', next_decision: 'Identificar las necesidades' } }
+  const repairedModel = model(bad, approved, good, approved)
+  const repaired = await completeTurnReply(input, repairedModel.generate)
+  assert.equal(repaired.audit.status, 'checked')
+  assert.equal(repaired.reply, good.reply)
+  assert.equal(repaired.needsAdvisor, false)
+  assert.equal(repaired.audit.repair_attempts.length, 1)
+  assert.ok(repaired.audit.repair_attempts[0].issues.some(issue => issue.code === 'lead_profile_question_not_authorized'))
+  assert.match(repaired.reply, /\$100\.000 USD/)
+  assert.ok(repaired.reply.includes(next))
+  assert.doesNotMatch(repaired.reply, /nombre|resid(?:e|encia)|brochure/i)
+  for (const call of repairedModel.calls) {
+    assert.deepEqual(call[1].contrato_turno, contract)
+    assert.equal(call[1].contrato_redaccion.estado_comercial.profile_collection_decision.action, 'defer')
+    assert.deepEqual(call[1].contrato_redaccion.estado_comercial.profile_collection_decision.allowed_fields, [])
+  }
+  const blocked = await completeTurnReply(input, model(bad, approved, bad, approved).generate)
+  assertPending(blocked, bad.reply)
+  assert.equal(blocked.needsAdvisor, false)
+  assert.ok(blocked.audit.issues.some(issue => typeof issue === 'string'
+    ? issue === 'lead_profile_question_not_authorized' : issue.code === 'lead_profile_question_not_authorized'))
 })
 
 test('a writer cannot replace a requested available price with a catalogue description', async () => {

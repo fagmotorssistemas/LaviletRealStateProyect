@@ -3,6 +3,7 @@ import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJ
 import { leadBudget } from './budget-state'
 import { currentTopicReply } from './current-topic'
 import { withHandoffNotice } from './handoff-copy'
+import { replyQuestionText } from './reply-question'
 import { requiresContentReview, unverifiedReply } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { loadResponseReviewPolicy } from './response-review-settings'
@@ -31,7 +32,7 @@ import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from '.
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
 import { visitDialogueTurn, visitDialogueBaseReply, visitDialoguePendingQuestion, visitDialogueIntakeSnapshot, reconcileVisitDialogueScope, rememberVisitDialogue } from './visit-dialogue'
-import { isProfileOnlyTurn, leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction } from './lead-introduction'
+import { isProfileOnlyTurn, leadIntroductionTurn, leadProfileCollectionDecision, leadProfilePendingQuestion, leadProfileQuestionIssues, rememberLeadIntroduction } from './lead-introduction'
 import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
@@ -872,7 +873,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       pendingCommercialHandoff = text(audit.handoff_reason) || 'resolver las consultas adicionales a la confirmación de visita'
       reply = completeTurnAnswer('', turnAnswerFacts(info, current, summary)).reply || 'Ese detalle necesita verificación del equipo.'
     }
-    if (!reply.trim()) throw new Error('EMPTY_VISIT_FOLLOWUP_REPLY')
+    // A deferred draft is completed by the shared final writer below, including
+    // residual questions after a visit action. Other empty replies remain errors.
+    if (!reply.trim() && audit.drafting_deferred_to_final_writer !== true) throw new Error('EMPTY_VISIT_FOLLOWUP_REPLY')
     return null
   }
 
@@ -932,7 +935,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply && reference.reason === 'unresolved_choice' && !operationalTurn && !inbound.mediaFailed
     && !businessScope.uncertain && businessScope.kind !== 'out_of_scope') {
     reply = 'Para continuar, ¿cuál de las alternativas de mi pregunta anterior prefiere?'
-    audit = { source: 'clarify_previous_choice', choice_clarification: object(reference).choice_clarification }
+    // Asking the client to clarify keeps the decision and proposal being
+    // clarified; generic prose alone cannot identify category, floor or unit.
+    const pending = normalizedPendingQuestion(object(reference.context).pending_question, turnCatalog)
+    audit = { source: 'clarify_previous_choice', choice_clarification: object(reference).choice_clarification,
+      ...(pending.id ? { pending_question: { ...pending, question: replyQuestionText(reply) } } : {}) }
   }
   if (!reply && answeringIntroduction && !operationalTurn && !inbound.mediaFailed && !businessScope.uncertain
     && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
@@ -1376,6 +1383,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (introduction.applied) trace.add('lead_introduction', 'Presentación y datos del lead', 'decision', 'lead-introduction.ts', 'succeeded', {}, introduction.audit)
     }
   }
+  // Protected operations skip introductory copy, but still need the same
+  // profile permission for writing, review and the delivered-question receipt.
+  if (!audit.profile_collection_decision) {
+    audit.profile_collection_decision = leadProfileCollectionDecision({ ...object(audit.profile_introduction),
+      collection_reason: 'continue_current_operation' }, summary._lead_profile, previousSummary._lead_introduction)
+  }
   // Action parsing uses only verified property fragments. Writing/review sees
   // the full mixed message and its boundary together, before any final send.
   const writingCurrent = [...new Set([
@@ -1558,6 +1571,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       link_contract: reviewed.audit.link_contract,
       operational_action_verified: reviewed.audit.operational_action_verified,
       profile_introduction: audit.profile_introduction,
+      profile_collection_decision: audit.profile_collection_decision,
       progressive_selection: audit.progressive_selection, post_tour_continuation: audit.post_tour_continuation,
       commercial_continuation: reviewed.audit.commercial_continuation,
       follow_up: reviewed.audit.follow_up, catalog_context_scope: reviewed.audit.catalog_context_scope,
@@ -1675,6 +1689,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     metadata: object(audit.turn_completeness).question, plan: audit.commercial_journey,
     candidates: [profilePending, financePending, journeyPending, progressivePending, replyPending],
   }, turnCatalog) : {}
+  if (text(object(audit.pending_question).id).startsWith('lead_')) {
+    const pending = object(audit.pending_question)
+    const issues = leadProfileQuestionIssues({ continuation_id: pending.id, continuation_act: pending.act,
+      purpose: 'collect_lead_profile' }, audit)
+    // With final review disabled the draft still passes, but it cannot create
+    // an unauthorized profile reminder in the durable conversation state.
+    if (issues.length) { audit.pending_question = {}; audit.profile_question_receipt_rejected = issues }
+  }
   if (recoveringTurn()) { audit.answered_topics = []; audit.coverage_complete = false }
   if (!reply.trim() || reply.length > MAX_REPLY_CHARACTERS) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {
@@ -1687,6 +1709,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     turn_completeness_checked: Boolean(audit.turn_completeness),
     coverage_status: text(object(audit.turn_completeness).status) || (plannedResponse.locked ? 'protected_operational_reply' : 'deterministic_reply'),
     follow_up_usable: canTrackFollowUp,
+    profile_question_receipt_rejected: audit.profile_question_receipt_rejected || [],
     catalog_guard: text(audit.final_catalog_guard) || (audit.verified_catalog === true ? 'passed' : 'not_applicable'),
   })
   const conversationId = text(inbound.registration.conversation_id)

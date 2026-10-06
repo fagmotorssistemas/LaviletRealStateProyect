@@ -18,6 +18,14 @@ export function leadBudget(info: Row): Row {
     : { status: 'not_discussed', amount: null, answered: false }
 }
 
+/** An amount alone does not establish whether it is the whole purchase budget
+ * or funds for the initial payment. Every planner asks the same next decision. */
+export function budgetKindQuestion(budget: Row): string {
+  return budget.status === 'amount' && Number(budget.amount) > 0
+    ? '¿Ese monto corresponde a su presupuesto total para la compra o al dinero disponible para la entrada?'
+    : ''
+}
+
 export function budgetQuestion(info: Row): string {
   return leadBudget(info).status === 'amount_pending'
     ? '¿De cuánto es el presupuesto que tiene previsto?'

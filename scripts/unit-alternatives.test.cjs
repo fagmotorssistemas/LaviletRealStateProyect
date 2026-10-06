@@ -4,7 +4,6 @@ const original=Module._load
 Module._load=function(id,parent,main){if(id==='server-only')return {};if(id.startsWith('@/'))id=path.resolve('src',id.slice(2));return original.call(this,id,parent,main)}
 require('./test-typescript.cjs')
 const {unitAlternative,UNIT_ALTERNATIVE_RULES}=require('../src/lib/integrations/automation/unit-alternatives.ts')
-const {DIRECT_CONVERSATION_RULE}=require('../src/lib/integrations/automation/direct-conversation-rule.ts')
 const unit=(id,rooms,area,price=300000,category='departamento')=>({id,unit_number:id,category,bedrooms:rooms,area_internal_m2:area,published_commercial_price:price,floor_number:Number(id[0]),spaces:['Balcones'],status:'disponible',is_published:true})
 const info={catalogo:[unit('202',3,120.83,250000),unit('602',3,142.09,550000,'penthouse'),unit('605',3,140.53,550000,'penthouse'),unit('201',2,100)]}
 test('unavailable bedrooms offer verified categories without choosing an expensive unit',()=>{
@@ -51,7 +50,6 @@ test('numeric floor and interior area alternatives do not treat a terrace as int
 })
 test('operational requests, refusals and additional physical constraints stay contextual',()=>{
   for(const message of ['Quiero agendar una cita para un departamento de 5 dormitorios','No quiero 5 dormitorios','Quiero un departamento de 5 dormitorios con jardín','Busco entre 2 y 3 dormitorios','Quiero financiar un departamento 202'])assert.equal(unitAlternative(info,message),null,message)
-  assert.ok(DIRECT_CONVERSATION_RULE.includes(UNIT_ALTERNATIVE_RULES))
   const knownBudget=unitAlternative({...info,historial:[{role:'cliente',content:'Mi presupuesto es de 300 mil dólares'}]},'Quiero 5 dormitorios')
   assert.equal(knownBudget.unit,null)
   assert.doesNotMatch(knownBudget.reply,/se ajusta a su presupuesto|dentro de su presupuesto|602|550/)
@@ -63,9 +61,15 @@ test('commercial and price paths use the same alternative without requiring a fi
   const context={...info,alcance_negocio:'property',historial:[],politica_comercial:{precios_autorizados:true}}
   const commercial=await commercialReply(context,'Quiero un departamento de 5 dormitorios',{},async()=>{})
   assert.equal(commercial.audit.source,'catalog_search')
-  assert.match(commercial.reply,/no contamos con (?:departamentos|viviendas) disponibles de 5 dormitorios/)
+  assert.match(commercial.reply,/no contamos con (?:departamentos|viviendas|inmuebles) disponibles de 5 dormitorios/)
   assert.match(commercial.reply,/alternativas.*departamentos de 3 dormitorios.*penthouses/is)
   assert.equal(commercial.audit.catalog_query.filters.bedrooms,5)
+  assert.deepEqual(commercial.audit.catalog_results.unit_ids,[])
+  assert.equal(commercial.audit.catalog_results.complete,true)
+  assert.deepEqual(commercial.audit.alternative_results.unit_ids,['202','602','605'])
+  assert.ok(commercial.audit.alternative_results.units.every(unit=>unit.bedrooms===3))
+  assert.equal(commercial.audit.pending_question.act,'explore_alternatives')
+  assert.equal(commercial.audit.pending_question.proposed_query.filters.bedrooms,3)
   assert.deepEqual(commercial.audit.selected_unit_ids,[])
   assert.doesNotMatch(commercial.reply,/penthouse 602|presupuesto aproximado/)
   const price=unitPriceQuote(context,'Cuánto cuesta un departamento de 5 dormitorios?',{})
@@ -73,6 +77,34 @@ test('commercial and price paths use the same alternative without requiring a fi
   assert.match(price.reply,/comparemos ambas alternativas/)
   assert.equal(price.quoted,false)
   assert.doesNotMatch(price.reply,/\$/)
+})
+
+test('the assembled writer receives alternative restrictions without loading them into the global style',async()=>{
+  const {commercialReply}=require('../src/lib/integrations/automation/sdr.ts')
+  const {completeTurnReply}=require('../src/lib/integrations/automation/turn-completeness.ts')
+  const {withResponseReviewPolicy}=require('../src/lib/integrations/automation/response-review-policy.ts')
+  const {responseReviewSettings}=require('../src/lib/inmobiliaria/responseReview.ts')
+  const current='Quiero un departamento de 5 dormitorios'
+  const verified={...info,catalogo_verificacion:info.catalogo,lead:{purchase_purpose:'vivir'},
+    alcance_negocio:'property',historial:[],politica_comercial:{precios_autorizados:true}}
+  const base=await commercialReply(verified,current,{},async()=>{})
+  let calls=0
+  const result=await withResponseReviewPolicy(responseReviewSettings({response_review:{enabled:false}}),
+    ()=>completeTurnReply({current,verified,baseReply:base.reply,audit:base.audit},async(rules)=>{
+      calls++
+      // Alternative restrictions moved from the global style to applicable turn
+      // sections. Check the actual request sent to the writer, not that former
+      // implementation detail, while keeping the customer acceptance question.
+      assert.ok(String(rules).includes(UNIT_ALTERNATIVE_RULES.trim()))
+      return {reply:base.reply,
+        requests:[{fragment:'R1',intent:'select_property',request_type:'general_information',status:'answered',evidence:base.reply}],
+        question:{purpose:'permission_to_continue',role:'optional_continuation',missing_datum:'',
+          next_decision:'Explorar alternativas',continuation_id:'property_requirements',continuation_act:'explore_alternatives'}}
+    }))
+  assert.equal(calls,1)
+  assert.equal(result.needsAdvisor,false)
+  assert.equal(result.reply,base.reply)
+  assert.doesNotMatch(result.reply,/presupuesto|financiamiento|tour\?/i)
 })
 
 test('a category declaration cannot suppress bedroom requirements or physical constraints',async()=>{
@@ -89,7 +121,9 @@ test('a category declaration cannot suppress bedroom requirements or physical co
       if(current.includes('cuatro')) {
         const commercial=await commercialReply(context,current,{},async()=>({}))
         assert.equal(commercial.audit.source,'catalog_search')
-        assert.match(commercial.reply,/no contamos con (?:departamentos|viviendas) disponibles de 4 dormitorios/)
+        assert.match(commercial.reply,/no contamos con (?:departamentos|viviendas|inmuebles) disponibles de 4 dormitorios/)
+        assert.equal(commercial.audit.catalog_query.filters.bedrooms,4)
+        assert.deepEqual(commercial.audit.selected_unit_ids,[])
       }
     }
   }

@@ -213,6 +213,7 @@ test('HTTP failure diagnostics distinguish billing, server errors and response b
 function recoveryHarness(options = {}) {
   const data = require('../src/lib/integrations/automation/data.ts'), calls = []
   const lead = { ...data.scope, id: 'lead', kommo_id: 3577404, bot_enabled: !options.paused, tracking_opt_out_at: options.optedOut ? 'yes' : null }
+  const conversation = { lead_id: lead.id, summary: structuredClone(options.summary || {}) }
   let stopped = !!options.paused
   function from(table) {
     const filters = {}, q = { select() { return q }, eq(k, v) { filters[k] = v; return q }, match() { return q }, gt() { return q }, in() { return q }, is() { return q },
@@ -227,10 +228,10 @@ function recoveryHarness(options = {}) {
   const recovery = load('src/lib/integrations/automation/generation-recovery.ts', {
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live', testLeadId: null }) },
     './data': { ...data, db: () => ({ from }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false }),
-      one: async table => table === 'leads' ? { ...lead } : { lead_id: lead.id },
+      one: async table => table === 'leads' ? { ...lead } : structuredClone(conversation),
       rpc: async (name, args) => {
         calls.push({ name, args })
-        if (name === 'register_inbound_message') return { lead_id: lead.id, conversation_id: 'conv', is_duplicate: true }
+        if (name === 'register_inbound_message') return { lead_id: lead.id, conversation_id: 'conv', is_duplicate: options.newInbound !== true }
         if (name === 'handoff_lead') { if (options.handoffFails) throw Error('HANDOFF_FAILED'); lead.handoff_status = 'queued' }
         if (name === 'register_outbound_message' && options.registrationFails) throw Error('OUTBOUND_LOG_FAILED')
         return {}
@@ -241,8 +242,11 @@ function recoveryHarness(options = {}) {
       launchSalesbot: async (...args) => { calls.push({ name: 'send', args }); if (options.launchFails) throw Error('KOMMO_UNAVAILABLE') } },
     './ctwa-lead-store': { preserveCtwaForContact: async () => {} },
   })
-  const rows = [{ payload: { externalId: 'source-message', kommoId: 3577404, contactId: 8105914, text: options.message || 'Tiene una distribución preliminar?', sentAt: new Date(Date.now() - (options.expired ? 25 * 3600000 : 1000)).toISOString(), media: null } }]
-  return { ...recovery, calls, run: () => recovery.recoverGenerationFailure(rows, async () => {}, options.reason || 'OPENAI_HTTP_503') }
+  const texts = options.messages || [options.message || 'Tiene una distribución preliminar?']
+  const rows = texts.map((text, index) => ({ payload: { externalId: texts.length === 1 ? 'source-message' : 'source-message-' + index,
+    kommoId: 3577404, contactId: 8105914, text,
+    sentAt: new Date(Date.now() - (options.expired ? 25 * 3600000 : 1000) + index).toISOString(), media: null } }))
+  return { ...recovery, calls, conversation, lead, run: () => recovery.recoverGenerationFailure(rows, async () => {}, options.reason || 'OPENAI_HTTP_503') }
 }
 
 test('exhausted review creates an actual handoff before the notice and preserves the distinct incident reason', async () => {
@@ -294,4 +298,44 @@ test('failed queueing cannot promise handoff and uncertain notices are never aut
     await assert.rejects(h.run, e => e.deliveryUncertain === uncertain)
     assert.equal(h.calls.filter(c => c.name === 'send').length, uncertain ? 1 : 0)
   }
+})
+
+for (const reason of ['RESPONSE_REVIEW_EXHAUSTED', 'OPENAI_HTTP_503']) {
+  test(`recovery preserves every client message and prior needs without recording an undelivered proposal (${reason})`, async () => {
+    const messages = ['Me llamo Carlos', 'Busco vivienda para mi familia de cinco personas',
+      'Mi presupuesto aproximado es 400 mil', 'Me interesa el departamento 504']
+    const summary = { _lead_introduction: { request_sent: true, reminder_count: 1, brochure_sent: false },
+      _pending_question: { id: 'property_selection', act: 'choose_unit', question: '¿Cuál desea conocer?' },
+      _property_context: { offered_ids: ['u502', 'u504'], query: { category: 'departamento', filters: { bedrooms: 3 } } } }
+    const h = recoveryHarness({ reason, messages, summary, newInbound: true })
+    const result = await h.run()
+    assert.equal(result.delivery_status, 'accepted')
+    const registered = h.calls.filter(call => call.name === 'register_inbound_message')
+    assert.deepEqual(registered.map(call => call.args.p_content), messages)
+    assert.deepEqual(registered.map(call => call.args.p_external_message_id), messages.map((_, index) => 'source-message-' + index))
+    assert.equal(h.calls.filter(call => call.name === 'update:messages').length, messages.length)
+    assert.ok(registered.every(call => h.calls.indexOf(call) < h.calls.findIndex(row => row.name === 'handoff_lead')))
+    const handoff = h.calls.find(call => call.name === 'handoff_lead').args.p_reason
+    for (const message of messages) assert.ok(handoff.includes(message))
+    assert.deepEqual(h.conversation.summary, summary)
+    assert.equal(h.calls.some(call => call.name === 'update:conversations'), false)
+    assert.equal(h.lead.bot_enabled, true)
+    const sent = h.calls.filter(call => call.name === 'register_outbound_message')
+    assert.equal(sent.length, 1)
+    assert.equal(sent[0].args.p_tool_calls.source_message_id, 'source-message-3')
+    assert.doesNotMatch(sent[0].args.p_content, /brochure|504|confirmad|reside|dormitorios/i)
+    assert.equal(h.calls.some(call => /process_financing|request_reservation|visit_intake/.test(call.name)), false)
+  })
+}
+
+test('a superseded recovery still preserves the inbound batch without sending or replacing pending needs', async () => {
+  const messages = ['Prefiero no dar mi residencia', 'Quiero conocer departamentos de tres dormitorios']
+  const summary = { _lead_introduction: { request_sent: true, reminder_count: 1, collection_status: 'deferred' },
+    _pending_question: { id: 'property_bedrooms', act: 'choose_bedrooms', question: '¿Cuántos dormitorios necesita?' } }
+  const h = recoveryHarness({ reason: 'RESPONSE_REVIEW_EXHAUSTED', newer: true, messages, summary })
+  const result = await h.run()
+  assert.equal(result.action, 'superseded_or_paused')
+  assert.deepEqual(h.calls.filter(call => call.name === 'register_inbound_message').map(call => call.args.p_content), messages)
+  assert.deepEqual(h.conversation.summary, summary)
+  assert.equal(h.calls.some(call => ['send', 'handoff_lead', 'update:conversations'].includes(call.name)), false)
 })

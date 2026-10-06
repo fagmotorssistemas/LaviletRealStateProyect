@@ -29,7 +29,7 @@ import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writin
 import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
 import { OPERATIONAL_REVIEW_RULES } from './operational-review'
 import { finalWriterContract, FINAL_WRITER_RULES, CATALOG_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues, includeRequiredBrochure, reservationOperationalIssues } from './response-plan'
-import { leadIntroductionIssues, leadIntroductionRepairs, leadIntroductionReviewIssues, leadIntroductionReviewSchema, LEAD_INTRODUCTION_RULES, LEAD_INTRODUCTION_REVIEW_RULES } from './lead-introduction'
+import { leadIntroductionIssues, leadIntroductionRepairs, leadIntroductionReviewIssues, leadIntroductionReviewSchema, leadProfileQuestionIssues, LEAD_INTRODUCTION_RULES, LEAD_INTRODUCTION_REVIEW_RULES } from './lead-introduction'
 import { confirmedLeadProfile } from './lead-profile'
 import { canRecoverAbsence, verifiedAbsenceReply } from './catalog-absence'
 import { BUSINESS_POLICY_RULES } from '@/lib/inmobiliaria/businessPolicies'
@@ -434,6 +434,17 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const opening = { ...decidedOpening(input.baseReply, input.history),
     policy: informationOpeningRequired ? 'first_information_request' : 'editorial_suggestion', applied: false }
   const writerContract = finalWriterContract(input.baseReply, input.audit, input)
+  const profileQuestionAudit = { ...input.audit,
+    profile_collection_decision: object(writerContract.estado_comercial).profile_collection_decision }
+  const profileQuestionContentIssues = (actualQuestion: unknown): Row[] => leadProfileQuestionIssues(actualQuestion, profileQuestionAudit)
+    .map(code => ({ code, kind: 'commercial_content', owner: 'system', repair_owner: 'writer',
+      field: 'profile_collection_decision',
+      reason: code === 'lead_profile_question_not_authorized'
+        ? 'La pregunta solicita datos de presentación cuya captura no está autorizada en este turno.'
+        : 'La pregunta de presentación solicita un dato distinto del autorizado para este turno.',
+      instruction: code === 'lead_profile_question_not_authorized'
+        ? 'Retire la pregunta de nombre o residencia. Conserve la respuesta actual y retome la decisión comercial y las necesidades vigentes, sin insistir en datos de presentación pospuestos o rechazados.'
+        : 'Solicite únicamente los datos autorizados en profile_collection_decision.allowed_fields y conserve el propósito de allowed_question_ids, sin repetir datos confirmados.' }))
   const turnObligations = reviewObligations(input.audit || {}, input.verified, writerContract)
   const writerRequestRefs = requestReferences(input.current,
     (Array.isArray(turnIntent.requests) ? turnIntent.requests : []).map(raw => ({ fragment: text(object(raw).evidence) || text(object(raw).request) })))
@@ -733,17 +744,21 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           issues: repairableChecks, original_review: originalReview, repaired_review: rawReview,
           proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) })
       }
-      const numericFindings = factFindings(factChecks)
-      const riskFindings = [...riskDecision.findings, ...numericFindings]
-      const approved = riskDecision.approved && numericFindings.length === 0
-      const riskIssues = riskFindings.map(finding => ({ code: text(finding.category),
-        kind: 'commercial_content', statement: text(finding.statement),
-        reason: [text(finding.reason), text(finding.authoritative_fact) && `Dato o regla autorizada: ${text(finding.authoritative_fact)}`].filter(Boolean).join(' '),
-        authoritative_fact: text(finding.authoritative_fact), owner: numericFindings.includes(finding) ? 'system' : 'reviewer', repair_owner: 'writer' }))
       const questionErrors: string[] = []
       const reviewedQuestion = rawReview.question ? questionRow(rawReview.question, reply, questionErrors) : null
       if (reviewedQuestion && !questionErrors.length) question = reviewedQuestion
       proposedQuestion = question
+      const numericFindings = factFindings(factChecks)
+      const profileIssues = profileQuestionContentIssues(question)
+      const riskFindings = [...riskDecision.findings, ...numericFindings,
+        ...profileIssues.map(issue => ({ category: issue.code, statement: question.text,
+          reason: issue.reason, authoritative_fact: JSON.stringify(profileQuestionAudit.profile_collection_decision) }))]
+      const approved = riskDecision.approved && numericFindings.length === 0 && profileIssues.length === 0
+      const riskIssues: Row[] = [...riskDecision.findings, ...numericFindings].map(finding => ({ code: text(finding.category),
+        kind: 'commercial_content', statement: text(finding.statement),
+        reason: [text(finding.reason), text(finding.authoritative_fact) && `Dato o regla autorizada: ${text(finding.authoritative_fact)}`].filter(Boolean).join(' '),
+        authoritative_fact: text(finding.authoritative_fact), owner: numericFindings.includes(finding) ? 'system' : 'reviewer', repair_owner: 'writer' }))
+      riskIssues.push(...profileIssues)
       const usableQuestion = !question.text || (!!question.purpose && question.purpose !== 'none' && question.role !== 'none')
       const offeredAction = text(object(rawReview.question).offered_action)
       semanticReview = { status: riskDecision.valid ? approved ? 'checked' : 'rejected' : 'invalid_review',
@@ -765,7 +780,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
             rejected_review: rawReview, proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) })
           continue
         }
-        return fallback('rejected_review', requests, riskIssues.map(issue => issue.code))
+        return fallback('rejected_review', requests, riskIssues.map(issue => text(issue.code)))
       }
     } else if (reviewRequired) {
       const sentenceReferences = replyReferences(reply)
@@ -845,10 +860,12 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         const openingIssues = focused ? [] : leadIntroductionReviewIssues(review, input.audit, sentenceReferences)
         if (openingIssues.some(issue => issue.kind === 'commercial_content')) decision.checks.operational_goal_preserved = false
         const reviewedQuestion = reviewQuestion(review, reply, question, input.audit || {}, requestRefs)
+        const profileIssues = profileQuestionContentIssues(reviewedQuestion.question)
+        if (profileIssues.length) decision.checks.operational_goal_preserved = false
         const missingIssues = !Array.isArray(review.missing_fact_fragments)
           || review.missing_fact_fragments.some(fragment => typeof fragment !== 'string' || !literal(fragment, input.current))
           ? [{ code: 'invalid_missing_fact_reference', kind: 'review_metadata' }] : []
-        const allIssues: Row[] = [...factIssues, ...checked.issues, ...decision.issues, ...missingIssues, ...reviewedQuestion.issues, ...openingIssues]
+        const allIssues: Row[] = [...factIssues, ...checked.issues, ...decision.issues, ...missingIssues, ...reviewedQuestion.issues, ...openingIssues, ...profileIssues]
         const disposition = reviewDisposition(focused ? allIssues.map(issue => ({ ...issue,
           owner: issue.owner || (['claim_unsupported', 'claim_contradicted'].includes(text(issue.code)) ? 'reviewer' : 'system'),
           repair_owner: issue.repair_owner || (issue.kind === 'review_metadata' ? 'reviewer' : 'writer'),

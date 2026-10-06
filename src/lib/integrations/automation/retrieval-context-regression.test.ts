@@ -128,6 +128,8 @@ test('compound and pending requests preserve their policy and amenity facts when
 
 test('a detailed category request has one commercial plan and omits unrelated affordable alternatives and duplicate aggregates', async () => {
   let input = info()
+  object(input.semantica_turno).budget = { status: 'maximum_total', amount: 460000, confidence: 'high',
+    evidence: 'Mi presupuesto total para la compra es de 460000' }
   const retrieval = await retrieveCatalogByEmbeddings(input, 'Detalles de penthouses', never)
   const answer = catalogDialogueReply({ ...input, catalogo: retrieval.units }, 'Detalles de penthouses')!
   const audit = { ...answer.audit, catalog_retrieval: retrieval.audit, catalog_summary: retrieval.audit.catalog_summary,

@@ -1,11 +1,17 @@
 import { object, text, type Row } from './data'
+import { normalized } from './sdr-rules'
+
+/** Acknowledgement alone cannot identify which property the client chooses. */
+export function isBareAffirmative(current: string): boolean {
+  return /^(?:si(?: claro| por favor| esta bien| me parece bien)?|claro(?: que si)?|de acuerdo|esta bien|me parece bien|perfecto|por supuesto|revisemos|veamos)(?: gracias)?$/.test(normalized(current))
+}
 
 /** A yes accepts continuing, but cannot choose between the alternatives in a
  * delivered question. This guard never turns an acknowledgement into an action. */
 export function unresolvedChoice(current: string, pending: Row): Row | null {
   if (!['unit_choice', 'property_category', 'property_floor', 'property_bedrooms', 'property_area'].includes(text(pending.id))) return null
   const answer = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[.!¡,¿?]/g, '').trim()
-  const yes = /^(?:si(?: claro| por favor| esta bien)?|claro(?: que si)?|de acuerdo|esta bien|perfecto|por supuesto)(?: gracias)?$/.test(answer)
+  const yes = isBareAffirmative(current)
   const unspecifiedUnit = /^(?:si )?(?:hay|tengo) una (?:unidad|opcion) (?:que me interesa|que quisiera|que quiero)(?: revisar| ver| conocer)?(?: primero)?$/.test(answer)
   const alternatives = /\s(?:o|u)\s/i.test(text(pending.question))
   const multiple = Array.isArray(pending.candidate_ids) && pending.candidate_ids.length > 1

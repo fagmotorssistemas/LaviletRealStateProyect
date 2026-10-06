@@ -1,5 +1,5 @@
 import { object, text, type Row } from './data'
-import { unresolvedChoice } from './conversation-next-step'
+import { isBareAffirmative, unresolvedChoice } from './conversation-next-step'
 import { normalized } from './sdr-rules'
 import { informationSubject } from './information-context'
 import { bedroomOptionsFromText } from './bedroom-options'
@@ -614,6 +614,38 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     if (targetIds.length) return { ...result(options, options.length !== targetIds.length ? 'question_target_unavailable' : 'question_requires_choice', false, true),
       clarification: options.length !== targetIds.length ? 'La opción sobre la que conversábamos ya no aparece disponible. ¿Le gustaría revisar las alternativas actuales?'
         : result(options, 'question_requires_choice', false, true).clarification }
+  }
+  // A client may choose the unit just shown while the bot's next question asks
+  // about its intended use. That choice is a separate current speech act; a
+  // bare yes to purpose/financing must never supply the same authorization.
+  const choiceEvidence = normalized(text(semantic.evidence))
+  const previousAnswer = object(object(semantics).answer_to_previous)
+  const rejectedChoice = previousAnswer.kind === 'negative'
+    && normalized(text(previousAnswer.evidence)).includes(choiceEvidence)
+  const currentChoice = semanticOperation === 'select' && semantic.reference_kind === 'followup'
+    && object(semantics).primary_intent === 'select_property' && object(semantics).confidence === 'high'
+    && [semantic.evidence, object(semantics).primary_evidence].every(value => {
+      const evidence = normalized(text(value))
+      return !!evidence && m.includes(evidence)
+    })
+    && !isBareAffirmative(current) && !rejectedChoice
+  if (currentChoice) {
+    const offered = ids(context.offered_ids), focused = ids(context.focused_ids)
+    const requested = focused.length ? focused : offered
+    const availableOptions = fromIds(requested)
+    const options = filterCatalog(eligible(availableOptions), catalogQuery(query))
+    const focusIsCurrent = !focused.length || focused.every(id => offered.includes(id))
+    context.selected_ids = []
+    if (focusIsCurrent && requested.length === 1 && availableOptions.length === 1 && options.length === 1) {
+      context.selected_ids = unitIds(options); context.focused_ids = unitIds(options); context.comparison_ids = []
+      context.pending_question = {}; context.preference_transition = {}
+      query.operation = 'select'; query.scope = 'selected'; query.selector = null
+      return result(options, 'explicit_contextual_choice', true)
+    }
+    const unavailable = availableOptions.length !== requested.length
+    return { ...result(options, unavailable ? 'contextual_choice_unavailable'
+      : !focusIsCurrent || options.length !== requested.length ? 'contextual_choice_incompatible' : 'contextual_choice_requires_choice', false, true),
+      ...(unavailable ? { clarification: 'La opción sobre la que conversábamos ya no aparece disponible. ¿Le gustaría revisar las alternativas actuales?' } : {}) }
   }
   // Search/ranking returns facts, not a selected unit. Ties are valid answers.
   // Resolve filters before unit-code guards, so "5ta planta" never becomes unit 5.

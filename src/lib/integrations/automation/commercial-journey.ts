@@ -1,6 +1,6 @@
 import { object, text, type Row } from './data'
 import { selectedFinancingUnit } from './financing-stage'
-import { leadBudget, budgetQuestion, reviewedFinancingCovers } from './budget-state'
+import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers } from './budget-state'
 import { catalogQuery, filterCatalog, partitionCatalog, type CatalogQuery } from './catalog-dialogue'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { deliveredPendingQuestion } from './continuation-question'
@@ -86,7 +86,7 @@ export function purchaseReadiness(info: Row): Row {
   // Review results are operational facts supplied by staff, never LLM output.
   const reviewedCoverage = financingAccepted && reviewedFinancingCovers(info, unit)
   const cash = !!unit && priceKnown && budget.confidence === 'high'
-    && (['amount', 'maximum_total'].includes(text(budget.status)) && Number(budget.amount) >= price
+    && (budget.status === 'maximum_total' && Number(budget.amount) >= price
       || budget.status === 'sufficient_for_selected_unit' && budget.unit_id === unit.id)
   return { selected_unit_id: unit?.id || null, selected_unit_number: unit?.unit_number || null,
     budget, financing_accepted: financingAccepted, price: priceKnown ? price : null,
@@ -128,7 +128,15 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   }
   if (audit.profile_introduction && !['', 'none'].includes(text(object(audit.profile_introduction).question_purpose)))
     return plan('introduction', 'Responda y solicite los datos de presentación pendientes según profile_introduction. No añada otra pregunta comercial.')
-  if (audit.source === 'clarify_previous_choice') return plan('clarify_choice', 'Aclare cuál de las alternativas prefiere. Un sí ambiguo no elige una unidad ni autoriza trámites.')
+  if (audit.source === 'clarify_previous_choice') {
+    const pending = object(audit.pending_question)
+    return { ...plan('clarify_choice',
+      'Aclare cuál de las alternativas de la decisión anterior prefiere. Mantenga el mismo referente, ID y acto de la pregunta pendiente: categoría, planta o unidad. Un sí ambiguo no elige una unidad ni autoriza trámites.',
+      text(pending.question), text(pending.id)), question_act: text(pending.act) || 'other',
+      selection_scope: { unit_ids: ids(pending.candidate_ids) },
+      ...(Object.keys(object(pending.proposed_query)).length ? { proposed_query: pending.proposed_query,
+        alternative_unit_ids: ids(pending.candidate_ids) } : {}) }
+  }
   if (audit.action || audit.reservation || audit.financing_collection || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source)))
     return plan('current_operation', 'Conserve la gestión y la pregunta operativa actual. No añada una oferta de reserva, financiamiento ni visita.')
   if (object(info.financing_quote).orientation_only === true) return plan('financing_orientation',
@@ -192,13 +200,20 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   if (!selected && physicalRequirements && (['search', 'rank', 'none'].includes(selectionQuery.operation) || Object.keys(proposalInformation).length > 0)
     && !filterCatalog(planningCatalog, physicalQuery, scopedIds).some(unit => !excluded.has(text(unit.category)))) return clarifyRequirements()
 
+  const kindQuestion = budgetKindQuestion(budget)
+  const budgetDeferred = ids(object(info.memoria_comercial).deferred_fields).includes('presupuesto')
+    && budget.source !== 'current_lead_statement'
+  if (!accepted && kindQuestion && !budgetDeferred) return plan('clarify_budget_kind',
+    'El monto fue declarado, pero no su significado. Responda la consulta y aclare si es presupuesto total o dinero para la entrada. No vuelva a pedir la cifra, no compare su suficiencia con el precio ni ofrezca financiamiento o reserva antes de esa aclaración.',
+    kindQuestion, 'budget_kind')
+
   const requests = rows(info.solicitudes_interpretadas || object(info.contrato_turno).requests)
   const requestedFinance = requests.some(r => r.domain === 'financing') || object(info.semantica_turno).primary_intent === 'ask_financing'
   const partners = ids(finance.partners)
   const financeDeclined = object(finance.journey).status === 'declined'
   const assessment = object(info.presupuesto_del_turno)
   const insufficient = budget.status === 'insufficient_for_selected_unit' && (!budget.unit_id || budget.unit_id === selected)
-    || ['amount', 'maximum_total'].includes(text(budget.status)) && Number(budget.amount) > 0
+    || budget.status === 'maximum_total' && Number(budget.amount) > 0
       && (Number(readiness.price) > Number(budget.amount) || assessment.status === 'below_available_prices')
   const undefinedBudget = budget.status === 'no_defined_budget'
   if (!accepted && partners.length && (requestedFinance || !financeDeclined && (state.financing_offered !== true || object(object(info.semantica_turno).budget).status !== 'not_discussed' && !!object(object(info.semantica_turno).budget).evidence) && (insufficient || undefinedBudget))) {
