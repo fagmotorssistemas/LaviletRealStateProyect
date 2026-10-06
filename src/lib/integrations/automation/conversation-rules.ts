@@ -15,10 +15,11 @@ No convierta hoy/mañana ni un día de la semana en una fecha absoluta; el calen
 
 export const VISIT_INTENT_EXTRACTION_RULES = `
 Devuelva además "visit_intent" para interpretar semánticamente SOLO la intención de visita del mensaje actual:
-{"kind":"request_visit|accept_visit_preference|visit_status|none","evidence":"copia literal del fragmento del cliente","confidence":"high|medium|low"}.
-request_visit: el cliente pide agendar, coordinar o realizar una visita inmobiliaria, aunque tenga errores ortográficos o palabras separadas incorrectamente.
-accept_visit_preference: el cliente acepta inequívocamente la fecha u hora de visita que el bot acaba de proponer o repetir. Una respuesta breve como "sí" o "está bien" solo pertenece aquí cuando coordinacion_visita demuestra que existe una visita en curso.
-visit_status: pregunta si una solicitud o cita ya quedó registrada o confirmada. none: cualquier otra intención.
+{"kind":"request_visit|accept_visit_preference|visit_information|decline_visit|visit_status|none","purpose":"coordination|preference|accept_alternative|availability_information|access_information|decline|cancel|status|none","target":"project|other|unspecified","destination":"office|site|work_area|model|completed_unit|building|null","evidence":"copia literal del fragmento del cliente","confidence":"high|medium|low"}.
+request_visit: el cliente pide agendar, coordinar o realizar una visita inmobiliaria (purpose=coordination), o aporta una fecha/hora para la coordinación vigente (purpose=preference), aunque tenga errores ortográficos o palabras separadas incorrectamente. Preguntar días, horarios o cupos es visit_information con availability_information: NO solicita crear una cita ni acepta un lugar alternativo.
+accept_visit_preference: acepta inequívocamente una fecha/hora pendiente (preference) o el lugar alternativo ofrecido (accept_alternative). Una respuesta breve solo acepta la alternativa o propuesta concreta demostrada por dialogo_visita, pregunta_pendiente o coordinacion_visita; no acepta simultáneamente fechas, lugares ni opciones no elegidas.
+visit_information/access_information: pregunta qué puede visitar, por qué no está habilitado un lugar o cómo es la atención. decline_visit distingue decline (rechaza la visita o la alternativa) de cancel (pide cancelar una solicitud real). visit_status/status pregunta si una solicitud ya quedó registrada o confirmada. none/none: cualquier otra intención, incluidas consultas de seguridad, precios o financiamiento que no pidan visitas.
+target indica a qué negocio pertenece la cita según mensaje e historial: project cuando se refiere a este proyecto, other para otro servicio y unspecified si falta referente. destination conserva el lugar pedido o elegido en el mensaje actual: building para edificación sin un área específica; no lo cambie por office porque sólo la oficina esté habilitada. Si no menciona ni acepta un lugar, use null. Una consulta sobre horarios después de una oficina ofrecida no acepta esa oficina. Rechazar la edificación tampoco acepta la oficina.
 No confunda una fecha futura como "miércoles que viene" con una pregunta sobre si una persona va a venir. No convierta una cita médica, vuelo, hotel u otro servicio ajeno en una visita al proyecto.
 Use confidence=high solo cuando el fragmento literal permite una única interpretación. evidence debe ser una copia literal presente en mensaje_actual. No use el historial como evidencia de una intención nueva.`
 
@@ -52,13 +53,21 @@ export function normalizedVisitIntent(raw: unknown, message: string): Row | null
   const intent = object(raw)
   const kind = text(intent.kind)
   const evidence = text(intent.evidence).trim()
-  if (!['request_visit', 'accept_visit_preference', 'visit_status', 'none'].includes(kind)
+  if (!['request_visit', 'accept_visit_preference', 'visit_information', 'decline_visit', 'visit_status', 'none'].includes(kind)
     || intent.confidence !== 'high' || !evidence || evidence.length > 240) return null
   const normalizedEvidence = normalized(evidence)
   const normalizedMessage = normalized(message)
   if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
   if (kind === 'request_visit' && /\b(?:no|tampoco|ni)\s+(?:quiero|quisiera|deseo|puedo|podemos|me interesa|me gustaria)\b/.test(normalizedEvidence)) return null
-  return { kind, evidence, confidence: 'high' }
+  const purposes = ['coordination', 'preference', 'accept_alternative', 'availability_information', 'access_information', 'decline', 'cancel', 'status', 'none']
+  const purpose = purposes.includes(text(intent.purpose)) ? text(intent.purpose)
+    : kind === 'request_visit' ? 'coordination' : kind === 'accept_visit_preference' ? 'preference' : kind === 'visit_status' ? 'status' : 'none'
+  const compatiblePurposes: Record<string, string[]> = { request_visit: ['coordination'], accept_visit_preference: ['preference', 'accept_alternative'],
+    visit_information: ['availability_information', 'access_information'], decline_visit: ['decline', 'cancel'], visit_status: ['status'], none: ['none'] }
+  if (!compatiblePurposes[kind].includes(purpose)) return null
+  const target = ['project', 'other', 'unspecified'].includes(text(intent.target)) ? text(intent.target) : 'unspecified'
+  const destination = ['office', 'site', 'work_area', 'model', 'completed_unit', 'building'].includes(text(intent.destination)) ? text(intent.destination) : null
+  return { kind, purpose, target, destination, evidence, confidence: 'high' }
 }
 
 export function normalizeEvents(raw: unknown, message: string, awaitingDocument = false): Row {

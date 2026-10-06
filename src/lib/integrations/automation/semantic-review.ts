@@ -1,7 +1,9 @@
 import { object, text, type Row } from './data'
 import { decimalNumber, endpointBefore, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
+import { DISCOUNT_NUMBER_FIELDS, DISCOUNT_REFERENCE_RULES, discountReferenceEvidence } from './discount-evidence'
 
-const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number']
+const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number',
+  'discount_reference_price', 'discount_amount_reference', 'discounted_price_reference', 'discount_percent']
 
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const numberWords: Record<string, number> = {
@@ -92,12 +94,15 @@ function numericFieldContradictsText(fact: Row, fragment: string): boolean {
     if (/^\s*(?:dormitorios?|habitaciones?|cuartos?)\b/.test(after)) return 'bedrooms'
     if (/^\s*banos?\b/.test(after)) return 'bathrooms_full'
     if (/^\s*(?:planta|piso|nivel)\b/.test(after) || /\b(?:planta|piso|nivel)\s*$/.test(before)) return 'floor_number'
-    if (/(?:\$|\busd|\bdolares?)\s*$/.test(before) || /^\s*(?:usd|dolares?)\b/.test(after)) return 'published_commercial_price'
+    if (/^\s*(?:%|por ciento)(?![a-z])/.test(after)) return 'percentage'
+    if (/(?:\$|\busd|\bdolares?)\s*$/.test(before) || /^\s*(?:usd|dolares?)\b/.test(after)) return 'currency'
     if (/^\s*(?:m²|m2|metros? cuadrados?)(?![a-z0-9])/.test(after)) return 'area'
     return null
   })
   return dimensions.length > 0 && dimensions.every(dimension => dimension !== null
-    && dimension !== fact.field && !(dimension === 'area' && /^area_/.test(text(fact.field))))
+    && dimension !== fact.field && !(dimension === 'area' && /^area_/.test(text(fact.field)))
+    && !(dimension === 'currency' && ['published_commercial_price', ...DISCOUNT_NUMBER_FIELDS.filter(field => field !== 'discount_percent')].includes(text(fact.field)))
+    && !(dimension === 'percentage' && fact.field === 'discount_percent'))
 }
 
 function wrongReviewUnitBinding(fact: Row, fragment: string, unit: Row, catalog: Row[]): boolean {
@@ -141,6 +146,7 @@ En factual_values extraiga TODAS las relaciones explícitas entre una unidad y s
 
 export const NUMERIC_RELATION_RULES = 'En factual_values indique operator: eq para valores exactos, gt/gte/lt/lte para comparaciones y between para intervalos (upper_value es el extremo superior; null en los otros casos). Un rango desde X hasta Y se representa con between, value X y upper_value Y. Para rangos generales use un ID group:...:range del conjunto pertinente; sus campos contienen el minimo y upper_values contiene el maximo. Si hay grupos price_quote, son las unidades disponibles con precio publicado incluidas en la cotizacion verificada actual: use esos grupos para sus precios; no los extienda al inventario completo ni a otra categoria. Para un extremo aislado use group:...:min o :max. Use solamente IDs presentes en evidencia_turno; price y price_reference no son IDs. Represente el limite escrito, no lo sustituya por el valor del catalogo. Cada unidad nombrada en una comparacion colectiva necesita su propia relacion. El codigo comprobara el operador contra el fragmento y calculara la relacion con los datos verificados. No use una aprobacion narrativa para omitir relaciones numericas.'
   + '\nEl sistema obtiene cifras_del_borrador exclusivamente del texto actual y restringe el esquema a esos valores y sus oraciones. Si la lista está vacía, factual_values debe ser []. Los candidatos son menciones, no afirmaciones aprobadas: un número de unidad, una cantidad de familiares o una cifra ajena al inmueble no debe convertirse en área, precio o dormitorios. Incluya solo relaciones realmente expresadas y compárelas con el catálogo; nunca rellene la ficha con medidas del catálogo ausentes del texto. Un valor redondeado no coincide con el valor exacto del catálogo aunque el borrador diga «aproximadamente». Si una cifra correcta se atribuyó en su ficha a otra unidad, corrija la referencia interna; no cambie el texto ni invente respaldo.'
+  + '\n' + DISCOUNT_REFERENCE_RULES
 
 export function validateFactualValues(value: unknown, reply: string, catalog: unknown): boolean {
   return factualValueIssues(value, reply, catalog).length === 0
@@ -167,8 +173,17 @@ export function factualValueIssues(value: unknown, reply: string, catalog: unkno
     }
     if (numericFieldContradictsText(fact, fragment))
       return [{ ...detail, code: 'numeric_field_not_in_reply', kind: 'review_metadata' }]
+    const discountField = DISCOUNT_NUMBER_FIELDS.find(key => key === field)
+    if (discountField) {
+      const discount = discountReferenceEvidence(unit), expected = discount.values[discountField]
+      if (!discount.available || expected === undefined) return [{ ...detail, code: 'discount_reference_unavailable', kind: 'catalog_data' }]
+      const matches = (fact.operator || 'eq') === 'eq' ? expected === fact.value
+        : satisfiesNumeric(expected, fact.value as number, fact.operator, fact.upper_value)
+      if (!matches) return [{ ...detail, code: 'catalog_value_mismatch', kind: 'catalog_data', expected }]
+    }
     if (wrongReviewUnitBinding(fact, fragment, unit, units))
       return [{ ...detail, code: 'review_unit_binding_mismatch', kind: 'review_metadata' }]
+    if (discountField) return []
     if (unit.aggregation === 'range') {
       const upper = object(unit.upper_values)[field]
       if (fact.operator !== 'between') return [{ ...detail, code: 'range_reference_requires_interval', kind: 'review_metadata' }]
@@ -368,8 +383,9 @@ function assertedRepairValues(fact: Row, reply: string, reference: Row | undefin
   const associated = candidates.some(mention => {
     const before = value.slice(0, mention.index), after = value.slice(mention.end)
     if (/^\s*(?:personas|integrantes|miembros|anos)\b/.test(after)) return false
-    if (field === 'published_commercial_price') return /(?:\$|usd|dolares?)\s*$/.test(before)
+    if (field === 'published_commercial_price' || DISCOUNT_NUMBER_FIELDS.includes(field as typeof DISCOUNT_NUMBER_FIELDS[number]) && field !== 'discount_percent') return /(?:\$|usd|dolares?)\s*$/.test(before)
       || /^\s*(?:usd|dolares?)\b/.test(after) || /\b(?:precio|valor|cuesta|cuestan|costo)\b[^.!?;\d]{0,35}$/.test(before)
+    if (field === 'discount_percent') return /^\s*(?:%|por ciento)(?![a-z])/.test(after)
     const labels: Record<string, string> = { bedrooms: 'dormitorios?|habitaciones?|cuartos?', bathrooms_full: 'banos?',
       floor_number: 'planta|piso|nivel', area_internal_m2: 'm²|m2|metros? cuadrados?', area_exterior_m2: 'm²|m2|metros? cuadrados?' }
     const label = labels[field]

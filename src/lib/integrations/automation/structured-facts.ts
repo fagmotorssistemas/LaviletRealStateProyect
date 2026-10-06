@@ -1,8 +1,9 @@
 import { object, text, type Row } from './data'
 import { satisfiesNumeric } from './numeric-relations'
+import { DISCOUNT_NUMBER_FIELDS, DISCOUNT_FACT_UNITS, DISCOUNT_REFERENCE_RULES, discountReferenceEvidence } from './discount-evidence'
 
 export const factUnits: Record<string, string> = { bedrooms: 'count', bathrooms_full: 'count',
-  area_internal_m2: 'm2', area_exterior_m2: 'm2', published_commercial_price: 'USD', floor_number: 'floor' }
+  area_internal_m2: 'm2', area_exterior_m2: 'm2', published_commercial_price: 'USD', floor_number: 'floor', ...DISCOUNT_FACT_UNITS }
 
 /** A range may be cited for one of its exact endpoints by an older reviewer.
  * Resolve only the reference, within the identical set, never the value/prose. */
@@ -39,11 +40,14 @@ export function structuredFactIssues(input: unknown, catalog: Row[]): Row[] {
       expected: source?.[field] ?? null, expected_upper: object(source?.upper_values)[field] ?? null,
       subject_category: fact.subject_category ?? null, fragment: fact.fragment }]
     if (!source || !factUnits[field] || typeof fact.value !== 'number' || !Number.isFinite(fact.value)) return fail('invalid_unit_fact')
+    const discountField = DISCOUNT_NUMBER_FIELDS.find(key => key === field)
+    const discount = discountField ? discountReferenceEvidence(source) : null
+    if (discount && !discount.available) return fail('discount_reference_unavailable', 'catalog_data')
     if (fact.measurement_unit != null && fact.measurement_unit !== factUnits[field]) return fail('numeric_unit_mismatch')
     if (!['eq', 'gt', 'gte', 'lt', 'lte', 'between'].includes(text(fact.operator))) return fail('invalid_numeric_operator')
     if (fact.operator === 'between' ? typeof fact.upper_value !== 'number' || !Number.isFinite(fact.upper_value)
       || fact.upper_value < fact.value : fact.upper_value != null) return fail('invalid_numeric_bounds')
-    const expected = source[field]
+    const expected = discountField ? discount!.values[discountField] : source[field]
     if (typeof expected !== 'number' || !Number.isFinite(expected)) return fail('catalog_value_unavailable', 'catalog_data')
     if (source.aggregation === 'range') {
       if (fact.operator !== 'between') return fail('range_reference_requires_interval')
@@ -77,6 +81,7 @@ export function structuredReviewSchema(schema: Row, sentenceIds: string[], catal
   const properties = { ...object(schema.properties) }, list = object(properties.factual_values)
   const old = object(object(list.items).anyOf instanceof Array ? (object(list.items).anyOf as Row[])[0] : list.items)
   const factProperties = { ...object(old.properties), fragment: { type: 'string', enum: sentenceIds },
+    field: { type: 'string', enum: Object.keys(factUnits) },
     unit_id: { type: 'string', enum: catalog.length ? catalog.map(row => text(row.id)) : ['none'] },
     value: { type: 'number' }, measurement_unit: { type: 'string', enum: [...new Set(Object.values(factUnits))] } }
   // Interpretation of quantities, units and comparisons belongs to the reviewer.
@@ -105,3 +110,4 @@ export function structuredReviewSchema(schema: Row, sentenceIds: string[], catal
 
 export const STRUCTURED_FACT_RULES = `CONTRATO DE HECHOS ESTRUCTURADOS: Usted interpreta el borrador completo. El sistema NO extrae ni interpreta sus cifras, palabras, unidades de medida ni comparaciones. En factual_values enumere todos los hechos numéricos atribuidos a unidades o grupos y seleccione unidad/grupo, atributo, valor exacto, operador y measurement_unit (m2, USD, count o floor). Interprete números escritos con palabras y representaciones equivalentes. Convierta unidades solo cuando sean inequívocas y exactas; nunca redondee. No copie cifras de la fuente que no estén afirmadas en el borrador. En project_values incluya las cantidades del proyecto respaldadas por evidencia_turno.project_facts con source_id, dimension, measurement_unit y valor normalizado de esa fuente. Si falta una fuente, rechace la afirmación en claims/review_issues, no la omita silenciosamente. Use [] cuando no corresponda. factual_inventory_complete=true SOLO después de revisar todas las oraciones y comprobar que no omitió hechos. La cobertura, atribución y significado son responsabilidad suya; el sistema compara exclusivamente los campos estructurados con sus fuentes. Al reparar su ficha, vuelva a extraer desde el MISMO borrador, sin cambiarlo ni conservar filas que usted haya atribuido por error.`
   + '\nREFERENCIAS NUMÉRICAS: un grupo min sirve para su mínimo exacto (eq o gte); max para su máximo exacto (eq o lte); range para el intervalo completo (between, value y upper_value). Para extremos de categorías o tamaños distintos use cada grupo min/max correspondiente; no los una en un rango de una categoría diferente. Aunque ambos extremos coincidan, un grupo range representa un intervalo. El esquema separa estas referencias; una referencia incompatible es un defecto de ficha, no prueba de que la cifra del borrador sea falsa.'
+  + '\n' + DISCOUNT_REFERENCE_RULES

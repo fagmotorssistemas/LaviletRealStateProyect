@@ -6,7 +6,7 @@ const suites = ['selection-intake', 'catalog-overview', 'commercial-journey', 'f
   'conversation-continuation', 'financing-flow', 'catalog-retrieval', 'budget-financing-recovery',
   'prompts', 'turn-recovery', 'review-contracts', 'progressive-options', 'lead-introduction',
   'automation', 'conversation', 'test-contacts', 'cost-latency', 'message-trace', 'visit-inbox',
-  'financing', 'tour-identity', 'integrations', 'prompt-compaction', 'reservation-commercial']
+  'financing', 'tour-identity', 'integrations', 'prompt-compaction', 'reservation-commercial', 'commercial-guards']
 const files = [...new Set(suites.flatMap(suite => scripts[`test:${suite}`].split(/\s+/)
   .filter(file => /\.test\.(?:ts|cjs)$/.test(file))))].sort()
 console.log(`Regression suites: ${suites.length}; distinct files: ${files.length}`)

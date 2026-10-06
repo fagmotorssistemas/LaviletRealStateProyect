@@ -1,9 +1,11 @@
 import { object, text, type Row } from './data'
 import { decimalNumber, relationBefore, satisfiesNumeric } from './numeric-relations'
+import { EARLY_PURCHASE_DISCOUNT_VERSION } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
 
 /** Project quantities are independent of unit prices/areas, handled by the catalogue contract. */
 type Quantity = { value: number; dimension: string; unit: string; literal: string; start: number; end: number }
-export type ProjectFact = { id: string; source: string; subject: string; evidence: string; value: number; dimension: string; unit: string }
+export type ProjectFact = { id: string; source: string; subject: string; evidence: string; value: number; dimension: string; unit: string;
+  scope?: Row; condition?: string; conditions?: string; grant_confirmed?: false }
 const normalized = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const measures: Record<string, [string, string, number]> = {
   h: ['duration', 'hour', 1], hr: ['duration', 'hour', 1], hrs: ['duration', 'hour', 1], hora: ['duration', 'hour', 1], horas: ['duration', 'hour', 1],
@@ -34,6 +36,9 @@ export function projectQuantityEvidence(verified: Row): ProjectFact[] {
       const row = object(value)
       const name = text(row.amenity_name || row.name || row.title) || subject
       for (const [key, child] of Object.entries(row)) {
+        // Policy editor percentages (including disabled drafts) are not unit
+        // evidence. Computed discounts use the scoped catalogue fact contract.
+        if (['early_purchase_discounts', 'early_purchase_discount'].includes(key)) continue
         if (/id$|_at$|historial|history|summary|resumen|prompt|example/i.test(key)) continue
         visit(child, `${path}.${key}`, name || key.replace(/_/g, ' '))
       }
@@ -43,6 +48,29 @@ export function projectQuantityEvidence(verified: Row): ProjectFact[] {
     }
   }
   for (const source of sources) if (verified[source] != null) visit(verified[source], source)
+  // The server adapter exposes only rules backed by at least one current unit
+  // quote. A general percentage can cite that rule without inventing USD ranges.
+  const policy = object(verified.politica_descuentos)
+  const date = text(policy.as_of) || new Date().toISOString().slice(0, 10)
+  const validDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value
+  if (policy.version === EARLY_PURCHASE_DISCOUNT_VERSION && policy.enabled === true && policy.status === 'conditional_offers'
+    && validDate(date) && Array.isArray(policy.rules)) policy.rules.map(object).forEach((rule, index) => {
+    if (!text(rule.id) || !text(rule.source) || !text(rule.conditions)
+      || typeof rule.percent !== 'number' || !Number.isFinite(rule.percent) || rule.percent <= 0 || rule.percent >= 100
+      || !validDate(rule.checked_on) || text(rule.checked_on) > date || !validDate(rule.valid_from) || text(rule.valid_from) > date
+      || rule.valid_until != null && (!validDate(rule.valid_until) || text(rule.valid_until) < date)
+      || !['reservation_confirmed', 'advance_purchase'].includes(text(rule.condition))) return
+    const scope = { categories: rule.categories, unit_numbers: rule.unit_numbers, mode: rule.mode,
+      rule_id: rule.id, settings_version: policy.settings_version, base_mode: rule.base_mode,
+      checked_on: rule.checked_on, valid_from: rule.valid_from, valid_until: rule.valid_until, as_of: date }
+    facts.push({ id: `project:politica_descuentos:${text(rule.id)}:percent`, source: `politica_descuentos.rules.${index}`,
+      subject: `Descuento ${text(rule.name)} ${(Array.isArray(rule.categories) ? rule.categories : []).join(' ')} ${(Array.isArray(rule.unit_numbers) ? rule.unit_numbers : []).join(' ')}`.trim(),
+      evidence: JSON.stringify({ percent: rule.percent, source: rule.source, scope, condition: rule.condition, conditions: rule.conditions,
+        instruction: 'Porcentaje de una oferta condicionada; no acredita concesión, reserva ni porcentaje de entrada.' }),
+      value: rule.percent, dimension: 'percentage', unit: 'percent', scope,
+      condition: text(rule.condition), conditions: text(rule.conditions), grant_confirmed: false })
+  })
   return facts
 }
 

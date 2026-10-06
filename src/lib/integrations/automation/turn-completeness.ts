@@ -5,6 +5,7 @@ import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
 import { taskVerifiedContext, taskModelEvidence, addTaskQueryEvidence, TASK_CONTEXT_RULES } from './task-context'
+import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
 import { FINANCING_COLLECTION_WRITER_RULES } from './financing-prompt'
 import { catalogCostBaseline } from './catalog-cost-baseline'
 import { withPromptCostComparison } from './prompt-cost-comparison'
@@ -370,6 +371,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, audit: { ...input.audit, resolved_turn_intent: turnIntent }, verified: { ...input.verified,
     perfil_lead: profile, lead: { ...object(input.verified.lead), name: profile.full_name || null,
       name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null }, contrato_turno: turnIntent } }
+  const locationPolicy = locationDisclosurePolicy({ current: input.current, verified: input.verified, audit: input.audit })
+  input = { ...input, verified: projectLocationForPrompt({ ...input.verified,
+    ...(input.audit?.visit_dialogue_plan ? { visit_dialogue_plan: input.audit.visit_dialogue_plan } : {}) }, locationPolicy),
+    audit: { ...input.audit, location_disclosure: locationPolicy } }
   input = { ...input, verified: semanticCatalogContext(input.verified, input.audit || {}, input.current) }
   input = { ...input, verified: scopeTurnCatalog(input.verified, input.audit || {}) }
   // Current production contracts share task evidence. Legacy claim-ID reviews
@@ -738,8 +743,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         findings: riskFindings, validation_details: riskIssues, query: input.audit?.catalog_query || null,
         claims: [], factual_values: [], extracted_facts: rawReview.facts || [], fact_checks: JSON.parse(JSON.stringify(factChecks)),
         original_fact_checks: JSON.parse(JSON.stringify(originalChecks)), question, offered_action: offeredAction, quality_checks: 'not_requested',
+        turn_obligations: { status: riskDecision.valid ? 'checked' : 'invalid_review', ids: turnObligations.map(obligation => obligation.id) },
         acceptance: { content_approved: approved, follow_up_usable: riskDecision.valid && usableQuestion } }
-      continuationChecks = { all_requests_considered: approved, answered_content_preserved: approved,
+      continuationChecks = { validation_scope: 'business_risks_and_explicit_turn_obligations', all_requests_considered: approved, answered_content_preserved: approved,
         question_has_purpose: approved, answers_supported: approved,
         operational_goal_preserved: approved }
       followUp = { usable: riskDecision.valid && usableQuestion,

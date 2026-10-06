@@ -4,6 +4,7 @@ import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 import { LAVILET_MESSAGE_ROUTES, LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
 import { withVisitLocation } from './visit-location'
 import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
+import { readinessPlacePhrase, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 
 const HOUR = 3_600_000
 const ms = (v: unknown) => Date.parse(text(v))
@@ -88,7 +89,7 @@ export function prepareVisit(context: Row): Row {
     .map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) }))
   const when = formatVisitWhen(text(p.start_time || a.start_time))
   const place = context.estado_proyecto
-    ? a.location_type === 'oficina' ? 'nuestra oficina para revisar el proyecto La Vilet' : 'el punto de encuentro acordado para su visita a La Vilet'
+    ? a.location_type === 'oficina' ? readinessPlacePhrase(context.estado_proyecto as ProjectReadiness, 'office') : 'el punto de encuentro acordado para su visita a La Vilet'
     : context.mode === 'lanzamiento'
     ? context.launch_destination === 'site' ? 'el terreno donde se construirá La Vilet' : 'nuestra oficina para revisar el proyecto La Vilet'
     : 'La Vilet'

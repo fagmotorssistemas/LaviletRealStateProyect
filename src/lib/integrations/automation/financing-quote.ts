@@ -49,6 +49,8 @@ export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row
   const policy = object(object(info.politica_financiera).guidance) as Partial<ActiveFinancingPolicy>
   const unit = selectedFinancingUnit(info)
   const price = unit?.published_commercial_price
+  const discount = object(unit?.early_purchase_discount)
+  const discountPending = discount.status === 'conditional' && discount.condition_met !== true
   const priced = object(info.politica_comercial).precios_autorizados === true && typeof price === 'number' && Number.isFinite(price) && price > 0
   const entry = policy.entry
   const category = text(unit?.category)
@@ -85,6 +87,7 @@ export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row
       ? calculateMonthlyPayment(principal, lender.annualRate, years!, lender.rateType) : null
     return { entity: lender.name, product: lender.product, unit_id: unit.id, unit_number: unit.unit_number,
       price, maximum_loan_reference: cap, own_funds_from_lender: bankOwn, project_entry: projectMinimum,
+      pricing_basis: discountPending ? 'catalog_price_pending_discount' : 'current_authorized_price',
       contribution_reference: contribution, loan_reference: principal, uses_customer_proposal: hasProposal,
       years: termOK ? years : null, annual_rate: lender.annualRate, rate_type: lender.rateType, rate_qualification: lender.rateQualification,
       basic_monthly_payment: monthly, monthly_payment_with_known_charges: monthly !== null && lender.monthlyCharges !== null ? round2(monthly + lender.monthlyCharges) : null,
@@ -96,6 +99,8 @@ export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row
     project_entry_reference: policy.estimatesEnabled && priced ? projectMinimum : null,
     estimates, status: !policy.enabled ? 'conditions_disabled' : !policy.estimatesEnabled ? 'estimates_disabled'
       : !unit ? 'needs_unit' : !priced ? 'price_not_authorized' : 'reference',
+    ...(discountPending ? { pending_discount: discount,
+      discount_instruction: 'Las cifras financieras usan el precio publicado, no el descuento condicionado. Su cumplimiento comercial no está verificado. No reste el descuento ni el monto de reserva de la entrada o del préstamo por iniciativa propia, ni convierta esa referencia en aprobación bancaria.' } : {}),
     instruction: inquiry.beforeApplication
       ? 'Responda las cifras disponibles y sus límites; no inicie recopilación ni repita la invitación al trámite. Use la entidad elegida si existe; preguntar por otra no cambia esa elección.'
       : 'Estas cifras orientan, no aprueban crédito. Respete la acción que el cliente autorizó y las condiciones pendientes.' }

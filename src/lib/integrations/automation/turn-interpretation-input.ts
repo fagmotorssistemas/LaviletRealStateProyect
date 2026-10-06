@@ -69,7 +69,7 @@ export function reconcileFinancingReference(raw: Row, input: Row, current: strin
 export function interpretationInput(input: Row, current: string): Row {
   const summary = object(input.resumen)
   const result = pick(input, ['perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
-    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento'])
+    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'dialogo_visita', 'financiamiento'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   const catalog = rows(input.catalogo_unidades)
   const propertyContext = object(input.contexto_propiedades)
@@ -86,7 +86,7 @@ export function interpretationInput(input: Row, current: string): Row {
     ...(proposal ? { propuesta_pendiente: proposal } : {}),
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
-    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts']),
+    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts', '_visit_dialogue']),
       _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
     contexto_propiedades: pick(object(input.contexto_propiedades), ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
       'offered_ids', 'focused_ids', 'phase', 'preference_transition', 'pending_question']),

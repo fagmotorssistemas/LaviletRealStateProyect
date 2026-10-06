@@ -5,6 +5,7 @@ import { catalogQuery, filterCatalog, partitionCatalog, type CatalogQuery } from
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { replyQuestions } from './reply-question'
 import { normalizedPropertyQuery } from './turn-semantics'
+import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -117,6 +118,14 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     selected_unit_id: selected || null, readiness, profile_complete: profileDone,
     financing_offer_allowed: false, visit_offer_allowed: false,
   })
+  const visitDialogue = object(info.visit_dialogue_plan || audit.visit_dialogue_plan)
+  if (visitDialogue.version === VISIT_DIALOGUE_PLAN_VERSION) {
+    if (visitDialogue.question_id && visitDialogue.question) return plan('visit_destination', text(visitDialogue.instruction), text(visitDialogue.question), text(visitDialogue.question_id))
+    if (visitDialogue.information_only === true) return plan('visit_information', text(visitDialogue.instruction))
+    if (visitDialogue.current_kind === 'decline') return plan('leave_open', text(visitDialogue.instruction))
+    if (visitDialogue.current_kind === 'other' && ['offered', 'collecting', 'awaiting_advisor', 'awaiting_client', 'confirmed'].includes(text(object(visitDialogue.state).status)))
+      return plan('visit_suspended_for_current_query', text(visitDialogue.instruction))
+  }
   if (audit.profile_introduction && !['', 'none'].includes(text(object(audit.profile_introduction).question_purpose)))
     return plan('introduction', 'Responda y solicite los datos de presentación pendientes según profile_introduction. No añada otra pregunta comercial.')
   if (audit.source === 'clarify_previous_choice') return plan('clarify_choice', 'Aclare cuál de las alternativas prefiere. Un sí ambiguo no elige una unidad ni autoriza trámites.')

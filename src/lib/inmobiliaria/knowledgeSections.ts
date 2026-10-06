@@ -11,6 +11,7 @@ export const KNOWLEDGE_SECTIONS = [
   ] },
   { id: 'politicas', label: 'Políticas comerciales', description: 'Condiciones confirmadas para comprar, reservar, pagar o visitar.', entries: [
     { title: 'Entrada y financiamiento', description: 'Entrada del proyecto, reserva y condiciones editables de JEP y Banco Pichincha.', href: 'financiamiento', owner: 'Administrador' },
+    { title: 'Descuentos por compra anticipada', description: 'Activación, porcentaje, unidades, vigencia y condiciones de descuentos autorizados.', href: 'descuentos', owner: 'Administrador' },
   ] },
   { id: 'conversacion', label: 'Conversación', description: 'Preguntas, entrega de materiales y forma de comunicarse.', entries: [
     { title: 'Guion y preguntas', description: 'Preguntas del bot, instrucciones por tema y recopilación de datos.', href: 'guion', owner: 'IA y controles del sistema' },

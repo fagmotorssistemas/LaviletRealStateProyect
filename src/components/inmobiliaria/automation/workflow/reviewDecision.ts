@@ -34,6 +34,10 @@ export function reviewObligationLabel(value: unknown) {
     brochure_sequence: 'Ofrecer o entregar el brochure según la etapa', business_scope: 'Respetar el alcance de La Vilet',
     opening_scope: 'Respetar la presentación inicial sin tipos de inmuebles', price_conditions: 'Conservar las condiciones del precio',
     current_operation: 'Respetar el objetivo y la operación del turno',
+    location_scope: 'Enviar solo la ubicación permitida en este turno',
+    visit_dialogue: 'Continuar la visita con el destino y consentimiento correctos',
+    project_context_truth: 'Respetar el avance físico y los hechos verificados del entorno',
+    early_purchase_discount: 'Respetar el alcance, la vigencia y las condiciones del descuento',
   } as Record<string, string>)[text(value)] || text(value).replaceAll('_', ' ') || 'Obligación no identificada'
 }
 function reviewOwnership(item: Row) {
@@ -84,9 +88,10 @@ export function repairBudgetFacts(output: Row) {
 }
 
 export function reviewDecision(output: Row, catalog: Row[] = []) {
-  if (output.status === 'review_disabled' && row(output.review_control).enabled === false) return {
+  if (output.status === 'review_disabled' || row(output.semantic_review).status === 'disabled'
+    || row(output.final_validation).policy === 'transport_only') return {
     tone: 'unknown', title: 'Sin revisión · Control general desactivado',
-    explanation: 'Se conservó el borrador del redactor sin revisión ni correcciones comerciales posteriores. El envío se comprueba en Envío a Kommo.',
+    explanation: 'Se conservó el borrador del redactor sin aprobación de su contenido. Los controles de transporte no comprueban hechos ni continuidad. El envío se comprueba en Envío a Kommo.',
     details: [], causes: [], repair: 'No se solicitaron revisiones ni reparaciones.', resolvedDetails: [], recoveryPending: false,
   }
   const status = text(output.status), review = row(output.semantic_review)

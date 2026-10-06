@@ -510,10 +510,14 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
   const status = str(output.status)
   const invalid = status === 'invalid_coverage'
   const checked = status === 'checked'
+  const reviewDisabled = status === 'review_disabled' || row(output.semantic_review).status === 'disabled'
+    || row(output.final_validation).policy === 'transport_only'
+  const businessRiskReview = row(output.semantic_review).review_contract === 'business-risk-v2'
   const attempts = rows(output.repair_attempts)
   const requests = rows(output.requests)
   const present = (key: string, label: string): ExplanationFact => ({ label, value: str(output[key]) || 'No se conservó este texto en el registro.' })
-  const selection = decision.recoveryPending ? 'La propuesta no quedó aprobada. La base no se usó como reemplazo; la consulta permanece pendiente de recuperación.'
+  const selection = reviewDisabled ? 'Se conservó la respuesta del redactor con la revisión final desactivada. Este paso no aprobó su contenido.'
+    : decision.recoveryPending ? 'La propuesta no quedó aprobada. La base no se usó como reemplazo; la consulta permanece pendiente de recuperación.'
     : invalid ? 'Se descartó la propuesta por información interna inválida; no se completó la revisión del contenido.'
     : checked ? 'La propuesta superó la revisión de este paso. Los pasos posteriores aún pueden modificarla.'
       : status ? `Resultado registrado: ${humanValue(status)}. Consulte la respuesta conservada y los controles.`
@@ -542,19 +546,24 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       { label: 'Pregunta propuesta', value: str(question.text) || 'Sin pregunta propuesta registrada.' },
       { label: 'Dato que busca', value: str(question.missing_datum) || 'No registrado; no se deduce del texto.' },
       { label: 'Propósito de la pregunta', value: str(question.next_decision) || 'No registrado; es válido terminar sin pregunta.' },
-      { label: 'Objetivo y selección', value: checks.operational_goal_preserved === true ? 'El revisor aprobó la continuidad del objetivo y el respeto de la selección.' : checks.operational_goal_preserved === false ? 'El revisor rechazó el objetivo o la continuidad de la selección.' : 'No se completó esta comprobación.' },
-      { label: 'Resultado y motivo', value: checked ? 'Propuesta aceptada en este paso tras los controles registrados de contenido y continuidad.' : `Propuesta no aceptada. ${reviewDecision(output).causes.join(' ') || humanValue(output.issues) || 'Consulte los controles registrados.'}` },
+      { label: 'Objetivo y selección', value: reviewDisabled ? 'No se revisó el objetivo ni la continuidad en este paso.' : checks.operational_goal_preserved === true ? 'El revisor aprobó la continuidad del objetivo y el respeto de la selección.' : checks.operational_goal_preserved === false ? 'El revisor rechazó el objetivo o la continuidad de la selección.' : 'No se completó esta comprobación.' },
+      { label: 'Resultado y motivo', value: reviewDisabled ? 'Revisión final omitida por configuración; se conservó la propuesta del redactor.' : checked ? 'Propuesta aceptada en este paso tras los controles registrados de contenido y continuidad.' : `Propuesta no aceptada. ${reviewDecision(output).causes.join(' ') || humanValue(output.issues) || 'Consulte los controles registrados.'}` },
     ] }] : []),
     { title: 'Respuesta elegida en este paso', description: 'El borrador es el texto propuesto por la IA, todavía sujeto a validación. Una propuesta rechazada puede iniciar una recuperación pendiente; la respuesta preparada y su envío se comprueban en los pasos posteriores y en Kommo.', facts: [
       { label: 'Qué ocurrió', value: selection }, present('final_preview', 'Respuesta conservada'), present('proposed_preview', 'Propuesta de la IA (borrador)'), present('base_preview', 'Respuesta base de respaldo'),
     ] },
     { title: 'Controles de validación', description: 'Estos son los controles registrados al terminar este paso. Las referencias internas corregidas se muestran por separado; un error en requests afecta la ficha interna y no demuestra que el texto comercial fuera incorrecto.', facts: [
-      ...(Object.keys(row(output.final_validation)).length ? [{ label: 'Decisión conjunta', value: row(output.final_validation).passed === true
+      ...(Object.keys(row(output.final_validation)).length ? [{ label: 'Decisión conjunta', value: row(output.final_validation).policy === 'transport_only'
+        ? 'Solo se comprobó que el texto no estuviera vacío y cumpliera el límite de envío. No se revisaron hechos ni continuidad.'
+        : row(output.final_validation).passed === true
         ? 'Catálogo, relaciones numéricas y controles de la ruta aprobados dentro del mismo proceso de reparación.'
         : `Controles finales: ${humanValue(row(output.final_validation).issues)}` }] : []),
       ...rows(row(output.final_validation).details).map(detail => ({ label: 'Dato comprobado', value:
         `Fragmento: ${str(detail.fragment)}. Atributo: ${humanValue(detail.field)}. Relación: ${humanValue(detail.operator)}. Valores del texto: ${humanValue(detail.received)}. Valores verificados: ${humanValue(detail.expected)}.` })),
       { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
+      ...(reviewDisabled || businessRiskReview ? [{ label: 'Alcance de la revisión', value: reviewDisabled
+        ? 'Desactivada. Los controles de transporte no acreditan una revisión del mensaje.'
+        : 'Riesgos comerciales, hechos y obligaciones explícitas del turno. No se evaluó estilo editorial.' }] : []),
       ...(rows(row(output.semantic_review).validation_details).length ? reviewDecision(output).causes.map(value => ({ label: 'Causa agrupada', value })) : []),
     ] },
     ...(decision.resolvedDetails.length ? [{ title: 'Referencias internas corregidas', description: 'Estas incidencias se resolvieron y no explican un rechazo posterior.', facts: decision.resolvedDetails.map(value => ({ label: 'Corrección resuelta', value })) }] : []),
@@ -580,7 +589,7 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       ...repairBudgetFacts(output),
     ] },
     { title: 'Solicitudes del cliente atendidas', description: 'La revisión de cobertura comprueba qué pidió el cliente y si la respuesta atiende cada solicitud. Una lista vacía no certifica que todo esté resuelto.', facts: [
-      { label: 'Alcance de la revisión', value: invalid ? 'La lista interna no pudo validarse. La revisión de contenido no se completó.' : checked ? 'Revisión completada en este paso.' : 'No hay una revisión aprobada registrada. Las clasificaciones siguientes, si existen, no acreditan cobertura completa.' },
+      { label: 'Alcance de la revisión', value: reviewDisabled ? 'Revisión final desactivada; la ficha del redactor no acredita cobertura comprobada.' : invalid ? 'La lista interna no pudo validarse. La revisión de contenido no se completó.' : checked ? 'Revisión completada en este paso.' : 'No hay una revisión aprobada registrada. Las clasificaciones siguientes, si existen, no acreditan cobertura completa.' },
       ...(invalid || !requests.length ? [{ label: 'Solicitudes', value: invalid ? 'Lista rechazada; no hay solicitudes validadas que mostrar.' : 'No se conservó una lista de solicitudes en este registro.' }] : requests.map((request, index) => ({ label: `Solicitud ${index + 1}`, value: `Cliente: ${str(request.fragment) || 'Fragmento no registrado'}. Estado propuesto: ${humanValue(request.status)}. Respaldo indicado: ${str(request.evidence) || 'No registrado'}` }))),
       { label: 'Consultas pendientes registradas', value: Array.isArray(output.unresolved) && output.unresolved.length ? humanValue(output.unresolved) : 'No se registraron consultas pendientes. Esto no equivale a comprobar que se respondió todo.' },
       ...(output.price_evidence ? [{ label: 'Evidencia de precios', value: humanValue(output.price_evidence) }] : []),

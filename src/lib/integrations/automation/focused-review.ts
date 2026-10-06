@@ -3,6 +3,10 @@ import { needsPropertyPurpose } from './conversation-next-step'
 import { turnContinuation } from './turn-continuation'
 import { LAUNCH_PRICE_COMPARISON_RULE } from './launch-price-policy'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
+import { PROJECT_TRUTH_RULES } from './project-truth'
+import { LOCATION_DISCLOSURE_RULES } from './location-policy'
+import { VISIT_DIALOGUE_RULES } from './visit-dialogue'
+import { EARLY_PURCHASE_DISCOUNT_RULES } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
 import { budgetContinuationInstruction } from './turn-budget'
 import { mergePendingRepairs } from './focused-pending-repair'
 export { pendingReferencesForRepair, pendingResolutionSchema } from './focused-pending-repair'
@@ -23,6 +27,19 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
     instruction: 'Atienda las solicitudes del mensaje actual en su contexto: responda lo verificable, aclare solo lo ambiguo o explique qué dato concreto falta. Reconocer o usar los datos que el cliente entrega puede completar el turno. No añada preguntas ni material por costumbre; las demás obligaciones indican cuándo son necesarios.',
     requests: rows(verified.solicitudes_interpretadas || object(verified.contrato_turno).requests)
       .filter(row => row.domain !== 'courtesy').map(row => ({ request: row.request, evidence: row.evidence, domain: row.domain })) })
+  if (verified.estado_proyecto || rows(verified.contexto_sector).length) obligations.push({
+    id: 'project_context_truth', instruction: PROJECT_TRUTH_RULES,
+    physical_stage: object(verified.estado_proyecto).stage || null,
+  })
+  if (verified.location_disclosure) obligations.push({ id: 'location_scope',
+    instruction: LOCATION_DISCLOSURE_RULES, ...object(verified.location_disclosure) })
+  if (verified.visit_dialogue_plan || audit.visit_dialogue_plan) obligations.push({ id: 'visit_dialogue',
+    ...object(verified.visit_dialogue_plan || audit.visit_dialogue_plan),
+    instruction: VISIT_DIALOGUE_RULES + '\n' + text(object(verified.visit_dialogue_plan || audit.visit_dialogue_plan).instruction) })
+  if (rows(object(verified.politica_descuentos).rules).length || rows(verified.catalogo)
+    .some(unit => ['conditional', 'eligible'].includes(text(object(unit.early_purchase_discount).status))))
+    obligations.push({ id: 'early_purchase_discount', instruction: EARLY_PURCHASE_DISCOUNT_RULES,
+      policy: object(verified.politica_descuentos) })
   if (stage.requiere_captura === true) obligations.push({ id: 'profile_collection',
     instruction: (stage.proposito_captura === 'guia_personalizada'
       ? 'Al pedir datos pendientes, explique el propósito de brindar una guía personalizada. La entrega del brochure es independiente de esa respuesta: no prometa enviarlo después ni lo condicione a esos datos. '

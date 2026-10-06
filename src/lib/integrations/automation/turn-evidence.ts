@@ -4,6 +4,7 @@ import { numericMentions } from './semantic-review'
 import { BROCHURE_URL } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
 import { comparisonEvidence } from './comparison-evidence'
+import { DISCOUNT_NUMBER_FIELDS, compactDiscountEvidence, discountReferenceEvidence } from './discount-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const fields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'floor_number', 'published_commercial_price']
@@ -24,11 +25,32 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   }
   const byId = new Map<string, Row>()
   const conflicts: Row[] = []
-  for (const { source, units } of sources) for (const unit of units) {
+  const prices = object(verified.politica_comercial).precios_autorizados === true
+  const currentDiscountPolicy = Object.hasOwn(verified, 'politica_descuentos')
+  const freshUnits = rows(Array.isArray(verified.catalogo_verificacion) ? verified.catalogo_verificacion : verified.catalogo)
+  for (const { source, units } of sources) for (const original of units) {
+    // Retrieval identifies membership before the commercial quote is built.
+    // Enrich those exact candidates, never widen a query or restore old offers.
+    const fresh = freshUnits.find(unit => text(unit.id) && unit.id === original.id
+      && text(unit.unit_number) && unit.unit_number === original.unit_number)
+    const originalPrice = original.published_commercial_price
+    const mismatch = fresh && originalPrice != null && fresh.published_commercial_price != null
+      && originalPrice !== fresh.published_commercial_price && originalPrice !== fresh.catalog_base_price
+    if (mismatch) conflicts.push({ code: 'conflicting_evidence', unit_id: original.id, kind: 'system_evidence', field: 'published_commercial_price' })
+    const commercial = currentDiscountPolicy && object(verified.politica_descuentos).enabled !== true ? {}
+      : !mismatch && fresh ? fresh : currentDiscountPolicy ? {} : original
+    const unit: Row = { ...Object.fromEntries(Object.entries(original).filter(([key]) => !DISCOUNT_NUMBER_FIELDS.includes(key as typeof DISCOUNT_NUMBER_FIELDS[number])
+      && !['early_purchase_discount', 'catalog_base_price', 'discount_condition_met'].includes(key))),
+    ...(prices && !mismatch && fresh?.published_commercial_price != null ? { published_commercial_price: fresh.published_commercial_price } : {}),
+    ...compactDiscountEvidence(commercial, prices) }
     const id = text(unit.id)
     if (!id) continue
     const previous = byId.get(id)
-    if (previous && fields.some(field => previous[field] != null && unit[field] != null && previous[field] !== unit[field])) {
+    const previousDiscount = discountReferenceEvidence(previous || {}), currentDiscount = discountReferenceEvidence(unit)
+    const discountConflict = previousDiscount.available && currentDiscount.available
+      && ['version', 'settings_version', 'rule_id', 'base_mode', 'percent', 'base_price', 'discount_amount', 'final_price',
+        'condition', 'condition_met', 'source', 'valid_from', 'valid_until'].some(key => previousDiscount.quote[key] !== currentDiscount.quote[key])
+    if (previous && (discountConflict || fields.some(field => previous[field] != null && unit[field] != null && previous[field] !== unit[field]))) {
       conflicts.push({ code: 'conflicting_evidence', unit_id: id, kind: 'system_evidence' }); continue
     }
     byId.set(id, { ...previous, ...unit, evidence_sources: [...new Set([...(Array.isArray(previous?.evidence_sources) ? previous.evidence_sources : []), source])] })
@@ -187,7 +209,10 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
   // the prompt twice. The IDs identify existing sources, never model prose.
   for (const key of ['units', 'groups'] as const) rows(evidence[key]).forEach((unit, index) => {
     result.push({ id: `E${result.length + 1}`, kind: 'project_fact', path: `evidencia_turno.${key}.${index}`,
-      reference_id: unit.id, reference_label: unit.unit_number || unit.category || null })
+      reference_id: unit.id, reference_label: unit.unit_number || unit.category || null,
+      ...(key === 'units' && discountReferenceEvidence(unit).available ? {
+        discount_scope: 'arithmetic_reference_not_commercial_fulfillment', discount_condition_met: object(unit.early_purchase_discount).condition_met,
+      } : {}) })
   })
   const projectKeys = ['proyecto', 'alcance_producto', 'instalaciones', 'lugares_cercanos', 'contexto_sector', 'estado_proyecto', 'entrega_proyecto',
     'posicionamiento_proyecto', 'politica_comercial', 'politica_visitas', 'politica_financiera', 'financing_policy', 'financiamiento',

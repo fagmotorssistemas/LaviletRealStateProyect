@@ -1730,7 +1730,8 @@ test('semantic visit intent requires high confidence and literal evidence from t
   const message = 'No no, lo que digo es que Quieor agenda runa cita'
   assert.deepEqual(normalizedVisitIntent({
     kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high',
-  }, message), { kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high' })
+  }, message), { kind: 'request_visit', purpose: 'coordination', target: 'unspecified', destination: null,
+    evidence: 'Quieor agenda runa cita', confidence: 'high' })
   assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'quiero agendar una cita', confidence: 'high' }, message), null)
   assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'medium' }, message), null)
   assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'no quiero una visita', confidence: 'high' }, 'no quiero una visita'), null)
@@ -2885,6 +2886,8 @@ test('a quoted comparison keeps the AI draft through delivery despite repeated c
   live(t)
   const replay = progressiveReplay()
   const quote = await replay.turn('cuál es el precio de los penthouse?', { category: 'penthouse', operation: 'search', reference_kind: 'followup' }, 'ask_price')
+  assert.equal(quote.summary._lead_introduction.request_sent, true)
+  assert.equal(quote.summary._lead_introduction.status, 'pending')
   const draft = 'La diferencia principal entre los penthouses 602 y 605, ambos de 3 dormitorios en la sexta planta alta, está en los baños y el tamaño de sus áreas. El penthouse 602 cuenta con 2 baños completos, 142,09 m² interiores y 25,3 m² de área exterior. El penthouse 605 dispone de 3 baños completos, 140,53 m² interiores y 23,01 m² de área exterior. ¿Cuál de estas opciones le gustaría conocer más a detalle?'
   const current = 'pero y cual es la diferencia entre estos dos?'
   const turnComplete = input => require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input, async (...args) => {
@@ -2897,7 +2900,18 @@ test('a quoted comparison keeps the AI draft through delivery despite repeated c
   const result = await progressiveReplay({ ...quote, turnComplete }).turn(current, {
     category: 'penthouse', operation: 'compare', reference_kind: 'comparison', unit_numbers: ['602', '605'], query_scope: 'comparison', filters: { bedrooms: 3, floor_number: 6 },
   }, 'project_information')
-  assert.equal(result.sent.p_content, draft)
+  // Ignoring the initial profile invitation must not repeat that capture. The
+  // verified material plan may add its brochure without rewriting the answer.
+  const material = result.sent.p_tool_calls.profile_introduction
+  assert.equal(material.question_purpose, 'none')
+  assert.equal(material.brochure_required, true)
+  assert.equal(material.brochure_deferred, false)
+  assert.equal(result.sent.p_content.slice(0, draft.length), draft)
+  const addedMaterial = result.sent.p_content.slice(draft.length)
+  assert.deepEqual(addedMaterial.match(/https?:\/\/\S+/g), [material.brochure_url])
+  assert.equal(result.sent.p_content.split(material.brochure_url).length - 1, 1)
+  assert.doesNotMatch(addedMaterial, /¿|\?$/)
+  assert.equal(result.summary._lead_introduction.brochure_sent, true)
   assert.equal(result.sent.p_tool_calls.turn_completeness.status, 'checked')
   assert.deepEqual(result.summary._property_context.comparison_ids, ['progressive-602', 'progressive-605'])
   assert.equal(result.sent.p_tool_calls.alternative_presentation, undefined)

@@ -5,6 +5,7 @@ import { FINANCING_PROCESS_RULES } from './financing-guidance'
 import { catalogOverviewSummary } from './task-context'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { CONVERSATION_BRIDGE_RULES } from './turn-continuation'
+import { PROJECT_TRUTH_RULES } from './project-truth'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -95,6 +96,7 @@ No evalúe estilo, tono, elegancia, longitud sugerida, saludo, sintaxis ni núme
 # Salida
 
 Devuelva únicamente el JSON del esquema. verdict=pass exige findings=[]. verdict=block exige hallazgos materiales que identifiquen la afirmación u obligación afectada, el perjuicio y el hecho o regla autorizada pertinente. No invente evidencia para justificar un bloqueo.
+${PROJECT_TRUTH_RULES}
 ${BUSINESS_FACT_RULES}
 ${PROJECT_DELIVERY_RULES}
 ${FINANCING_PROCESS_RULES}
@@ -122,7 +124,8 @@ export function businessRiskContext(input: {
 }): Row {
   const overview = object(input.verified.prompt_context_selection).task === 'category_overview'
   const sourceFields = ['id', 'unit_number', 'category', 'bedrooms', 'bathrooms_full', 'area_internal_m2',
-    'area_exterior_m2', 'area_total_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published', 'unit_count', 'query_role']
+    'area_exterior_m2', 'area_total_m2', 'floor_number', 'floor', 'spaces', 'description', 'published_commercial_price', 'availability_status', 'status', 'is_published', 'unit_count', 'query_role',
+    'catalog_base_price', 'discount_reference_price', 'discount_amount_reference', 'discounted_price_reference', 'discount_percent', 'discount_condition_met', 'early_purchase_discount']
   const pick = (row: Row) => Object.fromEntries(sourceFields.filter(key => row[key] != null && row[key] !== '')
     .map(key => [key, row[key]]))
   const groups = input.groups.map(group => {
@@ -153,6 +156,7 @@ export function businessRiskContext(input: {
       importes_financiamiento: input.verified.financing_amounts || null,
       conciliacion_financiamiento: input.verified.financing_balance || null,
       orientacion_financiera: input.verified.financing_quote || null,
+      descuentos_comerciales: input.verified.politica_descuentos || null,
       grupos_por_alcance: 'task_query y budget_matching describen conjuntos filtrados, no todo el catálogo. No use una opción fuera del filtro para rechazar el rango del conjunto filtrado.',
     },
     estado_del_turno: {
@@ -166,6 +170,8 @@ export function businessRiskContext(input: {
       introduccion: input.audit.profile_introduction || null,
       reserva: input.audit.reservation || null,
       visita: input.audit.visit_result || null,
+      dialogo_visita: input.verified.visit_dialogue_plan || input.audit.visit_dialogue_plan || null,
+      permiso_ubicacion: input.verified.location_disclosure || null,
       accion: input.audit.action || null,
       etapa_financiamiento: input.verified.etapa_financiamiento || null,
       siguiente_paso_comercial: input.verified.siguiente_paso_comercial || null,

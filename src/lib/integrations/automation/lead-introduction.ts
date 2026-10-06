@@ -5,7 +5,6 @@ import { conversationalFirstName, isCourtesyOnly } from './conversation-style'
 import { BROCHURE_URL } from './project-material'
 import { confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { replyQuestions } from './reply-question'
-import { commercialContinuationSources } from './response-plan'
 
 export const PROFILE_INVITATION = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
 const BROCHURE_PURPOSE = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, '
@@ -52,10 +51,8 @@ function withoutBrochure(reply: string, url: string) {
 }
 function lastQuestion(reply: string) { return reply.match(/¿[^¿?]+\?\s*$/)?.[0].trim() || '' }
 function withoutLastQuestion(reply: string) { return reply.replace(/\s*¿[^¿?]+\?\s*$/, '').trim() }
-function generalInformation(current: string, audit: Row, extracted: Row) {
+function generalInformation(current: string, audit: Row) {
   return ['project_overview', 'project_information_choice'].includes(text(audit.source))
-    || (object(extracted.turn_semantics).primary_intent === 'project_information'
-      && !/precio|financ|credito|visita|dormitorio|ubicacion|direccion|entrega|construccion|departamento|suite|penthouse|local/.test(normalized(current)))
     || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches|por favor|me gustaria|quiero|quisiera|necesito|deseo|mas|un poco de|de|del|sobre|el|la|vilet|proyecto)\s+)*(?:informacion|info|informes)(?:\s+(?:general|del|de|proyecto|la|vilet|por favor))*$/.test(normalized(current))
 }
 function explicitBrochure(current: string) {
@@ -68,9 +65,26 @@ function concreteRequest(current: string) {
 function interpretedCommercialRequest(extracted: Row, audit: Row) {
   const semantics = object(extracted.turn_semantics)
   const intent = object(audit.resolved_turn_intent)
-  const requests = Array.isArray(semantics.requests) ? semantics.requests : Array.isArray(intent.requests) ? intent.requests : []
+  const requests = Array.isArray(intent.requests) ? intent.requests
+    : Array.isArray(extracted.requests) ? extracted.requests : Array.isArray(semantics.requests) ? semantics.requests : []
   return semantics.confidence === 'high' && ['ask_price', 'ask_financing', 'discuss_budget', 'select_property', 'project_information', 'ask_reservation'].includes(text(semantics.primary_intent))
     || requests.map(object).some(request => ['property', 'financing'].includes(text(request.domain)) && request.confidence === 'high')
+}
+function protectedCurrentOperation(audit: Row, extracted: Row) {
+  const semantics = object(extracted.turn_semantics), intent = object(audit.resolved_turn_intent)
+  const scope = object(intent.scope), reservation = object(audit.reservation)
+  const action = text(audit.action)
+  const informationalAction = action === 'information_only' || action === 'none'
+    || action !== '' && action === object(semantics.property).operation
+  // These are workflow decisions, not names of informational reply routes.
+  // A new catalogue or project-information route must not bypass the opening.
+  return audit.source === 'financing' || /^(?:visit|advisor|reservation_handoff|financing_handoff)/.test(text(audit.source))
+    || Boolean(action && !informationalAction) || audit.registration_verified === true
+    || reservation.kind === 'request' || reservation.handoff_verified === true
+    || semantics.confidence === 'high' && ['request_visit', 'request_reservation'].includes(text(semantics.primary_intent))
+    || extracted.requested_advisor === true
+    || ['out_of_scope', 'mixed', 'uncertain'].includes(text(audit.business_scope))
+    || ['out_of_scope', 'mixed'].includes(text(scope.kind)) || scope.uncertain === true
 }
 export function isProfileOnlyTurn(current: string, extractedRaw: unknown) {
   const extracted = object(extractedRaw), semantics = object(extracted.turn_semantics)
@@ -218,13 +232,9 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   if (prior.status === 'complete' && !resumed && !declinedProfile(input.current)
     && (asked || !missing.length && prior.brochure_sent === true)) return acknowledgeOnly()
   const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
-  const excluded = !commercialContinuationSources.has(text(audit.source)) && !['', 'commercial', 'project_overview', 'project_information_choice', 'catalog_search', 'catalog_select', 'financing_question', 'financing_selection_required',
-    'catalog_reference', 'unit_price', 'location', 'unit_model_request', 'virtual_showroom', 'brochure', 'price_option_unavailable'].includes(text(audit.source))
-  const protectedOperation = audit.source === 'financing' || /^(?:visit|advisor|reservation|financing_handoff)/.test(text(audit.source))
-    || Boolean(audit.action || audit.registration_verified || audit.reservation)
-  if ((protectedOperation || excluded) && !onlyProfile) return acknowledgeOnly()
+  if (protectedCurrentOperation(audit, extracted) && !onlyProfile) return acknowledgeOnly()
   const url = input.brochureUrl || BROCHURE_URL
-  const category = categoryFor(input), overview = generalInformation(input.current, audit, extracted)
+  const category = categoryFor(input), overview = generalInformation(input.current, audit)
   if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
   const deliver = pending || suppliedProfile || explicitBrochure(input.current) || missing.length === 0 || declined

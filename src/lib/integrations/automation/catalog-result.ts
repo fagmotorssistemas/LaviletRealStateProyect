@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { CATALOG_NUMBER_FIELDS, catalogNumber, requirementMatch } from './catalog-request'
 import { catalogQuery, filterCatalog, type CatalogQuery } from './catalog-dialogue'
+import { compactDiscountEvidence } from './discount-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (units: Row[]) => units.map(unit => text(unit.id))
@@ -37,8 +38,9 @@ export function resolveCatalogRequirements(info: Row, query: CatalogQuery, reque
     ...(Array.isArray(request.semantic_preferences) ? request.semantic_preferences : [])])]
   return { query: resolved, request: { ...request, requirements, semantic_preferences: preferences } }
 }
-export const compactCatalogUnit = (unit: Row, prices: boolean): Row => Object.fromEntries(fields
-  .filter(field => field !== 'published_commercial_price' || prices).filter(field => unit[field] !== undefined).map(field => [field, unit[field]]))
+export const compactCatalogUnit = (unit: Row, prices: boolean): Row => ({ ...Object.fromEntries(fields
+  .filter(field => field !== 'published_commercial_price' || prices).filter(field => unit[field] !== undefined).map(field => [field, unit[field]])),
+...compactDiscountEvidence(unit, prices) })
 
 export function completeCatalogResult(info: Row, query: CatalogQuery, request: Row, scopedIds?: string[]) {
   const prices = object(info.politica_comercial).precios_autorizados === true

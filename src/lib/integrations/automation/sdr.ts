@@ -6,6 +6,8 @@ import { activePrompt, aiJson, draftReply } from './ai'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
 import { deliveryContext, PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
+import { earlyPurchaseDiscountSettings } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
+import { earlyPurchaseDiscountContext } from './early-purchase-discount-context'
 import { financingPolicyContext } from './financing-quote'
 import { recordDraftDecision } from './ai-execution-trace'
 import { db, object, scope, text, type Row } from './data'
@@ -31,7 +33,8 @@ import { projectReadiness, readinessRules, type ProjectReadiness } from '@/lib/i
 import { salesSubject } from './sales-subject'
 import { unitRecommendation } from './unit-recommendation'
 import { recommendationClarification } from './commercial-accuracy'
-import { locationRequestKind, withVisitLocation } from './visit-location'
+import { withVisitLocation } from './visit-location'
+import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { commercialCoverageIssues } from './multi-topic-turn'
 import { houseProductReply, PRODUCT_FIT_RULES } from './product-fit'
@@ -65,7 +68,7 @@ export async function publishedUnitCatalog() {
 
 export async function commercialContext(lead: Row, history: unknown, profileInput?: unknown, finance?: Row) {
   const sources = await readCommercialContext({
-    units: (attempt) => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces')
+    units: (attempt) => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces,is_published,status')
       .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
     amenities: (attempt) => db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100)
       .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
@@ -93,7 +96,12 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
   })
   const pricing = botPricingPolicy(mode, launchPricesVisible(projectData.policies_json))
   const pricesAllowed = pricing.visible
-  const catalog = units.map(row => ({ ...row, published_commercial_price: pricesAllowed ? row.published_commercial_price : null }))
+  const discounts = earlyPurchaseDiscountContext(units.map(row => ({ ...row,
+    published_commercial_price: pricesAllowed ? row.published_commercial_price : null })),
+  earlyPurchaseDiscountSettings(projectData.policies_json), { mode, pricesAuthorized: pricesAllowed,
+    today: new Intl.DateTimeFormat('en-CA', { timeZone: text(settings.timezone) || 'America/Guayaquil',
+      year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) })
+  const catalog = discounts.units
   const profile = confirmedLeadProfile(profileInput)
   const policies = publishedBusinessPolicies(projectData.policies_json, mode)
   return { lead: { name: conversationalFirstName(text(profile.full_name)) || null,
@@ -105,6 +113,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
     politicas_negocio: policies,
+    politica_descuentos: discounts.policy,
     business_policy_context: { status: 'loaded', available_count: policies.length, mode },
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     entrega_proyecto: deliveryContext(projectData.policies_json),
@@ -127,6 +136,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  info = projectLocationForPrompt(info, locationDisclosurePolicy({ current, verified: info }))
   info = { ...info, hechos_confirmados: confirmedInterpretationMemory(summary) }
   // Explicit project information wins over an inferred or remembered catalogue query.
   const overview = projectInformationReply(info, current, BROCHURE_URL)
@@ -242,7 +252,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     const shareMaterial = attachBrochure || plan.action === 'share_brochure'
     if (shareMaterial && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure para que pueda explorar la propuesta${info.modo_comercial === 'lanzamiento' ? '; las imágenes ilustran cómo está previsto el proyecto' : ''}: ${BROCHURE_URL}`
     answer += !audit.ai_draft_preserved && plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
-    return { reply: withVisitLocation(answer, info, !!locationRequestKind(current)), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
+    return { reply: withVisitLocation(answer, info, object(info.location_disclosure).exact_location_allowed === true), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
   }
   const mediaExplanation = mediaClarificationReply(current)
   if (mediaExplanation) return {reply:mediaExplanation,audit:{source:'media_clarification',rewritten:false,review_reasons:[],fallback:false}}

@@ -33,7 +33,7 @@
   "monthly_income": null,
   "ruc": null,
   "visit_preference": null,
-  "visit_intent": { "kind": "none", "evidence": "", "confidence": "high" },
+  "visit_intent": { "kind": "none", "purpose": "none", "target": "unspecified", "destination": null, "evidence": "", "confidence": "high" },
   "requests": [],
   "turn_semantics": {
     "primary_intent": "answer_previous",

@@ -11,6 +11,7 @@ export const questionIds = [
   'financing_data',
   'property_purpose',
   'visit_invitation',
+  'visit_destination',
   'visit_date_time',
   'budget_amount',
   'budget_kind',

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:commercial-guards": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/earlyPurchaseDiscounts.test.ts src/lib/integrations/automation/early-purchase-discount-context.test.ts src/lib/integrations/automation/discount-evidence.test.ts src/lib/integrations/automation/location-policy.test.ts src/lib/integrations/automation/visit-dialogue.test.ts src/lib/integrations/automation/turn-commercial-guards.test.ts src/components/inmobiliaria/automation/workflow/messageExplanationCommercialGuards.test.ts scripts/early-purchase-discount-actions.test.cjs scripts/visit-destination-consent.pglite.test.cjs scripts/visit-location.test.cjs",
     "test:prompt-compaction": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/prompt-compaction-regression.test.ts src/lib/integrations/automation/turn-prompt-context.test.ts src/lib/integrations/automation/prompt-assembly.test.ts scripts/fixtures/prompt-compaction-oracle.test.cjs",
     "eval:prompt-compaction": "node scripts/evaluate-prompt-compaction.cjs",
     "test:selection-intake": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/selection-intake-regression.test.ts src/lib/integrations/automation/commercial-journey.test.ts src/lib/integrations/automation/property-selection.test.ts src/lib/integrations/automation/financing-stage-regression.test.ts src/lib/integrations/automation/financing-identity.test.ts src/lib/integrations/automation/business-facts.test.ts",

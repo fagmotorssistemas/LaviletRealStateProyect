@@ -1,8 +1,9 @@
 import { object, text, type Row } from './data'
 import { CATALOG_NUMBER_FIELDS, requirementMatch } from './catalog-request'
+import { DISCOUNT_NUMBER_FIELDS, DISCOUNT_FACT_UNITS, DISCOUNT_REFERENCE_RULES, discountReferenceEvidence } from './discount-evidence'
 
 const fields = ['published_commercial_price', 'area_internal_m2', 'area_exterior_m2', 'bedrooms', 'bathrooms_full',
-  'area_total_m2', 'floor_number', 'category', 'availability_status', 'status', 'unit_number', 'unit_count', 'amount']
+  'area_total_m2', 'floor_number', 'category', 'availability_status', 'status', 'unit_number', 'unit_count', 'amount', ...DISCOUNT_NUMBER_FIELDS]
 const kinds = ['catalog_value', 'lead_budget', 'budget_difference', 'other_calculation']
 const relations = ['eq', 'gt', 'gte', 'lt', 'lte', 'range']
 export const businessFactSchema: Row = {
@@ -26,7 +27,7 @@ export const businessFactSchema: Row = {
     value: { type: ['number', 'string'] },
     upper_value: { type: ['number', 'null'] },
     relation: { type: 'string', enum: relations },
-    unit: { type: 'string', enum: ['USD', 'm2', 'count', 'text', 'other'] },
+    unit: { type: 'string', enum: ['USD', 'm2', 'count', 'percent', 'text', 'other'] },
   }, required: ['statement', 'kind', 'subject_id', 'scope', 'field', 'value', 'upper_value', 'relation', 'unit'],
 }
 
@@ -41,7 +42,7 @@ scope identifica las condiciones del conjunto que realmente describe la afirmaci
 unit identifica USD, m2, count o text. Dormitorios, baños, plantas y cantidades de unidades usan count. «Cuatro departamentos de tres dormitorios» contiene dos datos distintos: unit_count=4 y bedrooms=3; extraiga ambos si están afirmados. unit_count se refiere al grupo de la consulta, nunca a una ficha individual ni al número de ejemplos enviados. Para un resumen use el grupo source_scope=complete_query y respete complete_for_query y las unidades con datos desconocidos. No suponga que una entrada o cuota es presupuesto total. Negaciones y condiciones que no se representan fielmente con estos campos se revisan semánticamente; no las transforme en hechos afirmativos.
 No cree un inventario de cada oración ni referencias E/S/N. Los datos son una extracción del borrador, no nueva evidencia ni permiso para cambiar el catálogo. Un problema de extracción requiere reparar la ficha, no reescribir un borrador correcto.
 question describe la pregunta real del borrador (null si no hay pregunta). offered_action diferencia information, financing_review, internal_advisor, ambiguous y none. Ofrecer dos ayudas distintas produce ambiguous: un sí no autoriza escoger una. No marque none si está ofreciendo una ayuda concreta.
-`
+` + '\n' + DISCOUNT_REFERENCE_RULES
 
 export type FactCheck = { index: number; fact: Row; status: 'verified' | 'contradiction' | 'unverified';
   expected?: unknown; source?: Row; reason: string; repairable?: boolean }
@@ -65,6 +66,9 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
     const exact = catalog.find(row => row.id === fact.subject_id)
     const numbered = units.filter(row => text(row.unit_number) === text(fact.subject_id))
     let subject = exact || (numbered.length === 1 ? numbered[0] : undefined)
+    const discountField = DISCOUNT_NUMBER_FIELDS.find(field => field === fact.field)
+    if (discountField && (fact.kind !== 'catalog_value' || fact.scope != null || !subject
+      || !discountReferenceEvidence(subject).available)) return unknown('El descuento necesita una cotización vigente de la unidad concreta y su condición; no un grupo.', false)
     const scope = object(fact.scope)
     if (fact.scope != null) {
       if (!Array.isArray(scope.filters) || scope.category != null && !['local', 'suite', 'departamento', 'penthouse'].includes(text(scope.category)))
@@ -91,7 +95,8 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
         [text(fact.field)]: subject.aggregation === 'max' ? max : min,
         upper_values: { [text(fact.field)]: max, unit_count: selected.length } }
     }
-    const unitForField = fact.field === 'published_commercial_price' || fact.field === 'amount' ? 'USD'
+    const unitForField = discountField ? DISCOUNT_FACT_UNITS[discountField]
+      : fact.field === 'published_commercial_price' || fact.field === 'amount' ? 'USD'
       : /^area_/.test(text(fact.field)) ? 'm2'
         : ['bedrooms', 'bathrooms_full', 'floor_number', 'unit_count'].includes(text(fact.field)) ? 'count' : 'text'
     // The typed field already determines these dimensionless counts. An unspecified label cannot change a value or require another model call.
@@ -113,9 +118,12 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
       } else {
         if (fact.field === 'amount') return unknown('amount corresponde al presupuesto, no a una ficha de catálogo.')
         if (fact.field === 'unit_count' && !Array.isArray(subject.member_ids)) return unknown('La cantidad necesita un grupo con miembros identificados.')
-        expected = fact.field === 'unit_count' ? subject.unit_count ?? (subject.member_ids as unknown[]).length : subject[fact.field as string]
+        expected = discountField ? discountReferenceEvidence(subject).values[discountField]
+          : fact.field === 'unit_count' ? subject.unit_count ?? (subject.member_ids as unknown[]).length : subject[fact.field as string]
         source = { subject_id: subject.id, field: fact.field, aggregation: subject.aggregation,
-          member_ids: subject.member_ids, scope: subject.scope, upper_value: object(subject.upper_values)[fact.field as string] }
+          member_ids: subject.member_ids, scope: subject.scope, upper_value: object(subject.upper_values)[fact.field as string],
+          ...(discountField ? { early_purchase_discount: discountReferenceEvidence(subject).quote,
+            verification_scope: 'conditional_arithmetic_reference_only' } : {}) }
       }
     }
     if (expected === undefined || expected === null || expected === '') return unknown('La fuente no contiene ese dato; requiere revisión semántica.', false)
@@ -132,7 +140,7 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
       // the group itself and is not duplicated in upper_values.
       if (numeric(expected) && fact.field !== 'unit_count' && subject?.aggregation === 'range'
         && !equal(expected, object(subject.upper_values)[fact.field as string])) return unknown('El rango de este atributo no acredita un único valor exacto.')
-      matches = equal(expected, fact.value)
+      matches = discountField ? expected === fact.value : equal(expected, fact.value)
     } else {
       if (!numeric(expected) || !numeric(fact.value)) return unknown('La comparación requiere valores numéricos.')
       // Universal comparisons over a range must hold at the relevant endpoint.

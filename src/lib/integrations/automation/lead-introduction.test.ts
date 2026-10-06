@@ -27,6 +27,78 @@ describe('commercial opening uses the existing grounded interpretation', () => {
     assert.match(turn.reply, /su nombre.*reside actualmente/)
     assert.deepEqual((turn.audit.profile_introduction as { missing_fields: string[] }).missing_fields, ['full_name', 'residence'])
   })
+  it('plans the first invitation from the interpreted request across catalogue operations and future routes', () => {
+    for (const source of ['catalog_details', 'catalog_compare', 'catalog_rank', 'future_project_information']) {
+      const turn = leadIntroductionTurn(input({ current: 'me interesa información de los apartamentos',
+        history: [{ role: 'bot', content: 'Hola, ¿en qué podemos ayudarle?' }],
+        extracted: { turn_semantics: { primary_intent: 'project_information', confidence: 'high',
+          property: { category: 'departamento', operation: 'details', confidence: 'high' } } },
+        audit: { source }, reply: 'Hay dos alternativas. ¿Qué planta prefiere?' }))
+      assert.equal(turn.applied, true, source)
+      assert.ok(turn.reply.endsWith(PROFILE_INVITATION), source)
+      assert.match(turn.reply, /departamentos de 2 y 3 dormitorios/, source)
+      assert.doesNotMatch(turn.reply, /Qué planta|https:\/\//, source)
+      assert.equal(turn.state.status, 'pending', source)
+      assert.equal((turn.audit.profile_introduction as { question_purpose: string }).question_purpose, 'collect_profile', source)
+    }
+  })
+  it('preserves a concrete detail or comparison answer before the missing-data question', () => {
+    for (const source of ['catalog_details', 'catalog_compare', 'future_comparison_answer']) {
+      const turn = leadIntroductionTurn(input({ current: '¿Qué diferencia hay entre 201 y 901?',
+        extracted: { turn_semantics: { primary_intent: 'project_information', confidence: 'high' } },
+        audit: { source }, reply: 'El 201 tiene 2 dormitorios y el 901 tiene 3. ¿Qué planta prefiere?' }))
+      assert.match(turn.reply, /201 tiene 2 dormitorios.*901 tiene 3/, source)
+      assert.ok(turn.reply.endsWith(PROFILE_INVITATION), source)
+      assert.doesNotMatch(turn.reply, /Qué planta|https:\/\//, source)
+    }
+  })
+  it('uses grounded extracted requests when their primary intent is other', () => {
+    const turn = leadIntroductionTurn(input({ current: 'y eso cómo funciona?',
+      extracted: { turn_semantics: { primary_intent: 'other', confidence: 'high' },
+        requests: [{ domain: 'property', request: 'Explicar el concepto del proyecto', evidence: 'eso cómo funciona', confidence: 'high' }] },
+      audit: { source: 'future_concept_answer' }, reply: 'El proyecto reúne las opciones del catálogo.' }))
+    assert.equal(turn.applied, true)
+    assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+  })
+  it('does not treat informative reservation metadata or a catalogue operation as an executed action', () => {
+    for (const overrides of [
+      { current: '¿Cómo funciona la reserva?', extracted: { turn_semantics: { primary_intent: 'ask_reservation', confidence: 'high' } },
+        audit: { source: 'reservation_information', action: 'information_only', reservation: { kind: 'information', handoff_verified: false } } },
+      { current: '¿Qué incluye el 201?', extracted: { turn_semantics: { primary_intent: 'project_information', confidence: 'high', property: { operation: 'details' } } },
+        audit: { source: 'future_catalogue_handler', action: 'details', reservation: {} } },
+    ]) {
+      const turn = leadIntroductionTurn(input({ reply: 'Primero podemos revisar la opción que le interese.', ...overrides }))
+      assert.equal(turn.applied, true)
+      assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+    }
+  })
+  it('does not restart a declined or ignored invitation when the catalogue route changes', () => {
+    for (const previous of [
+      { status: 'complete', request_sent: true, collection_status: 'deferred' },
+      { status: 'skipped', request_sent: true, collection_status: 'declined' },
+    ]) {
+      const reply = 'El departamento tiene 2 dormitorios.'
+      const turn = leadIntroductionTurn(input({ current: '¿Qué incluye el 201?', reply,
+        summary: { _lead_introduction: previous }, audit: { source: 'catalog_details' },
+        extracted: { turn_semantics: { primary_intent: 'project_information', confidence: 'high' } } }))
+      assert.equal(turn.reply, reply)
+      assert.equal(turn.applied, false)
+    }
+  })
+  it('protects semantic operations and uncertain or foreign scope even on a new route', () => {
+    const reply = '¿Para qué día le gustaría coordinarla?'
+    for (const overrides of [
+      { extracted: { turn_semantics: { primary_intent: 'request_visit', confidence: 'high' } } },
+      { extracted: { turn_semantics: { primary_intent: 'request_reservation', confidence: 'high' } } },
+      { extracted: { requested_advisor: true } },
+      { audit: { source: 'future_route', business_scope: 'out_of_scope' } },
+      { audit: { source: 'future_route', resolved_turn_intent: { scope: { kind: 'property', uncertain: true } } } },
+    ]) {
+      const turn = leadIntroductionTurn(input({ current: 'Quiero información', reply, audit: { source: 'future_route' }, ...overrides }))
+      assert.equal(turn.reply, reply)
+      assert.equal(turn.applied, false)
+    }
+  })
   it('respects a prior delivered invitation and protected financing steps', () => {
     const invited = { status: 'complete', requested_fields: ['full_name', 'residence'], collection_status: 'deferred' }
     const base = 'Podemos explicar las alternativas disponibles.'

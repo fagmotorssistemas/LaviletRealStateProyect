@@ -75,10 +75,24 @@ test('direct location requests accept conversational phrasing and batched questi
   for (const message of [
     'Ubicación', 'Ya pero dónde', '¿Dónde están?', '¿Dónde queda La Vilet?',
     'Mándeme la ubicación por favor', 'Puedes enviarme la dirección', '¿Me comparte el mapa?',
-    'Quiero ver el mapa', '¿Cómo llego a la oficina?', '¿En qué sector está La Vilet?',
+    'Quiero ver el mapa', '¿Cómo llego a la oficina?',
     '¿Aceptan mascotas?\n¿Me puede enviar la ubicación?',
     'Deme la dirección y también dígame si hay estacionamientos.',
   ]) assert.equal(locationRequestKind(message), 'request', message)
+})
+
+test('sector and city questions use coarse facts without requesting exact directions or a map', () => {
+  for (const message of ['¿En qué sector está La Vilet?', '¿En qué ciudad queda el proyecto?',
+    '¿Cuál es el barrio?', 'No quiero el mapa, solo en qué zona está',
+    '¿Me dice en qué sector queda? También quisiera los precios.']) {
+    assert.equal(locationRequestKind(message), 'general', message)
+    const reply = locationAnswer(info, 'general')
+    assert.match(reply, /Puertas del Sol, Cuenca/)
+    assert.ok(!reply.includes(address), message)
+    assert.ok(!reply.includes(map), message)
+  }
+  assert.equal(locationRequestKind('¿En qué sector queda y me manda el mapa?'), 'request')
+  assert.equal(locationRequestKind('¿En qué ciudad queda? Además deme la dirección.'), 'request')
 })
 
 test('location clarification remains detectable among parking and financing questions', () => {
@@ -99,6 +113,7 @@ test('unit position, neighborhood questions and a refused map do not request pro
     '¿La ubicación cambia el precio?', '¿El sector es seguro?', '¿Hay parques cerca?',
     'Quiero un departamento con buena ubicación', 'La oficina me parece muy pequeña',
     'No me envíe la ubicación', 'No quiero el mapa', 'No necesito la dirección',
+    '¿Dónde está el departamento 201?',
   ]) assert.equal(locationRequestKind(message), null, message)
 })
 

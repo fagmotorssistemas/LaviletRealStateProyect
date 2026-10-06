@@ -62,7 +62,10 @@ export const TURN_EXTRACTION_SCHEMA = closedObject({
   ruc: nullableString,
   visit_preference: nullableObject({ evidence: { type: 'string' }, date_text: nullableString, time_text: nullableString,
     location_type: { type: ['string', 'null'], enum: ['office', 'site', 'work_area', 'model', 'completed_unit', null] }, confidence }),
-  visit_intent: nullableObject({ kind: { type: 'string', enum: ['request_visit', 'accept_visit_preference', 'visit_status', 'none'] }, evidence: { type: 'string' }, confidence }),
+  visit_intent: nullableObject({ kind: { type: 'string', enum: ['request_visit', 'accept_visit_preference', 'visit_information', 'decline_visit', 'visit_status', 'none'] },
+    purpose: { type: 'string', enum: ['coordination', 'preference', 'accept_alternative', 'availability_information', 'access_information', 'decline', 'cancel', 'status', 'none'] },
+    target: { type: 'string', enum: ['project', 'other', 'unspecified'] },
+    destination: { type: ['string', 'null'], enum: ['office', 'site', 'work_area', 'model', 'completed_unit', 'building', null] }, evidence: { type: 'string' }, confidence }),
   requests: { type: 'array', items: closedObject({ request: { type: 'string' }, domain: { type: 'string', enum: [...requestDomains] }, evidence: { type: 'string' }, confidence }) },
   turn_semantics: TURN_SEMANTICS_SCHEMA,
 })

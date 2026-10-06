@@ -29,6 +29,7 @@ import { commercialContext, commercialReply, publishedUnitCatalog, catalogSearch
 import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from './unit-model'
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
+import { visitDialogueTurn, visitDialogueBaseReply, visitDialoguePendingQuestion, visitDialogueIntakeSnapshot, reconcileVisitDialogueScope, rememberVisitDialogue } from './visit-dialogue'
 import { isProfileOnlyTurn, leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction } from './lead-introduction'
 import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { progressivePendingQuestion } from './progressive-options'
@@ -63,6 +64,7 @@ import { classifyBusinessScope, reconcileConversationScope, type BusinessScopeDe
 import { inboundFreshness } from './inbound-freshness'
 import { financingFieldAnswer } from './financing-continuation'
 import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
+import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
 import { selectedVisitOption } from './visit-choice'
 import { visitParserReady } from './visit-parser-health'
@@ -493,6 +495,16 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         return { ...result, registration_verified: true, assigned_advisor_id: saved.assigned_advisor_id || null }
       }
       if (!['collecting', 'stale', 'closed_day', 'past', 'outside_hours'].includes(text(result.action))) throw new Error('VISIT_INTAKE_INVALID_RESULT')
+      const retained = object(object(object(args.p_snapshot)._visit_dialogue_consent).source_preference)
+      const retainedSource = text(retained.source_message_id)
+      const sources = object(result.slot).source_messages
+      const verifiedSources = (Array.isArray(sources) ? sources : []).map(object)
+      if (retainedSource && result.action === 'collecting' && !verifiedSources.some(source => [text(source.id), text(source.external_id)].includes(retainedSource))) {
+        const message = await transferToAdvisor('coordinar la cita en el lugar aceptado conservando la fecha y hora declaradas; verificar la fuente anterior antes de registrar otra solicitud', {
+          rule_id: 'visit.prior_preference_requires_verification', origin: 'operational', caused_by_step: visitStep })
+        trace.finish(visitStep, 'paused', { action: 'advisor_handoff', reason: 'VISIT_PRIOR_PREFERENCE_NOT_VERIFIED', request_registered: false })
+        return { action: 'advisor_handoff', message, registration_verified: false, preference_retained: true }
+      }
       trace.finish(visitStep, text(result.action) === 'collecting' ? 'succeeded' : 'paused', {
         action: text(result.action), has_slot: Boolean(result.slot),
       })
@@ -511,7 +523,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (repair) greeting = false
   const turnGreeting = greetingForTurn(current, context.historial, lead.last_bot_message_at, activeLast.sentAt)
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
-  const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
+  const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period,preferred_location_type').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
   // Common interpretation precedes every conversational response route.
   await guard()
@@ -545,7 +557,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     alcance_negocio_incierto: businessScope.uncertain,
     ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion,
     contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog,
-    propuestas: proposals, coordinacion_visita: visitDraft, financiamiento: finance,
+    propuestas: proposals, coordinacion_visita: visitDraft, dialogo_visita: previousSummary._visit_dialogue, financiamiento: finance,
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence && businessScope.confidence !== 'low' ? '' : current,
   }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
@@ -554,7 +566,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     object(interpretation.diagnostic.interpretation_recovery))
   const classifiedScope = businessScope.kind
   const classifiedUncertain = businessScope.uncertain
-  const reconciledScope = await reconcileConversationScope(businessScope, current, interpretation.requests, context.historial, pendingQuestion)
+  const readableVisit = interpretation.withActionMessage?.(current) || interpretation
+  const visitScope = hasUnrelatedAppointmentTarget(current) ? businessScope
+    : reconcileVisitDialogueScope(businessScope, current, readableVisit.extracted.visit_intent, interpretation.requests)
+  const reconciledScope = visitScope !== businessScope ? visitScope
+    : await reconcileConversationScope(businessScope, current, interpretation.requests, context.historial, pendingQuestion)
   if (reconciledScope !== businessScope) {
     businessScope = reconciledScope
     if (businessScope.kind === 'property' || businessScope.kind === 'mixed') {
@@ -645,19 +661,31 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   extracted.financing_consent = financeInput.consent
   extracted.financing_partner = financeInput.partner
   const collectingVisit = visitDraft?.status === 'collecting'
+  if (answersPendingQuestion(turnSemantics, 'visit_destination', 'affirmative') && object(previousSummary._visit_dialogue).status === 'offered'
+    && object(extracted.visit_intent).kind !== 'decline_visit') extracted.visit_intent = { kind: 'accept_visit_preference', purpose: 'accept_alternative',
+      target: 'project', destination: object(previousSummary._visit_dialogue).offered_destination,
+      evidence: object(turnSemantics.answer_to_previous).evidence, confidence: 'high' }
   const semanticVisit = object(extracted.visit_intent)
+  const visitInfoForTurn: Row = !minimalTurn && (semanticVisit.confidence === 'high' && semanticVisit.kind !== 'none'
+    || Object.keys(object(previousSummary._visit_dialogue)).length || collectingVisit)
+    ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
+  const visitDialoguePlan = visitInfoForTurn.estado_proyecto ? visitDialogueTurn({ previous: previousSummary._visit_dialogue,
+    intent: semanticVisit, preference: extracted.visit_preference, readiness: visitInfoForTurn.estado_proyecto as ProjectReadiness,
+    intake: visitDraft, proposals, current, sourceMessageId: activeLast.externalId, sourceAt: activeLast.sentAt, pendingQuestion }) : {}
   const visitPermission = visitRoutePermission(interpretation.requests, turnSemantics, semanticVisit)
   trace.add('route_consistency', 'Comprobar ruta frente a la solicitud actual', 'decision', 'route-consistency.ts', 'succeeded', {}, visitPermission)
   const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
-  // A semantic acceptance is actionable only while a durable visit draft is
-  // already collecting details. This prevents a bare "sí" from starting a
-  // visit while financing, pricing or another feature is active.
+  // A semantic acceptance needs a durable draft or an actually offered visit
+  // destination. An informational question and a bare yes to another flow
+  // cannot authorize a visit.
   const semanticVisitAcceptance = (semanticVisit.kind === 'accept_visit_preference' && collectingVisit)
+    || visitDialoguePlan.current_kind === 'accept_alternative' && visitDialoguePlan.operation_allowed === true
     || answersPendingQuestion(turnSemantics, 'visit_invitation', 'affirmative')
   const explicitVisitRequest = explicitlyRequestsVisit(current)
   const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
   const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
-  const canRequestVisit = visitPermission.allowed && !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
+  const canRequestVisit = visitPermission.allowed && visitDialoguePlan.information_only !== true && visitDialoguePlan.current_kind !== 'decline'
+    && !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
     && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
     && (visitSignal || collectingVisit)
   if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
@@ -804,6 +832,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   async function afterAppliedVisit(result: Row, proposal: Row): Promise<Row | null> {
     const remaining = interpretation.requests.filter(request => !['visit', 'tracking', 'courtesy'].includes(text(request.domain)))
     const updated = { ...summary, _pending_question: {},
+      _visit_dialogue: { ...object(visitDialoguePlan.state), status: result.action === 'confirmed' ? 'confirmed'
+        : ['cancelled', 'canceled', 'cancel'].includes(text(result.action)) ? 'declined' : object(visitDialoguePlan.state).status,
+        request_id: proposal.request_id || proposal.id, missing_fields: [], pending_preference: null },
       _property_context: { ...object(summary._property_context), pending_question: {}, focused_ids: [] },
       _last_operational_step: { kind: 'visit_confirmed', request_id: proposal.request_id || proposal.id },
       _pending_requests: remaining }
@@ -1014,7 +1045,22 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reply = await transferToAdvisor('coordinación inmobiliaria mezclada con otra gestión; verificar únicamente la visita al proyecto', { rule_id: 'visit.mixed_scope', origin: 'operational', caused_by_step: semanticStep })
     audit = { source: 'mixed_visit_handoff' }
   }
-  if (!reply && !greeting && !modelOnly && proposals.length && visitPermission.allowed) {
+  if (!reply && visitDialoguePlan.information_only === true) {
+    reply = visitDialoguePlan.current_kind === 'availability_information'
+      ? [visitBusinessHoursReply(visitInfoForTurn.horario_atencion, { action: 'information' }, activeLast.sentAt), text(visitDialoguePlan.question)].filter(Boolean).join(' ')
+      : visitDialogueBaseReply(visitDialoguePlan, visitInfoForTurn.estado_proyecto as ProjectReadiness)
+    if (!reply) reply = 'Podemos explicarle los lugares de atención habilitados y los horarios publicados; la disponibilidad de una cita requiere verificación del equipo.'
+    audit = { source: 'visit_information', covered_requests: ['visit_information'], pending_question: visitDialoguePendingQuestion(visitDialoguePlan) }
+  } else if (!reply && ['coordination', 'preference', 'accept_alternative'].includes(text(visitDialoguePlan.current_kind)) && visitDialoguePlan.operation_allowed !== true) {
+    reply = visitDialogueBaseReply(visitDialoguePlan, visitInfoForTurn.estado_proyecto as ProjectReadiness)
+      || readinessInvitation(visitInfoForTurn.estado_proyecto as ProjectReadiness)
+      || 'Por el momento no hay visitas presenciales habilitadas. Podemos resolver sus dudas por aquí.'
+    audit = { source: 'visit_destination_choice', pending_question: visitDialoguePendingQuestion(visitDialoguePlan) }
+  } else if (!reply && visitDialoguePlan.current_kind === 'decline') {
+    reply = 'Entiendo. Si más adelante desea coordinar una visita, puede indicárnoslo. Seguimos disponibles para atender sus consultas.'
+    audit = { source: 'visit_declined', pending_question: {} }
+  }
+  if (!reply && !greeting && !modelOnly && proposals.length && visitPermission.allowed && visitDialoguePlan.information_only !== true) {
     await guard()
     const visitIntentStep = trace.start('visit_intent', 'Interpretar respuesta de visita', 'ai', 'conversation.ts · visitIntentPrompt', {
       message: traceText(current), proposals_available: proposals.length,
@@ -1172,8 +1218,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita', { rule_id: 'price.unverified_for_visit', origin: 'catalog', caused_by_step: catalogStep })
           audit = { source: 'price_and_visit_handoff' }
         } else {
+          const intakeSnapshot = visitDialogueIntakeSnapshot(visitDialoguePlan, semanticVisit, extracted.visit_preference, activeLast.externalId)
           const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
-            p_needs_help: false, ...(extracted.visit_preference ? { p_snapshot: { _interpreted_visit: extracted.visit_preference } } : {}) })
+            p_needs_help: false, ...(Object.keys(intakeSnapshot).length ? { p_snapshot: intakeSnapshot } : {}) })
           reply = text(result.message) || intakeReply(result, activeLast.sentAt)
           const shouldShowVisitHours = ['closed_day', 'outside_hours'].includes(text(result.action))
             || (result.action === 'collecting' && result.needs_location !== true
@@ -1333,6 +1380,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const scopeOnlyReview = businessScope.uncertain || businessScope.kind === 'out_of_scope'
   const scopeContract = needsScopeCopy ? scopeWritingContract(businessScope, previousSummary._brand_introduced === true) : null
   if (businessScope.kind === 'mixed') reply = scopeFallbackReply(businessScope, true) + '\n\n' + reply
+  if (Object.keys(visitDialoguePlan).length) audit.visit_dialogue_plan = visitDialoguePlan
   const plannedResponse = responsePlan(reply, audit)
   let reviewedText = ''
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
@@ -1380,7 +1428,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         solicitudes_interpretadas: turnIntent.requests }, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
       : { ...commercialInfo, alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       ...(scopeContract ? { limite_alcance: scopeContract } : {}),
-      estado_operativo: audit, coordinacion_visita: visitDraft, referencia_unidad: propertyTurn,
+      estado_operativo: audit, coordinacion_visita: visitDraft, visit_dialogue_plan: visitDialoguePlan, referencia_unidad: propertyTurn,
       avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [],
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
       contrato_turno: turnIntent,
@@ -1557,7 +1605,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.handoff_text_transformations = [{ stage: 'Aviso de derivación realizada: se conserva la pregunta', before: beforeHandoff, after: reply }]
   }
   if (reviewing && !recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
-    reply = withVisitLocation(reply, await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), true)
+    const locationInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
+    const locationPolicy = locationDisclosurePolicy({ current, verified: locationInfo, audit })
+    reply = withVisitLocation(reply, projectLocationForPrompt(locationInfo, locationPolicy), locationPolicy.exact_location_allowed === true)
   }
   trace.add('route_selected', 'Seleccionar ruta de respuesta', 'decision', 'conversation.ts · turn-routing.ts', 'succeeded', {
     scope: businessScope.kind,
@@ -1702,6 +1752,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     planned: summary._lead_introduction, profile: summary._lead_profile, reply, audit,
     accepted: true, followUpUsable: canTrackFollowUp, recovery: pendingRecovery })
   summary._commercial_journey = rememberCommercialJourney(object(summary._commercial_journey), object(audit.commercial_journey), object(audit.pending_question),
+    canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
+  summary._visit_dialogue = rememberVisitDialogue(previousSummary._visit_dialogue, visitDialoguePlan, audit,
     canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
     _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },

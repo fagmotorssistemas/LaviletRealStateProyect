@@ -23,22 +23,46 @@ export function mentionsVisitLocation(reply: string) {
   })
 }
 
-export type LocationRequestKind = 'request' | 'clarification'
+export type LocationRequestKind = 'general' | 'request' | 'clarification'
 
 // Match the question within a batch of inbound messages as well as on its own.
 // Mentioning a unit's location or asking about nearby amenities is not a map request.
 export function locationRequestKind(current: string): LocationRequestKind | null {
   const value = normalized(current)
   if (/\b(?:esa|esta|la|el|ese|este)\s+(?:ubicacion|direccion|mapa)(?:\s+que\s+(?:me\s+)?(?:envio|mando|compartio))?\s+(?:de que|de donde|a que|que es|corresponde a)\b|\b(?:de que|de donde|a que (?:lugar|sitio))\s+(?:es|corresponde)\s+(?:(?:esa|esta|la|el|ese|este)\s+)?(?:ubicacion|direccion|mapa)\b/.test(value)) return 'clarification'
-  if (/\b(?:no|ni)\s+(?:me\s+)?(?:envie|mande|comparta|pase|quiero|necesito)\b[^.!?]{0,30}\b(?:ubicacion|direccion|mapa)\b/.test(value)) return null
-  if (/\b(?:donde\s+(?:queda|quedan|esta|estan|se encuentra|se ubica)|como\s+(?:llego|llegar|llegamos)|(?:cual|que)\s+es\s+(?:(?:la|su)\s+)?(?:direccion|ubicacion)|en que\s+(?:direccion|calle|sector)\s+(?:esta|queda|se encuentra))\b/.test(value)) return 'request'
-  if (/\b(?:envie\w*|envia\w*|mand\w*|compart\w*|pas\w*|dame|deme)\b[^.!?]{0,45}\b(?:ubicacion|direccion|mapa)\b/.test(value)
-    || /\b(?:necesito|quiero|puedo)\s+(?:(?:saber|conocer|ver)\s+)?(?:(?:la|su|el)\s+)?(?:ubicacion|direccion|mapa)\b/.test(value)) return 'request'
-  if (/^(?:(?:ya|si|bueno|pero|y|esta bien|me dice|por favor)\s+)*(?:donde|(?:la|su)\s+(?:ubicacion|direccion)|ubicacion|direccion|mapa)[\s?¿.!]*$/.test(value)) return 'request'
+  const clauses = value.split(/[\n.!?;]+|(?:,\s*|\s+)(?:pero|solo|solamente|ademas|tambien)\s+/)
+    .filter(clause => !/\b(?:no|ni)\s+(?:me\s+)?(?:envie|mande|comparta|pase|quiero|necesito)\b[^.!?]{0,40}\b(?:ubicacion|direccion|mapa)\b/.test(clause))
+  const general = clauses.some(clause => /\b(?:en|de)\s+que\s+(?:ciudad|sector|zona|barrio|provincia)|\b(?:cual|que)\s+(?:es\s+)?(?:la|el)?\s*(?:ciudad|sector|zona|barrio|provincia)\b/.test(clause))
+  const exact = clauses.some(clause => /\b(?:como\s+(?:llego|llegar|llegamos)|(?:cual|que)\s+es\s+(?:(?:la|su)\s+)?(?:direccion|ubicacion)|en que\s+(?:direccion|calle)\s+(?:esta|queda|se encuentra))\b/.test(clause)
+    || /\b(?:envie\w*|envia\w*|mand\w*|compart\w*|pas\w*|dame|deme)\b[^.!?]{0,45}\b(?:ubicacion|direccion|mapa)\b/.test(clause)
+    || /\b(?:necesito|quiero|puedo)\s+(?:(?:saber|conocer|ver)\s+)?(?:(?:la|su|el)\s+)?(?:ubicacion|direccion|mapa)\b/.test(clause)
+    || /\b(?:necesito|quiero|quisiera|deseo)\b[^.!?]{0,120}\b(?:mapa|direccion|ubicacion exacta)\b/.test(clause)
+    || /^(?:(?:ya|si|bueno|pero|y|esta bien|me dice|por favor)\s+)*(?:donde|(?:la|su)\s+(?:ubicacion|direccion)|ubicacion|direccion|mapa)[\s,]*$/.test(clause.trim().replace(/^[¿¡]\s*/, '')))
+  if (exact) return 'request'
+  if (general) return 'general'
+  if (clauses.some(clause => /\bdonde\s+(?:queda|quedan|esta|estan|se encuentra|se ubica)\b/.test(clause)
+    && !/\b(?:departamento|apartamento|suite|penthouse|local)\s*(?:numero\s*)?\d+\b/.test(clause))) return 'request'
   return null
 }
 
+/** Coarse project facts have their own authority; never use a complete street
+ * address as the short location description in an ordinary introduction. */
+export function generalProjectLocation(info: Row): Row {
+  const project = object(info.proyecto || info.project), configured = object(info.ubicacion_general || info.general_location)
+  const source = text(project.address || info.address)
+  const sector = text(configured.sector || configured.neighborhood || project.sector || project.neighborhood).trim()
+    || (/\bpuertas del sol\b/.test(normalized(source)) ? 'Puertas del Sol' : '')
+  const city = text(configured.city || configured.ciudad || project.city || project.ciudad).trim()
+    || (/\bcuenca\b/.test(normalized(source)) ? 'Cuenca' : '')
+  return { ...(sector ? { sector } : {}), ...(city ? { city } : {}) }
+}
+
 export function locationAnswer(info: Row, kind: LocationRequestKind = 'request') {
+  if (kind === 'general') {
+    const place = generalProjectLocation(info)
+    const label = [text(place.sector), text(place.city)].filter(Boolean).join(', ')
+    return label ? `La Vilet se ubica en ${label}.` : ''
+  }
   const address = text(object(info.proyecto).address || info.address).trim()
   const map = text(info.ubicacion || info.map_url).trim()
   if (!address && !/^https:\/\//.test(map)) return ''
@@ -57,11 +81,11 @@ export function locationAnswer(info: Row, kind: LocationRequestKind = 'request')
 export function withVisitLocation(reply: string, info: Row, force = false) {
   // A sales invitation is not permission to send a map. Callers must establish
   // an explicit location request or an actual appointment confirmation.
-  if (!force) return reply
+  if (!force || object(info.location_disclosure).exact_location_allowed === false) return reply
   const address = text(object(info.proyecto).address || info.address).trim()
   const map = text(info.ubicacion || info.map_url).trim()
   const parts: string[] = []
-  if (address && !reply.toLocaleLowerCase('es').includes(address.toLocaleLowerCase('es'))) parts.push(`Dirección: ${address}`)
-  if (/^https:\/\//.test(map) && !reply.includes(map)) parts.push(`Mapa: ${map}`)
+  if (object(info.location_disclosure).address_allowed !== false && address && !reply.toLocaleLowerCase('es').includes(address.toLocaleLowerCase('es'))) parts.push(`Dirección: ${address}`)
+  if (object(info.location_disclosure).map_allowed !== false && /^https:\/\//.test(map) && !reply.includes(map)) parts.push(`Mapa: ${map}`)
   return parts.length ? `${reply.trim()}\n\n${parts.join('\n')}` : reply
 }

@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-06",
+  "changes": [
+    "Initial profile capture follows the current request and confirmed profile instead of informational route names.",
+    "General location, exact address and map have separate disclosure permissions shared by composition and review.",
+    "Visit dialogue preserves requested, offered and accepted destinations; questions about hours do not authorize registration.",
+    "The onsite office is configurable independently of physical construction readiness.",
+    "Early purchase discounts have editable scope, percentage, source, validity, conditions and independent activation controls.",
+    "Discount arithmetic is verified by unit and rule; a conditional reference does not confirm commercial fulfilment.",
+    "Review-disabled and transport-only traces do not appear as content approval."
+  ],
+  "validation": {
+    "specific_tests": { "total": 79, "passed": 79, "failed": 0 },
+    "automation_regression": { "total": 1642, "passed": 1596, "failed": 46, "new_failure_names": [] },
+    "known_failure_reference": "docs/automation/prompt-compaction-validation-2026-10-06.json",
+    "visit_consent_real_sql_tests": { "total": 4, "passed": 4, "failed": 0 },
+    "typescript": "passed",
+    "production_build": "passed; native exit code 0",
+    "changed_code_lint": "passed",
+    "git_diff_check": "passed",
+    "model_response_tests": "Controlled fixtures and mocked model calls; no live model quality guarantee."
+  },
+  "rollout": {
+    "office_at_project_site_saved_for_lavilet": true,
+    "other_remote_policies_preserved": true,
+    "example_five_percent_discount_enabled": false,
+    "frontend_deployed": false,
+    "visit_consent_migration_applied_remotely": false,
+    "required_migration": "supabase/migrations/20261006190000_visit_destination_consent.sql",
+    "without_migration": "Prior preferences remain attributed to their original message; the actual handoff fallback does not invent a booking or a successful intake receipt."
+  },
+  "models_changed": false,
+  "outbound_messages_sent": false
+}

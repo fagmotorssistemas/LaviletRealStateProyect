@@ -97,6 +97,7 @@ export function visitBusinessHoursReply(hours: unknown, result: Row, at: string 
   if (!groups.length) return ''
   const recurringNames = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos']
   const parts = groups.map(group => `${group.days.length > 1 ? 'de ' + names[group.days[0] - 1] + ' a ' + names[group.days.at(-1)! - 1] : 'los ' + recurringNames[group.days[0] - 1]} de ${group.open} a ${group.close}`)
+  if (result.action === 'information') return `Nuestro horario de atención es ${parts.join('; ')}. Estos son horarios de atención, no cupos confirmados; la disponibilidad de una cita se verifica con el equipo.`
   const slot = object(result.slot)
   const day = text(slot.requested_date)
   const start = text(slot.start_time)
