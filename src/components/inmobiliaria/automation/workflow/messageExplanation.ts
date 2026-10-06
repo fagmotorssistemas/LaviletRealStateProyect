@@ -1,5 +1,6 @@
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 import { catalogSearchDiagnostics, catalogSearchExplanation } from './catalogSearchExplanation'
+import { reservationServiceError } from '@/lib/inmobiliaria/automationErrors'
 import { repairBudgetFacts, repairTargetLabel, reviewDecision, reviewOwnerLabel, reviewObligationLabel, reviewIssueLabels } from './reviewDecision'
 
 type Row = Record<string, unknown>
@@ -259,7 +260,7 @@ export function humanValue(value: unknown, snapshots: CatalogSnapshot[] = [], ke
   const unit = snapshots.find(item => item.id === text)
   if (unit) return `${unit.category || 'Unidad'} ${unit.unit_number}`
   if (UUID.test(text)) return 'Identificador interno; consulte el registro técnico'
-  return values[text] || text.replaceAll('_', ' ')
+  return values[text] || reservationServiceError(text) || text.replaceAll('_', ' ')
 }
 
 function queryDescription(value: unknown, snapshots: CatalogSnapshot[]) {

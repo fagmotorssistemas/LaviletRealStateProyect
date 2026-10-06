@@ -10,6 +10,13 @@ export const CATALOG_SUMMARY_RULES = 'Si hay catalog_summary, matching_count es 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
 
+export const SHARED_TURN_STATE_COMPACTION_VERSION = 'shared-turn-state-v1'
+// These objects retain their meaning under their containing key. Only byte-for-
+// byte equal copies may reference the first retained occurrence. Small objects,
+// literals, differing decisions and historical evidence remain untouched.
+const sharedStateKeys = new Set(['pending_question', 'pregunta_pendiente', 'query', 'requests',
+  'solicitudes_interpretadas', 'subject', 'readiness', 'next_financing_step', 'proposal_information'])
+
 export function optimizedCatalogPrompt(context: Row): boolean {
   return object(object(context.contexto_verificado).prompt_context_selection).version === 'task-context-v1'
     || ['optimized_catalog', 'semantic_candidates'].includes(text(object(object(context.contexto_verificado).catalog_context_scope).kind))
@@ -53,7 +60,7 @@ function catalogModelContext(context: Row): Row {
 const rowsIds = (value: unknown): string[] => Array.isArray(value) ? value.map(text) : []
 
 /** Model-only projection. Validation and the saved audit retain the complete original evidence. */
-export function compactTurnPromptContext(context: Row, options: { preserveUnitIds?: boolean } = {}): Row {
+export function compactTurnPromptContext(context: Row, options: { preserveUnitIds?: boolean; deduplicateSharedState?: boolean } = {}): Row {
   context = catalogModelContext(context)
   const evidence = object(context.evidencia_turno)
   const units = rows(evidence.units)
@@ -69,6 +76,16 @@ export function compactTurnPromptContext(context: Row, options: { preserveUnitId
   const canonicalPaths = ['contrato_turno', 'property_context', 'estado_operativo', 'historial_reciente']
     .filter(key => context[key] && JSON.stringify(context[key]).length > 40)
   const memberships = new Map<string, string>()
+  const sharedState = new Map<string, string>()
+  const sharedReference = (value: unknown, path: string): Row | undefined => {
+    // Additional semantic references are experimental. Live paired evaluation
+    // found a category/area conflation, so production retains the prior context.
+    if (options.deduplicateSharedState !== true || !sharedStateKeys.has(path.split('.').at(-1) || '')
+      || !value || typeof value !== 'object') return
+    const serialized = JSON.stringify(value), previous = sharedState.get(serialized)
+    if (previous && serialized.length > JSON.stringify({ ref: previous }).length + 64) return { ref: previous }
+    if (!previous) sharedState.set(serialized, path)
+  }
   const sourceValue = (path: string): unknown => path.split('.').reduce<unknown>((value, key) =>
     value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, context)
   const visit = (value: unknown, path: string): unknown => {
@@ -87,6 +104,8 @@ export function compactTurnPromptContext(context: Row, options: { preserveUnitId
         if (previous && key.length > previous.length + 12) return { ref: previous }
         if (!previous) memberships.set(key, path)
       }
+      const reference = sharedReference(value, path)
+      if (reference) return reference
       return value.map((item, index) => visit(item, `${path}.${index}`))
     }
     if (!value || typeof value !== 'object') return value
@@ -106,6 +125,8 @@ export function compactTurnPromptContext(context: Row, options: { preserveUnitId
     const canonicalPath = !canonicalPaths.includes(path)
       ? canonicalPaths.find(key => !key.startsWith(path + '.') && same(row, context[key])) : undefined
     if (canonicalPath) return { ref: canonicalPath }
+    const reference = sharedReference(value, path)
+    if (reference) return reference
     const unit = byId.get(text(row.id))
     // Deduplicate only repeated values. Extra or conflicting fields are retained,
     // never overwritten from the canonical catalog to make an answer appear valid.

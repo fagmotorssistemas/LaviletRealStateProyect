@@ -2,7 +2,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 require('./test-typescript.cjs')
-const { reservationRequest, verifiedReservationReceipt, evaluateInterestDecision } = require('../src/lib/integrations/automation/reservation-action.ts')
+const { reservationPermission, reservationRequest, requestReservationHandoff, verifiedReservationReceipt, evaluateInterestDecision } = require('../src/lib/integrations/automation/reservation-action.ts')
 
 const catalog = [
   { id: 'u605', unit_number: '605', category: 'penthouse', status: 'disponible', is_published: true },
@@ -109,6 +109,61 @@ test('a handoff receipt must identify the actual request, exact units and persis
     assert.equal(verifiedReservationReceipt({ ...receipt, ...change }, lead, request), false)
   }
   assert.equal(verifiedReservationReceipt({ ...receipt, handoff_status: 'queued', assigned_to: null }, { ...lead, handoff_status: 'queued', assigned_to: null }, request), true)
+})
+
+test('reservation permission examines prerequisites across the complete turn, not only the extracted wish', () => {
+  for (const [current, evidence] of [
+    ['Quisiera asegurar un departamento\nObviamente ver si es alcanzable el valor que me ofrezcan.', 'Quisiera asegurar un departamento'],
+    ['Si me alcanza, quiero separar el 605.', 'Si me alcanza, quiero separar el 605.'],
+    ['Quiero separar el 605 siempre que me aprueben el crédito.', 'Quiero separar el 605 siempre que me aprueben el crédito.'],
+    ['Quiero separar el 605 si cuesta menos de 300 mil.', 'Quiero separar el 605'],
+    ['Si me aprueban el crédito, quiero separar el 605.', 'quiero separar el 605'],
+    ['Antes de reservar quiero conocer el precio.', 'Antes de reservar quiero conocer el precio.'],
+    ['Quiero separar el 605. Primero necesito saber si hay disponibilidad.', 'Quiero separar el 605.'],
+  ]) {
+    const raw = reservation(evidence)
+    assert.equal(reservationPermission(raw, current).kind, 'information', current)
+    assert.equal(reservationPermission(raw, current).request_deferred, true, current)
+    assert.equal(reservationRequest(raw, [message(current)], catalog, []), null, current)
+  }
+  for (const current of ['Quiero separar el 605.', 'Sí, quiero separar el 605.', 'Quiero separar el 605. Además, ¿qué incluye?',
+    'Quiero separar el 605. También quisiera saber si entrega en 2028.', 'Quiero separar el 605 y saber si tiene ascensor.',
+    'Quiero separar el 605 y saber si hay financiamiento.', 'Sí me interesa separar el 605.',
+    'si me gustaria separar el 605', 'si deseo separar el 605',
+    'No necesito saber si es alcanzable, ya comprobé mi presupuesto. Quiero separar el 605.',
+    'Quiero separar el 605. También quisiera saber si hay acceso accesible para mi familiar.',
+    'Primero reservé un hotel. Ahora quiero separar el 605 y saber si tiene ascensor.',
+    'Quiero separar el 605 y saber el precio y si hay financiamiento.',
+    'Ya confirmé que puedo pagarlo. Quiero separar el 605.', 'Por ahora no quiero financiamiento, quiero separar el 605.']) {
+    const raw = reservation(current)
+    assert.deepEqual(reservationPermission(raw, current), raw, current)
+    assert.deepEqual(reservationRequest(raw, [message(current)], catalog, []).unit_ids, ['u605'], current)
+  }
+})
+
+test('only a definitely absent reservation RPC permits an informational continuation; no alternate mutation or retry is attempted', async () => {
+  const args = { p_lead_id: 'lead', p_source_message_id: 'm1', p_unit_ids: ['u605'], p_evidence: 'quiero separar', p_evidence_message_ids: ['m1'] }
+  for (const code of ['PGRST202', '42883']) {
+    const calls = []
+    const result = await requestReservationHandoff(async (name, received) => {
+      calls.push({ name, args: received })
+      throw new Error(`RPC_LV_REQUEST_RESERVATION_HANDOFF_${code}`)
+    }, args)
+    assert.equal(result.status, 'unavailable')
+    assert.equal(result.action_executed, false)
+    assert.deepEqual(calls, [{ name: 'lv_request_reservation_handoff', args }])
+  }
+  for (const code of ['FAILED', '57014', 'P0001', 'TIMEOUT']) {
+    const calls = []
+    await assert.rejects(() => requestReservationHandoff(async name => {
+      calls.push(name)
+      throw new Error(`RPC_LV_REQUEST_RESERVATION_HANDOFF_${code}`)
+    }, args), new RegExp(code))
+    assert.deepEqual(calls, ['lv_request_reservation_handoff'])
+  }
+  const receipt = { request_id: 'request', handoff_status: 'queued' }
+  assert.deepEqual(await requestReservationHandoff(async () => receipt, args), { status: 'recorded', receipt })
+  for (const value of [null, 'queued', [receipt]]) await assert.rejects(() => requestReservationHandoff(async () => value, args), /CONTRACT_MISMATCH/)
 })
 
 test('only a missing v2 function falls back once to v1; timeouts and ambiguous failures never replay the mutation', async () => {

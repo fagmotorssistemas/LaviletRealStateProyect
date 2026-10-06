@@ -1,0 +1,928 @@
+{
+  "baseline_commit": "392fd351dc9271a2f6730ead7bed2af4fc757864",
+  "active_changes": [
+    "Remove redundant JSON example in extractor instructions; preserve the semantic prose and strict schema."
+  ],
+  "inactive_changes": [
+    {
+      "name": "shared-turn-state-v1",
+      "reason": "A live draft conflated category-area relationships. Lossless data expansion alone does not prove model quality."
+    }
+  ],
+  "production_models_changed": false,
+  "commercial_rules_changed": false,
+  "database_or_messages_modified": false,
+  "tests": {
+    "files": 122,
+    "total": 1523,
+    "pass": 1477,
+    "fail": 46,
+    "focused_total": 58,
+    "focused_pass": 58,
+    "new_tests": 45
+  },
+  "baseline": {
+    "total": 1478,
+    "pass": 1432,
+    "fail": 46,
+    "same_failures": true
+  },
+  "outstanding_tests": [
+    {
+      "test": "a bare first price request reaches the writer with verified prices and the introductory profile question",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3127:1"
+    },
+    {
+      "test": "a category clarification preserves the preceding price objective and does not return a catalogue of measurements",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3198:1"
+    },
+    {
+      "test": "a category declaration cannot suppress bedroom requirements or physical constraints",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\unit-alternatives.test.cjs:78:1"
+    },
+    {
+      "test": "a declared origin is confirmed through the shared profile and actual sent question before becoming residence",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3291:1"
+    },
+    {
+      "test": "a generic yes cannot accept one of several times, while an explicit second choice selects exactly it",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3977:1"
+    },
+    {
+      "test": "a visual correction uses the general showroom without changing message batching",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1302:1"
+    },
+    {
+      "test": "accepted prose with unusable follow-up does not persist an inferred action or complete profile capture",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2863:1"
+    },
+    {
+      "test": "all three reported questions survive rejected drafts without a generic handoff",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1900:1"
+    },
+    {
+      "test": "an uncertain scope does not discard a grounded apartment price question before review",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3159:1"
+    },
+    {
+      "test": "brochure is sent on direct request and acceptance of an offer, without requiring a specific unit",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:559:1"
+    },
+    {
+      "test": "choosing JEP then consenting advances instead of repeating the financing introduction",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2537:1"
+    },
+    {
+      "test": "commercial and price paths use the same alternative without requiring a fixed unit",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\unit-alternatives.test.cjs:60:1"
+    },
+    {
+      "test": "commercial availability overrides a collecting visit and an unrelated visit classifier",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3708:1"
+    },
+    {
+      "test": "dialogue v2 accepts the focused 502 after mentioning 502 and 504, including legacy conversations",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3466:1"
+    },
+    {
+      "test": "dialogue v2 preserves the focused unit through unreadable audio and understands the repeated answer",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3804:1"
+    },
+    {
+      "test": "dialogue v2 rejects a rewritten size range borrowed from two-bedroom units",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3649:1"
+    },
+    {
+      "test": "dialogue v2 rejects an invented catalog information gap but preserves a real pet-policy handoff with its exact cause",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3585:1"
+    },
+    {
+      "test": "dialogue v2 replays five bedrooms, two affirmatives, apartment choice and differences without losing the accepted alternative",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3515:1"
+    },
+    {
+      "test": "dialogue v2 replays the reported housing conversation with durable filters, ties and focused acceptance",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3415:1"
+    },
+    {
+      "test": "dialogue v2 retains a focused question when a requested map follows it",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3764:1"
+    },
+    {
+      "test": "dialogue v2 reuses the financial action handler after the visit has already been confirmed",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3839:1"
+    },
+    {
+      "test": "editorial suggestions cannot waive commercial facts and cannot force an early rewrite",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2265:1"
+    },
+    {
+      "test": "explicit pool questions are answered even after it was presented earlier",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2437:1"
+    },
+    {
+      "test": "introductory profile is persisted with evidence and brochure is released on a partial answer",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3254:1"
+    },
+    {
+      "test": "invalid fallback never reappears at the boundary or final catalogue guard",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2839:1"
+    },
+    {
+      "test": "JEP choice is acknowledged and next consent advances the saved form",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2336:1"
+    },
+    {
+      "test": "JEP natural acceptance advances the actual chosen lender and technical failure reaches an advisor",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:938:1"
+    },
+    {
+      "test": "launch prices hydrate the exact unit from the authorized catalog and invite only once",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1024:1"
+    },
+    {
+      "test": "mixed questions keep a verified price and reject a generated fixed launch quote before sending",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1106:1"
+    },
+    {
+      "test": "model interest invites once; invitation acceptance starts collecting, not confirming",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1855:1"
+    },
+    {
+      "test": "operational requests, refusals and additional physical constraints stay contextual",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\unit-alternatives.test.cjs:52:1"
+    },
+    {
+      "test": "pending prose validation preserves a verified visit submission without claiming the appointment is confirmed",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2922:1"
+    },
+    {
+      "test": "pending recovery keeps the client current selection and requirements without recording an undelivered offer",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2937:1"
+    },
+    {
+      "test": "pending review recovery preserves contextual acknowledgment and does not mark planned material or topics as delivered",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2891:1"
+    },
+    {
+      "test": "pending review still explains an actually requested advisor handoff without inventing a second action",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2962:1"
+    },
+    {
+      "test": "progressive dialogue changes the bedroom requirement only on request then asks category floor and unit in order",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3028:1"
+    },
+    {
+      "test": "progressive dialogue clarifies an unspecified cheaper request and preserves three bedrooms when accepted",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3053:1"
+    },
+    {
+      "test": "progressive dialogue prices and compares only the requested penthouses before a concrete selection and one tour",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2978:1"
+    },
+    {
+      "test": "recording a real result preserves other lead data and performs no reservation or outbound call",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\financing-review-action.test.cjs:62:1"
+    },
+    {
+      "test": "rejected price rewrites remain pending without restoring unreviewed copy; real missing facts still hand off",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1721:1"
+    },
+    {
+      "test": "sales memory is isolated per conversation and respects rejected or existing visits",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1888:1"
+    },
+    {
+      "test": "the delivered pipeline prioritizes evidenced apartment preference over a rejected penthouse extraction in every configured tone",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:3857:1"
+    },
+    {
+      "test": "the reported 210 conversation saves and sends the same unit in the next visual turn",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:2698:1"
+    },
+    {
+      "test": "unknown budget returns to property selection and does not start financing",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:1911:1"
+    },
+    {
+      "test": "unrelated business requests bypass pending property appointments, financing and handoff",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:220:1"
+    },
+    {
+      "test": "yes to viewing a unit after a financing mention never starts qualification, a visit or a handoff",
+      "location": "C:\\\\Users\\\\carlo\\\\Documents\\\\Proyecto-lavilet\\\\frontend\\\\scripts\\\\integrations.test.cjs:734:1"
+    }
+  ],
+  "live": {
+    "total_calls": 98,
+    "extractor_valid_calls": 32,
+    "extractor_pass": 32,
+    "writer_candidate_valid_calls": 20,
+    "writer_candidate_automatic_mismatches": 1,
+    "manual_writer_observations": [
+      "Area maximum conflated across apartment/penthouse categories.",
+      "Balcony was asserted from exterior-area-only evidence."
+    ],
+    "usd": 1.690862,
+    "accounting": "Calculated using API token usage and the application price snapshot; not an API invoice amount.",
+    "exclusions": "Initial 42-call capture superseded; four additional calls used fixtures missing the active commercial journey and were corrected and repeated."
+  },
+  "checks": [
+    "TypeScript aprobado",
+    "Build aprobado",
+    "Lint aprobado"
+  ],
+  "test_limitations": "Las 46 pruebas que fallan ya fallaban con la revisión anterior: 42 en integrations.test.cjs, 3 en unit-alternatives.test.cjs y 1 en financing-review-action.test.cjs. Hay expectativas de texto y contratos de mocks antiguos (por ejemplo, validateReply), y diferencias de flujo que necesitan auditoría. No se cambiaron ni omitieron esas pruebas para obtener un resultado verde; no se afirma que sean 46 fallos de mensajes reales ni que todos sean simples fallos del test.",
+  "metrics": [
+    {
+      "label": "Caracteres de instrucciones",
+      "before": "714416",
+      "after": "678400",
+      "difference": "-5.0 %"
+    },
+    {
+      "label": "Caracteres de contexto",
+      "before": "18676",
+      "after": "18676",
+      "difference": "0.0 %"
+    },
+    {
+      "label": "Caracteres de esquema",
+      "before": "203056",
+      "after": "203056",
+      "difference": "0.0 %"
+    },
+    {
+      "label": "Tokens de entrada API",
+      "before": "188426",
+      "after": "179386",
+      "difference": "-4.8 %"
+    },
+    {
+      "label": "Entrada en caché API",
+      "before": "162304",
+      "after": "161152",
+      "difference": "-0.7 %"
+    },
+    {
+      "label": "Tokens de salida API",
+      "before": "14941",
+      "after": "14710",
+      "difference": "-1.5 %"
+    },
+    {
+      "label": "Costo calculado (USD)",
+      "before": "0.2529",
+      "after": "0.2347",
+      "difference": "-7.2 %"
+    },
+    {
+      "label": "Duración media API (s)",
+      "before": "8.20",
+      "after": "10.59",
+      "difference": "29.1 %"
+    }
+  ],
+  "evaluation_cases": [
+    {
+      "id": "price-of-proposal",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11969,
+        "cached_input_tokens": 11776,
+        "output_tokens": 958
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 1985,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 59363
+      },
+      "elapsed_ms": 6146,
+      "usd": 0.013937999999999999
+    },
+    {
+      "id": "price-of-proposal",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11404,
+        "cached_input_tokens": 11264,
+        "output_tokens": 944
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 1985,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57112
+      },
+      "elapsed_ms": 7823,
+      "usd": 0.013464
+    },
+    {
+      "id": "size-of-proposal",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11405,
+        "cached_input_tokens": 11264,
+        "output_tokens": 899
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 1986,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57113
+      },
+      "elapsed_ms": 18236,
+      "usd": 0.013106
+    },
+    {
+      "id": "size-of-proposal",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11970,
+        "cached_input_tokens": 11776,
+        "output_tokens": 892
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 1986,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 59364
+      },
+      "elapsed_ms": 6022,
+      "usd": 0.013412
+    },
+    {
+      "id": "accept-alternatives",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11971,
+        "cached_input_tokens": 11776,
+        "output_tokens": 913
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 1991,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 59369
+      },
+      "elapsed_ms": 5608,
+      "usd": 0.013582
+    },
+    {
+      "id": "accept-alternatives",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11406,
+        "cached_input_tokens": 11264,
+        "output_tokens": 925
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 1991,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57118
+      },
+      "elapsed_ms": 9199,
+      "usd": 0.013316000000000001
+    },
+    {
+      "id": "reject-alternatives",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11407,
+        "cached_input_tokens": 11264,
+        "output_tokens": 1004
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 2012,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57139
+      },
+      "elapsed_ms": 9931,
+      "usd": 0.013949999999999999
+    },
+    {
+      "id": "reject-alternatives",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11972,
+        "cached_input_tokens": 11776,
+        "output_tokens": 1029
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 2012,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 59390
+      },
+      "elapsed_ms": 6210,
+      "usd": 0.014512
+    },
+    {
+      "id": "explicit-new-topic",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11975,
+        "cached_input_tokens": 11776,
+        "output_tokens": 904
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 2023,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 59401
+      },
+      "elapsed_ms": 4967,
+      "usd": 0.013517999999999999
+    },
+    {
+      "id": "explicit-new-topic",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11410,
+        "cached_input_tokens": 11264,
+        "output_tokens": 893
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 2023,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57150
+      },
+      "elapsed_ms": 9066,
+      "usd": 0.013068
+    },
+    {
+      "id": "people-not-bedrooms",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11048,
+        "cached_input_tokens": 0,
+        "output_tokens": 1054
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 477,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55604
+      },
+      "elapsed_ms": 10643,
+      "usd": 0.030528
+    },
+    {
+      "id": "people-not-bedrooms",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11613,
+        "cached_input_tokens": 11392,
+        "output_tokens": 1078
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 477,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57855
+      },
+      "elapsed_ms": 7877,
+      "usd": 0.014761999999999999
+    },
+    {
+      "id": "minimum-bedroom-count",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11607,
+        "cached_input_tokens": 11136,
+        "output_tokens": 1021
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 457,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57835
+      },
+      "elapsed_ms": 31913,
+      "usd": 0.014678
+    },
+    {
+      "id": "minimum-bedroom-count",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11042,
+        "cached_input_tokens": 10880,
+        "output_tokens": 1002
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 457,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55584
+      },
+      "elapsed_ms": 39998,
+      "usd": 0.01378
+    },
+    {
+      "id": "tentative-budget",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11068,
+        "cached_input_tokens": 10880,
+        "output_tokens": 862
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 561,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55688
+      },
+      "elapsed_ms": 5203,
+      "usd": 0.012712000000000001
+    },
+    {
+      "id": "tentative-budget",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11633,
+        "cached_input_tokens": 0,
+        "output_tokens": 860
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 561,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57939
+      },
+      "elapsed_ms": 5560,
+      "usd": 0.030146
+    },
+    {
+      "id": "jep-choice",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11647,
+        "cached_input_tokens": 11520,
+        "output_tokens": 865
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 593,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57971
+      },
+      "elapsed_ms": 5726,
+      "usd": 0.012934000000000001
+    },
+    {
+      "id": "jep-choice",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11082,
+        "cached_input_tokens": 10880,
+        "output_tokens": 825
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 593,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55720
+      },
+      "elapsed_ms": 5691,
+      "usd": 0.012444
+    },
+    {
+      "id": "pichincha-choice",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11086,
+        "cached_input_tokens": 10880,
+        "output_tokens": 888
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 610,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55737
+      },
+      "elapsed_ms": 5394,
+      "usd": 0.012956
+    },
+    {
+      "id": "pichincha-choice",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11651,
+        "cached_input_tokens": 11520,
+        "output_tokens": 887
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 610,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57988
+      },
+      "elapsed_ms": 6107,
+      "usd": 0.013118000000000001
+    },
+    {
+      "id": "partial-identity",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11635,
+        "cached_input_tokens": 11520,
+        "output_tokens": 902
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 543,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57921
+      },
+      "elapsed_ms": 7595,
+      "usd": 0.013206
+    },
+    {
+      "id": "partial-identity",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11070,
+        "cached_input_tokens": 6144,
+        "output_tokens": 902
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 543,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55670
+      },
+      "elapsed_ms": 9403,
+      "usd": 0.020139999999999998
+    },
+    {
+      "id": "compound-information",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11411,
+        "cached_input_tokens": 11264,
+        "output_tokens": 949
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 2019,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57146
+      },
+      "elapsed_ms": 7868,
+      "usd": 0.013517999999999999
+    },
+    {
+      "id": "compound-information",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11976,
+        "cached_input_tokens": 11776,
+        "output_tokens": 1021
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 2019,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 59397
+      },
+      "elapsed_ms": 6431,
+      "usd": 0.014456
+    },
+    {
+      "id": "negated-visit",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11977,
+        "cached_input_tokens": 11776,
+        "output_tokens": 954
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 2028,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 59406
+      },
+      "elapsed_ms": 8946,
+      "usd": 0.013922
+    },
+    {
+      "id": "negated-visit",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11412,
+        "cached_input_tokens": 11264,
+        "output_tokens": 953
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 2028,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57155
+      },
+      "elapsed_ms": 6275,
+      "usd": 0.013552
+    },
+    {
+      "id": "explicit-advisor",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11044,
+        "cached_input_tokens": 10880,
+        "output_tokens": 873
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 460,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55587
+      },
+      "elapsed_ms": 9045,
+      "usd": 0.012752
+    },
+    {
+      "id": "explicit-advisor",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11609,
+        "cached_input_tokens": 11392,
+        "output_tokens": 892
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 460,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57838
+      },
+      "elapsed_ms": 9108,
+      "usd": 0.013266
+    },
+    {
+      "id": "opt-out",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11609,
+        "cached_input_tokens": 0,
+        "output_tokens": 871
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 462,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57840
+      },
+      "elapsed_ms": 5874,
+      "usd": 0.030185999999999998
+    },
+    {
+      "id": "opt-out",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11044,
+        "cached_input_tokens": 10880,
+        "output_tokens": 871
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 462,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55589
+      },
+      "elapsed_ms": 8573,
+      "usd": 0.012736
+    },
+    {
+      "id": "typo-information",
+      "version": "after",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11047,
+        "cached_input_tokens": 10880,
+        "output_tokens": 866
+      },
+      "size": {
+        "instructions": 42400,
+        "context": 469,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 55596
+      },
+      "elapsed_ms": 7141,
+      "usd": 0.012702000000000001
+    },
+    {
+      "id": "typo-information",
+      "version": "before",
+      "status": "pass",
+      "model": "gpt-4.1",
+      "usage": {
+        "input_tokens": 11612,
+        "cached_input_tokens": 11392,
+        "output_tokens": 894
+      },
+      "size": {
+        "instructions": 44651,
+        "context": 469,
+        "schema": 12691,
+        "user_prefix": 36,
+        "total": 57847
+      },
+      "elapsed_ms": 7158,
+      "usd": 0.013288000000000001
+    }
+  ]
+}

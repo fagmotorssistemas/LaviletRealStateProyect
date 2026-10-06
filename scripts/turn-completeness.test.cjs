@@ -302,7 +302,7 @@ test('writer and independent reviewer share a declared location without treating
     residence_candidate: { city: 'Cuenca', country: null, evidence: 'soy de Cuenca' } }
   const plan = leadIntroductionTurn({ current, summary: { _lead_introduction: opening.state },
     extracted: { lead_profile: profile }, reply: '', audit: { source: 'commercial' } })
-  const reply = `Mucho gusto, Carlos. Aquí tiene el brochure digital completo del proyecto: ${BROCHURE_URL}\nEntiendo que es de Cuenca. ¿Actualmente vive allí?`
+  const reply = 'Mucho gusto, Carlos. Entiendo que es de Cuenca. ¿Actualmente vive allí?'
   const candidate = { reply, requests: [covered(current)], question: { text: '¿Actualmente vive allí?', purpose: 'collect_lead_profile',
     missing_datum: 'Confirmar si Cuenca es su residencia actual', next_decision: 'Completar el perfil de residencia y continuar la orientación' } }
   const generate = model(candidate, approved)
@@ -315,8 +315,17 @@ test('writer and independent reviewer share a declared location without treating
   for (const call of generate.calls) {
     assert.equal(call[1].estado_operativo.profile_introduction.profile_state.residence_status, 'pending_confirmation')
     assert.equal(call[1].estado_operativo.profile_introduction.candidate.city, 'Cuenca')
+    assert.equal(call[1].estado_operativo.profile_introduction.brochure_deferred, true)
+    assert.equal(call[1].estado_operativo.profile_introduction.brochure_required, false)
     assert.match(call[0], /NO residencia confirmada/)
   }
+  const prematureBrochure = { ...candidate, reply: `${reply}\nAquí tiene el brochure: ${BROCHURE_URL}` }
+  const premature = await completeTurnReply({ current, baseReply: plan.reply, audit: plan.audit,
+    verified: { perfil_lead: profile, brochure_url: BROCHURE_URL } }, model(prematureBrochure, prematureBrochure).generate)
+  assert.equal(premature.audit.status, 'rejected_guard')
+  assert.ok(premature.audit.issues.includes('lead_profile_brochure_premature'))
+  assert.ok(!premature.reply.includes(BROCHURE_URL))
+  assert.equal(premature.needsAdvisor, false)
   const falseClaim = { ...candidate, reply: reply.replace('Entiendo que es de Cuenca', 'Como vive en Cuenca') }
   const rejected = await completeTurnReply({ current, baseReply: plan.reply, audit: plan.audit,
     verified: { perfil_lead: profile, brochure_url: BROCHURE_URL } }, model(falseClaim, falseClaim).generate)

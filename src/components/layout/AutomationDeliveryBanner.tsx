@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, ExternalLink, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
+import { reservationServiceError } from '@/lib/inmobiliaria/automationErrors'
 import type { deliveryHealth } from '@/lib/integrations/automation/delivery-state'
 
 type Health = Awaited<ReturnType<typeof deliveryHealth>>
@@ -62,7 +63,7 @@ export function AutomationDeliveryBanner() {
           <ul className="mt-2 space-y-2">
             {health.incidents.map(item => <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-amber-200 bg-white/60 px-3 py-2">
               {item.kommoId ? <a className="inline-flex items-center gap-1 underline" href={`https://lavilet.kommo.com/leads/detail/${item.kommoId}`} target="_blank" rel="noopener noreferrer">Lead #{item.kommoId}<ExternalLink size={12} /></a> : <span>Automatización</span>}
-              <span className="text-xs">{item.reason === 'KOMMO_INBOUND_NOT_OBSERVED' ? 'Kommo registra un mensaje sin recepción aquí; revise el canal y atienda la consulta pendiente' : item.reason === 'SUPERSEDED_DELAYED_INBOUND' ? 'Mensaje recibido fuera de orden; revise que la conversación más reciente haya atendido su consulta' : item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Mensaje no enviado; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {item.reason}</span>
+              <span className="text-xs">{item.reason === 'KOMMO_INBOUND_NOT_OBSERVED' ? 'Kommo registra un mensaje sin recepción aquí; revise el canal y atienda la consulta pendiente' : item.reason === 'SUPERSEDED_DELAYED_INBOUND' ? 'Mensaje recibido fuera de orden; revise que la conversación más reciente haya atendido su consulta' : item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Mensaje no enviado; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {reservationServiceError(item.reason) || item.reason}</span>
               {admin && item.canResolve && !health.blocked && <button type="button" disabled={busy} onClick={() => void update('incident_reviewed', item.id)} className="ml-auto text-xs font-medium underline disabled:opacity-50">Ya atendí esta conversación</button>}
             </li>)}
           </ul>

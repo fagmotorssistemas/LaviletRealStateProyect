@@ -79,7 +79,7 @@ import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinan
 import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
 import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-disposition'
 import { MAX_REPLY_CHARACTERS, responsePlan } from './response-plan'
-import { evaluateInterestDecision, reservationRequest, verifiedReservationReceipt } from './reservation-action'
+import { evaluateInterestDecision, requestReservationHandoff, reservationRequest, verifiedReservationReceipt } from './reservation-action'
 import { commercialTurnTopics } from './multi-topic-turn'
 import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
@@ -576,6 +576,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     profilePending: object(previousSummary._lead_introduction).status === 'pending' })
   if (object(turnIntent.scope).kind === 'property' && businessScope.kind === 'neutral') businessScope = { kind: 'property', property_message: current, reply: '', uncertain: false }
   if (['ask_price', 'request_reservation', 'ask_reservation'].includes(turnIntent.objective)) turnSemantics.primary_intent = turnIntent.objective
+  turnSemantics.reservation = turnIntent.reservation
+  if (object(turnIntent.reservation).request_deferred === true) {
+    interpretation.requests = turnIntent.requests
+    extracted.requests = turnIntent.requests
+    if (!turnIntent.requests.some(request => request.domain === 'advisor' && request.confidence === 'high')) extracted.requested_advisor = false
+  }
   trace.add('turn_intent', 'Resolver objetivo compartido del turno', 'decision', 'turn-intent.ts', 'succeeded',
     { classifier_scope: classifiedScope, extractor_intent: interpretation.diagnostic.primary_intent }, turnIntent)
   turnSemantics.requests = turnIntent.requests
@@ -663,7 +669,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const reservationSelectedIds = Array.isArray(previousPropertyContext.selected_ids) ? previousPropertyContext.selected_ids : []
   const reservationAction = startingReservation ? reservationRequest(reservation, inbound.normalized, turnCatalog,
     turnCatalog.filter(unit => reservationSelectedIds.includes(unit.id))) : null
-  if (reservation.kind === 'declined' || startingReservation && !reservationAction) {
+  if (reservation.kind === 'declined' || reservation.request_deferred === true || startingReservation && !reservationAction) {
     extracted.events = (extracted.events as string[]).filter(event => event !== 'asked_reservation')
   }
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
@@ -849,26 +855,41 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         const step = trace.start('advisor_handoff', 'Solicitar reserva y asignar asesor', 'action', 'lv_request_reservation_handoff',
           { requested_action: 'reservation_handoff', ...request })
         await guard()
-        const receipt = object(await rpc('lv_request_reservation_handoff', { p_lead_id: lead.id,
+        const result = await requestReservationHandoff(rpc, { p_lead_id: lead.id,
           p_source_message_id: request.source_message_id, p_unit_ids: request.unit_ids, p_evidence: request.evidence,
-          p_evidence_message_ids: request.evidence_message_ids }))
-        lead = await one('leads', text(lead.id))
-        if (!verifiedReservationReceipt(receipt, lead, request)) throw new Error('RESERVATION_HANDOFF_NOT_VERIFIED')
-        const assigned = ['assigned', 'acknowledged'].includes(text(receipt.handoff_status))
-        const subject = request.unit_numbers.length ? ` de la unidad ${request.unit_numbers.join(', ')}` : ''
-        handoffNotice = assigned
-          ? `He registrado su solicitud de reserva${subject} y un asesor tiene asignada su atención para continuar con el proceso.`
-          : `He registrado su solicitud de reserva${subject} en la bandeja del equipo, pendiente de asignar un asesor para continuar con el proceso.`
-        reply = handoffNotice
-        audit = { source: 'reservation_handoff', action: assigned ? 'advisor_assigned' : 'advisor_queued',
-          reservation: { ...reservation, ...request, ...receipt, status: receipt.handoff_status, advisor_assigned: assigned, handoff_verified: true },
-          required_facts: turnIntent.required_facts }
-        trace.finish(step, 'succeeded', { ...receipt, requested_action: 'reservation_handoff', handoff_verified: true,
-          advisor_assigned: assigned, inventory_reserved: false, bot_remains_enabled: lead.bot_enabled === true })
+          p_evidence_message_ids: request.evidence_message_ids })
+        if (result.status === 'unavailable') {
+          // A missing deployment is an operational limitation, not a reason to
+          // discard answerable questions or pretend a different handoff worked.
+          reply = 'No pude registrar su solicitud de reserva en este momento. Podemos continuar revisando las opciones mientras se restablece ese trámite.'
+          audit = { source: 'reservation_unavailable', action: 'registration_unavailable',
+            reservation: { ...reservation, ...request, status: 'unavailable', error_code: result.error_code,
+              handoff_verified: false, action_executed: false, inventory_reserved: false },
+            required_facts: turnIntent.required_facts }
+          trace.finish(step, 'failed', { requested_action: 'reservation_handoff', action_executed: false,
+            handoff_verified: false, inventory_reserved: false, informational_response_continues: true,
+            required_migration: '20260929101000_reservation_handoff_receipt.sql' }, result.error_code)
+        } else {
+          const receipt = result.receipt
+          lead = await one('leads', text(lead.id))
+          if (!verifiedReservationReceipt(receipt, lead, request)) throw new Error('RESERVATION_HANDOFF_NOT_VERIFIED')
+          const assigned = ['assigned', 'acknowledged'].includes(text(receipt.handoff_status))
+          const subject = request.unit_numbers.length ? ` de la unidad ${request.unit_numbers.join(', ')}` : ''
+          handoffNotice = assigned
+            ? `He registrado su solicitud de reserva${subject} y un asesor tiene asignada su atención para continuar con el proceso.`
+            : `He registrado su solicitud de reserva${subject} en la bandeja del equipo, pendiente de asignar un asesor para continuar con el proceso.`
+          reply = handoffNotice
+          audit = { source: 'reservation_handoff', action: assigned ? 'advisor_assigned' : 'advisor_queued',
+            reservation: { ...reservation, ...request, ...receipt, status: receipt.handoff_status, advisor_assigned: assigned, handoff_verified: true },
+            required_facts: turnIntent.required_facts }
+          trace.finish(step, 'succeeded', { ...receipt, requested_action: 'reservation_handoff', handoff_verified: true,
+            advisor_assigned: assigned, inventory_reserved: false, bot_remains_enabled: lead.bot_enabled === true })
+        }
       }
     } else {
       reply = 'Un asesor puede orientarle sobre los requisitos y los pasos para solicitar una reserva. ¿Le gustaría que le ponga en contacto con el equipo para continuar?'
-      audit = { source: 'reservation_information', reservation: { ...reservation, handoff_verified: false }, action: 'information_only' }
+      audit = { source: 'reservation_information', reservation: { ...reservation, handoff_verified: false }, action: 'information_only',
+        required_facts: turnIntent.required_facts }
     }
   }
 

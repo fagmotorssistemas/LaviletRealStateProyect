@@ -284,7 +284,9 @@ describe('progressive lead introduction', () => {
       const turn = leadIntroductionTurn(pending({ current: `claro, ${name} y soy de ${city}`,
         extracted: { lead_profile: originProfile(name, city) } }))
       assert.match(turn.reply, new RegExp(`Mucho gusto, ${name}\\.`))
-      assert.ok(turn.reply.includes(BROCHURE_URL))
+      assert.ok(!turn.reply.includes(BROCHURE_URL))
+      assert.equal(turn.brochureDeferred, true)
+      assert.equal(turn.state.brochure_sent, false)
       assert.ok(turn.reply.includes(`Entiendo que es de ${city}. ¿Es también su lugar de residencia actual?`))
       assert.doesNotMatch(turn.reply, /en qué ciudad|su nombre|Qué planta/)
       assert.deepEqual(leadIntroductionIssues(turn.reply, turn.audit), [])
@@ -318,7 +320,7 @@ describe('progressive lead introduction', () => {
 
   it('accepts confirmation paraphrases with the same purpose and rejects a false assertion', () => {
     const turn = leadIntroductionTurn(pending({ current: 'Carlos, soy de Cuenca', extracted: { lead_profile: originProfile() } }))
-    const reply = `Mucho gusto, Carlos. Le comparto el brochure: ${BROCHURE_URL}\nEntiendo que es de Cuenca. ¿Actualmente vive allí?`
+    const reply = 'Mucho gusto, Carlos. Entiendo que es de Cuenca. ¿Actualmente vive allí?'
     assert.deepEqual(leadIntroductionIssues(reply, turn.audit), [])
     assert.equal(leadProfilePendingQuestion(reply, turn.audit).question, '¿Actualmente vive allí?')
     assert.ok(leadIntroductionIssues(reply.replace('Entiendo que es de', 'Como vive en'), turn.audit).includes('lead_profile_unconfirmed_residence'))
@@ -346,7 +348,54 @@ describe('progressive lead introduction', () => {
       const next = leadIntroductionTurn(pending({ current, summary: { _lead_introduction: turn.state, _lead_profile: originProfile() },
         extracted: {}, reply: 'Las suites tienen precios referenciales desde $100.000.', audit: { source: 'unit_price' } }))
       assert.doesNotMatch(next.reply, /residencia|reside|soy de|Entiendo que es/)
+      assert.ok(next.reply.includes(BROCHURE_URL), 'A skipped clarification must not hold the material indefinitely.')
     }
+  })
+
+  it('defers the promised brochure through an actual confirmation and releases it after the answer is accepted', () => {
+    const profile = originProfile('Nathaly')
+    const turn = leadIntroductionTurn(pending({ current: 'Nathaly\nSoy de Cuenca', extracted: { lead_profile: profile } }))
+    const plan = turn.audit.profile_introduction as { brochure_deferred: boolean; brochure_required: boolean }
+    assert.equal(plan.brochure_deferred, true)
+    assert.equal(plan.brochure_required, false)
+    assert.ok(!turn.reply.includes(BROCHURE_URL))
+    for (const semantic_review_enabled of [false, true]) {
+      assert.deepEqual(leadIntroductionIssues(turn.reply, { ...turn.audit, semantic_review_enabled }), [])
+      assert.ok(leadIntroductionIssues(`${turn.reply}\n${BROCHURE_URL}`, { ...turn.audit, semantic_review_enabled })
+        .includes('lead_profile_brochure_premature'))
+    }
+    const remembered = rememberLeadIntroduction({ previous: begin().state, planned: turn.state, profile,
+      reply: turn.reply, audit: { ...turn.audit, turn_completeness: { status: 'checked' } }, accepted: true, followUpUsable: true })
+    assert.equal(remembered.brochure_sent, false)
+    assert.equal(remembered.confirmation_asked, true)
+    assert.equal(leadProfilePendingQuestion(turn.reply, turn.audit).id, 'lead_residence_confirmation')
+    const accepted = leadIntroductionTurn(pending({ current: 'Sí',
+      summary: { _lead_introduction: remembered, _lead_profile: profile },
+      extracted: { lead_profile: { residence_city: 'Cuenca', residence_status: 'confirmed',
+        residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'high' } } } }))
+    assert.ok(accepted.reply.includes(BROCHURE_URL))
+    assert.equal(accepted.brochureDeferred, false)
+    assert.equal(accepted.state.brochure_sent, true)
+    assert.equal(accepted.state.status, 'complete')
+    assert.doesNotMatch(accepted.reply, /residencia actual|reside actualmente|Mucho gusto/)
+    assert.equal((accepted.reply.split(BROCHURE_URL).length - 1), 1)
+  })
+
+  it('does not condition an already delivered or explicitly requested brochure on residence clarification', () => {
+    const profile = originProfile('Nathaly')
+    const previouslyShared = leadIntroductionTurn(pending({ current: 'Nathaly, soy de Cuenca',
+      summary: { _lead_introduction: { ...begin().state, brochure_sent: true } },
+      extracted: { lead_profile: profile } }))
+    assert.equal(previouslyShared.brochureDeferred, false)
+    assert.ok(!previouslyShared.reply.includes(BROCHURE_URL))
+    assert.match(previouslyShared.reply, /residencia actual/)
+    assert.doesNotMatch(previouslyShared.reply, /Para enviarle|Así podré enviarle/)
+    const requested = leadIntroductionTurn(pending({ current: 'Soy Nathaly, soy de Cuenca, envíeme el brochure',
+      extracted: { lead_profile: profile }, audit: { source: 'brochure' } }))
+    assert.equal(requested.brochureDeferred, false)
+    assert.ok(requested.reply.includes(BROCHURE_URL))
+    assert.doesNotMatch(requested.reply, /Para enviarle|Así podré enviarle/)
+    assert.deepEqual(leadIntroductionIssues(requested.reply, requested.audit), [])
   })
 })
 

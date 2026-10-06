@@ -199,6 +199,21 @@ test('topic changes preserve declared identity and brochure history; an explicit
   assert.equal(firstSend.brochure.compartido_previamente, false)
 })
 
+test('profile clarification uses the guide purpose when the brochure was shared or is delivered by direct request', () => {
+  for (const sharedBefore of [false, true]) {
+    const candidate = { city: 'Cuenca', country: null }
+    const verified = { perfil_lead: { ...declaredProfile, residence_status: 'pending_confirmation' },
+      estado_conversacion: { brochure_sent: sharedBefore } }
+    const state = finalWriterContract('', { profile_introduction: { question_purpose: 'confirm_residence',
+      candidate, brochure_deferred: !sharedBefore, brochure_previously_sent: sharedBefore } },
+    { current: sharedBefore ? 'Soy de Cuenca' : 'Soy de Cuenca, envíeme el brochure', verified }).estado_comercial
+    assert.equal(state.proposito_captura, 'guia_personalizada')
+    assert.equal(state.brochure.accion, sharedBefore ? 'already_shared' : 'share_now')
+    assert.deepEqual(state.datos_a_pedir, ['current_residence'])
+    assert.deepEqual(state.residencia_por_confirmar, candidate)
+  }
+})
+
 test('commercial stage keeps confirmation candidates and does not force profile collection on other routes', () => {
   const candidate = { city: 'Guayaquil', country: null }
   const state = finalWriterContract('', { profile_introduction: {

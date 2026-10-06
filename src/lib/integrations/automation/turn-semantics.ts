@@ -171,45 +171,7 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
 }
 
 export const TURN_SEMANTIC_EXTRACTION_RULES = `
-Devuelva SIEMPRE un objeto "turn_semantics" con esta forma:
-{
-  "primary_intent":"request_visit|request_reservation|ask_reservation|answer_previous|select_property|ask_price|discuss_budget|ask_financing|project_information|other",
-  "primary_evidence":"copia literal breve del mensaje actual",
-  "confidence":"high|medium|low",
-  "housing_quantities":[{"dimension":"people|bedrooms|unknown","values":[],"role":"requirement|evaluation|context|unknown","count_basis":"total|excluding_speaker|unspecified","evidence":"copia literal actual","confidence":"high|medium|low"}],
-  "answer_to_previous":{
-    "question_id":"visit_invitation|visit_date_time|budget_amount|budget_kind|property_category|property_floor|property_bedrooms|property_area|property_requirements|unit_choice|purchase_timing|lead_profile|lead_profile_name|lead_profile_residence|lead_residence_confirmation|financing_invitation|financing_partner|financing_data|none",
-    "kind":"affirmative|negative|uncertain|value|none",
-    "evidence":"copia literal breve del mensaje actual o cadena vacía",
-    "confidence":"high|medium|low"
-  },
-  "reservation":{
-    "kind":"request|information|declined|none",
-    "evidence":"copia literal breve del mensaje actual o cadena vacía",
-    "unit_numbers":[],
-    "confidence":"high|medium|low"
-  },
-  "property":{
-    "group":null,
-    "category":null,
-    "excluded_categories":[],
-    "operation":"search|rank|compare|select|details|none",
-    "reference_kind":"none|explicit|relative|comparison|followup",
-    "unit_numbers":[],
-    "selector":null,
-    "query_scope":null,
-    "filters":{"floor_number":null,"bedrooms":null,"bedrooms_any":[],"bedrooms_operator":null,"bedrooms_upper":null,"bedrooms_required":null,"min_area_m2":null,"max_area_m2":null},
-    "filter_evidence":{"floor_number":"","bedrooms":"","bedrooms_any":"","bedrooms_operator":"","bedrooms_upper":"","bedrooms_required":"","min_area_m2":"","max_area_m2":""},
-    "evidence":"copia literal breve del mensaje actual o cadena vacía",
-    "confidence":"high|medium|low"
-  },
-  "budget":{
-    "status":"not_discussed|unknown|amount_pending|no_defined_budget|amount|maximum_total|initial_capital|sufficient_for_selected_unit|insufficient_for_selected_unit|declines_to_disclose",
-    "amount":null,
-    "evidence":"copia literal breve del mensaje actual o cadena vacía",
-    "confidence":"high|medium|low"
-  }
-}.
+Devuelva SIEMPRE turn_semantics conforme al esquema JSON estricto adjunto; sus campos, tipos y valores permitidos se definen allí.
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
 reservation distingue la intención de iniciar la separación/reserva (request), consultar condiciones o requisitos sin iniciar (information), rechazar o posponer ese proceso (declined) y ausencia de esa intención (none). «Quiero separar el 605», «ayúdeme a iniciar la reserva de esa unidad» y sus errores evidentes de escritura son request; «¿cuánto se paga para reservar?» o «¿cómo funciona la separación?» son information. «Por ahora no, entonces quiero separar el departamento 605» responde negativamente a la propuesta anterior y pide una reserva NUEVA: conserve answer_to_previous y use primary_intent=request_reservation, reservation.kind=request. La unidad mencionada identifica el objeto de la reserva, no convierte el turno en una nueva presentación ni en un recorrido. Copie evidencia literal de la petición completa, incluidas negaciones, condiciones y correcciones relevantes; no cite solo el verbo de una frase negada. Una reserva hipotética o condicionada no satisfecha no inicia el trámite. primary_intent=ask_reservation para information. El evento asked_reservation sirve para puntuar interés, nunca demuestra por sí solo que desea iniciar ahora. unit_numbers conserva los códigos realmente referidos y el catálogo comprobará su existencia; en referencias como «esa» puede usar una unidad inequívoca del contexto, nunca elegir entre varias. Solicitar el proceso requiere atención del asesor; no afirma disponibilidad, pago, reserva confirmada, cita, consentimiento financiero ni asesor asignado. No convierta la aceptación de detalles, una cifra de precio, un «sí» sin pregunta de reserva ni el historial en una solicitud nueva.
 En property.filters declare únicamente restricciones expresadas en el mensaje ACTUAL y copie en filter_evidence la frase literal que sustenta cada campo; deje vacío el resto. Las características de unidades ya ofrecidas pertenecen al contexto, no son filtros nuevos. Para comparar, pedir detalles o clasificar esas opciones, use operation, reference_kind, query_scope y unit_numbers; no repita sus dormitorios, planta o áreas como restricciones actuales. Una nueva restricción sí puede refinar el conjunto referido y necesita su propia evidencia, aunque esté expresada de forma natural y sin cifras.

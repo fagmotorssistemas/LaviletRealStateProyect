@@ -1,3 +1,5 @@
+import { reservationServiceError } from '@/lib/inmobiliaria/automationErrors'
+
 type Row = Record<string, unknown>
 type RouteStep = { order: number; key: string; status: string; output: Row; errorCode: string | null }
 export type ExecutionWorkflowId = 'overview' | 'pauses' | 'visits' | 'financing' | 'nutrition'
@@ -53,5 +55,5 @@ export function executionOutcome(status: string, action: string, result: Row = {
     cancelled: 'Cancelado', expired: 'Ventana vencida', paused_before_reply: 'Pausado antes de responder',
     paused_before_salesbot: 'Pausado antes del envío', courtesy_already_acknowledged: 'Cortesía ya atendida',
   }
-  return labels[action] || action.replaceAll('_', ' ') || (status === 'completed' ? 'Completado' : status)
+  return labels[action] || reservationServiceError(action) || action.replaceAll('_', ' ') || (status === 'completed' ? 'Completado' : status)
 }

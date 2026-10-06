@@ -1332,7 +1332,7 @@ function conversationHarness(options = {}) {
   let escalationAttempted = false, escalationStored = options.proposals?.[0] || null
   const query = table => {
     let checksNewerInput = false
-    const q = { then(resolve) { return Promise.resolve({ data: table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: checksNewerInput ? options.newerInboundCount || 0 : 0 }).then(resolve) } }
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'messages' ? options.messageHistory || [] : table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: checksNewerInput ? options.newerInboundCount || 0 : 0 }).then(resolve) } }
     for (const name of ['update', 'delete', 'select', 'eq', 'match', 'is', 'gt', 'lt', 'lte', 'in', 'order', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
     q.gt = column => { checksNewerInput = table === 'lv_integration_events' && column === 'payload->>sentAt'; return q }
     q.update = values => {
@@ -1574,6 +1574,73 @@ test('failed or inconsistent reservation receipts cannot produce a confirmed act
     await assert.rejects(h.process([h.rows[0]], async () => {}), error => error.message === 'PRE_REPLY_SEND_FAILED' && /RESERVATION/.test(error.original?.message))
     assert.equal(h.calls.some(call => call.name === 'launch' || call.name === 'register_outbound_message'), false)
   }
+})
+
+test('an absent reservation RPC preserves informational delivery without claiming a reservation or a substitute handoff', async t => {
+  live(t)
+  for (const code of ['PGRST202', '42883']) {
+    const current = 'Quiero reservar el 304 y conocer su precio y qué incluye.'
+    const catalog = [{ id: 'u304', unit_number: '304', category: 'departamento', is_published: true, status: 'disponible', published_commercial_price: 270000 }]
+    const h = conversationHarness({ reservationFailure: `RPC_LV_REQUEST_RESERVATION_HANDOFF_${code}`, captureTrace: true, catalog,
+      summary: { _lead_introduction: { status: 'complete' } },
+      commercialInfo: { catalogo: catalog, politica_comercial: { precios_autorizados: true } },
+      extracted: { events: ['asked_price', 'asked_reservation'], requests: [
+        { domain: 'property', request: 'Conocer precio y características', evidence: 'conocer su precio y qué incluye', confidence: 'high' }],
+        turn_semantics: { primary_intent: 'request_reservation', confidence: 'high', primary_evidence: current,
+          reservation: { kind: 'request', evidence: 'Quiero reservar el 304', unit_numbers: ['304'], confidence: 'high' },
+          property: { category: 'departamento', unit_numbers: ['304'], confidence: 'high', evidence: current } } },
+      turnComplete: input => ({ reply: input.baseReply + '\n\nEl valor autorizado de la unidad es $270000. Incluye sus espacios de vivienda.',
+        changed: true, needsAdvisor: false, unresolved: [], audit: {} }) })
+    h.rows[0].payload.text = current
+    await h.process([h.rows[0]], async () => {})
+    assert.equal(h.calls.filter(call => call.name === 'lv_request_reservation_handoff').length, 1)
+    assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
+    const writer = h.calls.find(call => call.name === 'completeTurnReply').args
+    assert.ok(writer.verified.contrato_turno.required_facts.includes('price'))
+    assert.equal(writer.audit.reservation.action_executed, false)
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.match(sent.p_content, /No pude registrar/)
+    assert.match(sent.p_content, /270000/)
+    assert.doesNotMatch(sent.p_content, /He registrado|bandeja del equipo|asesor.*asignad|reserva confirmada/)
+    assert.equal(sent.p_tool_calls.reservation.handoff_verified, false)
+    assert.equal(h.lead.bot_enabled, true)
+    const steps = h.calls.filter(call => call.name === 'execution_trace').flatMap(call => call.args)
+    const failed = steps.find(step => step.source_module === 'lv_request_reservation_handoff')
+    assert.equal(failed.status, 'failed')
+    assert.equal(failed.output_summary.informational_response_continues, true)
+  }
+})
+
+test('a conditional reservation in a grouped turn does not hand off and retains all informational questions for writing', async t => {
+  live(t)
+  const first = 'Quisiera saber si por comprar antes los precios son menores.'
+  const wish = 'Quisiera asegurar un departenbyeo'
+  const prerequisite = 'Obviamente ver si es alcanzable el valor que me vaya ofrecer.'
+  const h = conversationHarness({ captureTrace: true, summary: { _lead_introduction: { status: 'complete' } },
+    messageHistory: [{ id: 'pending-inclusion', external_message_id: 'pending-inclusion', role: 'cliente', content: 'Que incluye', sent_at: new Date(Date.now() - 5000).toISOString() }],
+    extracted: { requested_advisor: true, action_evidence: { requested_advisor: wish }, events: ['asked_price', 'asked_reservation'],
+      requests: [{ domain: 'property', request: 'Comparar precios de lanzamiento', evidence: first, confidence: 'high' },
+        { domain: 'advisor', request: 'Asegurar un departamento', evidence: wish, confidence: 'high' },
+        { domain: 'property', request: 'Qué incluye el departamento', evidence: 'Que incluye', confidence: 'high' }],
+      turn_semantics: { primary_intent: 'request_reservation', confidence: 'high', primary_evidence: wish,
+        reservation: { kind: 'request', evidence: wish, unit_numbers: [], confidence: 'high' } } } })
+  h.rows[0].payload.text = first
+  h.rows[1].payload.text = wish
+  h.rows.push({ payload: { ...h.rows[1].payload, externalId: 'three', text: prerequisite, sentAt: new Date(Date.now() - 500).toISOString() } })
+  await h.process(h.rows, async () => {})
+  assert.equal(h.calls.some(call => ['lv_request_reservation_handoff', 'handoff_lead'].includes(call.name)), false)
+  assert.equal(h.calls.find(call => call.name === 'lv_evaluate_message_interest_v2').args.p_events.includes('asked_reservation'), false)
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.resolved_turn_intent.requested_action, null)
+  assert.equal(sent.p_tool_calls.reservation.request_deferred, true)
+  assert.equal(sent.p_tool_calls.resolved_turn_intent.requests.some(request => request.domain === 'advisor'), false)
+  const writer = h.calls.find(call => call.name === 'completeTurnReply').args
+  assert.ok(writer.verified.contrato_turno.required_facts.includes('price'))
+  assert.ok(writer.current.includes(first))
+  assert.ok(writer.current.includes(wish))
+  assert.ok(writer.current.includes(prerequisite))
+  assert.ok(writer.current.includes('Que incluye'))
+  assert.equal(h.lead.bot_enabled, true)
 })
 
 test('global review disabled preserves the first writer draft through the actual delivery boundary', async t => {

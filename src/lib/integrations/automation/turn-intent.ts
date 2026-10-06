@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { asksUnitPrice } from './price-reply'
 import { normalizedReservation } from './turn-semantics'
+import { reservationPermission } from './reservation-action'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 
@@ -26,9 +27,18 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const previous = object(input.previous), property = object(input.semantics.property)
   const answer = object(input.semantics.answer_to_previous), pending = object(input.pendingQuestion)
   const confidentIntent = input.semantics.confidence === 'high' && !['', 'other'].includes(text(input.semantics.primary_intent))
-  const reservation = normalizedReservation(input.semantics.reservation, input.current)
+  const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current), input.current)
   const reconciledRequest = reconciledInformationRequest(input, reservation)
-  const requests = reconciledRequest ? [reconciledRequest] : input.requests
+  const requests = (reconciledRequest ? [reconciledRequest] : input.requests).map(request => {
+    const proof = text(request.evidence).trim(), permission = text(reservation.evidence).trim()
+    // Securing an option subject to an unanswered prerequisite is information,
+    // even if extraction put that wish in the advisor domain. An independently
+    // evidenced request to speak with a person retains its separate action.
+    return reservation.request_deferred === true && request.domain === 'advisor' && proof && permission
+      && (proof.includes(permission) || permission.includes(proof))
+      && !/\b(?:asesor|asesora|humano|persona|equipo)\b/i.test(proof)
+      ? { ...request, domain: 'property', action_deferred: true } : request
+  })
   const reservationObjective = reservation.kind === 'request' ? 'request_reservation' : reservation.kind === 'information' ? 'ask_reservation' : null
   const lexicalPrice = asksUnitPrice(input.current, true)
   const propertyPriceFallback = !confidentIntent && lexicalPrice && /\b(?:suites?|departamentos?|apartamentos?|penthouses?|local(?:es)?(?: comerciales?)?)\b/i.test(input.current)
@@ -60,6 +70,8 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const interpretationSource = reservationObjective && inScope ? 'current_reservation' : inheritedPrice ? 'clarification_of_price_request'
     : confidentIntent ? 'extractor' : explicitPrice ? 'lexical_fallback' : 'current_turn'
   const decisions = [...rows(object(input.semantics.interpretation).decisions)]
+  if (reservation.request_deferred === true) decisions.push({ code: 'reservation_prerequisite_unresolved',
+    source: 'current_turn', original_kind: 'request', canonical_kind: 'information', evidence: reservation.evidence })
   if (reconciledRequest) decisions.push({ code: 'request_domain_reconciled_from_current_project_information',
     source: 'primary_intent', original_domain: 'other', canonical_domain: 'property',
     canonical_intent: objective, evidence: reconciledRequest.evidence })

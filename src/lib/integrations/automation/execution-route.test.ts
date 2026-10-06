@@ -50,3 +50,12 @@ test('rejected response and recovery notice are distinguished without claiming W
   assert.match(executionOutcome('completed', 'advisor_recovery', { notice: 'superseded_or_paused' }), /aviso se omitió/)
   assert.match(executionOutcome('completed', 'advisor_recovery'), /Sin confirmación de envío/)
 })
+
+test('reservation installation failures explain the missing service while retaining the audit code', () => {
+  const code = 'RPC_LV_REQUEST_RESERVATION_HANDOFF_PGRST202'
+  const route = executionRoute([{ ...step(1, 'advisor_handoff', {}, 'failed'), errorCode: code }], 'inbound', {}, {})
+  assert.equal(route.stopReason, code)
+  assert.match(executionOutcome('failed', code), /migración de reservas.*caché/)
+  assert.match(executionOutcome('failed', code), /no acredita una solicitud registrada/)
+  assert.match(executionOutcome('failed', 'RPC_OTHER_PGRST202'), /RPC OTHER PGRST202/)
+})

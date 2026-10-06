@@ -142,6 +142,28 @@ test('reservation information, refusal, stale evidence and unapproved scope do n
   }
 })
 
+test('a reservation wish with an unresolved purchase prerequisite preserves price questions without authorizing an advisor action', () => {
+  const evidence = 'Quisiera asegurar un departenbyeo'
+  const current = `Quisiera saber si por comprar antes los precios son menores.\n${evidence}\nObviamente ver si es alcanzable el valor que me vaya ofrecer.`
+  const result = resolveTurnIntent({ current, scope, semantics: { primary_intent: 'request_reservation', confidence: 'high',
+    reservation: { kind: 'request', evidence, unit_numbers: [], confidence: 'high' } }, requests: [
+    { ...request('Consultar precios de lanzamiento'), evidence: 'Quisiera saber si por comprar antes los precios son menores.' },
+    { ...request('Asegurar un departamento', 'advisor'), evidence },
+  ] })
+  assert.equal(result.objective, 'ask_reservation')
+  assert.equal(result.requested_action, null)
+  assert.equal(result.reservation.request_deferred, true)
+  assert.deepEqual(result.required_facts, ['price'])
+  assert.equal(result.requests.length, 2)
+  assert.equal(result.requests[1].domain, 'property')
+  assert.equal(result.requests[1].evidence, evidence)
+  assert.ok(result.interpretation.decisions.some(item => item.code === 'reservation_prerequisite_unresolved'))
+  const withAdvisor = resolveTurnIntent({ current: current + '\nQuiero hablar con un asesor.', scope,
+    semantics: { primary_intent: 'request_reservation', confidence: 'high', reservation: { kind: 'request', evidence, unit_numbers: [], confidence: 'high' } },
+    requests: [...result.requests, { ...request('Contactar asesor', 'advisor'), evidence: 'Quiero hablar con un asesor.' }] })
+  assert.equal(withAdvisor.requests.at(-1).domain, 'advisor')
+})
+
 test('the current high confidence extractor objective wins over independent price keywords across intents', () => {
   for (const [primary_intent, current] of [
     ['request_visit', 'Ya conozco el precio, quiero visitar la oficina'],

@@ -8,6 +8,7 @@ import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 import { requireReviewedResponse, ResponseReviewRecoveryError } from './response-review-recovery'
 import { validateCatalogReply } from './catalog-dialogue'
 import { leadIntroductionTurn, rememberLeadIntroduction } from './lead-introduction'
+import { BROCHURE_URL } from './project-material'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
@@ -70,6 +71,47 @@ test('outside-to-property transition carries both profile obligations through th
     accepted: true, followUpUsable: true })
   assert.equal(delivered.collection_status, 'awaiting')
   assert.deepEqual(delivered.requested_fields, ['full_name', 'residence'])
+})
+
+for (const previouslyShared of [true, false]) test(`residence clarification shares the guide purpose with the real reviewer without promising another brochure (shared=${previouslyShared})`, async () => {
+  const current = 'Soy Nathaly y soy de Cuenca' + (previouslyShared ? '' : ', envíeme el brochure')
+  const profile = { full_name: 'Nathaly', evidence: { full_name: 'Soy Nathaly' },
+    sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Nathaly' } },
+    residence_status: 'pending_confirmation', declared_location: { city: 'Cuenca', kind: 'origin', evidence: 'soy de Cuenca' },
+    residence_candidate: { city: 'Cuenca', country: null, evidence: 'soy de Cuenca' } }
+  const opening = leadIntroductionTurn({ current, summary: { _lead_introduction: { status: 'pending', request_sent: true,
+    requested_fields: ['full_name', 'residence'], brochure_sent: previouslyShared } },
+    extracted: { lead_profile: profile }, reply: '', audit: { source: previouslyShared ? 'commercial' : 'brochure' } })
+  const question = 'Para brindarle una guía personalizada, ¿Cuenca es también su residencia actual?'
+  const reply = `Mucho gusto, Nathaly. ${question}`
+  let collectionInstruction = ''
+  const mock = harness((context, task) => {
+    const collection = rows(context.obligaciones_del_turno).find(row => row.id === 'profile_collection')
+    assert.equal(collection?.purpose, 'guia_personalizada')
+    assert.deepEqual(collection?.required_data, ['current_residence'])
+    assert.match(String(collection?.instruction), /no prometa enviarlo después/)
+    if (task === 'review') {
+      assert.equal(collection?.instruction, collectionInstruction)
+      assert.ok(String(context.borrador).includes(question))
+      assert.equal(String(context.borrador).includes(BROCHURE_URL), !previouslyShared)
+      assert.doesNotMatch(String(context.borrador), /para enviarle|así podré enviarle/i)
+      return pass
+    }
+    collectionInstruction = String(collection?.instruction)
+    const stage = object(object(context.contrato_redaccion).estado_comercial)
+    assert.equal(stage.proposito_captura, 'guia_personalizada')
+    assert.equal(object(stage.brochure).accion, previouslyShared ? 'already_shared' : 'share_now')
+    return { ...writer(context, reply), question: { purpose: 'collect_lead_profile', role: 'required_collection',
+      missing_datum: 'Confirmar si Cuenca es residencia actual', next_decision: 'Orientar según la residencia confirmada' } }
+  })
+  const result = await completeTurnReply({ current, baseReply: opening.reply,
+    verified: { perfil_lead: profile, brochure_url: BROCHURE_URL, estado_conversacion: { brochure_sent: previouslyShared } },
+    audit: { ...opening.audit, semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)
+  assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
+  assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(result.reply, reply + (previouslyShared ? '' : `\n\nBrochure del proyecto: ${BROCHURE_URL}`))
+  assert.equal(result.needsAdvisor, false)
 })
 
 test('a valid commercial draft passes the first review without sentence or numeric-ID sheets', async () => {

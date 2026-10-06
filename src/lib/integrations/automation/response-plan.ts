@@ -149,7 +149,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
 ${TURN_CONTINUATION_RULES}
 ${PROJECT_DELIVERY_RULES}
-estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando el propósito de brochure y guía personalizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
+estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando proposito_captura: con brochure_y_guia_personalizada conserve el propósito de compartir el brochure y orientar; con guia_personalizada explique la orientación sin prometer nuevamente el brochure ni condicionar su entrega a esos datos. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. Atienda la solicitud actual completa.
 ${COMMERCIAL_CONTINUATION_RULES}
 ${FINANCING_PROCESS_RULES}
@@ -177,6 +177,8 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
   const brochureUrl = text(introduction.brochure_url) || text(verified.brochure_url) || BROCHURE_URL
   const share = introduction.brochure_required === true || audit.source === 'brochure' || requiredLinks.includes(brochureUrl)
   const sharedBefore = introduction.brochure_previously_sent === true || conversation.brochure_sent === true
+  const brochureAction = share ? 'share_now' : sharedBefore ? 'already_shared'
+    : introduction.brochure_deferred === true ? 'offer_after_profile' : 'available_if_relevant'
   return { version: 'commercial-stage-v1',
     etapa: collect ? purpose === 'confirm_residence' ? 'confirm_profile' : 'collect_profile'
       : nameKnown && residenceKnown ? 'continue_with_known_profile' : 'answer_current_request',
@@ -185,10 +187,10 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
       residencia_actual: residenceKnown ? { city: profile.residence_city || null, country: profile.residence_country || null } : null },
     datos_pendientes: missing, datos_a_pedir: collect ? missing : [],
     residencia_por_confirmar: purpose === 'confirm_residence' ? object(introduction.candidate || profile.residence_candidate) : null,
-    proposito_captura: collect ? 'brochure_y_guia_personalizada' : null,
+    proposito_captura: collect ? brochureAction === 'offer_after_profile' ? 'brochure_y_guia_personalizada' : 'guia_personalizada' : null,
     presentacion_sin_tipos: introduction.generic_introduction === true && introduction.brochure_deferred === true,
     brochure: { compartido_previamente: sharedBefore,
-      accion: share ? 'share_now' : sharedBefore ? 'already_shared' : introduction.brochure_deferred === true ? 'offer_after_profile' : 'available_if_relevant',
+      accion: brochureAction,
       url: sharedBefore && !share ? null : brochureUrl },
     siguiente_objetivo: collect ? purpose : text(object(audit.pending_question).act)
       || text(object(audit.resolved_turn_intent || verified.contrato_turno).objective) || 'answer_current_request',

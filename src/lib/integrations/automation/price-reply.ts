@@ -12,6 +12,7 @@ import { unitAlternative } from './unit-alternatives'
 import { catalogQuery, filterCatalog, validateCatalogReply } from './catalog-dialogue'
 import { propertyFiltersFromText, propertyFiltersWithQuantityMeaning } from './turn-semantics'
 import { replaceBedroomComparison } from './bedroom-comparison'
+import { LAUNCH_PRICE_COMPARISON_RULE } from './launch-price-policy'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 function unitPurchaseClause(clause: string) {
@@ -455,7 +456,8 @@ Si se comparan unidades concretas y el cliente pregunta «¿y en precio?», cons
 Hable al cliente con naturalidad. Nunca diga «precio registrado», «precio autorizado», «registrado en el sistema» ni explique cómo almacenamos los precios. Diga el valor o el rango de las opciones de su interés.
 Si el cliente dice «tengo 100 dólares» o un presupuesto inferior al precio, puede ofrecer orientación sobre financiamiento sin interrogarlo por la cifra. Respete el monto literal: no lo multiplique por mil ni asegure que alcanza para una entrada o que se aprobará un crédito.
 No repita ofertas de financiamiento ya mencionadas. No añada por rutina «la aprobación depende de la entidad» ni «la entidad evalúa cada solicitud»; ofrezca acompañamiento en el proceso.
-Si le preguntan expresamente si el crédito está aprobado o garantizado, explique que la entidad debe evaluar el caso; nunca asegure una aprobación.`
+Si le preguntan expresamente si el crédito está aprobado o garantizado, explique que la entidad debe evaluar el caso; nunca asegure una aprobación.
+${LAUNCH_PRICE_COMPARISON_RULE}`
 
 export function priceReplyIssues(reply: string, info: Row, current = '', expectedPrices?: number[]) {
   const policy = object(info.politica_comercial), m = normalized(reply)
