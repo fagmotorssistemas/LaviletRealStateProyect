@@ -9,6 +9,16 @@ import { normalizedPropertyQuery } from './turn-semantics'
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
 
+/** A code-resolved informational reference does not accept the proposed change. */
+export function proposalInformationContext(info: Row): Row {
+  const context = object(info.property_context), pending = object(context.pending_question)
+  const reference = object(context.proposal_information)
+  return reference.version === 'proposal-information-v1' && reference.active === true
+    && reference.informational_only === true && pending.id === 'property_requirements'
+    && pending.act === 'explore_alternatives' && reference.pending_question_id === pending.id
+    && Object.keys(object(reference.query)).length ? reference : {}
+}
+
 /** Prefer a verified change to one physical requirement; never relax several
  * constraints, the customer's price limit or an explicitly indispensable count. */
 function alternativeRequirement(catalog: Row[], query: CatalogQuery, excluded: Set<string>, scopedIds?: string[]) {
@@ -89,6 +99,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const budget = object(readiness.budget), finance = object(info.financiamiento)
   const lead = object(info.lead), profile = object(info.perfil_lead)
   const context = object(info.property_context), query = object(context.query)
+  const proposalInformation = proposalInformationContext(info)
   const filters = object(query.filters), memory = object(info.hechos_confirmados)
   const category = text(query.category || context.preference_category || lead.preferred_category)
   const purpose = text(lead.purchase_purpose || object(memory.qualification).proposito)
@@ -134,7 +145,15 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const clarifyRequirements = (): Row => {
     const complete = object(info.catalog_read).complete === true && !unknownIds.length
       && (audit.verified_catalog !== true || object(audit.catalog_results).complete === true && !ids(object(audit.catalog_results).unknown_unit_ids).length)
-    const alternative = alternativeRequirement(planningCatalog, selectionQuery, excluded, scopedIds)
+    const pendingProposal = object(context.pending_question)
+    const pendingQuery = catalogQuery(pendingProposal.proposed_query)
+    const pendingUnits = Object.keys(proposalInformation).length
+      ? filterCatalog(planningCatalog, pendingQuery, ids(pendingProposal.candidate_ids))
+        .filter(unit => !excluded.has(text(unit.category))) : []
+    const alternative = Object.keys(proposalInformation).length
+      ? pendingUnits.length ? { field: text(object(pendingProposal.requirement_change).field)
+        || (pendingQuery.filters.bedrooms !== selectionQuery.filters.bedrooms ? 'bedrooms' : 'other'), query: pendingQuery, units: pendingUnits } : null
+      : alternativeRequirement(planningCatalog, selectionQuery, excluded, scopedIds)
     const bedroomCount = alternative?.field === 'bedrooms' ? alternative.query.filters.bedrooms : null
     const strict = selectionQuery.filters.bedrooms_required === true
     const declined = object(context.requirements_declined)
@@ -147,12 +166,12 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
       : '¿Estaría dispuesto a ajustar ese requisito para revisar las alternativas disponibles?'
     return { ...plan('clarify_requirements',
       `${complete ? 'La consulta completa no tiene coincidencias con todos los requisitos actuales.'
-        : 'No hay coincidencias confirmadas en el alcance consultado; faltan fichas o datos para afirmar ausencia en todo el proyecto.'} Reconozca el presupuesto solo si fue declarado, sin afirmar que alcanza para alternativas incompatibles. Explique el requisito que cambia y pregunte si aceptaría revisar ese cambio antes de pedir presupuesto, planta, unidad o financiamiento. Deje precios y dimensiones de las alternativas para después del consentimiento, salvo consulta explícita adicional. No garantice que otra cantidad de dormitorios acomode a la familia.${alternative && !strict && !adjustmentDeclined ? ' La explicación y la pregunta reales deben identificar el mismo ajuste de proposed_query, incluida la cantidad propuesta si existe. El revisor debe comprobar esa equivalencia antes de aprobar: un sí autoriza explorar esa propuesta, no otra ni seleccionar una unidad. Admita redacción equivalente sin exigir una frase literal.' : ''}${strict ? ' La cantidad de dormitorios fue declarada indispensable: respétela y no insista en alternativas ni añada una pregunta de ajuste.' : ''}${adjustmentDeclined ? ' El cliente rechazó ajustar esta búsqueda: respete su negativa, no repita la propuesta ni pida presupuesto; atienda la consulta y deje abierta la conversación sin una nueva pregunta obligatoria.' : ''}${informationMissing ? ' Falta información para comprobar este requisito y tampoco hay una alternativa verificada: explique ese límite, sin pedir que cambie una condición cuya ausencia no se ha confirmado.' : ''}`,
+        : 'No hay coincidencias confirmadas en el alcance consultado; faltan fichas o datos para afirmar ausencia en todo el proyecto.'} Reconozca el presupuesto solo si fue declarado, sin afirmar que alcanza para alternativas incompatibles. Explique el requisito que cambia y pregunte si aceptaría revisar ese cambio antes de pedir presupuesto, planta, unidad o financiamiento. No garantice que otra cantidad de dormitorios acomode a la familia.${alternative && !strict && !adjustmentDeclined ? ` ${Object.keys(proposalInformation).length ? 'Responda primero la consulta informativa sobre la propuesta pendiente con su referente verificado, incluidos precios autorizados si se preguntan. Después conecte esa respuesta con la decisión todavía pendiente de aceptar explorar el ajuste. Consultar detalles o precios no acepta la propuesta; no vuelva a presentar todo el catálogo ni cambie la necesidad original.' : 'Recomiende brevemente la alternativa verificable, no se limite a enumerar que existe. Explique por qué merece revisarla mediante rangos de área interior y características comunes comprobadas de los grupos requirement_alternatives, distinguiendo las categorías disponibles. Si un área no está verificada, omítala. No enumere números de unidad ni añada precios no solicitados antes de aceptar la alternativa. La recomendación invita a valorar otra opción, no afirma que satisfaga el requisito original ni que sea adecuada para toda la familia.'} La explicación y la pregunta reales deben identificar el mismo ajuste de proposed_query, incluida la cantidad propuesta si existe. El revisor debe comprobar tanto la recomendación sustentada (o la respuesta a la consulta informativa) como esa equivalencia antes de aprobar: un sí autoriza explorar esa propuesta, no otra ni seleccionar una unidad. Admita redacción equivalente sin exigir una frase literal.` : ''}${strict ? ' La cantidad de dormitorios fue declarada indispensable: respétela y no insista en alternativas ni añada una pregunta de ajuste.' : ''}${adjustmentDeclined ? ' El cliente rechazó ajustar esta búsqueda: respete su negativa, no repita la propuesta ni pida presupuesto; atienda la consulta y deje abierta la conversación sin una nueva pregunta obligatoria.' : ''}${informationMissing ? ' Falta información para comprobar este requisito y tampoco hay una alternativa verificada: explique ese límite, sin pedir que cambie una condición cuya ausencia no se ha confirmado.' : ''}`,
       question, question ? 'property_requirements' : ''), question_act: alternative ? 'explore_alternatives' : 'other',
       selection_scope: selectionScope, presentation: 'requirements', requested_query: selectionQuery,
       match_complete: complete, unknown_unit_ids: unknownIds,
       ...(alternative && !strict && !adjustmentDeclined ? { proposed_query: alternative.query, alternative_unit_ids: alternative.units.map(unit => text(unit.id)),
-        requirement_change: { field: alternative.field } } : {}) }
+        requirement_change: { field: alternative.field }, recommendation_mode: Object.keys(proposalInformation).length ? 'answer_then_confirm_alternative' : 'brief_verified_summary' } : {}) }
   }
   // Compatibility precedes budget discovery. Money and financing cannot make
   // an unavailable physical feature compatible with the current requirement.
@@ -161,7 +180,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     || selectionQuery.filters.floor_number !== null || selectionQuery.filters.min_area_m2 !== null || selectionQuery.filters.max_area_m2 !== null
   const physicalQuery = catalogQuery({ ...selectionQuery,
     requirements: rows(selectionQuery.requirements).filter(r => r.field !== 'published_commercial_price') })
-  if (!selected && physicalRequirements && ['search', 'rank', 'none'].includes(selectionQuery.operation)
+  if (!selected && physicalRequirements && (['search', 'rank', 'none'].includes(selectionQuery.operation) || Object.keys(proposalInformation).length > 0)
     && !filterCatalog(planningCatalog, physicalQuery, scopedIds).some(unit => !excluded.has(text(unit.category)))) return clarifyRequirements()
 
   const requests = rows(info.solicitudes_interpretadas || object(info.contrato_turno).requests)

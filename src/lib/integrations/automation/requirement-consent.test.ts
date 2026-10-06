@@ -6,6 +6,9 @@ import { normalizedPendingQuestion, normalizeTurnSemantics } from './turn-semant
 import { resolvedCatalogQuery } from './resolved-catalog-query'
 import { completeCatalogResult } from './catalog-result'
 import { object, type Row } from './data'
+import { taskVerifiedContext, taskModelEvidence, addTaskQueryEvidence } from './task-context'
+import { turnEvidence } from './turn-evidence'
+import { reviewObligations } from './focused-review'
 
 const catalog: Row[] = [
   { id: 'd302', unit_number: '302', category: 'departamento', bedrooms: 3, bathrooms_full: 2, floor_number: 3, area_internal_m2: 120.83, area_exterior_m2: 27.03, published_commercial_price: 270000 },
@@ -220,4 +223,221 @@ test('retrieval after consent does not inherit superseded optimized requirements
     assert.deepEqual(matches.units.map(unit => unit.id), constraints.length > 1 ? ['d302'] : ['d302', 'p602'])
     assert.deepEqual(accepted.context.selected_ids, [])
   }
+})
+
+test('an alternative recommendation has verified area ranges by category without selling every catalogue unit', () => {
+  const input = info()
+  input.catalogo = [
+    { ...catalog[0], spaces: ['sala', 'comedor', 'balcón'] },
+    { ...catalog[0], id: 'd402', unit_number: '402', area_internal_m2: 130, area_exterior_m2: 28,
+      spaces: ['sala', 'comedor', 'estudio'] },
+    { ...catalog[1], spaces: ['sala', 'comedor', 'terraza'] },
+    ...catalog.slice(2),
+  ]
+  const before = structuredClone(input)
+  const plan = commercialJourneyPlan(input)
+  const verified = { ...taskVerifiedContext(input, {}, 'Busco unos cinco dormitorios'), siguiente_paso_comercial: plan }
+  const canonical = turnEvidence(verified), model = taskModelEvidence(canonical, verified)
+  assert.equal(plan.action, 'clarify_requirements')
+  assert.equal(plan.recommendation_mode, 'brief_verified_summary')
+  assert.deepEqual(plan.alternative_unit_ids, ['d302', 'd402', 'p602'])
+  assert.equal(model.units.length, 0, 'The introduction recommends categories without an early list of unit numbers.')
+  assert.equal(model.groups.length, 2, 'Only the exact proposed categories appear in the compact summary.')
+  const apartments = model.groups.find(group => group.category === 'departamento')!
+  assert.deepEqual(apartments.member_ids, ['d302', 'd402'])
+  assert.equal(apartments.area_internal_m2, 120.83)
+  assert.equal(object(apartments.upper_values).area_internal_m2, 130)
+  assert.equal(apartments.area_exterior_m2, 27.03)
+  assert.equal(object(apartments.upper_values).area_exterior_m2, 28)
+  assert.deepEqual(apartments.shared_spaces, ['sala', 'comedor'], 'A balcony belonging to only one apartment is not shared by the category.')
+  assert.equal(model.groups.find(group => group.category === 'penthouse')!.area_internal_m2, 142.09)
+  assert.ok(model.groups.every(group => !('published_commercial_price' in group) && !('floor_number' in group)))
+  assert.match(String(plan.instruction), /Recomiende brevemente/)
+  assert.doesNotMatch(String(plan.instruction), /Deje precios y dimensiones/)
+  const shared = reviewObligations({}, verified, {}).find(item => item.id === 'commercial_next_step')!
+  assert.match(String(shared.instruction), /recomendaci.n sustentada/)
+  assert.equal(plan.financing_offer_allowed, false)
+  assert.match(String(plan.question), /3 dormitorios/)
+  assert.equal(object(object(plan.requested_query).filters).bedrooms, 5)
+  assert.deepEqual(input, before)
+})
+
+test('a proposal summary never borrows missing areas from unrelated or incomplete units', () => {
+  const input = info()
+  input.catalogo = [
+    { ...catalog[0], area_internal_m2: null },
+    { ...catalog[0], id: 'd402', unit_number: '402', area_internal_m2: 130 },
+    ...catalog.slice(1),
+  ]
+  const plan = commercialJourneyPlan(input)
+  const verified = { ...taskVerifiedContext(input, {}, 'Busco cinco dormitorios'), siguiente_paso_comercial: plan }
+  const model = taskModelEvidence(turnEvidence(verified), verified)
+  const apartments = model.groups.find(group => group.category === 'departamento')!
+  assert.equal(apartments.area_internal_m2, undefined)
+  assert.equal(object(apartments.upper_values).area_internal_m2, undefined)
+  assert.equal(apartments.bedrooms, 3)
+  assert.equal(model.groups.find(group => group.category === 'penthouse')!.area_internal_m2, 142.09)
+})
+
+test('a price inquiry about a proposed alternative keeps consent pending while providing that exact price evidence', () => {
+  for (const acceptedFinance of [false, true]) {
+    const input = info({ status: 'amount', amount: 400000, confidence: 'high', evidence: '400 mil aproximadamente' })
+    object(input.financiamiento).journey = { accepted: acceptedFinance }
+    const { pending, context } = offered(input)
+    const temporary = { ...object(pending.proposed_query), operation: 'details', reference_kind: 'followup' }
+    context.proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
+      pending_question_id: pending.id, candidate_ids: pending.candidate_ids, resolved_ids: pending.candidate_ids,
+      query: temporary, original_query: context.query, requested_operation: 'details', complete: true }
+    const current = '¿Pero qué precios tienen?'
+    const proposalUnits = catalog.filter(unit => ['d302', 'p602'].includes(String(unit.id)))
+    const audit = { source: 'catalog_details', verified_catalog: true,
+      catalog_query: temporary, catalog_results: { units: proposalUnits, unit_ids: ['d302', 'p602'], complete: true } }
+    const turn = { ...input, catalogo: proposalUnits, catalogo_verificacion: catalog, property_context: context,
+      solicitudes_interpretadas: [{ domain: 'property', request: current, evidence: current, confidence: 'high' }],
+      semantica_turno: { primary_intent: 'ask_price', confidence: 'high', property: { operation: 'details', reference_kind: 'followup', confidence: 'high' } } }
+    const plan = commercialJourneyPlan(turn, audit)
+    const verified = { ...taskVerifiedContext(turn, audit, current), siguiente_paso_comercial: plan }
+    const canonical = addTaskQueryEvidence(turnEvidence(verified, audit), verified)
+    const model = taskModelEvidence(canonical, verified)
+    assert.equal(plan.action, 'clarify_requirements')
+    assert.equal(plan.recommendation_mode, 'answer_then_confirm_alternative')
+    assert.equal(plan.question_id, 'property_requirements')
+    assert.equal(plan.financing_offer_allowed, false)
+    assert.deepEqual(model.units.map(unit => unit.id), ['d302', 'p602'])
+    assert.deepEqual(model.units.map(unit => unit.published_commercial_price), [270000, 550000])
+    assert.equal(object(object(model).model_scope).alternative_acceptance, 'pending')
+    assert.equal(object(object(object(model).model_scope).original_requirement_query).filters
+      && object(object(object(object(model).model_scope).original_requirement_query).filters).bedrooms, 5)
+    assert.equal(object(object(context.query).filters).bedrooms, 5)
+    assert.deepEqual(context.selected_ids || [], [])
+    const remembered = normalizedPendingQuestion(journeyPendingQuestion(`${current} ${String(plan.question)}`, plan, true), catalog)
+    assert.deepEqual(remembered.candidate_ids, ['d302', 'p602'])
+    assert.equal(object(object(remembered.proposed_query).filters).bedrooms, 3)
+  }
+})
+
+test('an empty temporal proposal query never repopulates model evidence from the whole recommendation', () => {
+  const input = info(), { context, pending } = offered(input)
+  const query = { ...object(pending.proposed_query), operation: 'details', scope: 'offered', requirements: [
+    { field: 'area_internal_m2', operator: 'gte', value: 200, strength: 'required', evidence: 'más de 200 metros' },
+  ] }
+  context.proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
+    pending_question_id: pending.id, candidate_ids: pending.candidate_ids, subject_ids: pending.candidate_ids,
+    resolved_ids: [], query, original_query: context.query, complete: true, unknown_ids: [], missing_ids: [] }
+  const before = structuredClone(context)
+  const audit = { source: 'catalog_details', verified_catalog: true,
+    catalog_results: { units: [], unit_ids: [], complete: true } }
+  const turn = { ...input, catalogo: [], catalogo_verificacion: catalog, property_context: context }
+  const plan = commercialJourneyPlan(turn, audit)
+  const verified = { ...taskVerifiedContext(turn, audit, '¿Cuáles tienen más de 200 metros?'), siguiente_paso_comercial: plan }
+  const canonical = addTaskQueryEvidence(turnEvidence(verified, audit), verified)
+  const model = taskModelEvidence(canonical, verified)
+  assert.equal(plan.action, 'clarify_requirements')
+  assert.equal(plan.financing_offer_allowed, false)
+  assert.deepEqual(model.units, [])
+  assert.deepEqual(model.groups, [])
+  assert.deepEqual(object(object(model).model_scope).matching_unit_ids, [])
+  assert.deepEqual(object(object(model).model_scope).reference_resolved_unit_ids, [])
+  assert.equal(object(object(model).model_scope).alternative_acceptance, 'pending')
+  assert.match(String(object(object(model).model_scope).note), /consulta temporal/)
+  assert.ok(['d302', 'p602'].every(id => canonical.units.some(unit => unit.id === id)), 'Full canonical proposal evidence remains available to validation.')
+  assert.deepEqual(context, before)
+})
+
+test('unknown temporal subjects remain explicit and do not lose their uncertainty when other subjects match', () => {
+  for (const minimum of [140, 200]) {
+    const input = info(), { context, pending } = offered(input)
+    const fresh = catalog.map(unit => unit.id === 'd302' ? { ...unit, area_internal_m2: null } : unit)
+    const resolvedIds = minimum === 140 ? ['d302', 'p602'] : ['d302']
+    const query = { ...object(pending.proposed_query), operation: 'details', scope: 'offered', requirements: [
+      { field: 'area_internal_m2', operator: 'gte', value: minimum, strength: 'required', evidence: `${minimum} metros al menos` },
+    ] }
+    context.proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
+      pending_question_id: pending.id, candidate_ids: pending.candidate_ids, subject_ids: pending.candidate_ids,
+      resolved_ids: resolvedIds, query, original_query: context.query, complete: false, unknown_ids: ['d302'], missing_ids: [] }
+    const audit = { source: 'catalog_details', verified_catalog: true,
+      catalog_results: { units: fresh.filter(unit => unit.id === 'p602' && minimum === 140),
+        unit_ids: minimum === 140 ? ['p602'] : [], complete: false, unknown_unit_ids: ['d302'] } }
+    const turn = { ...input, catalogo: fresh.filter(unit => resolvedIds.includes(String(unit.id))),
+      catalogo_verificacion: fresh, property_context: context }
+    const plan = commercialJourneyPlan(turn, audit)
+    const verified = { ...taskVerifiedContext(turn, audit, '¿Cuáles tienen ese tamaño?'), siguiente_paso_comercial: plan }
+    const canonical = addTaskQueryEvidence(turnEvidence(verified, audit), verified)
+    const model = taskModelEvidence(canonical, verified)
+    assert.deepEqual(model.units.map(unit => String(unit.id)).sort(), [...resolvedIds].sort())
+    assert.equal(model.units.find(unit => unit.id === 'd302')!.query_role, 'current_query_unknown')
+    if (minimum === 140) assert.equal(model.units.find(unit => unit.id === 'p602')!.query_role, 'current_query')
+    assert.deepEqual(object(object(model).model_scope).unknown_unit_ids, ['d302'])
+    assert.equal(object(object(model).model_scope).reference_complete, false)
+    assert.match(String(object(object(model).model_scope).note), /no las presente como coincidencias confirmadas/)
+    assert.ok(model.groups.every(group => (group.member_ids as string[]).every(id => resolvedIds.includes(id))))
+    assert.equal(plan.action, 'clarify_requirements')
+    assert.equal(object(object(context.query).filters).bedrooms, 5)
+    assert.deepEqual(context.pending_question, pending)
+  }
+})
+
+test('conflicting proposal evidence reports its conflict without constructing a group from missing members', () => {
+  const evidence = turnEvidence({ catalogo: [{ id: 'u1', category: 'departamento', bedrooms: 3 }],
+    catalogo_verificacion: [{ id: 'u1', category: 'penthouse', bedrooms: 2 }],
+    siguiente_paso_comercial: { action: 'clarify_requirements', alternative_unit_ids: ['u1'] } })
+  assert.deepEqual(evidence.conflicts, [{ code: 'conflicting_evidence', unit_id: 'u1', kind: 'system_evidence' }])
+  assert.ok(!evidence.groups.some(group => group.source_scope === 'requirement_alternatives' && group.category === 'penthouse'))
+  assert.doesNotThrow(() => turnEvidence({ catalogo: [{ id: '', category: 'departamento', bedrooms: 3 }],
+    siguiente_paso_comercial: { action: 'clarify_requirements', alternative_unit_ids: [''] } }))
+})
+
+test('a proposal price follow-up preserves evidence needed by a second independent property question', () => {
+  const input = info(), { context, pending } = offered(input)
+  const local = { id: 'local1', unit_number: 'LC1', category: 'local', area_internal_m2: 80, published_commercial_price: 160000 }
+  const fresh = [...catalog, local]
+  const query = { ...object(pending.proposed_query), operation: 'details', scope: 'offered' }
+  context.proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
+    pending_question_id: pending.id, candidate_ids: pending.candidate_ids, subject_ids: pending.candidate_ids,
+    resolved_ids: pending.candidate_ids, query, original_query: context.query, complete: true, unknown_ids: [], missing_ids: [] }
+  const audit = { source: 'catalog_details', verified_catalog: true,
+    catalog_results: { units: catalog.filter(unit => ['d302', 'p602'].includes(String(unit.id))),
+      unit_ids: ['d302', 'p602'], complete: true } }
+  const current = '¿Y qué precios tienen esas opciones? También quisiera saber las áreas y precios de los locales.'
+  const turn = { ...input, catalogo: fresh, catalogo_verificacion: fresh, property_context: context,
+    solicitudes_interpretadas: [
+      { domain: 'property', request: 'precios de las alternativas propuestas', evidence: 'qué precios tienen esas opciones', confidence: 'high' },
+      { domain: 'property', request: 'áreas y precios de los locales', evidence: 'áreas y precios de los locales', confidence: 'high' },
+    ] }
+  const plan = commercialJourneyPlan(turn, audit)
+  const verified = { ...taskVerifiedContext(turn, audit, current), siguiente_paso_comercial: plan }
+  assert.equal(object(verified.prompt_context_selection).task, 'multiple_requests')
+  const canonical = addTaskQueryEvidence(turnEvidence(verified, audit), verified)
+  const model = taskModelEvidence(canonical, verified)
+  const localEvidence = model.units.find(unit => unit.id === 'local1')!
+  assert.ok(localEvidence, 'The second request retains its own catalogue facts.')
+  assert.equal(localEvidence.published_commercial_price, 160000)
+  assert.equal(localEvidence.area_internal_m2, 80)
+  assert.equal(localEvidence.query_role, 'other_request_context')
+  assert.deepEqual(object(object(model).model_scope).matching_unit_ids, ['d302', 'p602'])
+  assert.ok(model.groups.some(group => group.category === 'local' && group.published_commercial_price === 160000))
+  assert.equal(object(object(model).model_scope).alternative_acceptance, 'pending')
+  assert.equal(object(object(context.query).filters).bedrooms, 5)
+  assert.equal(plan.action, 'clarify_requirements')
+})
+
+test('a compact proposal price summary does not confuse omitted unit cards with an empty result', () => {
+  const input = info(), { context, pending } = offered(input)
+  const query = { ...object(pending.proposed_query), operation: 'details', scope: 'offered' }
+  context.proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
+    pending_question_id: pending.id, candidate_ids: pending.candidate_ids, subject_ids: pending.candidate_ids,
+    resolved_ids: pending.candidate_ids, query, original_query: context.query, complete: true, unknown_ids: [], missing_ids: [] }
+  const proposalUnits = catalog.filter(unit => ['d302', 'p602'].includes(String(unit.id)))
+  const turn = { ...input, catalogo: proposalUnits, catalogo_verificacion: catalog, property_context: context }
+  const audit = { source: 'unit_price' }
+  const plan = commercialJourneyPlan(turn, audit)
+  const verified = { ...taskVerifiedContext(turn, audit, '¿Y los precios?'), siguiente_paso_comercial: plan }
+  assert.equal(object(verified.prompt_context_selection).task, 'price_summary')
+  const model = taskModelEvidence(addTaskQueryEvidence(turnEvidence(verified, audit), verified), verified)
+  assert.deepEqual(model.units, [])
+  assert.deepEqual(object(object(model).model_scope).reference_resolved_unit_ids, ['d302', 'p602'])
+  assert.ok(model.groups.some(group => group.published_commercial_price === 270000))
+  assert.ok(model.groups.some(group => object(group.upper_values).published_commercial_price === 550000))
+  assert.doesNotMatch(String(object(object(model).model_scope).note), /No hay coincidencias confirmadas para esta consulta temporal/)
+  assert.equal(object(object(model).model_scope).alternative_acceptance, 'pending')
 })

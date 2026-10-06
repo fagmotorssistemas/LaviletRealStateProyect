@@ -72,7 +72,18 @@ export function interpretationInput(input: Row, current: string): Row {
     'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'financiamiento'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   const catalog = rows(input.catalogo_unidades)
+  const propertyContext = object(input.contexto_propiedades)
+  const pending = object(propertyContext.pending_question || input.pregunta_pendiente)
+  const proposedIds = new Set(Array.isArray(pending.candidate_ids) ? pending.candidate_ids.map(text) : [])
+  const proposal = pending.id === 'property_requirements' && pending.act === 'explore_alternatives'
+    && Object.keys(object(pending.proposed_query)).length > 0 ? {
+      original_query: propertyContext.query, proposed_query: pending.proposed_query,
+      candidate_units: catalog.filter(unit => proposedIds.has(text(unit.id))).map(unit => pick(unit, unitFields)),
+      consent_status: 'pending',
+      note: 'Las consultas informativas pueden referirse a estas alternativas. Preguntar por ellas no acepta el cambio ni elimina la necesidad original.',
+    } : null
   return { ...result,
+    ...(proposal ? { propuesta_pendiente: proposal } : {}),
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
     resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts']),
@@ -133,4 +144,5 @@ FUENTE PRINCIPAL: interprete mensaje_actual completo, aunque contenga errores or
 La clasificación de alcance recibida es provisional. Interprete de forma independiente las solicitudes actuales; una etiqueta incierta no vuelve desconocida una petición inmobiliaria explícita. No necesita el catálogo de precios para extraer el presupuesto del cliente. La evidencia conserva el texto original con sus errores; el valor estructurado expresa su significado. No corrija la ortografía de una cita.
 USO RESIDENCIAL: una búsqueda de cuartos, habitaciones o dormitorios expresa vivienda: property.group=residential, sin elegir una tipología si no se indicó. Una categoría comercial del historial no debe mantenerse frente a esa necesidad actual. «Mínimo 3 cuartos» exige bedrooms >= 3; no necesita preguntar si habla de ambientes de un local. No confunda número de personas con dormitorios. Las plantas altas o superiores son una preferencia relativa: no invente floor_number=1 ni otra planta exacta; conserve esa preferencia en catalog_request.semantic_preferences. Un número de planta explícito sí permite un filtro numérico.
 SEPARACIÓN ENTRE MEMORIA Y NOVEDADES: hechos_confirmados conserva declaraciones ya aceptadas. Su salida contiene únicamente novedades del mensaje actual; no reconstruya el perfil completo. Si un presupuesto conocido no se vuelve a declarar, budget.status=not_discussed, amount=null y evidence=""; esto significa «sin actualización», no que el sistema olvide el presupuesto. Lo mismo aplica a cantidades familiares, preferencias, qualification y perfil: sin declaración nueva, use el valor neutro del esquema. La memoria se conserva por separado. Si el cliente cambia, niega o precisa un dato, extraiga esa novedad con evidencia actual aunque contradiga la memoria. Una consulta de financiamiento puede continuar con datos conocidos sin volver a declararlos. Ninguna memoria autoriza una gestión o consentimiento nuevo.
+REFERENTE DE PROPUESTAS: propuesta_pendiente distingue la necesidad original de las alternativas que el bot acaba de recomendar. Una consulta de precios, tamaños, características, cantidad o comparación sin un nuevo ámbito explícito se refiere a esas alternativas: use property.operation=details o compare, reference_kind=followup o comparison y query_scope=offered o comparison. No reconstruya requisitos originales incompatibles en catalog_request. Puede consultar una categoría de esa propuesta sin aceptar sustituir su necesidad ni elegir una unidad. Conserve el propósito informativo; solo una aceptación o negativa real responde al consentimiento pendiente. Una nueva búsqueda explícita o una consulta general de todo el catálogo sí tiene su propio ámbito.
 `

@@ -8,7 +8,13 @@ const fields = ['id', 'unit_number', 'category', 'floor', ...CATALOG_NUMBER_FIEL
 
 /** Current structured conditions replace the same prior dimension, never unrelated requirements. */
 export function resolveCatalogRequirements(info: Row, query: CatalogQuery, request: Row) {
-  const prior = object(object(info.property_context).optimized_catalog_request)
+  const context = object(info.property_context), proposal = object(context.proposal_information), pending = object(context.pending_question)
+  const proposalInformation = proposal.version === 'proposal-information-v1' && proposal.active === true
+    && proposal.informational_only === true && proposal.pending_question_id === pending.id && pending.act === 'explore_alternatives'
+  // A temporary question about a proposal is not the original search. The
+  // proposal query already carries its preserved constraints; the optimized
+  // original requirements must not silently restore the unavailable feature.
+  const prior = proposalInformation ? {} : object(context.optimized_catalog_request)
   const current = rows(request.requirements)
   const replaced = new Set(current.map(r => r.field))
   const filters = object(object(object(info.semantica_turno).property).filters)

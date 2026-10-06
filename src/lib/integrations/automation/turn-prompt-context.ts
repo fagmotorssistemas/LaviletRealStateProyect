@@ -33,7 +33,7 @@ function catalogModelContext(context: Row): Row {
   if (object(verified.prompt_context_selection).version === 'task-context-v1') {
     const property = object(result.property_context)
     result.property_context = Object.fromEntries(['query', 'selected_ids', 'offered_ids', 'comparison_ids', 'phase',
-      'preference_category', 'excluded_categories', 'pending_question', 'preference_transition'].filter(k => property[k] != null).map(k => [k, property[k]]))
+      'preference_category', 'excluded_categories', 'pending_question', 'preference_transition', 'proposal_information'].filter(k => property[k] != null).map(k => [k, property[k]]))
     delete verified.conversacion
     delete verified.property_context
   }

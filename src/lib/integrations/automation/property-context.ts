@@ -5,7 +5,7 @@ import { informationSubject } from './information-context'
 import { bedroomOptionsFromText } from './bedroom-options'
 import { replaceBedroomComparison } from './bedroom-comparison'
 import { resolveCatalogReference } from './catalog-reference'
-import { catalogQuery, filterCatalog } from './catalog-dialogue'
+import { catalogQuery, filterCatalog, partitionCatalog } from './catalog-dialogue'
 import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText, propertyFiltersWithQuantityMeaning, propertyPreferenceChange } from './turn-semantics'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
@@ -77,6 +77,9 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const catalog = available(catalogRaw), summary = object(summaryRaw), semantic = object(object(semantics).property)
   const context = propertyContext(catalog, summary._property_context, history)
   context.reference_resolution = {}
+  // A proposal's informational query belongs to one turn. It never replaces
+  // the client's search or supplies consent on a later message.
+  delete context.proposal_information
   const base = resolveCatalogReference(catalog, current, summary._unit_reference, history)
   const m = normalized(current)
   const pending = normalizedPendingQuestion(Object.keys(object(summary._pending_question)).length ? summary._pending_question : context.pending_question)
@@ -227,6 +230,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.preference_category = category || null
     context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []; context.focused_ids = []
     context.excluded_categories = []
+    context.pending_question = {}
   }
   // Once a verified alternative set is offered, choosing its category or floor
   // refines that set rather than restoring the entire category from the catalogue.
@@ -255,6 +259,92 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       ? `Entre las opciones que revisamos hay varias que encajan: ${matches.map(unit => `${text(unit.category)} ${text(unit.unit_number)}`).join(', ')}. ¿Cuál de estas opciones le gustaría conocer?`
       : 'Para orientarle con la opción correcta, ¿puede indicarme el número de la unidad que le interesa?') : '',
     }
+  }
+  const proposal = normalizedPropertyQuery(pending.proposed_query)
+  const proposalPending = pending.id === 'property_requirements' && pending.act === 'explore_alternatives'
+    && Object.keys(proposal).length > 0 && ids(pending.candidate_ids).length > 0
+  const acceptsProposal = proposalPending && (positive || answersPendingQuestion(semantics,
+    pending.id as Parameters<typeof answersPendingQuestion>[1], 'affirmative'))
+  const declinesProposal = proposalPending && answersPendingQuestion(semantics,
+    pending.id as Parameters<typeof answersPendingQuestion>[1], 'negative')
+  const informationPurpose = ['details', 'compare', 'count', 'list', 'range', 'min', 'max'].includes(text(structured.purpose))
+  const informationOperation = ['details', 'compare', 'rank'].includes(semanticOperation)
+  const informationalRequest = semanticValid && object(semantics).confidence === 'high'
+    && object(semantics).catalog_request_status !== 'invalid'
+    && object(semantics).primary_intent !== 'select_property' && semanticOperation !== 'select'
+    && (object(semantics).primary_intent === 'ask_price' || informationPurpose
+      || informationOperation && object(semantics).primary_intent !== 'select_property')
+  // A literal subject can be inspected without accepting the whole proposal.
+  // Resolve only codes actually present in this message and unambiguous in
+  // the fresh catalogue; their identities must belong to that proposal.
+  const literalProposalNumbers = [...current.matchAll(/(?:^|[^\d])((?:LC-?)?\d{1,4})(?=[^\d]|$)/gi)].map(match => code(match[1]))
+  const literalProposalCodes = [...new Set([...ids(semantic.unit_numbers), ...ids(object(base).requestedCodes)]
+    .map(code).filter(number => literalProposalNumbers.includes(number)))]
+  const literalProposalUnits = literalProposalCodes.flatMap(number => {
+    const matches = catalogRaw.filter(unit => code(unit.unit_number) === number)
+    return matches.length === 1 ? matches : []
+  })
+  const literalProposalSubject = proposalPending && literalProposalCodes.length > 0
+    && literalProposalUnits.length === literalProposalCodes.length
+    && literalProposalUnits.every(unit => ids(pending.candidate_ids).includes(text(unit.id)))
+  const proposalCategories = new Set(fromIds(pending.candidate_ids).map(unit => text(unit.category)))
+  const proposalSubject = proposalPending && !groupChanged && (!category || proposalCategories.has(category))
+    // An explicit new catalogue constraint is not silently rebound to an old
+    // proposal. Follow-ups can refine that proposal with new conditions.
+    && !(semantic.reference_kind === 'none' && semantic.query_scope === 'catalog'
+      && (hasCurrentFilters || currentRequirements.length > 0))
+  if (proposalPending && !proposalSubject && semanticOperation === 'search'
+    && (groupChanged || !!category || hasCurrentFilters || currentRequirements.length > 0)) {
+    context.pending_question = {}
+    // The rest of this resolver must not interpret naming a new category or
+    // requirement as acceptance of the proposal that was just superseded.
+    pending.id = ''; pending.act = ''; pending.candidate_ids = []
+    delete pending.proposed_query
+  }
+  // Resolve the subject before executing a range/details/comparison operation.
+  // In particular, ask_price cannot search for the unavailable original need
+  // merely because the extractor emitted search/catalog instead of followup.
+  // Literal subjects outside this proposal keep their own precise route below.
+  const hasExplicitSubject = ids(semantic.unit_numbers).length > 0 || base.hasUnitMention
+  if (proposalSubject && informationalRequest && !acceptsProposal && !declinesProposal && (!hasExplicitSubject || literalProposalSubject)) {
+    const candidateIds = ids(pending.candidate_ids)
+    const subjectIds = literalProposalSubject ? unitIds(literalProposalUnits) : candidateIds
+    const candidates = fromIds(subjectIds)
+    const supplied = Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null))
+    const baseRequirements = Array.isArray(proposal.requirements) ? proposal.requirements.map(object) : []
+    const newFields = new Set(currentRequirements.map(requirement => requirement.field))
+    if (suppliedFilters.bedrooms != null || Array.isArray(suppliedFilters.bedrooms_any) && suppliedFilters.bedrooms_any.length) newFields.add('bedrooms')
+    if (suppliedFilters.floor_number != null) newFields.add('floor_number')
+    if (suppliedFilters.min_area_m2 != null || suppliedFilters.max_area_m2 != null) newFields.add('area_internal_m2')
+    const requirements = [...baseRequirements.filter(requirement => !newFields.has(requirement.field)), ...currentRequirements]
+    const operation = structured.purpose === 'compare' || semanticOperation === 'compare' ? 'compare'
+      : semanticOperation === 'rank' ? 'rank' : 'details'
+    const subjectCategory = literalProposalSubject
+      ? literalProposalUnits.every(unit => unit.category === literalProposalUnits[0].category) ? literalProposalUnits[0].category : null
+      : category || proposal.category
+    Object.assign(query, { ...proposal, category: subjectCategory, operation,
+      scope: operation === 'compare' ? 'comparison' : 'offered', selector: operation === 'rank' ? selector || null : null,
+      filters: normalizedPropertyFilters({ ...object(proposal.filters), ...supplied }) })
+    if (requirements.length) query.requirements = requirements
+    else delete query.requirements
+    const partition = partitionCatalog(candidates, catalogQuery(query))
+    const subject = [...partition.units, ...partition.unknown].filter(unit => !excluded.includes(text(unit.category)))
+    const missingIds = subjectIds.filter(id => !candidates.some(unit => text(unit.id) === id))
+    const requestedOperation = informationPurpose ? text(structured.purpose) : operation
+    context.query = { ...previousQuery }
+    context.pending_question = pending
+    // Offered and compared identify the subject of information, not acceptance
+    // of changed needs or selection. Existing price/tour readers use these IDs.
+    context.offered_ids = unitIds(candidates)
+    if (operation === 'compare') context.comparison_ids = unitIds(subject)
+    context.proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
+      pending_question_id: pending.id, candidate_ids: candidateIds, subject_ids: subjectIds, resolved_ids: unitIds(subject), query: { ...query },
+      original_query: { ...previousQuery }, requested_operation: requestedOperation,
+      complete: !missingIds.length && !partition.unknown.length, missing_ids: missingIds, unknown_ids: unitIds(partition.unknown) }
+    context.reference_resolution = { source: 'pending_proposal', requested_ids: subjectIds, resolved_ids: unitIds(subject),
+      missing_ids: missingIds, status: missingIds.length ? 'clarification' : partition.unknown.length ? 'unknown_attributes' : 'resolved' }
+    return { ...result(subject, 'pending_proposal_information', false, missingIds.length > 0),
+      ...(missingIds.length ? { clarification: 'Una de las alternativas sobre las que conversábamos ya no aparece disponible. ¿Le gustaría revisar las opciones actuales?' } : {}) }
   }
   // Asking to explore after an unavailable bedroom count authorizes a separate
   // alternative query; it does not erase the client's original requirement.
@@ -385,7 +475,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     : /\b(?:diferencias?|comparar|compare|comparacion)\b/.test(m)
       && !/\b(?:no (?:quiero|deseo|necesito)|sin)\b[^.!?]{0,30}\bcompar|\bno me importan?\b[^.!?]{0,20}\bdiferencias?/.test(m)
   const continuesSet = asksComparison || contextualOperation && ['details', 'rank'].includes(operation)
-  if (continuesSet && referenceTargets.length && (['comparison', 'offered', 'selected'].includes(text(query.scope))
+  if (continuesSet && !acceptsProposal && !declinesProposal && referenceTargets.length && (['comparison', 'offered', 'selected'].includes(text(query.scope))
     || !hasCurrentFilters && (!category || referencedUnits.every(unit => unit.category === category)))) {
     // Resolve the subject first. Only this turn's new constraints refine that
     // set; prior search filters must not erase an already offered alternative.
@@ -450,7 +540,6 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       return result(options, 'accepted_quoted_options')
     }
   }
-  const proposal = normalizedPropertyQuery(pending.proposed_query)
   const declinesPending = answersPendingQuestion(semantics, pending.id as Parameters<typeof answersPendingQuestion>[1], 'negative')
     || /^(?:no|no gracias)$/.test(m)
   if (pending.id === 'property_requirements' && declinesPending) {
@@ -595,6 +684,11 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
 /** Persist only after the reply was delivered. Offered, compared and chosen are different facts. */
 export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply: string, audit: Row): Row {
   const context: Row = { ...object(contextRaw), version: 2 }
+  const proposalInformation = object(context.proposal_information)
+  const previousPending = object(context.pending_question)
+  const informsProposal = proposalInformation.version === 'proposal-information-v1' && proposalInformation.active === true
+    && proposalInformation.informational_only === true && proposalInformation.pending_question_id === previousPending.id
+    && previousPending.act === 'explore_alternatives'
   if (['business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification'].includes(text(audit.source))) {
     return { version: 2, preference_category: context.preference_category || null, offered_ids: [], comparison_ids: [], selected_ids: [], focused_ids: [], pending_question: {}, query: {}, phase: null, last_reply: reply }
   }
@@ -622,11 +716,18 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
     context.pending_question = normalizedPendingQuestion({ ...pending, target_ids: unitIds(unitsInPropertyReply(catalog, text(pending.question))), candidate_ids: actual }, catalog)
   } else context.pending_question = {}
   context.focused_ids = focused.length ? focused.filter(id => allowed.has(id)) : ids(object(context.pending_question).target_ids)
-  if (audit.catalog_query) context.query = object(audit.catalog_query)
-  if (audit.catalog_query && (object(audit.catalog_retrieval).optimized === true || Object.hasOwn(context, 'optimized_catalog_request'))) context.optimized_catalog_request = object(audit.catalog_retrieval).optimized === true
+  if (audit.catalog_query && !informsProposal) context.query = object(audit.catalog_query)
+  if (audit.catalog_query && !informsProposal && (object(audit.catalog_retrieval).optimized === true || Object.hasOwn(context, 'optimized_catalog_request'))) context.optimized_catalog_request = object(audit.catalog_retrieval).optimized === true
     ? { category: object(audit.catalog_query).category, group: object(audit.catalog_query).group,
       requirements: object(object(audit.catalog_summary).request).requirements } : {}
   if (audit.original_query) context.original_query = normalizedPropertyQuery(audit.original_query)
+  // Reply audit can contain the temporary price/details query. Delivery does
+  // not turn that query into acceptance or select a proposed unit.
+  if (informsProposal && object(context.pending_question).id === previousPending.id
+    && object(context.pending_question).act === 'explore_alternatives') {
+    context.query = object(proposalInformation.original_query)
+    context.selected_ids = ids(object(contextRaw).selected_ids)
+  } else if (informsProposal) delete context.proposal_information
   context.context_source = structured ? 'structured_reply' : 'legacy_reply'
   if (audit.alternative_phase) context.phase = audit.alternative_phase
   else if (audit.source === 'property_floor_options') context.phase = 'choose_unit'

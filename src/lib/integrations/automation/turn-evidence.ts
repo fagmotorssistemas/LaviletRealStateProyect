@@ -19,7 +19,7 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   const proposed = object(verified.siguiente_paso_comercial)
   if (proposed.action === 'clarify_requirements') {
     const alternativeIds = new Set(Array.isArray(proposed.alternative_unit_ids) ? proposed.alternative_unit_ids : [])
-    sources.push({ source: 'requirement_alternatives', units: rows(verified.catalogo_verificacion)
+    sources.push({ source: 'requirement_alternatives', units: rows(Array.isArray(verified.catalogo_verificacion) ? verified.catalogo_verificacion : verified.catalogo)
       .filter(unit => alternativeIds.has(unit.id)) })
   }
   const byId = new Map<string, Row>()
@@ -58,6 +58,16 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   for (const { source, units: sourceUnits } of sources) {
     const ids = new Set(sourceUnits.map(unit => text(unit.id)))
     addGroup(`${source}:all`, units.filter(unit => ids.has(text(unit.id))), { source_scope: source, category: null })
+    if (source === 'requirement_alternatives') for (const category of new Set(sourceUnits.map(unit => text(unit.category)).filter(Boolean))) {
+      const members = units.filter(unit => ids.has(text(unit.id)) && unit.category === category)
+      const sharedSpaces = members.length && members.every(unit => Array.isArray(unit.spaces))
+        ? [...new Set((members[0].spaces as unknown[]).map(text).filter(Boolean))]
+          .filter(space => members.every(unit => (unit.spaces as unknown[]).map(text).includes(space)))
+        : members.length && text(members[0].spaces) && members.every(unit => unit.spaces === members[0].spaces) ? [text(members[0].spaces)] : []
+      addGroup(`${source}:${category}`, members, { source_scope: source, category,
+        bedrooms_filter: members.length && members.every(unit => unit.bedrooms === members[0].bedrooms) ? members[0].bedrooms : null,
+        covers: 'verified_proposed_requirement_alternatives', ...(sharedSpaces.length ? { shared_spaces: sharedSpaces } : {}) })
+    }
   }
   for (const category of new Set(units.map(unit => text(unit.category)).filter(Boolean))) {
     addGroup(`${category}:all`, units.filter(unit => text(unit.category) === category), { category, bedrooms_filter: null })

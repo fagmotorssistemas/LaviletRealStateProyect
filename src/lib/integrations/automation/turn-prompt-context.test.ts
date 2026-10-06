@@ -5,6 +5,26 @@ import { normalizeReviewReferences } from './turn-evidence'
 import { factualValueIssues } from './semantic-review'
 import { structuredReviewSchema } from './structured-facts'
 
+test('task projection distinguishes a proposed subject from the original need and preserves pending consent', () => {
+  const proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
+    query: { filters: { bedrooms: 3 }, operation: 'details', scope: 'offered' },
+    original_query: { filters: { bedrooms: 5 } }, candidate_ids: ['d302'], resolved_ids: ['d302'],
+    pending_question_id: 'property_requirements', complete: true }
+  const source = { property_context: { query: { filters: { bedrooms: 5 } }, proposal_information,
+    pending_question: { id: 'property_requirements', act: 'explore_alternatives' } },
+    contexto_verificado: { prompt_context_selection: { version: 'task-context-v1' } },
+    evidencia_turno: { units: [{ id: 'd302', unit_number: '302', bedrooms: 3 }] } }
+  const projected = compactTurnPromptContext(source)
+  const property = projected.property_context as typeof source.property_context
+  assert.equal(property.proposal_information.active, true)
+  assert.equal(property.proposal_information.informational_only, true)
+  assert.equal(property.proposal_information.query.filters.bedrooms, 3)
+  assert.equal(property.query.filters.bedrooms, 5)
+  assert.equal(property.pending_question.id, 'property_requirements')
+  assert.deepEqual(property.proposal_information.resolved_ids, ['302'])
+  assert.deepEqual(source.property_context.proposal_information.resolved_ids, ['d302'])
+})
+
 test('prompt projection keeps one authoritative catalog and preserves every unit and range', () => {
   const units = Array.from({ length: 65 }, (_, index) => ({
     id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, unit_number: String(201 + index),

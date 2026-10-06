@@ -5,6 +5,7 @@ import { relevantFacts, selectPolicies } from './semantic-catalog-context'
 import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget } from './budget-state'
 import { turnEvidence } from './turn-evidence'
+import { proposalInformationContext } from './commercial-journey'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const hasValues = (value: unknown): boolean => value != null && value !== false && value !== ''
@@ -126,7 +127,9 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
 export function addTaskQueryEvidence<T extends { units: Row[]; groups: Row[] }>(evidence: T, verified: Row): T {
   if (object(verified.prompt_context_selection).version !== 'task-context-v1'
     || object(verified.prompt_context_selection).task === 'multiple_requests') return evidence
-  const filtered = filterCatalog(evidence.units, catalogQuery(object(verified.property_context).query))
+  const proposal = proposalInformationContext(verified)
+  const filtered = filterCatalog(evidence.units, catalogQuery(Object.keys(proposal).length ? proposal.query : object(verified.property_context).query),
+    Object.keys(proposal).length ? (Array.isArray(proposal.resolved_ids) ? proposal.resolved_ids.map(text) : []) : undefined)
   if (!filtered.length || filtered.length === evidence.units.length) return evidence
   const scoped = turnEvidence({ catalogo: filtered }).groups.map(group => ({ ...group,
     id: text(group.id).replace('group:', 'group:task_query:'), source_scope: 'task_query',
@@ -143,8 +146,14 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     groups: evidence.groups.filter(group => group.aggregation === 'range'
       && (group.bedrooms_filter === null || group.source_scope === 'context')),
     model_scope: { task: 'clarify_choice', note: 'Solo se aclara la alternativa, sin volver a describirla. Se conservan los rangos por categoría como referencia de verificación; no es necesario comunicarlos.' } }
-  const query = object(object(verified.property_context).query)
-  const filtered = filterCatalog(units, catalogQuery(query))
+  const proposalInformation = proposalInformationContext(verified)
+  const proposalInformationalTurn = Object.keys(proposalInformation).length > 0
+  const proposalReferenceIds = new Set(Array.isArray(proposalInformation.resolved_ids) ? proposalInformation.resolved_ids.map(text) : [])
+  const proposalUnknownIds = Array.isArray(proposalInformation.unknown_ids) ? proposalInformation.unknown_ids.map(text) : []
+  const proposalMissingIds = Array.isArray(proposalInformation.missing_ids) ? proposalInformation.missing_ids.map(text) : []
+  const query = object(proposalInformationalTurn ? proposalInformation.query : object(verified.property_context).query)
+  const filtered = filterCatalog(units, catalogQuery(query), proposalInformationalTurn
+    ? (Array.isArray(proposalInformation.resolved_ids) ? proposalInformation.resolved_ids.map(text) : []) : undefined)
   const property = object(verified.property_context)
   const relatedIds = new Set([
     ...rows(object(verified.presupuesto_del_turno).alternatives).map(unit => text(unit.id)),
@@ -153,21 +162,27 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   ])
   // Keep all matches, not a fixed six. If no match exists keep the authorized
   // alternatives so the writer can explain the mismatch without inventing one.
-  if (filtered.length && selection.task !== 'multiple_requests') {
+  if (proposalInformationalTurn && selection.task !== 'multiple_requests') units = units.filter(unit => proposalReferenceIds.has(text(unit.id)))
+  else if (filtered.length && selection.task !== 'multiple_requests') {
     const matchingIds = new Set(filtered.map(unit => text(unit.id)))
     units = units.filter(unit => matchingIds.has(text(unit.id)) || relatedIds.has(text(unit.id)))
   }
   const clarifyRequirements = object(verified.siguiente_paso_comercial).action === 'clarify_requirements'
-    && !filtered.length && selection.task !== 'multiple_requests'
+    && selection.task !== 'multiple_requests'
   // An incompatible search needs complete ranges/categories to explain the
   // mismatch, not all 65 floor plans. Preserve explicitly related units.
-  if (clarifyRequirements) units = units.filter(unit => relatedIds.has(text(unit.id)))
+  if (clarifyRequirements && !proposalInformationalTurn) units = units.filter(unit => relatedIds.has(text(unit.id)))
   const included = new Set(units.map(u => text(u.id)))
   const matchingIds = new Set(filtered.map(u => text(u.id)))
-  const roleOf = (unit: Row) => matchingIds.has(text(unit.id)) ? 'current_query' : relatedIds.has(text(unit.id)) ? 'related_option' : 'available_alternative'
+  const roleOf = (unit: Row) => matchingIds.has(text(unit.id)) ? 'current_query'
+    : proposalInformationalTurn && proposalReferenceIds.has(text(unit.id)) ? 'current_query_unknown'
+      : proposalInformationalTurn && selection.task === 'multiple_requests' ? 'other_request_context'
+        : relatedIds.has(text(unit.id)) ? 'related_option' : 'available_alternative'
   if (priceSummary) units = []
   const seen = new Set<string>()
   let groups = evidence.groups.filter(group => {
+    if (proposalInformationalTurn && selection.task !== 'multiple_requests' && (!Array.isArray(group.member_ids) || !group.member_ids.length
+      || group.member_ids.some(id => !included.has(text(id))))) return false
     if (group.source_scope !== 'complete_query' && !priceSummary && filtered.length && selection.task !== 'multiple_requests'
       && Array.isArray(group.member_ids) && group.member_ids.some(id => !included.has(text(id)))) return false
     const key = JSON.stringify([group.aggregation, group.member_ids, group.category, group.bedrooms_filter, group.source_scope])
@@ -179,7 +194,9 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   // exact-query source. Its endpoints support min/max as well as ranges.
   if (selection.task !== 'multiple_requests') {
     const scopes = new Set<string>()
-    groups = [...groups].sort((a, b) => Number(b.source_scope === 'complete_query') - Number(a.source_scope === 'complete_query'))
+    const sourcePriority = (group: Row) => Number(group.source_scope === 'complete_query')
+      + (clarifyRequirements && !proposalInformationalTurn ? 2 * Number(group.source_scope === 'requirement_alternatives') : 0)
+    groups = [...groups].sort((a, b) => sourcePriority(b) - sourcePriority(a))
       .filter(group => {
         if (group.aggregation !== 'range') return false
         const key = JSON.stringify([Array.isArray(group.member_ids) ? [...group.member_ids].sort() : [],
@@ -188,11 +205,10 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
         scopes.add(key); return true
       })
   }
-  if (clarifyRequirements && !relatedIds.size) {
-    // First resolve the unmet requirement. Irrelevant prices and dimensions
-    // invite the model to sell incompatible alternatives before consent.
-    // Keep the attributes needed to explain ANY structured requirement, while
-    // the complete units/groups remain available to numeric validation.
+  if (clarifyRequirements && !proposalInformationalTurn && !relatedIds.size) {
+    // A recommendation needs a compact verified reason to consider the exact
+    // proposed change, not only its bedroom count or unrelated catalogue data.
+    // All canonical groups remain available to independent numeric validation.
     const filters = object(query.filters)
     const needed = new Set<string>(['bedrooms'])
     for (const key of Object.keys(filters).filter(key => filters[key] != null)) {
@@ -202,9 +218,17 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
       else if (/price|budget/.test(key)) needed.add('published_commercial_price')
     }
     for (const requirement of rows(query.requirements)) if (requirement.field) needed.add(text(requirement.field))
-    const keep = new Set(['id','category','aggregation','bedrooms_filter','source_scope','member_ids','unit_count','covers','complete_for_query',...needed])
-    groups = groups.map(group => ({ ...Object.fromEntries(Object.entries(group).filter(([key]) => keep.has(key))),
-      ...(group.upper_values ? { upper_values:Object.fromEntries(Object.entries(object(group.upper_values)).filter(([key]) => needed.has(key))) } : {}) }))
+    const recommendationIds = new Set(Array.isArray(object(verified.siguiente_paso_comercial).alternative_unit_ids)
+      ? (object(verified.siguiente_paso_comercial).alternative_unit_ids as unknown[]).map(text) : [])
+    if (recommendationIds.size) groups = groups.filter(group => group.source_scope === 'requirement_alternatives' && group.category != null)
+    groups = groups.map(group => {
+      const recommendation = group.source_scope === 'requirement_alternatives' && group.category != null
+      const attributes = new Set([...needed, ...(recommendation ? ['area_internal_m2','area_exterior_m2','bathrooms_full'] : [])])
+      const keep = new Set(['id','category','aggregation','bedrooms_filter','source_scope','member_ids','unit_count','covers','complete_for_query',
+        ...(recommendation ? ['shared_spaces'] : []), ...attributes])
+      return { ...Object.fromEntries(Object.entries(group).filter(([key]) => keep.has(key))),
+        ...(group.upper_values ? { upper_values:Object.fromEntries(Object.entries(object(group.upper_values)).filter(([key]) => attributes.has(key))) } : {}) }
+    })
   }
   if (['category_overview', 'catalog_overview'].includes(text(selection.task))) {
     return { ...evidence, units: [], groups: groups.filter(group => group.aggregation === 'range').map(group => {
@@ -218,7 +242,12 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   return { ...evidence, units: units.map(unit => ({ ...compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true), query_role: roleOf(unit) })),
     groups, model_scope: { task: selection.task, listed_unit_count: units.length, evidence_unit_count: evidence.units.length,
       query, matching_unit_ids: [...matchingIds], related_unit_ids: [...relatedIds].filter(id => !matchingIds.has(id)),
-      note: clarifyRequirements ? 'La búsqueda actual no tiene coincidencias confirmadas. Los grupos describen alternativas del catálogo, NO opciones compatibles. Reconozca el presupuesto como estimación; no hay un precio comparable de una unidad que cumpla todos los requisitos. Explique el requisito que cambia y pregunte si aceptaría ajustarlo antes de detallar precios, dimensiones o plantas de otras opciones. No declare que las alternativas alcanzan ni prometa que resolverán la necesidad.'
+      ...(proposalInformationalTurn ? { original_requirement_query: proposalInformation.original_query, alternative_acceptance: 'pending',
+        unknown_unit_ids: proposalUnknownIds, missing_unit_ids: proposalMissingIds,
+        reference_complete: proposalInformation.complete === true, reference_resolved_unit_ids: [...proposalReferenceIds] } : {}),
+      note: clarifyRequirements ? proposalInformationalTurn
+        ? `Las fichas y rangos responden solo al referente resuelto de la consulta informativa sobre la propuesta pendiente, no a la necesidad original ni a una alternativa ya aceptada. ${proposalUnknownIds.length ? 'Las fichas current_query_unknown tienen datos insuficientes para comprobar una condición: no las presente como coincidencias confirmadas ni infiera ausencia. ' : ''}${proposalMissingIds.length ? 'Faltan alternativas del referente anterior: explique el límite sin reemplazarlas por otras unidades. ' : ''}${!proposalReferenceIds.size && !proposalUnknownIds.length && !proposalMissingIds.length ? 'No hay coincidencias confirmadas para esta consulta temporal; no repueble las fichas con toda la propuesta ni atribuya sus rangos al resultado vacío. ' : ''}Responda con los datos verificados y conecte con la pregunta de aceptación pendiente; no pida presupuesto, planta, unidad ni financiamiento todavía.`
+        : 'La búsqueda original no tiene coincidencias confirmadas. Los grupos requirement_alternatives describen la propuesta verificada, NO opciones que satisfacen todos los requisitos originales. Recomiéndela brevemente con sus áreas y características comunes comprobadas por categoría; no enumere unidades ni precios no solicitados. Explique el requisito que cambia y pregunte si aceptaría explorarlo antes de avanzar. No declare que el presupuesto alcanza ni prometa que resolverá la necesidad.'
         : priceSummary ? 'Solo agregaciones completas para precios. Las fichas se omitieron, no hay un resultado vacío.'
         : 'Las fichas son las pertinentes; los grupos conservan el alcance y los miembros del conjunto completo.' } }
 }
