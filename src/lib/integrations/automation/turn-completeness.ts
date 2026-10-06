@@ -39,6 +39,7 @@ import { FINANCING_COLLECTION_RULE } from './financing-continuation'
 import { financingCollectionActive } from './financing-guidance'
 import { UNIT_ALTERNATIVE_RULES } from './unit-alternatives'
 import { replyQuestionText } from './reply-question'
+import { continuationMetadata, continuationQuestionProperties, CONTINUATION_QUESTION_RULE } from './continuation-question'
 import { progressiveQuestionObservations, PROGRESSIVE_OPTIONS_RULES } from './progressive-options'
 import { TURN_INTENT_RULES, turnIntentIssues } from './turn-intent'
 import { isCategoryOverview, validateCatalogReply } from './catalog-dialogue'
@@ -91,18 +92,18 @@ export type TurnCompletenessResult = {
 
 type CoverageState = 'answered' | 'unanswered' | 'clarification' | 'outside_scope' | 'missing_fact'
 type Coverage = { fragment: string; intent: string; request_type: string; base_status?: CoverageState; status: CoverageState; evidence: string; fact_key?: string | null }
-type Question = { text: string; purpose: string; missing_datum: string; next_decision: string; role?: string; clarifies?: string[] }
+type Question = { text: string; purpose: string; missing_datum: string; next_decision: string; role?: string; clarifies?: string[]; continuation_id?: string; continuation_act?: string }
 const states: CoverageState[] = ['answered', 'unanswered', 'clarification', 'outside_scope', 'missing_fact']
 const requestTypes = ['specific_fact', 'general_information', 'action', 'clarification', 'courtesy', 'outside_scope']
 const purposes = ['none', 'clarify_request', 'collect_lead_profile', 'choose_property', 'choose_financing_partner', 'collect_financing_required', 'coordinate_visit', 'offer_advisor', 'offer_verified_material', 'permission_to_continue']
 const field = { type: 'string' }
 const questionRoles = ['none', 'necessary_clarification', 'required_collection', 'optional_continuation']
 const questionSchema: Row = { type: 'object', additionalProperties: false,
-  properties: { purpose: { type: 'string', enum: purposes },
+  properties: { ...continuationQuestionProperties, purpose: { type: 'string', enum: purposes },
     role: { type: 'string', enum: questionRoles },
     missing_datum: { type: 'string', description: 'Dato necesario para responder o cumplir una captura obligatoria. Puede estar vacío en una invitación opcional.' },
     next_decision: { type: 'string', description: 'Descripción orientativa del siguiente paso, no autorización de una acción. Puede quedar vacía si no está determinado.' } },
-  required: ['purpose', 'role', 'missing_datum', 'next_decision'] }
+  required: ['purpose', 'role', 'missing_datum', 'next_decision', 'continuation_id', 'continuation_act'] }
 const reviewedQuestionSchema: Row = { ...questionSchema, properties: { ...object(questionSchema.properties),
   clarifies_request_ids: { type: 'array', maxItems: 13, items: { type: 'string' }, description: 'Identificadores de referencias_solicitud. Nunca copie frases.' } },
   required: [...questionSchema.required as string[], 'clarifies_request_ids'] }
@@ -298,7 +299,7 @@ function questionRow(value: unknown, reply: string, issues: string[]): Question 
   if (issues.length > start) return null
   const actualText = replyQuestionText(reply)
   return actualText ? { text: actualText, purpose: text(row.purpose), missing_datum: text(row.missing_datum), next_decision: text(row.next_decision),
-    ...(row.role !== undefined ? { role: text(row.role) } : {}) }
+    ...(row.role !== undefined ? { role: text(row.role) } : {}), ...continuationMetadata(row) }
     : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 }
 
@@ -586,9 +587,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     ]
     const instructions = optimizedPrompt && input.audit?.financing_collection
       && object(input.verified.prompt_context_selection).task === 'financing'
-      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES]])
+      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES + '\n' + CONTINUATION_QUESTION_RULE]])
       : promptSections(optimizedPrompt ? writerSections.map(([title, rules]): [string, string | false] => {
-      if (title === 'Prioridades y obligaciones del turno') return [title, (financialTask ? FINAL_WRITER_RULES : CATALOG_WRITER_RULES)
+      if (title === 'Prioridades y obligaciones del turno') return [title, (financialTask ? FINAL_WRITER_RULES : CATALOG_WRITER_RULES + '\n' + CONTINUATION_QUESTION_RULE)
         + '\ncontrato_turno y obligaciones_del_turno determinan la necesidad actual. El historial solo resuelve continuidad; no cambia la búsqueda ni autoriza acciones. Cumpla los datos pendientes y enlaces requeridos.']
       if (title === 'Continuidad residencial' && object(input.audit?.catalog_query).group !== 'residential') return [title, false]
       if (title === 'Consultas pendientes' && (!Array.isArray(input.verified.consultas_pendientes) || !input.verified.consultas_pendientes.length)) return [title, false]
@@ -614,6 +615,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const unreviewed = unreviewedWriterReply(proposedReply)
       return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [],
         audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
+          question: { ...object(candidate.question), ...continuationMetadata(candidate.question), text: replyQuestionText(unreviewed.reply) },
           writer_contract: writerContract } }
     }
     if (attempt > 0 && object(repairAttempts.at(-1)?.rejected_review).review_contract === FOCUSED_REVIEW_VERSION

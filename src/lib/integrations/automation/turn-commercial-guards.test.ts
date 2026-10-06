@@ -25,7 +25,7 @@ const verified = {
   catalogo: [unit], politica_comercial: { precios_autorizados: true, precios_aproximados: true },
 }
 const audit = { source: 'catalog_details', semantic_review_enabled: true, business_risk_review_enabled: true }
-const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' }
+const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
 
 /** Exercise the real composition/review pipeline while replacing both model
  * calls. A fake answer must still satisfy each actual generated JSON schema. */
@@ -158,7 +158,7 @@ test('asking visit hours shares an informational plan without accepting the offe
         assert.equal(operation.visita, null)
       }
     }), { purpose: 'coordinate_visit', role: 'optional_continuation', missing_datum: 'Aceptación del lugar ofrecido',
-      next_decision: 'Decidir si desea coordinar una cita en la oficina' })
+      next_decision: 'Decidir si desea coordinar una cita en la oficina', continuation_id: 'visit_destination', continuation_act: 'visit' })
   const result = await completeTurnReply({ current, baseReply: reply,
     verified: { ...verified, horario_atencion: { monday: { open: '08:30', close: '18:30' } }, visit_dialogue_plan: plan },
     audit: { ...audit, source: 'visit_information', visit_dialogue_plan: plan } }, mock.generate)

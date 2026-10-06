@@ -124,7 +124,7 @@ test('question text is code-owned: old copied casing or paraphrases do not rejec
     assert.equal(mock.calls[0][2].properties.question.properties.text, undefined)
     assert.equal(mock.calls[0][2].properties.question.required.includes('text'), false)
     assert.ok(mock.calls[1][2].required.includes('question'))
-    assert.deepEqual(mock.calls[1][2].properties.question.required, ['purpose', 'role', 'missing_datum', 'next_decision', 'clarifies_request_ids'])
+    assert.deepEqual(mock.calls[1][2].properties.question.required, ['purpose', 'role', 'missing_datum', 'next_decision', 'continuation_id', 'continuation_act', 'clarifies_request_ids'])
     assert.deepEqual(mock.calls[1][2].properties.question.properties.clarifies_request_ids.items.enum, ['R1'])
     assert.equal(mock.calls[1][1].pregunta.text, actualQuestion)
     assert.deepEqual(mock.calls[1][1].referencias_solicitud, [{ id: 'R1', text: current }])

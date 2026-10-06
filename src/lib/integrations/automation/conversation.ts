@@ -59,7 +59,7 @@ import { scheduleNutrition24h } from './nutrition'
 import { scheduleNutritionWeekOne } from './nutrition-week-one'
 import { scheduleNutritionLater } from './nutrition-later'
 import { nutritionContinuation } from './nutrition-week-one-rules'
-import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, wantsBrochure } from './project-material'
+import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, brochureDeliveryIntent } from './project-material'
 import { salesSubject } from './sales-subject'
 import { classifyBusinessScope, reconcileConversationScope, type BusinessScopeDecision } from './business-scope'
 import { inboundFreshness } from './inbound-freshness'
@@ -78,8 +78,9 @@ import { catalogQuery, filterCatalog, validateCatalogReply, catalogDialogueReply
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
 import { financingPrerequisiteReply } from './property-selection'
-import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing } from './financing-stage'
+import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing, rememberedFinancingPartner } from './financing-stage'
 import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
+import { deliveredPendingQuestion } from './continuation-question'
 import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-disposition'
 import { MAX_REPLY_CHARACTERS, responsePlan } from './response-plan'
 import { evaluateInterestDecision, requestReservationHandoff, reservationRequest, verifiedReservationReceipt } from './reservation-action'
@@ -641,6 +642,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if(financeContinuation) Object.assign(extracted,financeContinuation)
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
   const quoteInquiry = financingQuoteInquiry(extracted, current)
+  const brochureIntent = brochureDeliveryIntent(current, context.historial, extracted, pendingQuestion)
   summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
   summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, text(state.ultima_respuesta))
   summary._financing_amounts = financingAmounts(object(previousSummary._financing_amounts), extracted.financing_amounts, current)
@@ -673,8 +675,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const visitDialoguePlan = visitInfoForTurn.estado_proyecto ? visitDialogueTurn({ previous: previousSummary._visit_dialogue,
     intent: semanticVisit, preference: extracted.visit_preference, readiness: visitInfoForTurn.estado_proyecto as ProjectReadiness,
     intake: visitDraft, proposals, current, sourceMessageId: activeLast.externalId, sourceAt: activeLast.sentAt, pendingQuestion }) : {}
-  const visitPermission = visitRoutePermission(interpretation.requests, turnSemantics, semanticVisit)
-  trace.add('route_consistency', 'Comprobar ruta frente a la solicitud actual', 'decision', 'route-consistency.ts', 'succeeded', {}, visitPermission)
   const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
   // A semantic acceptance needs a durable draft or an actually offered visit
   // destination. An informational question and a bare yes to another flow
@@ -685,6 +685,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const explicitVisitRequest = explicitlyRequestsVisit(current)
   const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
   const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
+  const visitPermission = visitRoutePermission(interpretation.requests, turnSemantics, semanticVisit, visitSignal)
+  trace.add('route_consistency', 'Comprobar ruta frente a la solicitud actual', 'decision', 'route-consistency.ts', 'succeeded', {}, visitPermission)
   const canRequestVisit = visitPermission.allowed && visitDialoguePlan.information_only !== true && visitDialoguePlan.current_kind !== 'decline'
     && !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
     && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
@@ -966,9 +968,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       reply = projectInformationChoiceReply(current, context.historial)
       if (reply) audit = { source: 'project_information_choice' }
     }
-    if (!reply && wantsBrochure(current, context.historial)) {
+    if (!reply && brochureIntent.requested) {
       const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
-      reply = brochureReply(current, context.historial, text(info.modo_comercial),!!info.estado_proyecto)
+      reply = brochureReply(current, context.historial, text(info.modo_comercial),!!info.estado_proyecto, brochureIntent.requested)
       if (reply) audit = { source: 'brochure', brochure_sent: true }
     }
     if (!reply && acceptsUnitOptions(current, text(state.ultima_respuesta))) {
@@ -1180,16 +1182,18 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (financeTurn && !financeAnswer && !financePrerequisite && !financeReviewComplete) {
         if (financingAccepted && selectedFinancingUnit({ ...financeSelection, lead })) extracted.financing_consent = true
         const identity = object(summary._financing_identity)
+        const partnerForCollection = financeInput.partner || rememberedFinancingPartner(summary._financing_journey, finance.partners)
         try { fin = object(await rpc('process_financing_message_v3', { p_lead_id: lead.id,
-        p_asked_financing: (extracted.events as string[]).includes('asked_financing') || !!financeInput.partner,
+        p_asked_financing: (extracted.events as string[]).includes('asked_financing') || !!partnerForCollection,
         ...Object.fromEntries(['financing_consent', 'financing_partner', 'applicant_type', 'national_id',
           'employment_stability_months', 'job_title', 'monthly_income', 'ruc'].map(key => ['p_' + key, extracted[key]])),
         p_full_name: identity.full_name || null, p_name_complete: identity.complete === true,
+        p_financing_partner: partnerForCollection,
         // A newly supplied invalid document supersedes an old ID. Empty clears
         // it; null means no document update, so an old value cannot authorize handoff.
         p_national_id: ['invalid_length', 'incomplete'].includes(text(object(extracted.document_validation).status)) ? '' : extracted.national_id,
         p_source_message_id: activeLast.externalId, p_current_message: current }))
-          if (financeInput.partner && fin.selected_partner_name !== financeInput.partner)
+          if (partnerForCollection && fin.selected_partner_name !== partnerForCollection)
             throw new Error('FINANCING_PARTNER_NOT_PERSISTED')
         }
         catch (error) {
@@ -1233,7 +1237,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id,
             semantic_visit_intent: semanticVisit.kind || null }
         }
-        if (wantsBrochure(current, context.historial)) reply += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
+        if (brochureIntent.requested) reply += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
       } else if (financeAnswer) {
         reply = financeAnswer
         audit = { source: 'financing_question' }
@@ -1361,6 +1365,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       delete audit.progressive_selection
     }
   }
+  audit.brochure_intent = brochureIntent
   if (!audit.profile_introduction && !startingReservation) {
     const introduction = leadIntroductionTurn({ current, history: context.historial, summary: { ...previousSummary, _lead_profile: summary._lead_profile },
       extracted, reply, audit, catalog: turnCatalog })
@@ -1441,6 +1446,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
     info.financiamiento = { ...object(info.financiamiento), journey: summary._financing_journey }
+    audit.brochure_url = text(info.brochure_url) || BROCHURE_URL
     info.financing_amounts = summary._financing_amounts
     info.financing_balance = financingBalance(object(summary._financing_amounts), selectedFinancingUnit(info), object(info.politica_comercial).precios_autorizados === true)
     info.etapa_financiamiento = financingStage(info)
@@ -1659,15 +1665,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const profilePending = canTrackFollowUp ? leadProfilePendingQuestion(reply, audit) : {}
   const financePending = canTrackFollowUp ? financingPendingQuestion(reply, audit) : {}
   const progressivePending = canTrackFollowUp ? progressivePendingQuestion(reply, audit) : {}
-  const journeyPending = journeyPendingQuestion(reply, object(audit.commercial_journey), canTrackFollowUp && responseSupportsContinuity(audit.turn_completeness))
+  const journeyPending = journeyPendingQuestion(reply, object(audit.commercial_journey), canTrackFollowUp && responseSupportsContinuity(audit.turn_completeness), object(audit.turn_completeness).question)
   const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
   // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
   const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
     ? declaredPending : pendingQuestionFromReply(reply)
-  audit.pending_question = canTrackFollowUp && (reply.includes('?') || financePending.id) ? Object.keys(profilePending).length ? normalizedPendingQuestion(profilePending)
-    : Object.keys(financePending).length ? normalizedPendingQuestion(financePending)
-      : Object.keys(journeyPending).length ? normalizedPendingQuestion(journeyPending, turnCatalog)
-      : Object.keys(progressivePending).length ? normalizedPendingQuestion(progressivePending, turnCatalog) : replyPending : {}
+  audit.pending_question = canTrackFollowUp ? deliveredPendingQuestion(reply, {
+    metadata: object(audit.turn_completeness).question, plan: audit.commercial_journey,
+    candidates: [profilePending, financePending, journeyPending, progressivePending, replyPending],
+  }, turnCatalog) : {}
   if (recoveringTurn()) { audit.answered_topics = []; audit.coverage_complete = false }
   if (!reply.trim() || reply.length > MAX_REPLY_CHARACTERS) throw new Error('EMPTY_OR_LONG_REPLY')
   trace.finish(validationStep, 'succeeded', {

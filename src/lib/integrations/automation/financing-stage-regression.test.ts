@@ -5,7 +5,7 @@ import { object, type Row } from './data'
 import { interpretConversationTurn } from './turn-interpretation'
 import { financingInputs, isFinancingTurn, financingPartnerAnswer, financingPendingFields, financingPendingQuestion } from './financing'
 import { financingPrerequisiteReply } from './property-selection'
-import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing } from './financing-stage'
+import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing, rememberedFinancingPartner } from './financing-stage'
 import { taskVerifiedContext, taskModelEvidence } from './task-context'
 import { turnEvidence } from './turn-evidence'
 import { turnBudgetAssessment } from './turn-budget'
@@ -27,6 +27,51 @@ const units = [
 ]
 const finance = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} }
 const query = { group: 'residential', category: null, operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } }
+
+test('entity preferences survive incomplete prerequisites and later selection without granting consent', () => {
+  for (const partner of finance.partners) {
+    const current = `Prefiero ${partner}`
+    const extracted = { financing_partner_choice: { kind: 'select', name: partner, evidence: current, confidence: 'high' } }
+    const input = financingInputs(extracted, current, '', finance)
+    let saved = financingJourney({}, input, 'early-choice')
+    assert.equal(saved.accepted, undefined)
+    assert.equal(rememberedFinancingPartner(saved, finance.partners), partner)
+    assert.equal(financingStage({ financiamiento: { ...finance, journey: saved } }).selected_partner_preference, partner)
+    saved = financingJourney(saved, { consent: null }, 'profile')
+    saved = financingJourney(saved, { consent: true }, 'financial-consent')
+    assert.equal(rememberedFinancingPartner(saved, finance.partners), partner)
+    assert.equal(rememberedFinancingPartner(saved, finance.partners.filter(name => name !== partner)), null)
+    assert.equal(rememberedFinancingPartner({}, finance.partners), null, 'A reset or another lead has no preference.')
+  }
+})
+
+test('entity changes and rejection are separate from withdrawing financing consent', () => {
+  const start = financingJourney({}, { consent: true, partner: 'Cooperativa JEP', partner_evidence: 'Prefiero JEP' }, 'one')
+  const current = 'JEP no, mejor Banco Pichincha'
+  const selected = financingInputs({ financing_partner_choice: { kind: 'select', name: 'Banco Pichincha', evidence: current, confidence: 'high' } }, current, '', finance)
+  const changed = financingJourney(start, selected, 'two')
+  assert.equal(changed.accepted, true)
+  assert.equal(rememberedFinancingPartner(changed, finance.partners), 'Banco Pichincha')
+  const declined = 'No quiero Banco Pichincha'
+  const input = financingInputs({ financing_partner_choice: { kind: 'decline', name: 'Banco Pichincha', evidence: declined, confidence: 'high' } }, declined, '', finance)
+  const cleared = financingJourney(changed, input, 'three')
+  assert.equal(cleared.accepted, true)
+  assert.equal(rememberedFinancingPartner(cleared, finance.partners), null)
+  assert.equal(financingJourney(changed, { consent: null, declined: true }, 'withdraw').accepted, false)
+})
+
+test('entity information, stale evidence and ambiguous alternatives do not overwrite the preference', () => {
+  const saved = financingJourney({}, { consent: true, partner: 'Cooperativa JEP', partner_evidence: 'Prefiero JEP' }, 'one')
+  for (const current of ['¿Qué ofrece Banco Pichincha?', 'Banco Pichincha es una opción interesante', '¿JEP o Pichincha?']) {
+    const input = financingInputs({ financing_partner: 'Banco Pichincha',
+      financing_partner_choice: { kind: 'none', name: null, evidence: '', confidence: 'high' } }, current, '', finance)
+    assert.equal(input.partner, null)
+    assert.equal(rememberedFinancingPartner(financingJourney(saved, input, 'info'), finance.partners), 'Cooperativa JEP')
+  }
+  const input = financingInputs({ financing_partner_choice: { kind: 'select', name: 'Banco Pichincha', evidence: 'Prefiero Pichincha', confidence: 'high' } },
+    '¿Qué requisitos tiene?', '', finance)
+  assert.equal(input.partner, null)
+})
 function info(): Row {
   return { lead: {}, catalog_search: { embeddingsEnabled: true }, catalogo: units, catalog_read: { complete: true },
     property_context: { query, selected_ids: [] }, referencia_unidad: { matches: units.slice(2), query },

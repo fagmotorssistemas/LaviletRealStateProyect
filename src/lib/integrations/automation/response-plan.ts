@@ -1,11 +1,12 @@
 import { object, text, type Row } from './data'
 import { FINANCING_PROCESS_RULES, ASSISTANCE_CONTINUATION_RULES } from './financing-guidance'
 import { isCategoryOverview } from './catalog-dialogue'
-import { BROCHURE_URL } from './project-material'
+import { BROCHURE_URL, brochureDeliveryIntent } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
 import { declinesUnitTour, unitTourPreviouslySent } from './unit-model'
 import { turnContinuation, TURN_CONTINUATION_RULES } from './turn-continuation'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
+import { CONTINUATION_QUESTION_RULE } from './continuation-question'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -48,6 +49,11 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   const tourDeclined = declinesUnitTour(context.current || '')
   const showroom = object(audit.showroom_continuation)
   const required = strings(explicit.required_links)
+  const material = object(audit.brochure_intent).requested !== undefined ? object(audit.brochure_intent)
+    : brochureDeliveryIntent(context.current || '', context.verified?.historial,
+      { material_request: context.verified?.material_request, turn_semantics: context.verified?.semantica_turno },
+      object(context.verified?.pregunta_pendiente))
+  if (material.requested === true) required.push(text(profile.brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL)
   if (profile.brochure_required === true && text(profile.brochure_url)) required.push(text(profile.brochure_url))
   const asksToReceive = /\b(?:envie(?:me|nos)?|envi[ae]r|manda(?:me|nos)?|mande(?:me|nos)?|comparta(?:me|nos)?|compartir|muestra(?:me|nos)?|muestre(?:me|nos)?|mostrar|pas[ae](?:me|nos)?|quiero ver|quisiera ver|puedo ver|ver|explorar)\b[^.!?\n]{0,70}\b/
   if (text(tour.url) && !tourDeclined && (selectedTour && !tourSent || showroom.reason === 'requested_visualization'
@@ -147,6 +153,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
 }
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
+${CONTINUATION_QUESTION_RULE}
 ${TURN_CONTINUATION_RULES}
 ${PROJECT_DELIVERY_RULES}
 estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando proposito_captura: con brochure_y_guia_personalizada conserve el propósito de compartir el brochure y orientar; con guia_personalizada explique la orientación sin prometer nuevamente el brochure ni condicionar su entrega a esos datos. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false y los datos ya están confirmados, continúe sin volver a pedirlos. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.

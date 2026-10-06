@@ -14,6 +14,8 @@ import { FINANCING_AMOUNTS_SCHEMA, FINANCING_AMOUNTS_RULES, financingAmounts } f
 import { compactFinancingExtraction, FINANCING_EXTRACTION_RULES } from './financing-prompt'
 import { FINANCING_QUOTE_SCHEMA, FINANCING_QUOTE_EXTRACTION_RULES } from './financing-quote'
 import { PENDING_REQUEST_RULES } from './pending-inbound'
+import { MATERIAL_REQUEST_SCHEMA, MATERIAL_REQUEST_RULES } from './project-material'
+import { FINANCING_PARTNER_CHOICE_SCHEMA, FINANCING_PARTNER_CHOICE_RULES } from './financing'
 import { reconcileHistoricalInterpretation, rememberInterpretationFacts } from './interpretation-memory'
 import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, mergeInterpretationRepair, reconcileFinancingReference, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE } from './turn-interpretation-input'
 
@@ -43,6 +45,8 @@ export const TURN_EXTRACTION_SCHEMA = closedObject({
   consent_granted: boolean,
   financing_consent: { type: ['boolean', 'null'] },
   financing_partner: nullableString,
+  financing_partner_choice: FINANCING_PARTNER_CHOICE_SCHEMA,
+  material_request: MATERIAL_REQUEST_SCHEMA,
   full_name: nullableString,
   financing_identity: FINANCING_IDENTITY_SCHEMA,
   financing_amounts: FINANCING_AMOUNTS_SCHEMA,
@@ -134,11 +138,15 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     const currentInstructions = compactFinancingExtraction(input) ? promptSections([
       ['Función y configuración del extractor', prompt], ['Interpretación del turno y recopilación financiera', FINANCING_EXTRACTION_RULES],
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
+      ['Solicitud de material', MATERIAL_REQUEST_RULES],
+      ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
     ]) : promptSections([
       ['Función y configuración del extractor', prompt],
       ['Fuente del turno y separación del historial', CURRENT_TURN_INTERPRETATION_RULE],
       ['Solicitudes, continuidad y autorizaciones', requestRules],
       ['Consultas pendientes sin respuesta', PENDING_REQUEST_RULES],
+      ['Solicitud de material', MATERIAL_REQUEST_RULES],
+      ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
       ['Interpretación del perfil', LEAD_PROFILE_EXTRACTION_RULES],
       ['Identidad y cantidades financieras', FINANCING_IDENTITY_RULES + '\n' + FINANCING_AMOUNTS_RULES],
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
@@ -182,6 +190,8 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   if (actions.opt_out) actions.tracking_consent = false
   Object.assign(extracted, actions)
   extracted.financing_quote = raw.financing_quote
+  if (Object.hasOwn(raw, 'material_request')) extracted.material_request = raw.material_request
+  if (Object.hasOwn(raw, 'financing_partner_choice')) extracted.financing_partner_choice = raw.financing_partner_choice
   const leadProfile = normalizeLeadProfile(raw, actionMessage, input)
   Object.assign(extracted, { residence_city: leadProfile.residence_city, residence_country: leadProfile.residence_country,
     lead_profile: leadProfile })

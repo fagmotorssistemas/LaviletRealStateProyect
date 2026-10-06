@@ -49,7 +49,7 @@ test('inclusive price endpoints reach the first writer and a real comparison def
           }
           return { reply: needsCorrection && writers === 1 ? `${statement} ${continuation}` : reply,
             requests: [{ fragment: 'R1', intent: 'Opciones y financiamiento', request_type: 'general_information', status: 'answered', evidence: 'Catálogo', fact_key: 'price' }],
-            question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' } }
+            question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
         }
         const blocked = needsCorrection && writers === 1
         return { review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [], question: null, verdict: blocked ? 'block' : 'pass', findings: blocked ? [{
@@ -178,7 +178,7 @@ test('multi-turn budget and floor response passes exact review; omitting the bud
           answer = { reply: omitBudget && writers === 1 ? noBudget : reply,
             requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Atender preferencias y presupuesto', request_type: 'specific_fact',
               status: 'answered', evidence: 'Información de las opciones solicitadas', fact_key: null })),
-            question: { role: 'optional_continuation', purpose: 'choose_property', missing_datum: '', next_decision: 'Revisar opciones tras explicar el presupuesto.' } }
+            question: { role: 'optional_continuation', purpose: 'choose_property', missing_datum: '', next_decision: 'Revisar opciones tras explicar el presupuesto.', continuation_id: 'unit_choice', continuation_act: 'explore_quoted_options' } }
         } else {
           assert.ok(rows(context.obligaciones_del_turno).some(row => row.id === 'current_budget_answer'))
           const missing = omitBudget && writers === 1

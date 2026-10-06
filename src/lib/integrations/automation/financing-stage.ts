@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { normalized } from './sdr-rules'
 import { leadBudget, reviewedFinancingCovers } from './budget-state'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
@@ -17,10 +18,21 @@ export function selectedFinancingUnit(info: Row): Row | null {
 
 /** Kept in the conversation summary while selection continues. No bank write,
  * assigned contact, down-payment interpretation or financial approval is implied. */
-export function financingJourney(previous: Row, input: { consent: boolean | null; declined?: boolean }, messageId: string): Row {
+export function financingJourney(previous: Row, input: { consent: boolean | null; declined?: boolean; partner?: string | null; partner_evidence?: string; cleared_partner?: string | null }, messageId: string): Row {
   if (input.declined || input.consent === false) return { status: 'declined', accepted: false, source_message_id: messageId }
-  if (input.consent === true) return { ...previous, status: 'accepted', accepted: true, source_message_id: messageId }
-  return previous
+  let next = input.consent === true ? { ...previous, status: 'accepted', accepted: true, source_message_id: messageId } : previous
+  if (input.cleared_partner && normalized(text(object(next.partner_preference).name)) === normalized(input.cleared_partner))
+    next = { ...next, partner_preference: null }
+  if (input.partner && input.partner_evidence?.trim()) next = { ...next,
+    partner_preference: { name: input.partner, evidence: input.partner_evidence.trim(), source_message_id: messageId } }
+  return next
+}
+
+/** Revalidate against the current project configuration before reusing a preference. */
+export function rememberedFinancingPartner(journey: unknown, partners: string[]): string | null {
+  const preference = object(object(journey).partner_preference)
+  if (!text(preference.evidence).trim() || !text(preference.source_message_id).trim()) return null
+  return partners.find(name => normalized(name) === normalized(text(preference.name))) || null
 }
 
 export function canResumeFinancing(info: Row, journey: Row, extracted: Row): boolean {
@@ -37,6 +49,7 @@ export function financingStage(info: Row): Row {
   const budget = leadBudget(info)
   const reviewed = reviewedFinancingCovers(info, unit)
   return { accepted, selected_unit_id: unit?.id || null, selected_unit_number: unit?.unit_number || null,
+    selected_partner_preference: rememberedFinancingPartner(journey, Array.isArray(finance.partners) ? finance.partners.map(text) : []),
     stage: !accepted ? 'explain_and_offer' : !unit ? 'select_property' : budget.answered !== true ? 'clarify_budget' : reviewed ? 'reviewed_ready' : 'continue_financing',
     budget_status: budget.status, collection_allowed: accepted && !!unit && budget.answered === true && !reviewed,
     instruction: !accepted ? 'Explique el proceso y las entidades autorizadas. Pregunte si desea continuar, sin ofrecer un contacto por rutina ni solicitar datos financieros.'
@@ -47,4 +60,4 @@ export function financingStage(info: Row): Row {
   }
 }
 
-export const FINANCING_STAGE_RULES = `etapa_financiamiento separa aceptación, elección de inmueble, situación del presupuesto y recopilación. Aceptar orientación o revisión no selecciona una unidad, no confirma que el presupuesto sea entrada y no pide un asesor. Antes de recopilar datos financieros debe existir selected_unit_id y collection_allowed=true. Con select_property conserve el interés financiero y retome la elección de unidad usando las preferencias conocidas: no vuelva a descartar la compra comparando el efectivo con el precio total ni concluya que el financiamiento no resuelve la diferencia. Con clarify_budget pregunte el presupuesto pendiente; declarar no tenerlo definido permite continuar. Es nuestro procedimiento de atención, no un requisito bancario. Continúe el trámite sin repetir la aceptación ni ofrecer explicar lo ya explicado. Puede explicar requisitos si el cliente pregunta, aunque aún no deba solicitarlos. Una solicitud explícita de atención humana se atiende por su ruta propia.`
+export const FINANCING_STAGE_RULES = `etapa_financiamiento separa aceptación, elección de inmueble, situación del presupuesto y recopilación. selected_partner_preference conserva una entidad elegida y aún habilitada aunque falten requisitos; no vuelva a pedirla sin cambio o ambigüedad actual. Esa preferencia no autoriza una evaluación ni envío al banco. Aceptar orientación o revisión no selecciona una unidad, no confirma que el presupuesto sea entrada y no pide un asesor. Antes de recopilar datos financieros debe existir selected_unit_id y collection_allowed=true. Con select_property conserve el interés financiero y retome la elección de unidad usando las preferencias conocidas: no vuelva a descartar la compra comparando el efectivo con el precio total ni concluya que el financiamiento no resuelve la diferencia. Con clarify_budget pregunte el presupuesto pendiente; declarar no tenerlo definido permite continuar. Es nuestro procedimiento de atención, no un requisito bancario. Continúe el trámite sin repetir la aceptación ni ofrecer explicar lo ya explicado. Puede explicar requisitos si el cliente pregunta, aunque aún no deba solicitarlos. Una solicitud explícita de atención humana se atiende por su ruta propia.`

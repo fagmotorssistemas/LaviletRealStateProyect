@@ -41,7 +41,8 @@ test('unavailable requirements preserve an approximate budget and ask for flexib
     const budgetNext=obligations.find(o=>o.id==='budget_continuation')!
     assert.match(String(budgetNext.instruction),/requisito/)
     assert.doesNotMatch(String(budgetNext.instruction),/Presente las plantas/)
-    const pending=normalizedPendingQuestion(journeyPendingQuestion('¿Consideraría una opción de tres dormitorios?',plan,true),units)
+    const pending=normalizedPendingQuestion(journeyPendingQuestion('¿Consideraría una opción de tres dormitorios?',plan,true,
+      { continuation_id:'property_requirements',continuation_act:'explore_alternatives',purpose:'clarify_request' }),units)
     assert.equal(pending.id,'property_requirements')
   }
 })

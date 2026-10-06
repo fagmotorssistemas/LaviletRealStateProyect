@@ -26,7 +26,7 @@ const verified = { catalogo: units, hechos_confirmados: { budget }, financiamien
   politica_comercial: { precios_autorizados: true }, catalog_read: { complete: true },
   semantica_turno: { budget: { status: 'not_discussed', amount: null, confidence: 'low', evidence: '' } } }
 const audit = { semantic_review_enabled: true, business_risk_review_enabled: true }
-const noQuestion = { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' }
+const noQuestion = { role: 'none', purpose: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
 const pass = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts, question: null }
 const reply = 'El local cuesta $145,000; respecto de sus $100,000 faltan $45,000. La suite cuesta $210,000 y la diferencia es $110,000. Podemos revisar financiamiento con Banco Pichincha o Cooperativa JEP.'
 

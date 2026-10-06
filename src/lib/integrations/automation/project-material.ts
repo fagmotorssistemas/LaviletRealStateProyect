@@ -1,10 +1,42 @@
-import { object, text } from './data'
+import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { salesSubject } from './sales-subject'
+import { replyQuestions } from './reply-question'
 
 export const BROCHURE_PATH = '/materiales/brochure-la-vilet-v5.pdf'
 export const BROCHURE_URL = `https://www.lavilett.com${BROCHURE_PATH}`
 const rows = (history: unknown) => (Array.isArray(history) ? history : []).map(object)
+
+export const MATERIAL_REQUEST_SCHEMA = { type: 'object', additionalProperties: false,
+  properties: { kind: { type: 'string', enum: ['request', 'accept', 'decline', 'none'] },
+    evidence: { type: 'string' }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] } },
+  required: ['kind', 'evidence', 'confidence'] }
+export const MATERIAL_REQUEST_RULES = 'material_request interpreta la solicitud del brochure: request si lo pide, accept si acepta una oferta anterior inequívoca de enviarlo, decline si lo rechaza y none en otro caso. Use evidencia literal ACTUAL. Un sí a elegir inmuebles, financiamiento o visita no acepta material. No convierta cualquier petición de información en solicitud del brochure.'
+
+/** One material decision shared by opening, routing and the final link contract. */
+export function brochureDeliveryIntent(current: string, history: unknown = [], extracted: Row = {}, pending: Row = {}) {
+  const material = object(extracted.material_request), evidence = text(material.evidence).trim()
+  const grounded = material.confidence === 'high' && evidence.length > 0 && evidence.length <= 500
+    && normalized(current).includes(normalized(evidence))
+  const previous = text(rows(history).filter(row => row.role === 'bot').at(-1)?.content)
+  const lastQuestion = normalized(replyQuestions(previous).at(-1) || '')
+  const offered = pending.id === 'brochure_offer' || !pending.id && wantsBrochure('Sí', [
+    { role: 'bot', content: lastQuestion || previous },
+  ])
+  const answer = object(object(extracted.turn_semantics).answer_to_previous)
+  if (grounded && material.kind === 'decline') return { requested: false, reason: 'declined', evidence }
+  if (grounded && (material.kind === 'request' || material.kind === 'accept' && offered))
+    return { requested: true, reason: material.kind === 'request' ? 'explicit_request' : 'accepted_offer', evidence }
+  if (offered && answer.question_id === 'brochure_offer' && answer.confidence === 'high' && answer.kind === 'affirmative'
+    && normalized(current).includes(normalized(text(answer.evidence))) && text(answer.evidence).trim())
+    return { requested: true, reason: 'accepted_offer', evidence: text(answer.evidence) }
+  // Compatibility with earlier contracts. A general request for information
+  // only accepts material when the actual preceding CTA offered that material.
+  const legacy = wantsBrochure(current, history)
+  const direct = /brochure|brochur|folleto|\bpdf\b/.test(normalized(current))
+  const requested = legacy && (direct || !Object.hasOwn(extracted, 'material_request') && offered)
+  return { requested, reason: requested ? direct ? 'explicit_request' : 'accepted_offer' : 'not_requested', evidence: requested ? current : '' }
+}
 
 export function vehicleScopeReply(current: string, history: unknown = []) {
   const m = normalized(current)
@@ -43,8 +75,8 @@ export function wantsBrochure(current: string, history: unknown = []) {
     && /(?:compart|envi|mand|pas)[a-z]*.{0,45}(?:informaci[oó]n|material|brochure|folleto)/i.test(last)
 }
 
-export function brochureReply(current: string, history: unknown, mode: string, physicalStateConfigured = false) {
-  if (!wantsBrochure(current, history)) return ''
+export function brochureReply(current: string, history: unknown, mode: string, physicalStateConfigured = false, requested = wantsBrochure(current, history)) {
+  if (!requested) return ''
   if (/precio|cuesta|financ|credito|entrega|cuando|fecha|dormitorio|sector|ubicacion|\b\d{3}\b|foto|modelo|plano|visita|cita|agendar/.test(normalized(current))) return ''
   if(physicalStateConfigured) return `Le comparto el brochure para conocer la propuesta y sus espacios. Sus representaciones del diseño no son una constancia del avance de obra:\n\n${BROCHURE_URL}`
   const launch = mode === 'lanzamiento'

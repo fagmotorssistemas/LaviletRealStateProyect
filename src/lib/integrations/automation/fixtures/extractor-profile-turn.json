@@ -19,6 +19,8 @@
   "consent_granted": false,
   "financing_consent": null,
   "financing_partner": null,
+  "financing_partner_choice": { "kind": "none", "name": null, "evidence": "", "confidence": "high" },
+  "material_request": { "kind": "none", "evidence": "", "confidence": "high" },
   "full_name": "Elena Diaz",
   "residence_city": "Loja",
   "residence_country": null,

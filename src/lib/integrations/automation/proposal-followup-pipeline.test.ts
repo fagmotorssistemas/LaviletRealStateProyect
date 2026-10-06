@@ -81,7 +81,7 @@ test('price follow-up keeps the proposed subject through retrieval, writing, rev
         calls.push({ task: String(task), data: object(data) })
         if (task === 'writing') return { reply,
           requests: [{ fragment: 'R1', intent: 'ask_price', request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: 'price' }],
-          question: { purpose: 'permission_to_continue', role: 'optional_continuation', missing_datum: '', next_decision: 'Aceptar explorar la propuesta' } }
+          question: { purpose: 'permission_to_continue', role: 'optional_continuation', missing_datum: '', next_decision: 'Aceptar explorar la propuesta', continuation_id: 'property_requirements', continuation_act: 'explore_alternatives' } }
         return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
       }))
     assert.equal(result.needsAdvisor, false)
@@ -98,7 +98,7 @@ test('price follow-up keeps the proposed subject through retrieval, writing, rev
       assert.deepEqual((reviewSources.unidades as Row[]).map(unit => unit.unit_number).sort(), expectedNumbers)
     }
     const remembered = rememberPropertyReply(units, reference.context, result.reply,
-      { ...base.audit, pending_question: journeyPendingQuestion(result.reply, object(result.audit.commercial_journey), true) })
+      { ...base.audit, pending_question: journeyPendingQuestion(result.reply, object(result.audit.commercial_journey), true, result.audit.question) })
     assert.equal(object(object(remembered.query).filters).bedrooms, 5)
     assert.equal(object(remembered.pending_question).id, 'property_requirements')
     assert.deepEqual(object(remembered.pending_question).candidate_ids, ['d302', 'p602'])

@@ -13,7 +13,7 @@ import { BROCHURE_URL } from './project-material'
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
   area_internal_m2: 120.83, bedrooms: 3, floor_number: 2, published_commercial_price: 245123 }
-const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' }
+const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
 const pass = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
 const block = (category: string, statement: string, reason: string, authoritative_fact: string) => ({
   review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block',
@@ -55,7 +55,7 @@ test('outside-to-property transition carries both profile obligations through th
     assert.equal(obligations.includes('profile_phone'), false)
     if (task === 'review') return pass
     return { ...writer(context, reply), question: { role: 'required_collection', purpose: 'collect_lead_profile',
-      missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure y orientar al cliente' } }
+      missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure y orientar al cliente', continuation_id: 'lead_profile', continuation_act: 'profile' } }
   })
   const result = await completeTurnReply({ current, history, baseReply: opening.reply,
     verified: { proyecto: { ubicacion: 'Cuenca' } },
@@ -102,7 +102,7 @@ for (const previouslyShared of [true, false]) test(`residence clarification shar
     assert.equal(stage.proposito_captura, 'guia_personalizada')
     assert.equal(object(stage.brochure).accion, previouslyShared ? 'already_shared' : 'share_now')
     return { ...writer(context, reply), question: { purpose: 'collect_lead_profile', role: 'required_collection',
-      missing_datum: 'Confirmar si Cuenca es residencia actual', next_decision: 'Orientar según la residencia confirmada' } }
+      missing_datum: 'Confirmar si Cuenca es residencia actual', next_decision: 'Orientar según la residencia confirmada', continuation_id: 'lead_residence_confirmation', continuation_act: 'profile' } }
   })
   const result = await completeTurnReply({ current, baseReply: opening.reply,
     verified: { perfil_lead: profile, brochure_url: BROCHURE_URL, estado_conversacion: { brochure_sent: previouslyShared } },

@@ -6,6 +6,12 @@ import { LATER_ROUTES } from '@/lib/inmobiliaria/nutritionLater'
 import { hasFinancingRequest } from './financing-guidance'
 import { financingQuoteInquiry } from './financing-quote'
 
+export const FINANCING_PARTNER_CHOICE_SCHEMA = { type: 'object', additionalProperties: false,
+  properties: { kind: { type: 'string', enum: ['select', 'decline', 'none'] }, name: { type: ['string', 'null'] },
+    evidence: { type: 'string' }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] } },
+  required: ['kind', 'name', 'evidence', 'confidence'] }
+export const FINANCING_PARTNER_CHOICE_RULES = 'financing_partner_choice distingue elegir una entidad (select), rechazarla (decline) y mencionar/preguntar por ella (none). Nombre y evidencia literal ACTUAL; no arrastre la entidad del historial. Resuelva contrastes y cambios de preferencia. Un sí solo elige entidad si responde a una oferta inequívoca de una entidad concreta. La elección se conserva aunque falte unidad o perfil, pero no otorga consentimiento financiero.'
+
 export async function financingContext(lead: Row) {
   const [partners, qualification] = await Promise.all([
     db().from('project_financing_partners').select('public_enabled,test_only,test_phone,public_name,financing_options')
@@ -69,8 +75,13 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const conditional = /\b(?:solo si|siempre que|a condicion|si me (?:aprueban|aseguran|garantizan))\b/.test(message)
     || /\b(?:pero|solo|credito directo|otra entidad)\b/.test(decision)
     || (/[?¿]/.test(current) && !semanticAcceptance && !((asksConsent || acceptsFinancialHelp) && explicitHelp))
+  const choice = object(extracted.financing_partner_choice)
+  const choiceEvidence = text(choice.evidence).trim()
+  const groundedChoice = choice.confidence === 'high' && !!choiceEvidence && choiceEvidence.length <= 500
+    && normalized(current).includes(normalized(choiceEvidence))
   const declined = groundedInvitation && pendingAnswer.kind === 'negative'
     || /^(?:no|ahora no|por ahora no|todavia no|mejor no)\b|\bno (?:quiero|deseo|autorizo|me interesa)\b/.test(message)
+      && !(groundedChoice && ['select', 'decline'].includes(text(choice.kind)))
   const explicitReview = /\b(?:quisiera|quiero|deseo|me gustaria|podemos|vamos a) (?:que (?:me |nos )?(?:ayuden|ayude) a )?(?:(?:hacer|iniciar|empezar|continuar|realizar) (?:la |una |el |una nueva )?(?:prueba|revision|evaluacion|precalificacion)|(?:probar|revisar|evaluar|precalificar)(?:lo|la)?\b)/.test(message)
     || /\b(?:hagamos|iniciemos|empecemos|continuemos) (?:la |una |el )?(?:prueba|revision|evaluacion|precalificacion)\b/.test(message)
   const plainYes = /^(si|si claro|claro|si por favor|de acuerdo|continuemos|si continuemos|por supuesto|si por supuesto|hagamoslo|me gustaria)$/.test(message)
@@ -99,10 +110,24 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   if (!otherQuestion && context.current.explicit_consent === true && context.partners.length === 1
     && normalized(lastReply).includes(normalized(context.partners[0]))
     && /^(si|si claro|claro|si por favor|de acuerdo)$/.test(message)) partner = context.partners[0]
-  const unsupported = partner && !context.partners.some(name => normalized(name) === normalized(partner)) ? partner : ''
+  let unsupported = partner && !context.partners.some(name => normalized(name) === normalized(partner)) ? partner : ''
   // Asking what a lender offers is not a new choice; keep any saved choice intact.
   if (inquiry.beforeApplication && !/\b(?:prefiero|elijo|escojo|me quedo con|continuemos con)\b/.test(message)) partner = ''
+  let clearedPartner = ''
+  if (Object.hasOwn(extracted, 'financing_partner_choice')) {
+    const canonical = context.partners.find(name => normalized(text(choice.name)) === normalized(name)
+      || normalized(text(choice.name)) === alias(name))
+    const mentionedNow = canonical && (normalized(choiceEvidence).includes(alias(canonical)) || contextualJepTypo && canonical === jep)
+    const acceptsOnlyEntity = pendingAnswer.question_id === 'financing_partner' && pendingAnswer.confidence === 'high'
+      && pendingAnswer.kind === 'affirmative' && context.partners.filter(name => normalized(lastReply).includes(alias(name))).length === 1
+      && canonical && normalized(lastReply).includes(alias(canonical))
+    partner = groundedChoice && canonical && (mentionedNow || acceptsOnlyEntity) && choice.kind === 'select' ? canonical : ''
+    clearedPartner = groundedChoice && canonical && mentionedNow && choice.kind === 'decline' ? canonical : ''
+    unsupported = groundedChoice && choice.kind === 'select' && !canonical ? text(choice.name) : ''
+  } else if ((/[¿?]/.test(current) || /\b(?:que ofrece|que requisitos|como funciona|cuales son|que condiciones)\b/.test(message))
+    && !/\b(?:prefiero|elijo|escojo|me quedo con|continuemos con)\b/.test(message)) partner = ''
   return { consent, partner: unsupported ? null : partner || null, unsupported: inquiry.beforeApplication ? '' : unsupported,
+    partner_evidence: partner ? groundedChoice ? choiceEvidence : current : '', cleared_partner: clearedPartner || null,
     ...(declined && (asksConsent || hasFinancingRequest(extracted)) ? { declined: true } : {}) }
 }
 

@@ -26,6 +26,7 @@ export const questionIds = [
   'lead_profile_name',
   'lead_profile_residence',
   'lead_residence_confirmation',
+  'brochure_offer',
 ] as const
 
 export type PendingQuestionId = typeof questionIds[number]
@@ -45,7 +46,7 @@ const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'f
 const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'none'])
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
-const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'budget', 'visit', 'profile', 'reservation', 'financing', 'other'])
+export const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'budget', 'visit', 'profile', 'reservation', 'financing', 'material', 'other'])
 const profileQuestionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'])
 const reservationKinds = new Set(['request', 'information', 'declined', 'none'])
 
@@ -166,7 +167,8 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.map(text).filter(id => id && (!validIds || validIds.has(id))))] : []
   const proposedQuery = ['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(text(row.act)) ? normalizedPropertyQuery(row.proposed_query) : {}
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
-    : id === 'property_category' ? 'choose_category' : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
+    : id === 'property_category' ? 'choose_category' : id === 'reservation_invitation' ? 'reservation' : id === 'brochure_offer' ? 'material'
+    : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
   question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids),
   ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }

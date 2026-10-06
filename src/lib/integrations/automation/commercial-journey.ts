@@ -3,7 +3,7 @@ import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget, budgetQuestion, reviewedFinancingCovers } from './budget-state'
 import { catalogQuery, filterCatalog, partitionCatalog, type CatalogQuery } from './catalog-dialogue'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
-import { replyQuestions } from './reply-question'
+import { deliveredPendingQuestion } from './continuation-question'
 import { normalizedPropertyQuery } from './turn-semantics'
 import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
 
@@ -255,15 +255,8 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   }
 }
 
-export function journeyPendingQuestion(reply: string, plan: Row, approved: boolean): Row {
-  if (!approved || !plan.question_id) return {}
-  const question = replyQuestions(reply).at(-1)
-  if (!question) return {}
-  return { id: plan.question_id, act: plan.question_id === 'reservation_invitation' ? 'reservation' : plan.question_id === 'financing_invitation' ? 'financing'
-    : text(plan.question_act) || (plan.question_id === 'property_category' ? 'choose_category' : 'other'),
-    question, target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : plan.question_act === 'confirm_unit' ? ids(object(plan.selection_scope).unit_ids) : [],
-    ...(plan.selection_scope ? { candidate_ids: ids(plan.question_act === 'explore_alternatives' ? plan.alternative_unit_ids : object(plan.selection_scope).unit_ids) } : {}),
-    ...(plan.question_act === 'explore_alternatives' && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}) }
+export function journeyPendingQuestion(reply: string, plan: Row, approved: boolean, metadata?: unknown): Row {
+  return approved ? deliveredPendingQuestion(reply, { plan, metadata }) : {}
 }
 
 export function rememberCommercialJourney(previous: Row, plan: Row, pending: Row, approved: boolean): Row {

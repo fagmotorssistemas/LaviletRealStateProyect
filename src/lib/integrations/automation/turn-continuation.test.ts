@@ -40,13 +40,14 @@ test('the same pending decision applies across information topics, without a key
           assert.equal(step.continuation_required, true); assert.equal(step.question_id, 'property_category')
           assert.equal(task, 'writing')
         } catch (error) { errors.push(error); throw error }
-        return draft(reply)
+        return { ...draft(reply), question: { purpose: 'choose_property', role: 'necessary_clarification',
+          missing_datum: 'vivienda o local', next_decision: 'Mostrar opciones', continuation_id: 'property_category', continuation_act: 'choose_category' } }
       }))
     assert.deepEqual(errors, [])
     assert.equal(result.reply, reply); assert.deepEqual(calls, ['writing'])
     assert.equal(object(result.audit.commercial_journey).action, 'discover_use')
     assert.equal(object(object(result.audit.writer_contract).continuacion_del_turno).required, true)
-    assert.equal(journeyPendingQuestion(reply, object(result.audit.commercial_journey), true).id, 'property_category')
+    assert.equal(journeyPendingQuestion(reply, object(result.audit.commercial_journey), true, result.audit.question).id, 'property_category')
   }
 })
 
@@ -236,7 +237,8 @@ test('a material link after the question cannot erase the pending decision', () 
   for (const reply of [question, `${question}\n\nBrochure: https://www.lavilett.com/materiales/brochure.pdf`,
     'https://www.lavilett.com/?next=ignored\n' + question + '\nCon mucho gusto.']) {
     assert.deepEqual(turnContinuationIssues(reply, { commercial_journey: plan }), [])
-    assert.equal(journeyPendingQuestion(reply, plan, true).question, question)
+    assert.equal(journeyPendingQuestion(reply, plan, true, { purpose: 'choose_property',
+      continuation_id: 'property_category', continuation_act: 'choose_category' }).question, question)
   }
   assert.deepEqual(turnContinuationIssues('https://www.lavilett.com/?next=ignored', { commercial_journey: plan }), ['required_continuation_missing'])
 })

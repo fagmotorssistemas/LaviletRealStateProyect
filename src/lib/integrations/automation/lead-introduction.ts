@@ -2,9 +2,10 @@ import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { object, text, type Row } from './data'
 import { isGreetingOnly, normalized } from './sdr-rules'
 import { conversationalFirstName, isCourtesyOnly } from './conversation-style'
-import { BROCHURE_URL } from './project-material'
+import { BROCHURE_URL, brochureDeliveryIntent } from './project-material'
 import { confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { replyQuestions } from './reply-question'
+import { continuationMetadata } from './continuation-question'
 
 export const PROFILE_INVITATION = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
 const BROCHURE_PURPOSE = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, '
@@ -123,6 +124,8 @@ export function leadProfilePendingQuestion(reply: string, auditRaw: unknown): Ro
   const purpose = text(plan.question_purpose)
   const review = object(audit.turn_completeness)
   if (Object.keys(review).length && !responseSupportsContinuity(review)) return {}
+  const semanticQuestion = continuationMetadata(review.question)
+  if (Object.keys(semanticQuestion).length && !text(semanticQuestion.continuation_id).startsWith('lead_')) return {}
   if (!purpose || purpose === 'none' || leadIntroductionIssues(reply, auditRaw).some(issue => /question|confirmation/.test(issue))) return {}
   const question = replyQuestions(reply).join(' ')
   if (!question) return {}
@@ -138,10 +141,12 @@ export function rememberLeadIntroduction(input: {
   accepted: boolean; followUpUsable: boolean; recovery?: boolean;
 }): Row {
   const previous = object(input.previous), audit = object(input.audit), plan = object(audit.profile_introduction)
-  if (!input.accepted || input.recovery || !input.followUpUsable || !responseSupportsContinuity(audit.turn_completeness)) return previous
+  if (!input.accepted || input.recovery || !responseSupportsContinuity(audit.turn_completeness)) return previous
+  const brochureDelivered = input.reply.includes(text(plan.brochure_url) || text(audit.brochure_url) || BROCHURE_URL)
+  if (!input.followUpUsable) return brochureDelivered ? { ...previous, brochure_sent: true } : previous
   const profile = confirmedLeadProfile(input.profile), planned = object(input.planned)
-  if (!Object.keys(plan).length) return Object.keys(previous).length
-    ? { ...previous, collection_status: collectionStatus(profile, previous), missing_fields: missingFields(profile) } : previous
+  if (!Object.keys(plan).length) return Object.keys(previous).length || brochureDelivered
+    ? { ...previous, ...(brochureDelivered ? { brochure_sent: true } : {}), collection_status: collectionStatus(profile, previous), missing_fields: missingFields(profile) } : previous
   const question = leadProfilePendingQuestion(input.reply, audit)
   const delivered = !!text(question.id), purpose = text(plan.question_purpose)
   const expected = purpose && purpose !== 'none'
@@ -156,7 +161,7 @@ export function rememberLeadIntroduction(input: {
   state.missing_fields = missingFields(profile)
   if (!missingFields(profile).length) state.status = 'complete'
   state.collection_status = collectionStatus(profile, state, plan.profile_declined === true)
-  state.brochure_sent = previous.brochure_sent === true || input.reply.includes(text(plan.brochure_url) || BROCHURE_URL)
+  state.brochure_sent = previous.brochure_sent === true || brochureDelivered
   state.reminder_count = delivered ? planned.reminder_count || 0 : previous.reminder_count || 0
   state.confirmation_asked = question.id === 'lead_residence_confirmation' || previous.confirmation_asked === true
   state.confirmation_candidate = question.id === 'lead_residence_confirmation'
@@ -206,7 +211,9 @@ function commercialContinuation(input: LeadIntroductionInput, category: string, 
 
 /** Plans the opening exchange without performing writes or changing the user's message. */
 export function leadIntroductionTurn(input: LeadIntroductionInput) {
-  const summary = object(input.summary), prior = object(summary._lead_introduction), audit = object(input.audit)
+  const summary = object(input.summary), prior = object(summary._lead_introduction)
+  const material = brochureDeliveryIntent(input.current, input.history, object(input.extracted), object(summary._pending_question))
+  const audit = { ...object(input.audit), brochure_intent: material }
   const extracted = object(input.extracted), profile = knownProfile(input), missing = missingFields(profile)
   const unchanged = { reply: input.reply, state: prior, audit, applied: false, brochureDeferred: false }
   const currentProfile = object(extracted.lead_profile)
@@ -237,7 +244,8 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const category = categoryFor(input), overview = generalInformation(input.current, audit)
   if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
-  const deliver = pending || suppliedProfile || explicitBrochure(input.current) || missing.length === 0 || declined
+  const materialRequested = material.requested
+  const deliver = pending || suppliedProfile || materialRequested || missing.length === 0 || declined
   const candidate = object(profile.residence_candidate)
   const candidatePlace = [text(candidate.city), text(candidate.country)].filter(Boolean).join(', ')
   const needsConfirmation = profile.residence_status === 'pending_confirmation' && Boolean(candidatePlace)
@@ -247,8 +255,8 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   // The first clarification is still the promised profile exchange. Do not
   // deliver the material while asking for the confirmation that precedes it.
   // This is a single-turn deferral, never an indefinite personal-data gate.
-  const brochureDeferred = !deliver || confirm && prior.brochure_sent !== true && !explicitBrochure(input.current)
-  const deliverBrochure = deliver && !brochureDeferred && (prior.brochure_sent !== true || explicitBrochure(input.current))
+  const brochureDeferred = !deliver || confirm && prior.brochure_sent !== true && !materialRequested
+  const deliverBrochure = deliver && material.reason !== 'declined' && !brochureDeferred && (prior.brochure_sent !== true || materialRequested)
   const brochure = deliverBrochure ? `Aquí tiene el brochure digital completo del proyecto: ${url}` : ''
   let question = '', purpose = 'none', result = '', reminderCount = Number(prior.reminder_count) || 0
   let state: Row
@@ -263,7 +271,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
     // Clarifying a supplied place is progress, not a second generic reminder.
     // Persist a separate limit so an evasive answer cannot cause an endless loop.
     const denial = object(currentProfile.residence_confirmation).decision === 'deny'
-    const firstCapture = !asked && missing.length > 0 && !explicitBrochure(input.current)
+    const firstCapture = !asked && missing.length > 0 && !materialRequested
     const remind = !declined && (confirm || firstCapture || onlyProfile && missing.length > 0 && (reminderCount < 1 || denial && prior.denial_followup_asked !== true))
     if (remind) {
       if (confirm) { question = `Entiendo que es de ${candidatePlace}. ¿Es también su lugar de residencia actual?`; purpose = 'confirm_residence' }

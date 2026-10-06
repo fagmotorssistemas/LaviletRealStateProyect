@@ -310,7 +310,7 @@ test('a price inquiry about a proposed alternative keeps consent pending while p
       && object(object(object(object(model).model_scope).original_requirement_query).filters).bedrooms, 5)
     assert.equal(object(object(context.query).filters).bedrooms, 5)
     assert.deepEqual(context.selected_ids || [], [])
-    const remembered = normalizedPendingQuestion(journeyPendingQuestion(`${current} ${String(plan.question)}`, plan, true), catalog)
+    const remembered = normalizedPendingQuestion(journeyPendingQuestion(`Los departamentos cuestan $270.000 y los penthouses $550.000. ${String(plan.question)}`, plan, true), catalog)
     assert.deepEqual(remembered.candidate_ids, ['d302', 'p602'])
     assert.equal(object(object(remembered.proposed_query).filters).bedrooms, 3)
   }

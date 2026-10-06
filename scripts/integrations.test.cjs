@@ -1446,6 +1446,98 @@ function conversationHarness(options = {}) {
   return { calls, rows, process: mod.processConversation, lead }
 }
 
+test('general continuity keeps an early lender through consent and selection in the actual conversation handler', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_CONTINUITY_TEST') })
+  const partners = ['Cooperativa JEP', 'Banco Pichincha']
+  const unit = { id: 'u502', unit_number: '502', category: 'departamento', bedrooms: 3, floor_number: 5,
+    is_published: true, status: 'disponible', published_commercial_price: 310000 }
+  const complete = input => ({ reply: input.baseReply, changed: false, needsAdvisor: false, unresolved: [],
+    audit: { status: 'checked', follow_up: { usable: true } } })
+  for (const partner of partners) {
+    const current = `Prefiero ${partner}`
+    const first = conversationHarness({ financeContext: { partners, current: {} }, catalog: [unit], turnComplete: complete,
+      commercialInfo: { catalogo: [unit], politica_comercial: { precios_autorizados: true } },
+      extracted: { financing_partner_choice: { kind: 'select', name: partner, evidence: current, confidence: 'high' },
+        requests: [{ domain: 'financing', request: 'Elegir entidad', evidence: current, confidence: 'high' }] } })
+    first.rows[0].payload.text = current
+    await first.process([first.rows[0]], async () => {})
+    const initial = JSON.parse(first.calls.find(c => c.name === 'update:conversations').args.summary)
+    assert.equal(initial._financing_journey.partner_preference.name, partner)
+    assert.notEqual(initial._financing_journey.accepted, true)
+    assert.equal(first.calls.some(c => c.name === 'process_financing_message_v3'), false)
+    const consent = 'Quiero iniciar la revisión de financiamiento'
+    const second = conversationHarness({ summary: initial, financeContext: { partners, current: {} }, catalog: [unit], turnComplete: complete,
+      commercialInfo: { catalogo: [unit], politica_comercial: { precios_autorizados: true } },
+      extracted: { requests: [{ domain: 'financing', request: 'Iniciar revisión', evidence: consent, confidence: 'high' }] } })
+    second.rows[0].payload.text = consent
+    await second.process([second.rows[0]], async () => {})
+    const accepted = JSON.parse(second.calls.find(c => c.name === 'update:conversations').args.summary)
+    assert.equal(accepted._financing_journey.accepted, true)
+    assert.equal(accepted._financing_journey.partner_preference.name, partner)
+    assert.equal(second.calls.some(c => c.name === 'process_financing_message_v3'), false)
+    // Supply the now completed profile and known budget, then choose the actual unit.
+    accepted._lead_profile = { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed',
+      sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Carlos' } } }
+    accepted._lead_introduction = { status: 'complete', request_sent: true, brochure_sent: true }
+    accepted._interpretation_memory = { budget: { status: 'no_defined_budget', evidence: 'No tengo un presupuesto definido', confidence: 'high' } }
+    accepted._property_context = { query: { group: 'residential', category: 'departamento', filters: { bedrooms: 3 }, operation: 'search' }, offered_ids: ['u502'], selected_ids: [] }
+    const choose = 'Quiero el departamento 502'
+    const last = conversationHarness({ summary: accepted, financeContext: { partners, current: {} }, catalog: [unit], turnComplete: complete,
+      commercialInfo: { catalogo: [unit], politica_comercial: { precios_autorizados: true } },
+      extracted: { requests: [{ domain: 'property', request: 'Elegir unidad', evidence: choose, confidence: 'high' }],
+        turn_semantics: { primary_intent: 'select_property', primary_evidence: choose, confidence: 'high',
+          property: { operation: 'select', category: 'departamento', reference_kind: 'explicit', unit_numbers: ['502'], evidence: choose, confidence: 'high' } } },
+      financing: args => ({ active: true, state: 'identificacion_pendiente', selected_partner_name: args.p_financing_partner, legal_name_confirmed: false }) })
+    last.rows[0].payload.text = choose
+    await last.process([last.rows[0]], async () => {}).catch(error => { throw error.original || error })
+    const writes = last.calls.filter(c => c.name === 'process_financing_message_v3')
+    assert.equal(writes.length, 1)
+    assert.equal(writes[0].args.p_financing_partner, partner)
+    assert.equal(last.calls.some(c => c.name === 'handoff_lead'), false)
+  }
+})
+
+test('general continuity commercial inquiries cannot trigger stale visit counterproposals', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_CONTINUITY_TEST') })
+  const current = '¿Tienen viviendas de cinco dormitorios?'
+  const h = conversationHarness({ proposals: [{ id: 'visit', request_id: 'visit', status: 'awaiting_client' }],
+    visitDraft: { status: 'collecting' }, intent: 'counterproposal',
+    commercialResult: { reply: 'No tenemos cinco dormitorios. Podemos revisar alternativas de tres dormitorios.', audit: {} },
+    extracted: { visit_intent: { kind: 'none', confidence: 'high', evidence: '' },
+      requests: [{ domain: 'property', request: 'Disponibilidad', evidence: current, confidence: 'high' }],
+      turn_semantics: { primary_intent: 'select_property', primary_evidence: current, confidence: 'high',
+        property: { operation: 'search', group: 'residential', filters: { bedrooms: 5 }, evidence: current, confidence: 'high' } } } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.some(c => ['lv_collect_visit_intake', 'lv_apply_client_visit_intent', 'lv_client_select_visit_option'].includes(c.name)), false)
+  assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false)
+  assert.equal(h.calls.some(c => c.name === 'ai' && c.args.prompt.startsWith('Clasifique')), false)
+})
+
+test('general continuity saves the emitted semantic question after the actual send, never the discarded journey question', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_CONTINUITY_TEST') })
+  const reply = 'Tenemos departamentos y penthouses. ¿Cuál de estas opciones le gustaría revisar?'
+  for (const sendFails of [false, true]) {
+    const h = conversationHarness({ sendFails, commercialResult: { reply, audit: {} },
+      summary: { _lead_introduction: { status: 'complete', request_sent: true, brochure_sent: true } },
+      turnComplete: { reply, changed: false, needsAdvisor: false, unresolved: [], audit: { status: 'checked', follow_up: { usable: true },
+        question: { text: '¿Cuál de estas opciones le gustaría revisar?', purpose: 'choose_property', continuation_id: 'property_category', continuation_act: 'choose_category' },
+        commercial_journey: { question_id: 'property_purpose', question: '¿Lo busca para vivir o invertir?' } } } })
+    h.rows[0].payload.text = 'Quiero conocer las opciones disponibles'
+    await h.process([h.rows[0]], async () => {}).catch(error => { if (!sendFails) throw error.original || error })
+    const updates = h.calls.filter(c => c.name === 'update:conversations')
+    assert.equal(updates.length, sendFails ? 0 : 1)
+    if (!sendFails) {
+      const saved = JSON.parse(updates[0].args.summary)
+      assert.equal(saved._pending_question.id, 'property_category')
+      assert.equal(saved._pending_question.question, '¿Cuál de estas opciones le gustaría revisar?')
+    }
+  }
+})
+
 test('entry and monthly-payment orientation does not restart intake or automatically hand off an accepted lead', async t => {
   live(t)
   const current = 'Sí me interesa conocer más. Antes de avanzar con el financiamiento, quisiera saber aproximadamente cuánto sería la entrada y cuánto quedarían las cuotas mensuales.'
@@ -1509,7 +1601,9 @@ test('lender choice in an accepted review persists JEP instead of answering it a
   assert.ok(result.financing_collection.pending_fields.includes('legal_name'))
   assert.ok(result.financing_collection.pending_fields.includes('applicant_type'))
   assert.equal(result.financing_collection.pending_fields.includes('selected_partner_name'), false)
-  assert.equal(result.pending_question.id, 'financing_data')
+  assert.equal(result.pending_question.id, 'financing_data', JSON.stringify({ pending: result.pending_question,
+    sent: h.calls.find(call => call.name === 'register_outbound_message')?.args.p_content,
+    collection: result.financing_collection, review: result.turn_completeness }))
 })
 
 test('reservation requests prioritize a verified advisor action over selecting a unit and repeating its tour', async t => {

@@ -6,6 +6,7 @@ import { catalogOverviewSummary } from './task-context'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { CONVERSATION_BRIDGE_RULES } from './turn-continuation'
 import { PROJECT_TRUTH_RULES } from './project-truth'
+import { continuationQuestionProperties, CONTINUATION_QUESTION_RULE } from './continuation-question'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -19,11 +20,12 @@ export const businessRiskReviewSchema: Row = {
     facts: { type: 'array', items: businessFactSchema },
     question: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false,
       properties: {
+        ...continuationQuestionProperties,
         purpose: { type: 'string', enum: ['none', 'clarify_request', 'collect_lead_profile', 'choose_property', 'choose_financing_partner', 'collect_financing_required', 'coordinate_visit', 'offer_advisor', 'offer_verified_material', 'permission_to_continue'] },
         role: { type: 'string', enum: ['none', 'necessary_clarification', 'required_collection', 'optional_continuation'] },
         missing_datum: { type: 'string' }, next_decision: { type: 'string' },
         offered_action: { type: 'string', enum: ['none', 'information', 'financing_review', 'internal_advisor', 'ambiguous'] },
-      }, required: ['purpose', 'role', 'missing_datum', 'next_decision', 'offered_action'] }] },
+      }, required: ['purpose', 'role', 'missing_datum', 'next_decision', 'offered_action', 'continuation_id', 'continuation_act'] }] },
     findings: { type: 'array', maxItems: 8, items: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -58,6 +60,8 @@ export function businessRiskSchemaForSources(units: Row[], groups: Row[]): Row {
 }
 
 export const BUSINESS_RISK_REVIEW_RULES = `# Función del revisor
+
+${CONTINUATION_QUESTION_RULE}
 
 Revise el borrador sin reescribirlo. Decida PASA o BLOQUEA exclusivamente por los tres riesgos siguientes.
 
