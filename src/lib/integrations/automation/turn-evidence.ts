@@ -5,6 +5,7 @@ import { BROCHURE_URL } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
 import { comparisonEvidence } from './comparison-evidence'
 import { DISCOUNT_NUMBER_FIELDS, compactDiscountEvidence, discountReferenceEvidence } from './discount-evidence'
+import { catalogFactScope } from './catalog-fact-scope'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const fields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'floor_number', 'published_commercial_price']
@@ -58,11 +59,12 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   const units = [...byId.values()]
   const groups: Row[] = []
   const addGroup = (key: string, members: Row[], metadata: Row) => {
-    if (!members.length) return
+    if (!members.length && metadata.source_scope !== 'catalog_inventory'
+      && !(metadata.source_scope === 'query' && metadata.complete_for_query === true)) return
     const endpoints: Record<string, Row> = {}
     for (const aggregation of ['min', 'max'] as const) {
       const values: Row = {}
-      for (const field of fields) if (members.every(unit => unit[field] != null && unit[field] !== '' && Number.isFinite(Number(unit[field]))))
+      for (const field of fields) if (members.length && members.every(unit => unit[field] != null && unit[field] !== '' && Number.isFinite(Number(unit[field]))))
         values[field] = Math[aggregation](...members.map(unit => Number(unit[field])))
       endpoints[aggregation] = values
       groups.push({ id: `group:${key}:${aggregation}`, ...metadata, aggregation,
@@ -79,7 +81,11 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   // "price" identifier. Give the reviewer code-owned references for exact sets.
   for (const { source, units: sourceUnits } of sources) {
     const ids = new Set(sourceUnits.map(unit => text(unit.id)))
-    addGroup(`${source}:all`, units.filter(unit => ids.has(text(unit.id))), { source_scope: source, category: null })
+    const result = object(audit.catalog_results)
+    const queryScope = source === 'query' ? { query_scope: catalogFactScope(object(audit.catalog_query), [], audit.catalog_excluded_categories),
+      complete_for_query: result.complete === true && Array.isArray(result.unknown_unit_ids) && !result.unknown_unit_ids.length,
+      unit_count: sourceUnits.length } : {}
+    addGroup(`${source}:all`, units.filter(unit => ids.has(text(unit.id))), { source_scope: source, category: null, ...queryScope })
     if (source === 'requirement_alternatives') for (const category of new Set(sourceUnits.map(unit => text(unit.category)).filter(Boolean))) {
       const members = units.filter(unit => ids.has(text(unit.id)) && unit.category === category)
       const sharedSpaces = members.length && members.every(unit => Array.isArray(unit.spaces))
@@ -118,6 +124,35 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
     addGroup(`price_quote:${category}:all`, quoted.filter(unit => text(unit.category) === category), { ...priceScope, category })
   }
   if (object(audit.catalog_retrieval).optimized === true) groups.push(...rows(audit.catalog_aggregate_groups))
+  // Global inventory is a separate authority from filtered search results.
+  // Keep its aggregates, without widening the query's unit list or budget pool.
+  if (Array.isArray(verified.catalogo_verificacion)) {
+    const inventory = freshUnits.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
+      .map(unit => prices ? unit : Object.fromEntries(Object.entries(unit).filter(([key]) => key !== 'published_commercial_price')))
+    const read = object(verified.catalog_verification_read || verified.catalog_read)
+    const complete = read.complete === true && !['optimized_catalog', 'semantic_candidates'].includes(text(read.scope))
+    const addInventory = (key: string, members: Row[], group: string | null, category: string | null, bedrooms: unknown = null) => {
+      const knownScope = inventory.every(unit => {
+        if (!group && !category && bedrooms == null) return true
+        if (!text(unit.category)) return false
+        if (category && unit.category !== category || group === 'commercial' && unit.category !== 'local'
+          || group === 'residential' && !['suite', 'departamento', 'penthouse'].includes(text(unit.category))) return true
+        return bedrooms == null || typeof unit.bedrooms === 'number' && Number.isFinite(unit.bedrooms)
+      })
+      addGroup(`inventory:${key}`, members, { source_scope: 'catalog_inventory', complete_for_query: complete && knownScope,
+        category, bedrooms_filter: bedrooms, unit_count: members.length, covers: 'current_published_available_inventory',
+        query_scope: { group, category, filters: bedrooms == null ? [] : [{ field: 'bedrooms', operator: 'eq', value: bedrooms, upper_value: null }] } })
+    }
+    addInventory('all', inventory, null, null)
+    for (const group of ['residential', 'commercial']) addInventory(group, inventory.filter(unit => group === 'commercial'
+      ? unit.category === 'local' : ['suite', 'departamento', 'penthouse'].includes(text(unit.category))), group, null)
+    for (const category of new Set(inventory.map(unit => text(unit.category)).filter(Boolean))) {
+      const members = inventory.filter(unit => unit.category === category), group = category === 'local' ? 'commercial' : 'residential'
+      addInventory(category, members, group, category)
+      for (const bedrooms of new Set(members.map(unit => unit.bedrooms).filter(value => typeof value === 'number')))
+        addInventory(`${category}:${bedrooms}`, members.filter(unit => unit.bedrooms === bedrooms), group, category, bedrooms)
+    }
+  }
   return { version: 'turn-evidence-v3', units, groups, conflicts, project_facts: projectQuantityEvidence(verified),
     ...(object(audit.catalog_retrieval).optimized === true ? { catalog_summary: audit.catalog_summary } : {}),
     query: audit.catalog_query || null, query_result_ids: object(audit.catalog_results).unit_ids || [],

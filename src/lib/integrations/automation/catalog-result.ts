@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { CATALOG_NUMBER_FIELDS, catalogNumber, requirementMatch } from './catalog-request'
 import { catalogQuery, filterCatalog, type CatalogQuery } from './catalog-dialogue'
 import { compactDiscountEvidence } from './discount-evidence'
+import { catalogFactScope } from './catalog-fact-scope'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (units: Row[]) => units.map(unit => text(unit.id))
@@ -88,6 +89,7 @@ export function completeCatalogResult(info: Row, query: CatalogQuery, request: R
   for (const [field, raw] of Object.entries(statistics)) { const stat = object(raw); if (stat.complete === true) { lower[field] = stat.min; upper[field] = stat.max } }
   const groups: Row[] = ['min', 'max', 'range'].map(aggregation => ({ id: `group:catalog_query:all:${aggregation}`, aggregation,
     category: query.category, source_scope: 'complete_query', member_ids: ids(exact), unit_count: exact.length,
+    query_scope: catalogFactScope(query, required, categoryExclusions, scopedIds),
     complete_for_query: summary.exact_count, covers: 'confirmed_matches', ... (aggregation === 'max' ? upper : lower),
     ...(aggregation === 'range' ? { upper_values: { ...upper, unit_count: exact.length } } : {}) }))
   return { units: exact, unknown, summary, groups, candidates: base }

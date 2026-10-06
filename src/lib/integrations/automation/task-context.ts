@@ -179,13 +179,17 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
       : proposalInformationalTurn && selection.task === 'multiple_requests' ? 'other_request_context'
         : relatedIds.has(text(unit.id)) ? 'related_option' : 'available_alternative'
   if (priceSummary) units = []
+  const needsInventory = !proposalInformationalTurn && !filtered.length
+    && evidence.groups.some(group => group.source_scope === 'complete_query' && group.unit_count === 0)
   const seen = new Set<string>()
   let groups = evidence.groups.filter(group => {
+    if (group.source_scope === 'catalog_inventory' && !needsInventory) return false
     if (proposalInformationalTurn && selection.task !== 'multiple_requests' && (!Array.isArray(group.member_ids) || !group.member_ids.length
       || group.member_ids.some(id => !included.has(text(id))))) return false
     if (group.source_scope !== 'complete_query' && !priceSummary && filtered.length && selection.task !== 'multiple_requests'
       && Array.isArray(group.member_ids) && group.member_ids.some(id => !included.has(text(id)))) return false
-    const key = JSON.stringify([group.aggregation, group.member_ids, group.category, group.bedrooms_filter, group.source_scope])
+    const key = JSON.stringify([group.aggregation, group.member_ids, group.category, group.bedrooms_filter, group.source_scope,
+      group.source_scope === 'catalog_inventory' ? group.query_scope : null])
     if (seen.has(key)) return false
     seen.add(key); return true
   })
@@ -200,7 +204,8 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
       .filter(group => {
         if (group.aggregation !== 'range') return false
         const key = JSON.stringify([Array.isArray(group.member_ids) ? [...group.member_ids].sort() : [],
-          group.category ?? null, group.bedrooms_filter ?? null, group.budget_amount ?? null])
+          group.category ?? null, group.bedrooms_filter ?? null, group.budget_amount ?? null,
+          group.source_scope === 'catalog_inventory' ? group.query_scope : null])
         if (scopes.has(key)) return false
         scopes.add(key); return true
       })
@@ -220,20 +225,28 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     for (const requirement of rows(query.requirements)) if (requirement.field) needed.add(text(requirement.field))
     const recommendationIds = new Set(Array.isArray(object(verified.siguiente_paso_comercial).alternative_unit_ids)
       ? (object(verified.siguiente_paso_comercial).alternative_unit_ids as unknown[]).map(text) : [])
-    if (recommendationIds.size) groups = groups.filter(group => group.source_scope === 'requirement_alternatives' && group.category != null)
+    if (recommendationIds.size) groups = groups.filter(group => group.source_scope === 'requirement_alternatives' && group.category != null
+      || group.source_scope === 'complete_query' && group.unit_count === 0)
     groups = groups.map(group => {
       const recommendation = group.source_scope === 'requirement_alternatives' && group.category != null
       const attributes = new Set([...needed, ...(recommendation ? ['area_internal_m2','area_exterior_m2','bathrooms_full'] : [])])
-      const keep = new Set(['id','category','aggregation','bedrooms_filter','source_scope','member_ids','unit_count','covers','complete_for_query',
+      const keep = new Set(['id','category','aggregation','bedrooms_filter','source_scope','member_ids','unit_count','covers','complete_for_query','query_scope',
         ...(recommendation ? ['shared_spaces'] : []), ...attributes])
       return { ...Object.fromEntries(Object.entries(group).filter(([key]) => keep.has(key))),
         ...(group.upper_values ? { upper_values:Object.fromEntries(Object.entries(object(group.upper_values)).filter(([key]) => attributes.has(key))) } : {}) }
     })
   }
+  // Global counts/ranges remain code-owned, but their full membership does not
+  // need to be sent again after reducing the catalogue to relevant examples.
+  groups = groups.map(group => {
+    if (group.source_scope !== 'catalog_inventory') return group
+    const { member_ids, ...aggregate } = group
+    return { ...aggregate, member_count: Array.isArray(member_ids) ? member_ids.length : group.unit_count }
+  })
   if (['category_overview', 'catalog_overview'].includes(text(selection.task))) {
     return { ...evidence, units: [], groups: groups.filter(group => group.aggregation === 'range').map(group => {
       const { member_ids, ...aggregate } = group
-      return { ...aggregate, member_count: Array.isArray(member_ids) ? member_ids.length : 0,
+      return { ...aggregate, member_count: Array.isArray(member_ids) ? member_ids.length : group.member_count ?? group.unit_count ?? 0,
         unit_count: group.unit_count ?? (Array.isArray(member_ids) ? member_ids.length : 0) }
     }), catalog_summary: catalogOverviewSummary(object(evidence).catalog_summary), query_result_ids: [],
     model_scope: { task: selection.task, listed_unit_count: 0, evidence_unit_count: evidence.units.length,

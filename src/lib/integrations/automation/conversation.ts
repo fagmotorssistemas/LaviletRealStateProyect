@@ -1442,6 +1442,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       recorrido_comercial: summary._commercial_journey || {},
       solicitudes_interpretadas: turnIntent.requests,
       catalogo_verificacion: commercialInfo.catalogo,
+      catalog_verification_read: commercialInfo.catalog_read,
       ...(audit.verified_catalog === true ? {
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.

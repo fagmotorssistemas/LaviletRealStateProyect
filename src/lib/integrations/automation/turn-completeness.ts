@@ -378,6 +378,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     audit: { ...input.audit, location_disclosure: locationPolicy } }
   input = { ...input, verified: semanticCatalogContext(input.verified, input.audit || {}, input.current) }
   input = { ...input, verified: scopeTurnCatalog(input.verified, input.audit || {}) }
+  // Inventory membership is only for checking global aggregate claims. It must
+  // never repopulate the filtered query, pricing pool or model unit examples.
+  const inventoryValidationUnits = Array.isArray(input.verified.catalogo_verificacion)
+    ? input.verified.catalogo_verificacion.map(object) : []
   // Current production contracts share task evidence. Legacy claim-ID reviews
   // still need their full evidence inventory unless their retrieval route
   // explicitly opted into projection; do not silently change that contract.
@@ -583,7 +587,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Alternativas de inmuebles', !!(input.audit?.alternative_results || input.audit?.alternative_presentation
         || /alternative/.test(text(input.audit?.source))) && UNIT_ALTERNATIVE_RULES],
       ['Recopilación financiera', financingCollectionActive(input.audit || {}) && FINANCING_COLLECTION_RULE],
-      ['Resultados vacíos de catálogo', 'Si una búsqueda completa no tiene resultados, explique esa ausencia dentro de sus filtros. No invente una unidad para justificarla. Si bedrooms_required=true, respete ese requisito: no insista en unidades con menos dormitorios que el cliente acaba de descartar. No afirme máximos ni alternativas que no estén respaldados por evidencia_turno.groups o alternative_results. No ofrezca propiedades fuera del catálogo autorizado.'],
+      ['Resultados vacíos de catálogo', 'Si una búsqueda completa no tiene resultados, explique esa ausencia dentro de sus filtros. No invente una unidad para justificarla ni sustituya la respuesta por totales generales del proyecto que el cliente no pidió. Los grupos complete_query representan esa búsqueda; catalog_inventory describe el inventario actual publicado y disponible, y requirement_alternatives una propuesta distinta. No mezcle sus cantidades ni sus características. Si bedrooms_required=true, respete ese requisito: no insista en unidades con menos dormitorios que el cliente acaba de descartar. No afirme máximos ni alternativas que no estén respaldados por evidencia_turno.groups o alternative_results. Explique una alternativa pertinente como cambio de requisitos, conservando la pregunta de aceptación cuando corresponda; no la trate como elegida ni avance a presupuesto, planta o financiamiento antes de la aceptación. No ofrezca propiedades fuera del catálogo autorizado.'],
     ]
     const instructions = optimizedPrompt && input.audit?.financing_collection
       && object(input.verified.prompt_context_selection).task === 'financing'
@@ -687,7 +691,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       let rawReview = await generate(riskRules, riskContext, riskSchema,
         undefined, undefined, undefined, 'review')
       let riskDecision = businessRiskDecision(rawReview)
-      const checkFacts = (facts: unknown) => validateBusinessFacts(facts, sharedEvidence.units, sharedEvidence.groups, effectiveTurnBudget(input.verified))
+      const checkFacts = (facts: unknown) => validateBusinessFacts(facts,
+        [...new Map([...inventoryValidationUnits, ...sharedEvidence.units].map(unit => [unit.id, unit])).values()],
+        sharedEvidence.groups, effectiveTurnBudget(input.verified))
       let factChecks = checkFacts(rawReview.facts)
       const originalChecks = factChecks
       const repairableChecks = factChecks.filter(check => check.status === 'contradiction' || check.repairable)

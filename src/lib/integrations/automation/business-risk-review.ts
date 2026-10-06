@@ -45,16 +45,34 @@ export const businessRiskReviewSchema: Row = {
  * neither should cost a second call merely to complete that contract. */
 export function businessRiskSchemaForSources(units: Row[], groups: Row[]): Row {
   const sourceIds = [...new Set([...units, ...groups].map(row => text(row.id)).filter(Boolean))]
+  const groupIds = [...new Set(groups.map(row => text(row.id)).filter(Boolean))]
+  const valueIds = [...new Set([...units, ...groups].filter(row => {
+    if (!row.aggregation) return true
+    const count = Array.isArray(row.member_ids) ? row.member_ids.length : row.member_count ?? row.unit_count
+    return count !== 0
+  }).map(row => text(row.id)).filter(Boolean))]
   const properties = object(businessFactSchema.properties)
-  const variants = ['catalog_value', 'lead_budget', 'budget_difference', 'other_calculation'].map(kind => ({
-    ...businessFactSchema, properties: { ...properties, kind: { type: 'string', enum: [kind] },
-      ...(kind === 'catalog_value' || kind === 'budget_difference' ? {
-        subject_id: { type: 'string', enum: [...sourceIds, 'unresolved'], description: 'ID de la fuente para este sujeto y alcance. unresolved solo si no hay respaldo: señale el hallazgo comercial correspondiente.' },
-      } : {}),
-      ...(kind === 'lead_budget' ? { field: { type: 'string', enum: ['amount'] }, relation: { type: 'string', enum: ['eq'] },
-        subject_id: { type: 'null' }, scope: { type: 'null' }, value: { type: 'number' }, upper_value: { type: 'null' }, unit: { type: 'string', enum: ['USD'] } } : {}),
-    },
-  }))
+  const scopedSchema = (object(properties.scope).anyOf as Row[]).find(row => row.type === 'object')!
+  const variants = ['catalog_value', 'catalog_absence', 'lead_budget', 'budget_difference', 'other_calculation'].flatMap<Row>(kind => {
+    const variant = {
+      ...businessFactSchema, properties: { ...properties, kind: { type: 'string', enum: [kind] },
+        ...(kind === 'catalog_value' || kind === 'catalog_absence' || kind === 'budget_difference' ? {
+          subject_id: { type: 'string', enum: [...(kind === 'catalog_absence' ? groupIds : kind === 'budget_difference' ? valueIds : sourceIds), 'unresolved'], description: 'ID de la fuente para este sujeto y alcance. unresolved solo si no hay respaldo: señale el hallazgo comercial correspondiente.' },
+        } : {}),
+        ...(kind === 'catalog_absence' ? { field: { type: 'string', enum: ['unit_count'] }, relation: { type: 'string', enum: ['eq'] },
+          scope: scopedSchema, value: { type: 'number', enum: [0] }, upper_value: { type: 'null' }, unit: { type: 'string', enum: ['count'] } } : {}),
+        ...(kind === 'lead_budget' ? { field: { type: 'string', enum: ['amount'] }, relation: { type: 'string', enum: ['eq'] },
+          subject_id: { type: 'null' }, scope: { type: 'null' }, value: { type: 'number' }, upper_value: { type: 'null' }, unit: { type: 'string', enum: ['USD'] } } : {}),
+      },
+    }
+    if (kind !== 'catalog_value') return [variant]
+    return [{ ...variant, properties: { ...variant.properties,
+      subject_id: { ...object(variant.properties.subject_id), enum: [...valueIds, 'unresolved'] },
+      field: { ...object(properties.field), enum: (object(properties.field).enum as string[]).filter(field => field !== 'unit_count') } } },
+    { ...variant, properties: { ...variant.properties,
+      subject_id: { ...object(variant.properties.subject_id), enum: [...groupIds, 'unresolved'] },
+      field: { type: 'string', enum: ['unit_count'] }, scope: scopedSchema } }]
+  })
   return { ...businessRiskReviewSchema, properties: { ...object(businessRiskReviewSchema.properties),
     facts: { type: 'array', items: { anyOf: variants } } } }
 }
@@ -136,6 +154,7 @@ export function businessRiskContext(input: {
     const row = pick(group)
     return { ...row, aggregation: group.aggregation, bedrooms_filter: group.bedrooms_filter,
       source_scope: group.source_scope, upper_values: group.upper_values, complete_for_query: group.complete_for_query, covers: group.covers,
+      query_scope: group.query_scope,
       member_count: Array.isArray(group.member_ids) ? group.member_ids.length : group.member_count ?? 0 }
   })
   const sources = input.claimSources.filter(source => !text(source.path).startsWith('evidencia_turno.')
