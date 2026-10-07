@@ -5,6 +5,7 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, Moon, Reply, Sun, X } from 'lucide-react'
 import { CompareSidePano, type ComparePanoPose } from '@/components/tour/CompareSidePano'
+import { isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
 import type { TourLocale } from '@/lib/tour/tourMessages'
 import type { TourFinishOption, TourLightMode, TourPlacedHotspot, TourUnitSummary } from '@/types/tour'
@@ -231,7 +232,7 @@ export function TourComparador({
   const candidates = useMemo(() => {
     const excludeId = picking === 'a' ? unitB?.id : unitA?.id
     return [...units]
-      .filter((item) => item.id !== excludeId)
+      .filter((item) => item.id !== excludeId && !isCommonAreaCode(item.typology_code))
       .sort((a, b) => a.unit_number.localeCompare(b.unit_number, 'es', { numeric: true }))
   }, [units, unitA?.id, unitB?.id, picking])
 

@@ -639,7 +639,7 @@ export function apartmentsToZones(
     const hasCurves = curves.some(Boolean)
     return {
       id: item.id,
-      label: item.id,
+      label: item.label?.trim() || item.id,
       order: index,
       polygon: item.polygon,
       pointsPercent: polygonToPercentPoints(item.polygon, width, height),
@@ -673,6 +673,7 @@ export function zonesToApartments(
     const y1 = Math.max(...ys)
     return {
       id: zone.id,
+      label: zone.label.trim() && zone.label.trim() !== zone.id ? zone.label.trim() : undefined,
       kind: zone.kind === 'circle' ? 'circle' : 'polygon',
       polygon: usable,
       curves: curves.some(Boolean) ? curves : undefined,

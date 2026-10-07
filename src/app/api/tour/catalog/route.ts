@@ -13,6 +13,7 @@ import {
 } from '@/lib/tour/tourRooms'
 import { buildRoomScenes, parseRoomSceneFileName, pickRoomScene, TOUR_SCENE_LIGHTS } from '@/lib/tour/roomScene'
 import { loadTypologyHotspots } from '@/lib/tour/typologyHotspots'
+import { COMMON_AREAS } from '@/lib/tour/commonAreas'
 import { isLocalesTypologyName } from '@/lib/tour/localesTypology'
 import type { TypologyAsset } from '@/types/inmobiliaria'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -106,12 +107,38 @@ export async function GET() {
       toCatalogTypology(admin, row, (units ?? []) as UnitRow[], assetsByCode, finishes),
     ),
   )
+  const knownCodes = new Set(catalogTypologies.map((item) => item.code.toUpperCase()))
+  const commonTypologies = await Promise.all(
+    COMMON_AREAS.filter((area) => !knownCodes.has(area.code)).map(async (area) => {
+      const built = await toCatalogTypology(
+        admin,
+        {
+          id: `area:${area.code}`,
+          name: area.code,
+          slug: area.code.toLowerCase(),
+          description: area.es,
+          bedrooms: null,
+          bathrooms: null,
+        },
+        [],
+        assetsByCode,
+        finishes,
+      )
+      return {
+        ...built,
+        category: 'area',
+        name: area.es,
+        code: area.code,
+        slots: [{ slug: 'sala', label: area.es }],
+      }
+    }),
+  )
 
   return NextResponse.json(
     {
     finishes,
     lights: TOUR_SCENE_LIGHTS,
-    typologies: catalogTypologies,
+    typologies: [...catalogTypologies, ...commonTypologies],
     units: ((units ?? []) as UnitRow[]).map((row) => {
       const type = typeById.get(row.unit_type_id)
       return {

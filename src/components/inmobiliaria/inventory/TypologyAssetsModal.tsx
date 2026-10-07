@@ -33,6 +33,7 @@ import {
 } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
 import { cn } from '@/lib/utils'
+import { COMMON_AREA_GROUP, COMMON_AREAS, commonAreaByCode, isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
 import { isLocalesTypologyName } from '@/lib/tour/localesTypology'
 import { TYPOLOGY_UPLOAD_MAX_MB } from '@/lib/typology-assets/resolveUpload'
@@ -134,7 +135,9 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const scrollRafRef = useRef(0)
   const displayFinishes = labeledFinishes(finishes)
   const combos = sceneCombos(displayFinishes)
+  const commonArea = commonAreaByCode(code)
   const panoramaSlots = (() => {
+    if (commonArea) return [{ slug: 'sala', label: commonArea.es }]
     const next = [...roomSlots]
     if (!next.some((item) => item.slug === 'sala')) {
       next.unshift({ slug: 'sala', label: 'Sala' })
@@ -288,9 +291,13 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
         ) => {
           if (cancelled || !data) return
           setFinishes(data.finishes ?? [])
+          const area = commonAreaByCode(code)
+          if (area) {
+            setRoomSlots([{ slug: 'sala', label: area.es }])
+          }
           const typology = data.typologies?.find((item) => item.code === code)
           const rooms = typology?.slots?.length ? typology.slots : typology?.rooms ?? []
-          setRoomSlots(rooms.map((item) => ({ slug: item.slug, label: item.label })))
+          if (!area) setRoomSlots(rooms.map((item) => ({ slug: item.slug, label: item.label })))
           setCatalogPanoUrl(typology?.panorama?.url || typology?.panorama?.scenes?.[0]?.url || null)
         },
       )
@@ -641,14 +648,21 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     }
   }
 
-  const typologyOptions = typologies.map((row) => {
-    const category = unitImportCategoryLabel(row.category).trim()
-    const base = row.name && row.name !== row.code ? `${row.code} · ${row.name}` : row.code
-    return {
-      value: row.code,
-      label: category ? `${base} (${category})` : base,
-    }
-  })
+  const typologyOptions = [
+    ...typologies.map((row) => {
+      const category = unitImportCategoryLabel(row.category).trim()
+      const base = row.name && row.name !== row.code ? `${row.code} · ${row.name}` : row.code
+      return {
+        value: row.code,
+        label: category ? `${base} (${category})` : base,
+      }
+    }),
+    ...COMMON_AREAS.map((area) => ({
+      value: area.code,
+      label: `${area.code} · ${area.es}`,
+      group: COMMON_AREA_GROUP,
+    })),
+  ]
 
   return (
     <Modal
@@ -685,7 +699,11 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 { id: 'amenidades' as const, label: 'Amenidades' },
               ] as const
             )
-              .filter((item) => !localesMode || item.id === 'galeria' || item.id === 'pisos' || item.id === 'amenidades')
+              .filter((item) =>
+                isCommonAreaCode(code)
+                  ? item.id === 'ambientes' || item.id === 'galeria' || item.id === 'puntos'
+                  : !localesMode || item.id === 'galeria' || item.id === 'pisos' || item.id === 'amenidades',
+              )
               .map((item) => (
               <button
                 key={item.id}
@@ -878,12 +896,16 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           </div>
         )}
 
-        {tab === 'galeria' && localesMode && (
+        {tab === 'galeria' && (localesMode || isCommonAreaCode(code)) && (
           <div className="space-y-4">
             <div className="space-y-1">
-              <p className="text-sm text-[#3a3d36]">Renders de {code}</p>
+              <p className="text-sm text-[#3a3d36]">
+                {isCommonAreaCode(code) ? `Fotos de ${commonAreaByCode(code)?.es ?? code}` : `Renders de ${code}`}
+              </p>
               <p className="text-xs text-[#8a8d87]">
-                Estos renders los comparten todos los locales asignados a esta tipología. No hay 360 ni comparador.
+                {isCommonAreaCode(code)
+                  ? 'Estas fotos se abren al tocar el área en el plano. El 360, si lo subís, tiene prioridad.'
+                  : 'Estos renders los comparten todos los locales asignados a esta tipología. No hay 360 ni comparador.'}
               </p>
             </div>
             <button
@@ -930,7 +952,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           </div>
         )}
 
-        {tab === 'galeria' && !localesMode && (
+        {tab === 'galeria' && !localesMode && !isCommonAreaCode(code) && (
           <div className="space-y-5">
             <div className="space-y-1">
               <p className="text-sm text-[#3a3d36]">Galería</p>

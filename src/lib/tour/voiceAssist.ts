@@ -1,4 +1,5 @@
 import type { TourUnitSummary } from '@/types/tour'
+import { isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { isVoiceQuestion } from './voiceTurnIntent'
 import type { TourLocale } from './tourMessages'
 import { unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
@@ -290,6 +291,7 @@ function scoreUnitAgainstBranch(
 }
 
 function scoreUnit(u: VoiceAssistCatalogUnit, f: VoiceAssistFilters): number | null {
+  if (isCommonAreaCode(u.typology_code) || isCommonAreaCode(f.typology_code)) return null
   const groups = f.or_groups?.filter(Boolean) ?? []
   if (groups.length > 0) {
     let best: number | null = null

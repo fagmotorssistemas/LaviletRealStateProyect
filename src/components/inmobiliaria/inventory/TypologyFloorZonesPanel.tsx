@@ -8,6 +8,7 @@ import { listUnitsImportAction } from '@/app/inmobiliaria/inventario-2/actions'
 import { FloorPlanViewer } from '@/components/floor-plan/FloorPlanViewer'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { COMMON_AREA_GROUP, COMMON_AREAS, commonAreaFromZoneId, commonAreaZoneId } from '@/lib/tour/commonAreas'
 import { FLOOR_PLAN_DEFAULT_FLOOR, FLOOR_PLAN_FLOORS, FLOOR_PLAN_SCOPE, floorPlanLevelLabel, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import {
   apartmentsToZones,
@@ -131,7 +132,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
 
   const unitOptions = useMemo(() => {
     const source = showAllUnits || unitsOnFloor.length === 0 ? units : unitsOnFloor
-    return source.map((unit) => {
+    const sale = source.map((unit) => {
       const code = unit.unit_number.trim()
       const taken =
         usedUnitCodes.has(code.toLowerCase()) &&
@@ -144,6 +145,12 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
       ].filter(Boolean)
       return { value: code, label: bits.join(' · ') }
     })
+    const areas = COMMON_AREAS.map((area) => ({
+      value: commonAreaZoneId(area.code),
+      label: area.es,
+      group: COMMON_AREA_GROUP,
+    }))
+    return [...sale, ...areas]
   }, [showAllUnits, unitsOnFloor, units, usedUnitCodes, selected?.id])
 
   useEffect(() => {
@@ -710,12 +717,17 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
   const assignUnit = (unitNumber: string) => {
     if (!selectedId || selectedIds.length !== 1 || !unitNumber) return
     const previousId = selectedId
+    const area = commonAreaFromZoneId(unitNumber)
     setApartments((prev) =>
-      prev.map((item) => (item.id === previousId ? { ...item, id: unitNumber, needsReview: false } : item)),
+      prev.map((item) =>
+        item.id === previousId
+          ? { ...item, id: unitNumber, label: area?.es, needsReview: false }
+          : item,
+      ),
     )
     setSelectedIds([unitNumber])
     setAssignOpen(false)
-    toast.success(`Zona asignada a unidad ${unitNumber}`)
+    toast.success(area ? `Zona asignada a ${area.es}` : `Zona asignada a unidad ${unitNumber}`)
   }
 
   const deleteSelected = () => {
@@ -1309,7 +1321,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-[#3a3d36]">
-              {assignOpen ? 'Asignar unidad a esta zona' : `Zona · ${selected.id}`}
+              {assignOpen ? 'Asignar unidad a esta zona' : `Zona · ${selected.label || selected.id}`}
             </p>
             {!assignOpen ? (
               <Button type="button" variant="secondary" onClick={() => setAssignOpen(true)}>

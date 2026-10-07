@@ -106,7 +106,7 @@ export function buildGaleriaStills(
 ): GaleriaStill[] {
   if (!typology) return []
 
-  if (typology.category === 'local' || options?.rendersOnly) {
+  if (typology.category === 'local' || (options?.rendersOnly && typology.category !== 'area')) {
     return (typology.renders ?? [])
       .filter((render) => Boolean(render.url))
       .map((render) => ({
@@ -141,6 +141,16 @@ export function buildGaleriaStills(
       finish: meta?.finish,
       light: meta?.light,
     })
+  }
+
+  if (typology.category === 'area') {
+    for (const render of typology.renders ?? []) {
+      add(
+        render.id || render.file_name,
+        stillLabelFromFile(render.file_name) || typology.name || 'Foto',
+        render.url,
+      )
+    }
   }
 
   const rooms = [...(typology.vistas ?? [])].sort((a, b) => {

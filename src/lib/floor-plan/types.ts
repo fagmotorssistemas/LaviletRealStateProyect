@@ -17,6 +17,8 @@ export type Apartment = {
   area?: number
   confidence: number
   needsReview?: boolean
+  /** Nombre visible. En áreas comunes no coincide con el id `area:CODIGO`. */
+  label?: string
   labelConfidence?: number
   /** Zona circular (polígono aproximado para el showroom). */
   kind?: ApartmentKind

@@ -9,7 +9,7 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string
   labelAccessory?: ReactNode
   error?: string
-  options: { value: string; label: string }[]
+  options: { value: string; label: string; group?: string }[]
   placeholder?: string
 }
 
@@ -95,10 +95,17 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
               </button>
             </li>
           )}
-          {options.map((option) => {
+          {options.map((option, index) => {
             const active = option.value === current
+            const group = option.group?.trim()
+            const showGroup = Boolean(group) && options[index - 1]?.group !== option.group
             return (
-              <li key={option.value}>
+              <li key={`${group ?? ''}:${option.value}`}>
+                {showGroup ? (
+                  <p className="px-3.5 pt-2 pb-1 text-[10px] font-semibold tracking-[0.14em] text-[#8e7654] uppercase">
+                    {group}
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   role="option"
@@ -141,7 +148,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
         >
           {placeholder && <option value="">{placeholder}</option>}
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option key={`${option.group ?? ''}:${option.value}`} value={option.value}>
               {option.label}
             </option>
           ))}

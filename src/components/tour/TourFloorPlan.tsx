@@ -31,6 +31,11 @@ import {
   zonesForVariant,
   type FloorPlanVariant,
 } from '@/lib/tour/floorPlanZones'
+import {
+  commonAreaFromZoneId,
+  commonAreaLabel,
+  type CommonArea,
+} from '@/lib/tour/commonAreas'
 import { SITE } from '@/lib/marketing/site'
 import { findUnitByNumber } from '@/lib/tour/unitDeepLink'
 import type { TourUnitSummary } from '@/types/tour'
@@ -42,6 +47,8 @@ type TourFloorPlanProps = {
   onFloorChange: (floor: number) => void
   selectedUnitId: string | null
   onSelectUnit: (unit: TourUnitSummary, slotId: string) => void
+  /** Zona `area:CODIGO`: abre el área común, no una unidad. */
+  onSelectArea?: (code: string) => void
   /** Empieza a bajar las fotos de la unidad al pasar el cursor, sin cambiar la selección. */
   onPrefetchUnit?: (unit: TourUnitSummary) => void
   onWhatsAppClick?: () => void
@@ -64,6 +71,11 @@ type DisplaySlot = {
   label: string
   points: string
   unit: TourUnitSummary | null
+  area: CommonArea | null
+}
+
+function slotOpens(slot: DisplaySlot) {
+  return Boolean(slot.unit || slot.area)
 }
 
 type FloorLayer = ReadyFloorView & {
@@ -239,6 +251,7 @@ function findUnitByPlantaId(
 }
 
 function findUnitForZone(units: TourUnitSummary[], zoneId: string, zoneLabel: string) {
+  if (commonAreaFromZoneId(zoneId)) return null
   const needles = [zoneId, zoneLabel]
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean)
@@ -298,7 +311,7 @@ function pointInPolygonPercent(x: number, y: number, points: string) {
 function findSlotAtPercent(slots: DisplaySlot[], xPercent: number, yPercent: number) {
   for (let i = slots.length - 1; i >= 0; i -= 1) {
     const slot = slots[i]!
-    if (!slot.unit) continue
+    if (!slot.unit && !slot.area) continue
     if (pointInPolygonPercent(xPercent, yPercent, slot.points)) return slot
   }
   return null
@@ -337,6 +350,7 @@ export function TourFloorPlan({
   floor,
   onFloorChange,
   onSelectUnit,
+  onSelectArea,
   onPrefetchUnit,
   onWhatsAppClick,
   railLeading,
@@ -399,6 +413,8 @@ export function TourFloorPlan({
   >({})
   const onSelectUnitRef = useRef(onSelectUnit)
   onSelectUnitRef.current = onSelectUnit
+  const onSelectAreaRef = useRef(onSelectArea)
+  onSelectAreaRef.current = onSelectArea
   const onPrefetchUnitRef = useRef(onPrefetchUnit)
   onPrefetchUnitRef.current = onPrefetchUnit
   const prefetchedUnitRef = useRef<string | null>(null)
@@ -781,13 +797,17 @@ export function TourFloorPlan({
     return [...zones]
       .sort((a, b) => a.order - b.order)
       .filter((zone) => zone.pointsPercent.trim())
-      .map((zone) => ({
-        id: zone.id,
-        label: zone.label || zone.id,
-        points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
-        unit: findUnitForZone(unitsOnFloor, zone.id, zone.label),
-      }))
-  }, [docForToggles, planVariant, unitsOnFloor, overlayAlign])
+      .map((zone) => {
+        const area = commonAreaFromZoneId(zone.id)
+        return {
+          id: zone.id,
+          label: area ? commonAreaLabel(area, locale === 'en' ? 'en' : 'es') : zone.label || zone.id,
+          points: applyOverlayAlign(zoneDisplayPointsPercent(zone), overlayAlign),
+          unit: area ? null : findUnitForZone(unitsOnFloor, zone.id, zone.label),
+          area,
+        }
+      })
+  }, [docForToggles, planVariant, unitsOnFloor, overlayAlign, locale])
   displaySlotsRef.current = displaySlots
 
   const activeHtmlFloor =
@@ -843,6 +863,20 @@ export function TourFloorPlan({
         Number.isFinite(xPercent) && Number.isFinite(yPercent)
           ? findSlotAtPercent(displaySlotsRef.current, xPercent, yPercent)
           : null
+      const areaSlot =
+        fromPoint?.area
+          ? fromPoint
+          : displaySlotsRef.current.find(
+              (slot) => slot.area && (slot.id === plantaId || slot.label === plantaId),
+            ) ?? null
+      if (areaSlot?.area) {
+        const now = Date.now()
+        if (areaSlot.id === lastHtmlOpenKeyRef.current && now - lastHtmlOpenAtRef.current < 350) return
+        lastHtmlOpenAtRef.current = now
+        lastHtmlOpenKeyRef.current = areaSlot.id
+        onSelectAreaRef.current?.(areaSlot.area.code)
+        return
+      }
       const unit =
         (plantaId ? resolveUnit(plantaId) : null) ??
         fromPoint?.unit ??
@@ -945,12 +979,17 @@ export function TourFloorPlan({
   )
 
   const handleSelectSlot = (slot: DisplaySlot) => {
-    if (!slot.unit) return
+    if (!slotOpens(slot)) return
     const now = Date.now()
     // Ignora el click sintético del mismo toque. Otro departamento sí abre al primer toque.
     if (slot.id === lastHtmlOpenKeyRef.current && now - lastHtmlOpenAtRef.current < 350) return
     lastHtmlOpenAtRef.current = now
     lastHtmlOpenKeyRef.current = slot.id
+    if (slot.area) {
+      onSelectAreaRef.current?.(slot.area.code)
+      return
+    }
+    if (!slot.unit) return
     onSelectUnit(slot.unit, slot.id)
   }
 
@@ -962,8 +1001,8 @@ export function TourFloorPlan({
   } | null>(null)
 
   const onSlotPointerDown = (slot: DisplaySlot, event: PointerEvent) => {
-    if (!slot.unit) return
-    prefetchSlotUnit(slot.unit)
+    if (!slotOpens(slot)) return
+    if (slot.unit) prefetchSlotUnit(slot.unit)
     if (event.pointerType === 'mouse' && event.button !== 0) return
     slotPointerRef.current = {
       slotId: slot.id,
@@ -974,7 +1013,7 @@ export function TourFloorPlan({
   }
 
   const onSlotPointerUp = (slot: DisplaySlot, event: PointerEvent) => {
-    if (!slot.unit) return
+    if (!slotOpens(slot)) return
     const start = slotPointerRef.current
     slotPointerRef.current = null
     if (panMovedRef.current) return
@@ -986,7 +1025,7 @@ export function TourFloorPlan({
   }
 
   const onSlotClick = (slot: DisplaySlot, event: MouseEvent) => {
-    if (!slot.unit) return
+    if (!slotOpens(slot)) return
     if (panMovedRef.current) {
       panMovedRef.current = false
       return
@@ -1003,12 +1042,13 @@ export function TourFloorPlan({
   }
 
   const handleHoverSlot = (slot: DisplaySlot | null) => {
-    if (!slot?.unit) {
+    if (!slot || !slotOpens(slot)) {
       setHoverSlot(null)
       elevateHtmlUnit(null)
       return
     }
     setHoverSlot(slot.id)
+    if (!slot.unit) return
     elevateHtmlUnit(slot.id || slot.unit.unit_number, slot.unit)
     prefetchSlotUnit(slot.unit)
   }
@@ -1506,32 +1546,41 @@ export function TourFloorPlan({
                 onMouseLeave={() => setHoverSlot(null)}
               >
               {displaySlots.map((slot) => {
-                const hovered = hoverSlot === slot.id && Boolean(slot.unit)
+                const opens = slotOpens(slot)
+                const hovered = hoverSlot === slot.id && opens
+                const areaFill = hovered ? 'rgba(189,162,126,0.46)' : 'rgba(189,162,126,0.22)'
+                const areaStroke = hovered ? '#BDA27E' : 'rgba(189,162,126,0.95)'
                 return (
                   <polygon
                     key={slot.id}
                     points={slot.points}
                     className={cn(
                       'cursor-pointer transition-[fill,stroke] duration-100',
-                      !slot.unit && 'cursor-not-allowed',
+                      !opens && 'cursor-not-allowed',
                     )}
                     fill={
-                      showSegmentation
-                        ? hovered
-                          ? 'rgba(61,155,74,0.42)'
-                          : 'rgba(255,255,255,0.04)'
-                        : 'rgba(255,255,255,0.001)'
+                      slot.area
+                        ? showSegmentation
+                          ? areaFill
+                          : 'rgba(189,162,126,0.16)'
+                        : showSegmentation
+                          ? hovered
+                            ? 'rgba(61,155,74,0.42)'
+                            : 'rgba(255,255,255,0.04)'
+                          : 'rgba(255,255,255,0.001)'
                     }
                     stroke={
-                      showSegmentation
-                        ? hovered
-                          ? 'rgba(61,155,74,0.95)'
-                          : 'rgba(255,255,255,0.28)'
-                        : 'rgba(0,0,0,0)'
+                      slot.area
+                        ? areaStroke
+                        : showSegmentation
+                          ? hovered
+                            ? 'rgba(61,155,74,0.95)'
+                            : 'rgba(255,255,255,0.28)'
+                          : 'rgba(0,0,0,0)'
                     }
-                    strokeWidth={showSegmentation ? (hovered ? 0.85 : 0.35) : 0.01}
+                    strokeWidth={slot.area || showSegmentation ? (hovered ? 1.15 : 0.7) : 0.01}
                     vectorEffect="non-scaling-stroke"
-                    style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
+                    style={{ pointerEvents: opens ? 'visiblePainted' : 'none' }}
                     onMouseEnter={() => handleHoverSlot(slot)}
                     onMouseLeave={() => {
                       setHoverSlot((current) => (current === slot.id ? null : current))
@@ -1552,14 +1601,15 @@ export function TourFloorPlan({
             <div className="pointer-events-none absolute inset-0 z-[2]">
               {displaySlots.map((slot) => {
                 const { cx, cy } = slotCentroid(slot.points)
-                const hovered = hoverSlot === slot.id && Boolean(slot.unit)
-                const label = slot.unit?.unit_number ?? slot.label
+                const opens = slotOpens(slot)
+                const hovered = hoverSlot === slot.id && opens
+                const label = slot.area ? slot.label : (slot.unit?.unit_number ?? slot.label)
 
                 return (
                   <button
                     key={`label-${slot.id}`}
                     type="button"
-                    disabled={!slot.unit}
+                    disabled={!opens}
                     onMouseEnter={() => setHoverSlot(slot.id)}
                     onMouseLeave={() => setHoverSlot(null)}
                     onPointerDown={(event) => onSlotPointerDown(slot, event)}
@@ -1571,18 +1621,20 @@ export function TourFloorPlan({
                     className={cn(
                       'pointer-events-auto absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-100',
                       'sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1.5',
-                      slot.unit
+                      opens
                         ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
                         : 'cursor-not-allowed opacity-55',
-                      hovered && 'ring-2 ring-[#3d9b4a]/80',
+                      slot.area && 'border border-[#BDA27E] text-[#2b1a18]',
+                      hovered && !slot.area && 'ring-2 ring-[#3d9b4a]/80',
+                      hovered && slot.area && 'ring-2 ring-[#BDA27E]',
                     )}
                     style={{ left: `${cx}%`, top: `${cy}%` }}
-                    aria-label={t(slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
+                    aria-label={t(slot.area ? slot.label : slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
                   >
                     <span
                       className={cn(
                         'h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5',
-                        slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
+                        slot.area ? 'bg-[#BDA27E]' : slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
                       )}
                     />
                     <span className="text-[10px] font-semibold tracking-wide text-[#2b2f36] sm:text-[11px]">
@@ -1615,11 +1667,12 @@ export function TourFloorPlan({
                 <polygon
                   key={`html-hit-${slot.id}`}
                   points={slot.points}
-                  fill="rgba(255,255,255,0.001)"
-                  stroke="rgba(0,0,0,0)"
-                  strokeWidth={0.01}
-                  style={{ pointerEvents: slot.unit ? 'visiblePainted' : 'none' }}
-                  className={slot.unit ? 'cursor-pointer' : undefined}
+                  fill={slot.area ? 'rgba(189,162,126,0.28)' : 'rgba(255,255,255,0.001)'}
+                  stroke={slot.area ? '#BDA27E' : 'rgba(0,0,0,0)'}
+                  strokeWidth={slot.area ? 1.15 : 0.01}
+                  vectorEffect="non-scaling-stroke"
+                  style={{ pointerEvents: slotOpens(slot) ? 'visiblePainted' : 'none' }}
+                  className={slotOpens(slot) ? 'cursor-pointer' : undefined}
                   onMouseEnter={() => handleHoverSlot(slot)}
                   onMouseLeave={() => {
                     setHoverSlot((current) => (current === slot.id ? null : current))
@@ -1634,6 +1687,33 @@ export function TourFloorPlan({
                 />
               ))}
             </svg>
+          ) : null}
+          {htmlInteractive ? (
+            <div className="pointer-events-none absolute inset-0 z-[4]">
+              {displaySlots.filter((slot) => slot.area).map((slot) => {
+                const { cx, cy } = slotCentroid(slot.points)
+                return (
+                  <button
+                    key={`html-area-${slot.id}`}
+                    type="button"
+                    onPointerDown={(event) => onSlotPointerDown(slot, event)}
+                    onPointerUp={(event) => onSlotPointerUp(slot, event)}
+                    onPointerCancel={() => {
+                      slotPointerRef.current = null
+                    }}
+                    onClick={(event) => onSlotClick(slot, event)}
+                    className="pointer-events-auto absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md border border-[#BDA27E] bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)]"
+                    style={{ left: `${cx}%`, top: `${cy}%` }}
+                    aria-label={slot.label}
+                  >
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-[#BDA27E]" />
+                    <span className="text-[10px] font-semibold tracking-wide text-[#2b2f36] sm:text-[11px]">
+                      {t(slot.label)}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           ) : null}
 
           </div>

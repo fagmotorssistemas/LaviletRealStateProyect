@@ -99,6 +99,7 @@ import {
 import { FLOOR_PLAN_FLOORS, FLOOR_PLAN_LEVELS, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import { fetchFloorPlanReady, prefetchFloorPlans, warmFloorPlans } from '@/lib/tour/floorPlanClientCache'
 import { preloadStill, warmStills } from '@/lib/tour/stillPreload'
+import { isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { isGalleryOnlyTypology } from '@/lib/tour/localesTypology'
 import { normalizeUnitCategory } from '@/types/inmobiliaria'
 import type {
@@ -636,6 +637,19 @@ function DesktopModesList({
   )
 }
 
+function typologyHasPanorama(typ: TourTypologyOption | null | undefined) {
+  return Boolean(
+    typ?.panorama?.url || typ?.rooms?.some((room) => room.url || room.scenes?.some((scene) => scene.url)),
+  )
+}
+
+function typologyHasGallery(typ: TourTypologyOption | null | undefined) {
+  return Boolean(
+    typ?.renders?.some((item) => item.url) ||
+    typ?.vistas?.some((room) => room.url || room.scenes?.some((scene) => scene.url)),
+  )
+}
+
 /** Qué modos tiene sentido mostrar según la vista actual. */
 function modeButtonsForView(input: {
   shellMode: 'plan' | 'unit'
@@ -643,6 +657,8 @@ function modeButtonsForView(input: {
   terminacionesFocus: boolean
   galleryOnly?: boolean
   showTerminaciones?: boolean
+  commonArea?: boolean
+  commonAreaTour?: boolean
 }): {
   galeria: boolean
   planos: boolean
@@ -652,6 +668,15 @@ function modeButtonsForView(input: {
 } {
   if (input.shellMode === 'plan') {
     return { galeria: false, planos: false, tour: false, terminaciones: false, comparador: false }
+  }
+  if (input.commonArea) {
+    return {
+      galeria: true,
+      planos: false,
+      tour: Boolean(input.commonAreaTour),
+      terminaciones: false,
+      comparador: false,
+    }
   }
   if (input.galleryOnly) {
     return { galeria: true, planos: false, tour: false, terminaciones: false, comparador: false }
@@ -1075,6 +1100,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [navChooserOpen, setNavChooserOpen] = useState(false)
   const [voiceAssistOpen, setVoiceAssistOpen] = useState(false)
   const [shellMode, setShellMode] = useState<'plan' | 'unit'>('plan')
+  const [areaCode, setAreaCode] = useState<string | null>(null)
   const openingPlanFloor = FLOOR_PLAN_LEVELS.find((level) => level.storageKey === 'terraza')?.id ?? 7
   const [planFloor, setPlanFloor] = useState(openingPlanFloor)
   const [planEntryOpen, setPlanEntryOpen] = useState(true)
@@ -1927,6 +1953,42 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     })
     return imported.length > 0 ? imported : units
   }, [publicCatalog, units])
+  const saleUnits = useMemo(
+    () => allUnits.filter((item) => !isCommonAreaCode(item.typology_code)),
+    [allUnits],
+  )
+  const openCommonArea = useCallback((code: string) => {
+    const typ = publicCatalog?.typologies.find((item) => item.code === code) ?? null
+    setCompareOpen(false)
+    setFinishCompareOpen(false)
+    setFichaOpen(false)
+    setFichaExpanded(false)
+    setSimulatorOpen(false)
+    setSelectedUnitId(null)
+    setTerminacionesFocus(false)
+    setVoiceAssistOpen(false)
+    writeUnitQueryParam(null)
+    if (!typologyHasPanorama(typ) && !typologyHasGallery(typ)) {
+      setAreaCode(null)
+      setAmenitiesOpen(true)
+      setShellMode('plan')
+      return
+    }
+    setAmenitiesOpen(false)
+    setAreaCode(code)
+    setSelectedTypology(code)
+    setShellMode('unit')
+    if (typologyHasPanorama(typ)) setViewMode('tour')
+    else {
+      setViewMode('galeria')
+      setGaleriaIndex(0)
+    }
+  }, [publicCatalog])
+  useEffect(() => {
+    if (shellMode !== 'plan') return
+    if (areaCode) setAreaCode(null)
+    if (isCommonAreaCode(selectedTypology)) setSelectedTypology('')
+  }, [shellMode, areaCode, selectedTypology])
 
   const displayUnits = useMemo<TourUnitSummary[]>(() => {
     if (!selectedTypology) return allUnits
@@ -2075,9 +2137,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     setSimulatorEntry({ mode: 'financed', section: 'financing' })
     setSimulatorOpen(true)
   }, [])
+  const viewingCommonArea = isCommonAreaCode(areaCode)
   const galleryOnly =
     isGalleryOnlyTypology(currentTypology) ||
-    normalizeUnitCategory(selectedUnit?.category) === 'local'
+    normalizeUnitCategory(selectedUnit?.category) === 'local' ||
+    (viewingCommonArea && !typologyHasPanorama(currentTypology))
   const catalogFinishes = publicCatalog?.finishes?.length
     ? publicCatalog.finishes
     : catalog?.finishes ?? []
@@ -2426,6 +2490,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     terminacionesFocus,
     galleryOnly,
     showTerminaciones: terminacionesReady,
+    commonArea: viewingCommonArea,
+    commonAreaTour: typologyHasPanorama(currentTypology),
   })
 
   useEffect(() => {
@@ -3401,7 +3467,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         <TourComparador
           unitA={selectedUnit}
           unitB={compareUnitB}
-          units={allUnits}
+          units={saleUnits}
           contentMode={compareContentMode}
           panoBUrl={comparePanoBUrl}
           hotspotsB={compareHotspotsB}
@@ -3721,6 +3787,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           }}
           selectedUnitId={selectedUnitId}
           onPrefetchUnit={warmTypologyStills}
+          onSelectArea={openCommonArea}
           onSelectUnit={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
@@ -4000,7 +4067,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 <Layers size={13} strokeWidth={1.75} className="shrink-0" />
                 {t(" Volver a los pisos ")}</button>
             ) : null}
-            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
+            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology && !viewingCommonArea ? (
               <button
                 type="button"
                 onClick={() => {
@@ -4016,7 +4083,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 </span>
             </button>
             ) : null}
-            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
+            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology && !viewingCommonArea ? (
             <button
               type="button"
                 onClick={openSimulatorTool}
@@ -4028,7 +4095,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 </span>
               </button>
             ) : null}
-            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology ? (
+            {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology && !viewingCommonArea ? (
               <button
                 type="button"
                 onClick={openFinancingTool}
@@ -4077,7 +4144,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                     >
                       <Layers size={13} strokeWidth={1.75} />
                       {t(" Pisos ")}</button>
-                    {selectedTypology ? (
+                    {selectedTypology && !viewingCommonArea ? (
                       <>
                         <button
                           type="button"
@@ -4467,7 +4534,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {(showPlanShell || showUnitChrome) && !isComparador && !isFinishCompare ? (
         <TourVoiceAssist
-          units={allUnits}
+          units={saleUnits}
           publicCatalog={publicCatalog}
           sceneKey={`${shellMode}:${viewMode}:${room}:${selectedTypology || ''}`}
           hideTrigger

@@ -12,6 +12,7 @@ import {
 } from '@/lib/tour/voiceAssist'
 import { runTourVoiceAssist, synthesizeTourVoice, transcribeTourVoice } from '@/lib/tour/voiceAssistServer'
 import { sanitizeVoiceConversation, type VoiceConversationTurn } from '@/lib/tour/voiceConversation'
+import { isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
 
 export const runtime = 'nodejs'
@@ -49,7 +50,7 @@ function asCatalog(raw: unknown): VoiceAssistCatalogUnit[] {
         }),
       }
     })
-    .filter((u) => u.id && u.unit_number)
+    .filter((u) => u.id && u.unit_number && !isCommonAreaCode(u.typology_code))
 }
 
 function asPreviousFilters(raw: unknown): VoiceAssistFilters | null {
