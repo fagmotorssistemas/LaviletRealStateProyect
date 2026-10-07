@@ -1,4 +1,4 @@
-import { TYPOLOGY_ASSETS_BUCKET, typologyAssetStoragePath } from '@/lib/typology-assets'
+import { TYPOLOGY_ASSETS_BUCKET, typologyAssetFileName, typologyAssetStoragePath } from '@/lib/typology-assets'
 import { storageCacheControl } from '@/lib/storage/cacheControl'
 import { fileMatchesScene, roomSceneFileName, withSceneRevision } from '@/lib/tour/roomScene'
 import type { TourLightMode } from '@/types/tour'
@@ -31,9 +31,143 @@ export type ConvertSceneInput = {
 
 const TOUR_WIDTHS = [4096, 2048] as const
 
+const LOSSLESS_WEBP = { lossless: true, effort: 4 } as const
+
+async function loadSharp() {
+  const sharpMod = await import('sharp')
+  const sharp = sharpMod.default
+  if (typeof sharp !== 'function') {
+    throw Object.assign(new Error('El conversor de imágenes no está disponible'), { status: 500 })
+  }
+  sharp.concurrency(1)
+  return sharp
+}
+
+/** WebP sin pérdida, tamaño original (solo se endereza la orientación). */
+export async function encodeLosslessWebp(sourceBuffer: Buffer) {
+  const sharp = await loadSharp()
+  const meta = await sharp(sourceBuffer, SHARP_OPTS).rotate().metadata()
+  const buffer = await sharp(sourceBuffer, SHARP_OPTS).rotate().webp(LOSSLESS_WEBP).toBuffer()
+  const width = meta.width || 1
+  const height = meta.height || 1
+  if (width <= 1 || height <= 1) {
+    throw Object.assign(new Error('No se pudieron leer las dimensiones de la imagen'), { status: 400 })
+  }
+  return { buffer, width, height }
+}
+
+export type ConvertRenderInput = {
+  typologyCode: string
+  uploadedFileName: string
+  uploadedStoragePath: string
+  /** Escena de galería. Una foto suelta (área común, local) no la tiene. */
+  sceneKey: { room: string; finish: string | null; light: TourLightMode } | null
+}
+
 /**
- * Descarga el original de Storage, lo convierte a WebP y deja la fila definitiva.
- * 360: WebP q92 y variantes 2048 / 4096 / 8192. Galería: lado mayor 3200, q88.
+ * Todo render (galería, local o área común) queda en WebP lossless.
+ * No genera las variantes 2048/4096 del 360.
+ */
+export async function convertUploadedRenderToLosslessWebp(
+  admin: SupabaseClient,
+  input: ConvertRenderInput,
+): Promise<TypologyAsset> {
+  const { data: blob, error: dlErr } = await admin.storage
+    .from(TYPOLOGY_ASSETS_BUCKET)
+    .download(input.uploadedStoragePath)
+  if (dlErr || !blob) {
+    throw Object.assign(new Error(dlErr?.message || 'No se pudo leer el archivo subido'), { status: 500 })
+  }
+
+  const sourceBuffer = Buffer.from(await blob.arrayBuffer())
+  const sourceRow = await findTypologyAssetByKey(
+    admin,
+    input.typologyCode,
+    'render',
+    input.uploadedFileName,
+  )
+  const sourceStamp = sourceRow?.created_at ?? null
+  if (!sourceRow || !sourceStamp) {
+    throw Object.assign(new Error('La subida ya no está disponible para convertir'), { status: 409 })
+  }
+
+  const encoded = await encodeLosslessWebp(sourceBuffer)
+  const revision = Date.now()
+  const webpFileName = input.sceneKey
+    ? withSceneRevision(roomSceneFileName(input.sceneKey, undefined, 'webp'), revision)
+    : withSceneRevision(`${typologyAssetFileName(input.uploadedFileName).replace(/\.[^.]+$/, '')}.webp`, revision)
+
+  const stillSource = await findTypologyAssetByKey(
+    admin,
+    input.typologyCode,
+    'render',
+    input.uploadedFileName,
+  )
+  if (!stillSource || stillSource.created_at !== sourceStamp) {
+    return stillSource ?? sourceRow
+  }
+
+  const storagePath = typologyAssetStoragePath(input.typologyCode, 'render', webpFileName)
+  const { error: upErr } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).upload(storagePath, encoded.buffer, {
+    upsert: true,
+    contentType: 'image/webp',
+    cacheControl: storageCacheControl(webpFileName),
+  })
+  if (upErr) {
+    throw Object.assign(new Error(upErr.message || 'No se pudo guardar el WebP'), { status: 500 })
+  }
+
+  const stamped = new Date().toISOString()
+  const existing = await findTypologyAssetByKey(admin, input.typologyCode, 'render', webpFileName)
+  const asset = existing
+    ? { ...existing, created_at: stamped, storage_path: storagePath }
+    : await insertTypologyAsset(admin, {
+        typology_code: input.typologyCode,
+        kind: 'render',
+        file_name: webpFileName,
+        storage_path: storagePath,
+      })
+  if (existing) {
+    await admin.from('typology_assets').update({ created_at: stamped, storage_path: storagePath }).eq('id', existing.id)
+  }
+
+  if (input.uploadedStoragePath !== storagePath) {
+    await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).remove([input.uploadedStoragePath])
+  }
+
+  const all = await listTypologyAssets(admin, input.typologyCode)
+  const stale = all.filter((row) => {
+    if (row.id === asset.id || row.file_name === webpFileName) return false
+    if (row.kind !== 'render') return false
+    if (row.file_name === input.uploadedFileName) return true
+    if (!input.sceneKey) return false
+    return fileMatchesScene(row.file_name, input.sceneKey.room, input.sceneKey.finish, input.sceneKey.light, {
+      exactRoom: true,
+    })
+  })
+  for (const row of stale) {
+    try {
+      await deleteTypologyAsset(admin, row.id)
+    } catch (error) {
+      console.error('cleanup stale render after webp convert', row.file_name, error)
+    }
+  }
+
+  console.info('[typology-assets] render webp lossless', {
+    typologyCode: input.typologyCode,
+    from: input.uploadedFileName,
+    to: webpFileName,
+    bytesIn: sourceBuffer.byteLength,
+    bytesOut: encoded.buffer.byteLength,
+    width: encoded.width,
+  })
+
+  return asset
+}
+
+/**
+ * 360: WebP del ambiente y variantes 2048 / 4096 / 8192.
+ * Los renders de galería no pasan por aquí: van a WebP lossless.
  */
 export async function convertUploadedSceneToWebp(
   admin: SupabaseClient,

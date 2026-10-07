@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionProfile } from '@/lib/auth/session'
 import { canAccessPath, canWriteCrm } from '@/lib/inmobiliaria/roleAccess'
 import { TYPOLOGY_ASSETS_BUCKET } from '@/lib/typology-assets'
-import { isTourRoomSlug, isVistaRoomSlug } from '@/lib/tour/tourRooms'
+import { isTourRoomSlug } from '@/lib/tour/tourRooms'
 import type { TourLightMode } from '@/types/tour'
 import { findTypologyAssetByKey, insertTypologyAsset } from '@/services/inmobiliaria.service'
 import { isTypologyAssetKind, typologyAssetStoragePath } from '@/lib/typology-assets'
@@ -51,16 +51,11 @@ export async function POST(request: Request) {
     }
 
     const room = String(body.room ?? '').trim()
-    const finishRaw = String(body.finish ?? '').trim()
     const lightRaw = String(body.light ?? '').trim()
-    const finish = finishRaw || null
     const light: TourLightMode | null = lightRaw === 'noche' || lightRaw === 'dia' ? lightRaw : null
-    const isGalleryScene =
-      kindRaw === 'render' && Boolean(room) && Boolean(light) && isVistaRoomSlug(room)
     const isAmbienteScene = kindRaw === 'ambiente' && Boolean(light) && isTourRoomSlug(room)
-    const shouldConvert = Boolean(
-      light && (isAmbienteScene || isGalleryScene),
-    )
+    const isRender = kindRaw === 'render'
+    const shouldConvert = isAmbienteScene || isRender
 
     const admin = createAdminClient()
 
@@ -89,7 +84,7 @@ export async function POST(request: Request) {
       asset,
       converted: false,
       convert_pending: shouldConvert,
-      convert_mode: isAmbienteScene ? 'lossless' : isGalleryScene ? 'quality' : null,
+      convert_mode: isAmbienteScene ? 'lossless' : isRender ? 'lossless' : null,
     })
   } catch (error) {
     console.error('POST /api/typology-assets/confirm-upload', error)

@@ -5,7 +5,7 @@ import { canAccessPath, canWriteCrm } from '@/lib/inmobiliaria/roleAccess'
 import { TYPOLOGY_ASSETS_BUCKET, isTypologyAssetKind, typologyAssetStoragePath } from '@/lib/typology-assets'
 import { isTourRoomSlug, isVistaRoomSlug } from '@/lib/tour/tourRooms'
 import type { TourLightMode } from '@/types/tour'
-import { convertUploadedSceneToWebp } from '@/lib/typology-assets/convertToWebp'
+import { convertUploadedRenderToLosslessWebp, convertUploadedSceneToWebp } from '@/lib/typology-assets/convertToWebp'
 
 export const runtime = 'nodejs'
 /** Conversión WebP de panoramas grandes; se corre en request aparte para no tumbar el confirm. */
@@ -16,8 +16,9 @@ function jsonError(message: string, status: number, extra?: Record<string, unkno
 }
 
 /**
- * Convierte un ambiente/galería ya subido a WebP (lossless en 360).
- * Pensado para llamarse en segundo plano tras confirm-upload.
+ * Convierte lo ya subido.
+ * Render (galería, local, área común): WebP lossless a tamaño original.
+ * 360: el flujo de ambiente, con variantes.
  */
 export async function POST(request: Request) {
   try {
@@ -58,8 +59,9 @@ export async function POST(request: Request) {
     const isGalleryScene =
       kindRaw === 'render' && Boolean(room) && Boolean(light) && isVistaRoomSlug(room)
     const isAmbienteScene = kindRaw === 'ambiente' && Boolean(light) && isTourRoomSlug(room)
-    if (!light || (!isAmbienteScene && !isGalleryScene)) {
-      return jsonError('Solo se convierten escenas de ambiente o galería', 400)
+    const isRender = kindRaw === 'render'
+    if (!isRender && !isAmbienteScene) {
+      return jsonError('Solo se convierten renders o escenas 360', 400)
     }
 
     const admin = createAdminClient()
@@ -70,20 +72,35 @@ export async function POST(request: Request) {
       return jsonError('El archivo no está en Storage para convertir.', 404)
     }
 
+    if (isRender) {
+      const asset = await convertUploadedRenderToLosslessWebp(admin, {
+        typologyCode,
+        uploadedFileName: fileName,
+        uploadedStoragePath: storagePath,
+        sceneKey: isGalleryScene && light ? { room, finish, light } : null,
+      })
+      return NextResponse.json({
+        asset,
+        converted: true,
+        format: 'webp',
+        lossless: true,
+      })
+    }
+
     const asset = await convertUploadedSceneToWebp(admin, {
       typologyCode,
       persistKind,
       uploadedFileName: fileName,
       uploadedStoragePath: storagePath,
-      sceneKey: { room, finish, light },
-      mode: isAmbienteScene ? 'lossless' : 'quality',
+      sceneKey: { room, finish, light: light! },
+      mode: 'lossless',
     })
 
     return NextResponse.json({
       asset,
       converted: true,
       format: 'webp',
-      lossless: isAmbienteScene,
+      lossless: true,
     })
   } catch (error) {
     console.error('POST /api/typology-assets/convert', error)

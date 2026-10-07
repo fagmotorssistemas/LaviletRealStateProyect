@@ -61,6 +61,16 @@ function loadImageSize(url: string): Promise<{ width: number; height: number }> 
   })
 }
 
+function zoneSelectValue(id: string, options: { value: string }[]) {
+  const area = commonAreaFromZoneId(id)
+  const value = area ? commonAreaZoneId(area.code) : id
+  return options.some((item) => item.value === value) ? value : ''
+}
+
+function zoneDisplayName(item: { id: string; label?: string }) {
+  return commonAreaFromZoneId(item.id)?.es || item.label?.trim() || item.id
+}
+
 function fitScaleForView(naturalW: number, naturalH: number, viewW: number, viewH: number) {
   if (!naturalW || !naturalH || !viewW || !viewH) return 1
   const next = Math.min(viewW / naturalW, viewH / naturalH)
@@ -1321,7 +1331,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-[#3a3d36]">
-              {assignOpen ? 'Asignar unidad a esta zona' : `Zona · ${selected.label || selected.id}`}
+              {assignOpen ? 'Asignar unidad a esta zona' : `Zona · ${zoneDisplayName(selected)}`}
             </p>
             {!assignOpen ? (
               <Button type="button" variant="secondary" onClick={() => setAssignOpen(true)}>
@@ -1339,9 +1349,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                     : 'No hay unidades cargadas'
                 }
                 options={unitOptions}
-                value={
-                  unitOptions.some((item) => item.value === selected.id) ? selected.id : ''
-                }
+                value={zoneSelectValue(selected.id, unitOptions)}
                 onChange={(e) => {
                   if (e.target.value) assignUnit(e.target.value)
                 }}
@@ -1477,7 +1485,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                   : 'border-[#2B1A18]/10 bg-white text-[#555850]',
               )}
             >
-              <span className="font-medium">{item.id}</span>
+              <span className="font-medium">{zoneDisplayName(item)}</span>
               <span className="text-xs text-[#8a8d87]">
                 {item.kind === 'circle' ? 'redonda' : `${item.polygon.length} pts`}
                 {item.curves?.some(Boolean) ? ' · curvas' : ''}
@@ -1576,11 +1584,7 @@ export function TypologyFloorZonesPanel(_props: TypologyFloorZonesPanelProps) {
                         label={assignOpen ? 'Asignar unidad' : 'Unidad'}
                         placeholder="Seleccioná unidad…"
                         options={unitOptions}
-                        value={
-                          unitOptions.some((item) => item.value === selected.id)
-                            ? selected.id
-                            : ''
-                        }
+                        value={zoneSelectValue(selected.id, unitOptions)}
                         onChange={(e) => {
                           if (e.target.value) assignUnit(e.target.value)
                         }}

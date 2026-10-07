@@ -3,6 +3,7 @@ export const COMMON_AREAS = [
   { code: 'PISCINA', es: 'Piscina', en: 'Pool' },
   { code: 'DESCANSO', es: 'Zona de descanso', en: 'Lounge area' },
   { code: 'SPA', es: 'Spa', en: 'Spa' },
+  { code: 'GYM', es: 'Gym', en: 'Gym' },
   { code: 'LOBBY', es: 'Lobby', en: 'Lobby' },
 ] as const
 
@@ -26,11 +27,12 @@ export function commonAreaZoneId(code: string): string {
   return `${ZONE_PREFIX}${code.trim().toUpperCase()}`
 }
 
-/** `area:PISCINA` → el área. Cualquier otro id no es un área común. */
+/** `area:GYM` o el código pelado `GYM` → el área. Cualquier otro id no es un área común. */
 export function commonAreaFromZoneId(zoneId: string | null | undefined): CommonArea | null {
   const raw = (zoneId ?? '').trim()
-  if (!raw.toLowerCase().startsWith(ZONE_PREFIX)) return null
-  return commonAreaByCode(raw.slice(ZONE_PREFIX.length))
+  if (!raw) return null
+  if (raw.toLowerCase().startsWith(ZONE_PREFIX)) return commonAreaByCode(raw.slice(ZONE_PREFIX.length))
+  return commonAreaByCode(raw)
 }
 
 export function commonAreaLabel(area: CommonArea, locale: 'es' | 'en'): string {
