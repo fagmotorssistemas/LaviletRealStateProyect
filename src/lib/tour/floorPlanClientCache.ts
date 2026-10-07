@@ -18,6 +18,7 @@ const imageReady = new Map<string, Promise<void>>()
 const imageComplete = new Set<string>()
 /** Image() vivos: mantienen decode en memoria del browser para swap instantáneo. */
 const hotImages = new Map<string, HTMLImageElement>()
+const HOT_IMAGE_LIMIT = 3
 const htmlReady = new Map<string, Promise<void>>()
 const htmlComplete = new Set<string>()
 /** Cache de doc en showroom: largo; el CRM invalida al subir. */
@@ -61,7 +62,7 @@ export function preloadFloorPlanImage(url: string | null | undefined): Promise<v
     // Planos grandes: no bloquear el showroom si decode tarda.
     const timeoutId = window.setTimeout(done, 4000)
     const img = new window.Image()
-    hotImages.set(url, img)
+    rememberHotImage(url, img)
     img.decoding = 'async'
     img.onload = () => {
       if (typeof img.decode === 'function') {
@@ -229,15 +230,34 @@ export function getCachedFloorPlanDoc(
   return docCache.get(key) ?? null
 }
 
+function rememberHotImage(url: string, img: HTMLImageElement) {
+  if (hotImages.has(url)) hotImages.delete(url)
+  hotImages.set(url, img)
+  while (hotImages.size > HOT_IMAGE_LIMIT) {
+    const oldest = hotImages.keys().next().value
+    if (!oldest) break
+    const dropped = hotImages.get(oldest)
+    hotImages.delete(oldest)
+    imageComplete.delete(oldest)
+    imageReady.delete(oldest)
+    if (dropped) {
+      dropped.onload = null
+      dropped.onerror = null
+      dropped.src = ''
+    }
+  }
+}
+
 export async function fetchFloorPlanDoc(
   floor: number,
   typologyCode: string = FLOOR_PLAN_SCOPE,
+  options?: { media?: boolean },
 ): Promise<FloorPlanZonesDoc | null> {
   const key = cacheKey(typologyCode, floor)
   const cachedAt = docCacheAt.get(key) ?? 0
   if (docCache.has(key) && Date.now() - cachedAt < DOC_CACHE_TTL_MS) {
     const cached = docCache.get(key) ?? null
-    void warmDocMedia(cached)
+    if (options?.media !== false) void warmDocMedia(cached)
     return cached
   }
 
@@ -258,7 +278,7 @@ export async function fetchFloorPlanDoc(
       docCache.set(key, doc)
       docCacheAt.set(key, Date.now())
       inflight.delete(key)
-      void warmDocMedia(doc)
+      if (options?.media !== false) void warmDocMedia(doc)
       return doc
     })
 
@@ -284,9 +304,14 @@ export async function fetchFloorPlanReady(
 }
 
 /** Precarga JSON (+ media en background) de varios pisos. */
-export function prefetchFloorPlans(floors: number[], typologyCode: string = FLOOR_PLAN_SCOPE) {
+export function prefetchFloorPlans(
+  floors: number[],
+  typologyCode?: string,
+  options?: { media?: boolean },
+) {
+  const scope = typologyCode || FLOOR_PLAN_SCOPE
   for (const floor of floors) {
-    void fetchFloorPlanDoc(floor, typologyCode)
+    void fetchFloorPlanDoc(floor, scope, options)
   }
 }
 
@@ -307,13 +332,19 @@ export function warmFloorPlans(
   })
 
   // Más paralelismo en los primeros (activo + vecinos); el resto sigue en cola.
-  const concurrency = Math.min(6, Math.max(3, order.length))
+  const coarse =
+    typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+  const concurrency = coarse ? 2 : Math.min(6, Math.max(3, order.length))
   let index = 0
   const workers = Array.from({ length: Math.min(concurrency, order.length || 1) }, async () => {
     while (index < order.length) {
       const floor = order[index]
       index += 1
-      await fetchFloorPlanReady(floor, typologyCode)
+      if (coarse && !priority.includes(floor)) {
+        await fetchFloorPlanDoc(floor, typologyCode, { media: false })
+      } else {
+        await fetchFloorPlanReady(floor, typologyCode)
+      }
     }
   })
   return Promise.all(workers).then(() => undefined)

@@ -164,6 +164,22 @@ type LaViletPlantaApi = {
   seleccionarEnVista?: (x: number, y: number, options?: { animate?: boolean }) => unknown
   terminarPresentacion?: () => unknown
   estado?: () => { departamento?: string | null; unidad?: string | null; modo?: string }
+  renderer?: { forceContextLoss?: () => void }
+}
+
+function releaseFloorIframe(node: HTMLIFrameElement | null) {
+  if (!node) return
+  try {
+    const win = node.contentWindow as (Window & { LaViletPlanta?: LaViletPlantaApi }) | null
+    win?.LaViletPlanta?.renderer?.forceContextLoss?.()
+  } catch {
+    /* el documento ya se fue */
+  }
+  try {
+    node.src = 'about:blank'
+  } catch {
+    /* ignore */
+  }
 }
 
 function plantaIdCandidates(raw: string | null | undefined, unit?: TourUnitSummary | null) {
@@ -624,8 +640,13 @@ export function TourFloorPlan({
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const coarse = window.matchMedia('(pointer: coarse)').matches
       for (const item of [floor - 1, floor + 1]) {
         if (!isFloorPlanLevel(item)) continue
+        if (coarse) {
+          void fetchFloorPlanDoc(item, undefined, { media: false })
+          continue
+        }
         void ensureFloor(item, { preferred: preferredVariant }).then((view) => {
           if (view?.kind !== 'image' || !view.url) return
           const url = view.url
@@ -665,7 +686,9 @@ export function TourFloorPlan({
       setKeptHtmlFloors([])
       return
     }
-    setKeptHtmlFloors([holdFloor, floor].filter((item, index, list) => list.indexOf(item) === index))
+    const coarse = window.matchMedia('(pointer: coarse)').matches
+    const kept = coarse ? [floor] : [holdFloor, floor]
+    setKeptHtmlFloors(kept.filter((item, index, list) => list.indexOf(item) === index))
   }, [floor, holdFloor, planVariant])
 
   const planAspectSize = useMemo(() => {
@@ -1047,6 +1070,10 @@ export function TourFloorPlan({
     if (target instanceof Element && target.closest('button, a, input, textarea')) return
     if (inertiaRef.current) cancelAnimationFrame(inertiaRef.current)
     inertiaRef.current = 0
+    if (event.isPrimary) {
+      pointersRef.current.clear()
+      pinchRef.current = null
+    }
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (pointersRef.current.size >= 2) {
       const pts = [...pointersRef.current.values()]
@@ -1121,6 +1148,22 @@ export function TourFloorPlan({
     }
     inertiaRef.current = requestAnimationFrame(step)
   }
+
+  useEffect(() => {
+    pointersRef.current.clear()
+    pinchRef.current = null
+    dragRef.current = null
+  }, [portraitPan])
+
+  useEffect(() => {
+    const clear = () => {
+      pointersRef.current.clear()
+      pinchRef.current = null
+      dragRef.current = null
+    }
+    window.addEventListener('orientationchange', clear)
+    return () => window.removeEventListener('orientationchange', clear)
+  }, [])
 
   const switchVariant = (next: FloorPlanVariant) => {
     const doc = layers[floor]?.doc ?? shown?.doc
@@ -1230,6 +1273,7 @@ export function TourFloorPlan({
         onPointerMoveCapture={portraitPan ? onPlanPanMove : undefined}
         onPointerUpCapture={portraitPan ? onPlanPanUp : undefined}
         onPointerCancelCapture={portraitPan ? onPlanPanUp : undefined}
+        onLostPointerCapture={portraitPan ? onPlanPanUp : undefined}
       >
           {portraitPan && panHint ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-[max(5.5rem,env(safe-area-inset-bottom)+4.5rem)] z-20 flex justify-center px-16">
@@ -1320,7 +1364,16 @@ export function TourFloorPlan({
                 <iframe
                   key={`floor-html-${layer.floor}`}
                   ref={(node) => {
-                    htmlIframeRefs.current[layer.floor] = node
+                    if (node) {
+                      htmlIframeRefs.current[layer.floor] = node
+                      return () => {
+                        releaseFloorIframe(node)
+                        if (htmlIframeRefs.current[layer.floor] === node) {
+                          htmlIframeRefs.current[layer.floor] = null
+                        }
+                      }
+                    }
+                    htmlIframeRefs.current[layer.floor] = null
                   }}
                   src={layer.url}
                   title={t(`Plano interactivo piso ${layer.floor}`)}

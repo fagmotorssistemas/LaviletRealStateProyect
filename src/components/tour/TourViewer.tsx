@@ -1212,9 +1212,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (planEntryOpen) return
     const ios = isIOSWebKit()
-    // iOS: no precalentar todos los HTML 3D (varios WebGL al recargar tumba Safari).
-    if (ios) {
+    const coarse = window.matchMedia('(pointer: coarse)').matches
+    // Celular: solo los datos de los demás pisos. Un WebGL vivo a la vez.
+    if (ios || coarse) {
       void warmFloorPlans([planFloor], [planFloor])
+      if (coarse) prefetchFloorPlans([...FLOOR_PLAN_FLOORS], undefined, { media: false })
       return
     }
     prefetchFloorPlans([...FLOOR_PLAN_FLOORS])
@@ -1261,6 +1263,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [compareFinishB, setCompareFinishB] = useState('')
   const [compareLightB, setCompareLightB] = useState<TourLightMode>('dia')
   const [compareSplit, setCompareSplit] = useState(50)
+  const [compareRoomB, setCompareRoomB] = useState<string | null>(null)
+  const compareLookAtBRef = useRef<((yaw: number, pitch: number) => void) | null>(null)
+  const [panoFailed, setPanoFailed] = useState(false)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const consultUnitLoggedRef = useRef<string | null>(null)
   const [viewMode, setViewMode] = useState<TourViewMode>('planos-3d')
@@ -1268,7 +1273,29 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (deepLinkBootRef.current) return
     deepLinkBootRef.current = true
-    if (!readUnitQueryParam()) return
+    let tourFailed = false
+    try {
+      tourFailed = sessionStorage.getItem('lavilet-tour-360-failed') === '1'
+    } catch {
+      tourFailed = false
+    }
+    if (!readUnitQueryParam()) {
+      if (tourFailed) {
+        try {
+          sessionStorage.removeItem('lavilet-tour-360-failed')
+        } catch {
+          /* ignore */
+        }
+      }
+      return
+    }
+    if (tourFailed) {
+      try {
+        sessionStorage.removeItem('lavilet-tour-360-failed')
+      } catch {
+        /* ignore */
+      }
+    }
     setPlanEntryOpen(false)
     setShellMode('unit')
     setViewMode('galeria')
@@ -1549,10 +1576,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         mousewheelCtrlKey: false,
         rendererParameters: {
           alpha: true,
-          // iOS: antialias + preserveDrawingBuffer + high-performance acumulan GPU y tumba al recargar.
-          antialias: ios ? false : !isNarrow,
-          powerPreference: ios ? 'low-power' : 'high-performance',
-          preserveDrawingBuffer: ios ? false : true,
+          // Celular: antialias + preserveDrawingBuffer + high-performance acumulan GPU y congelan la página.
+          antialias: ios || window.matchMedia('(pointer: coarse)').matches ? false : !isNarrow,
+          powerPreference: ios || window.matchMedia('(pointer: coarse)').matches ? 'low-power' : 'high-performance',
+          preserveDrawingBuffer: ios || window.matchMedia('(pointer: coarse)').matches ? false : true,
         },
         defaultYaw: startNode.data?.initialYaw ?? 0,
         defaultPitch: startNode.data?.initialPitch ?? 0,
@@ -1641,11 +1668,33 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         })
       }
       viewer.addEventListener(events.PanoramaErrorEvent.type, stepDownPanorama)
+      let restoreTimer = 0
       viewer.container.addEventListener('webglcontextlost', (event) => {
         event.preventDefault()
         setPanoRevealed(false)
+        if (restoreTimer) window.clearTimeout(restoreTimer)
+        restoreTimer = window.setTimeout(() => {
+          restoreTimer = 0
+          try {
+            sessionStorage.setItem('lavilet-tour-360-failed', '1')
+          } catch {
+            /* ignore */
+          }
+          const smaller = smallerTourUrl(currentUrlRef.current) || currentUrlRef.current
+          if (smaller) desiredPanoRef.current = smaller
+          const dying = viewerRef.current
+          viewerRef.current = null
+          tourRef.current = null
+          disposeTourViewer(dying, container)
+          setViewerMounted(false)
+          mountTourViewer()
+        }, 2000)
       })
       viewer.container.addEventListener('webglcontextrestored', () => {
+        if (restoreTimer) {
+          window.clearTimeout(restoreTimer)
+          restoreTimer = 0
+        }
         const recovering = currentUrlRef.current
         if (!recovering) return
         shownPanoRef.current = ''
@@ -1756,6 +1805,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (viewMode !== 'tour') {
       setPanoRevealed(false)
+      if (window.matchMedia('(pointer: coarse)').matches) {
+        const viewer = viewerRef.current
+        viewerRef.current = null
+        tourRef.current = null
+        disposeTourViewer(viewer, containerRef.current)
+        setViewerMounted(false)
+      }
       return
     }
     mountTourViewerRef.current?.()
@@ -1763,6 +1819,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (!showroomReady) return
+    if (window.matchMedia('(pointer: coarse)').matches) return
     if (isIOSWebKit() && shellMode !== 'unit') return
     let timer = 0
     let idleId = 0
@@ -2102,6 +2159,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     requestAnimationFrame(() => {
       if (viewModeRef.current !== 'tour' || desiredPanoRef.current !== url || shownPanoRef.current !== url) return
       setPanoRevealed(true)
+      setPanoFailed(false)
+      try {
+        sessionStorage.removeItem('lavilet-tour-360-failed')
+      } catch {
+        /* ignore */
+      }
     })
   }
 
@@ -2135,6 +2198,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (shellMode !== 'unit') return
+    if (window.matchMedia('(pointer: coarse)').matches) return
     preloadTourEntry()
   }, [shellMode, selectedUnitId, selectedTypology, viewerMounted, preloadTourEntry])
 
@@ -2161,8 +2225,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         compareTypologyB?.code === currentTypology?.code ||
         (!compareTypologyB && (compareUnitB?.typology_code || '') === selectedTypology))
     const placed = own.length > 0 ? own : sameAsA ? (currentTypology?.hotspots ?? []) : []
-    return placed.filter((item) => item.from === room)
-  }, [compareTypologyB, compareUnitB, currentTypology, selectedTypology, room])
+    const shown = compareRoomB || room
+    return placed.filter((item) => item.from === shown)
+  }, [compareTypologyB, compareUnitB, currentTypology, selectedTypology, room, compareRoomB])
 
   const comparePanoBUrl = useMemo(() => {
     if (!compareUnitB) return null
@@ -2176,7 +2241,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       (typ?.id === currentTypology?.id ||
         typ?.code === currentTypology?.code ||
         (!typ && (!code || code === selectedTypology)))
-    if (sameAsA && activePanoUrl) return activePanoUrl
+    const roomShownByB = compareRoomB || room
+    if (sameAsA && !compareRoomB && activePanoUrl) return activePanoUrl
 
     if (!typ) {
       // Último recurso: si no encontramos tipología B, no dejar el panel vacío.
@@ -2211,7 +2277,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     const homeOfB = tourHomeSlug(rooms.map((item) => ({ slug: item.slug, label: item.label })))
 
     return (
-      urlForSlug(room) ??
+      urlForSlug(roomShownByB) ??
       urlForSlug(homeOfB) ??
       urlForSlug(homeSlug) ??
       pickCatalogPanoUrl(typ.panorama, sideWidth, finish || null, light, { coarse: entryCoarse }) ??
@@ -2230,7 +2296,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     homeSlug,
     activePanoUrl,
     entryCoarse,
+    compareRoomB,
   ])
+
+  useEffect(() => {
+    setCompareRoomB(null)
+  }, [compareUnitB?.id, room])
 
   const isPanoRoom = viewMode === 'tour'
   const isComparador = compareOpen
@@ -2270,24 +2341,27 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
     const publish = () => {
       if (comparePoseLockRef.current === 'side') return
-      comparePoseLockRef.current = 'main'
-      const next = read()
-      comparePoseLiveRef.current = next
-      if (comparePoseRafRef.current) cancelAnimationFrame(comparePoseRafRef.current)
-      comparePoseRafRef.current = requestAnimationFrame(() => {
-        setComparePose(next)
-        if (comparePoseLockRef.current === 'main') comparePoseLockRef.current = null
-      })
+      comparePoseLiveRef.current = read()
+    }
+
+    const commit = () => {
+      const next = comparePoseLiveRef.current
+      if (next) setComparePose(next)
     }
 
     viewer.addEventListener('position-updated', publish)
     viewer.addEventListener('zoom-updated', publish)
     viewer.addEventListener('before-render', pushLive)
+    viewer.container.addEventListener('pointerup', commit)
+    viewer.container.addEventListener('pointercancel', commit)
     publish()
+    commit()
     return () => {
       viewer.removeEventListener('position-updated', publish)
       viewer.removeEventListener('zoom-updated', publish)
       viewer.removeEventListener('before-render', pushLive)
+      viewer.container.removeEventListener('pointerup', commit)
+      viewer.container.removeEventListener('pointercancel', commit)
       if (comparePoseRafRef.current) cancelAnimationFrame(comparePoseRafRef.current)
     }
   }, [syncCompareCameras, compareUnitB, viewMode, room, finish, finishRight])
@@ -2296,7 +2370,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (comparePoseLockRef.current === 'main') return
     comparePoseLockRef.current = 'side'
     comparePoseLiveRef.current = pose
-    setComparePose(pose)
     const viewer = viewerRef.current
     if (viewer) {
       try {
@@ -2309,6 +2382,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     requestAnimationFrame(() => {
       if (comparePoseLockRef.current === 'side') comparePoseLockRef.current = null
     })
+  }, [])
+
+  const commitComparePose = useCallback(() => {
+    const next = comparePoseLiveRef.current
+    if (next) setComparePose(next)
   }, [])
   const galleryFinishSlug = finish || catalogFinishes[0]?.slug || null
   const galeriaImages = useMemo(
@@ -2491,17 +2569,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     [nodes, room, selectedTypology, currentTypology?.id, currentTypology?.hotspots, urlForRoom, tourRooms],
   )
 
-  const onCompareHotspotB = useCallback(
-    (pin: TourPlacedHotspot) => {
-      if (pin.kind === 'look') {
-        const viewer = viewerRef.current
-        if (viewer) void lookAtSpot(viewer, pin.yaw, pin.pitch)
-        return
-      }
-      onSelectRoom(pin.slug)
-    },
-    [onSelectRoom],
-  )
+  const onCompareHotspotB = useCallback((pin: TourPlacedHotspot) => {
+    if (pin.kind === 'look') {
+      compareLookAtBRef.current?.(pin.yaw, pin.pitch)
+      return
+    }
+    setCompareRoomB(pin.slug)
+  }, [])
 
   const stillItems = isPlanosMode(viewMode) ? planoImages : viewMode === 'galeria' ? galeriaImages : []
   const stillIndex = isPlanosMode(viewMode) ? planoIndex : galeriaIndex
@@ -3036,6 +3110,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         setPanoEntering(false)
         setPanoGhost(null)
         setPanoRevealed(false)
+        setPanoFailed(true)
+        try {
+          sessionStorage.setItem('lavilet-tour-360-failed', '1')
+        } catch {
+          /* ignore */
+        }
         return
       }
       if (shownUrl === url) steppedPanoRef.current = null
@@ -3392,6 +3472,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           syncPose={syncCompareCameras ? comparePose : null}
           syncPoseRef={syncCompareCameras ? comparePoseLiveRef : undefined}
           onPoseChange={onCompareSidePoseChange}
+          onPoseCommit={commitComparePose}
+          lookAtRef={compareLookAtBRef}
           remapTouch={forceLandscapeCss}
           sceneControlsB={null}
         />
@@ -3431,6 +3513,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         className={cn(
           'tour-layer-fade tour-still-layer absolute inset-0 z-10 overflow-hidden select-none',
           showStill || tourCover ? 'is-on' : 'pointer-events-none is-off',
+          tourCover && !showStill && 'pointer-events-none',
           viewMode === 'tour' && 'is-handoff',
           viewMode !== 'tour' && stillItems.length > 1 && 'touch-pan-y',
         )}
@@ -3537,6 +3620,36 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           </div>
         ) : null}
       </div>
+
+      {!booting && viewMode === 'tour' && panoFailed ? (
+        <div className="pointer-events-none absolute inset-0 z-[12] flex flex-col items-center justify-center px-6 text-center">
+          <p className="text-sm text-white">{t('No se pudo cargar la vista')}</p>
+          <button
+            type="button"
+            className="pointer-events-auto mt-3 h-11 rounded-full bg-[#f7f3ee] px-5 text-[12px] font-semibold tracking-[0.14em] text-[#2B1A18] uppercase"
+            onClick={() => {
+              try {
+                sessionStorage.removeItem('lavilet-tour-360-failed')
+              } catch {
+                /* ignore */
+              }
+              triedPanoRef.current.clear()
+              setPanoFailed(false)
+              setPanoRevealed(false)
+              const dying = viewerRef.current
+              viewerRef.current = null
+              tourRef.current = null
+              disposeTourViewer(dying, containerRef.current)
+              setViewerMounted(false)
+              const smaller = smallerTourUrl(desiredPanoRef.current) || desiredPanoRef.current
+              if (smaller) desiredPanoRef.current = smaller
+              mountTourViewerRef.current?.()
+            }}
+          >
+            {t('Reintentar')}
+          </button>
+        </div>
+      ) : null}
 
       {!booting && viewMode === 'tour' && !activePanoUrl && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
@@ -4485,6 +4598,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <CmafVideo
               mp4="/inicio/portada.mp4?v=gop"
               preload="auto"
+              defer={!planEntryOpen}
               autoPlay={planEntryOpen && !coverHidden}
               label={t('Fachada Lavilet del día a la noche')}
               videoRef={coverVideoRef}

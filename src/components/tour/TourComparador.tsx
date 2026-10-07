@@ -176,6 +176,8 @@ type TourComparadorProps = {
   syncPose?: ComparePanoPose | null
   syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
+  onPoseCommit?: () => void
+  lookAtRef?: MutableRefObject<((yaw: number, pitch: number) => void) | null>
   /** Con CSS force-landscape, remapea el dedo también en el lado B. */
   remapTouch?: boolean
   /** Galería: acabado/luz solo del lado B (independiente de A). */
@@ -207,6 +209,8 @@ export function TourComparador({
   syncPose = null,
   syncPoseRef,
   onPoseChange,
+  onPoseCommit,
+  lookAtRef,
   remapTouch = false,
   sceneControlsB = null,
   hotspotsB = [],
@@ -283,8 +287,8 @@ export function TourComparador({
       {/* Capa B — solo con unidad elegida (evita media pantalla blanca) */}
       {!waitingForB ? (
         <div
-          className="pointer-events-auto absolute inset-0"
-          style={{ clipPath: `inset(0 0 0 ${splitClamped}%)` }}
+          className="pointer-events-auto absolute inset-y-0"
+          style={{ left: `${splitClamped}%`, right: 0 }}
         >
           {showPanoB ? (
             <CompareSidePano
@@ -294,6 +298,8 @@ export function TourComparador({
               syncPose={syncPose}
               syncPoseRef={syncPoseRef}
               onPoseChange={onPoseChange}
+              onPoseCommit={onPoseCommit}
+              lookAtRef={lookAtRef}
               remapTouch={remapTouch}
               hotspots={hotspotsB}
               locale={locale}

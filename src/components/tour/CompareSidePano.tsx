@@ -29,6 +29,10 @@ type CompareSidePanoProps = {
   /** Pose en vivo del visor A — se lee cada frame (sync fluido). */
   syncPoseRef?: MutableRefObject<ComparePanoPose | null>
   onPoseChange?: (pose: ComparePanoPose) => void
+  /** Guarda la pose en React al soltar el dedo. */
+  onPoseCommit?: () => void
+  /** Giro propio del lado B (puntos "mirar"). */
+  lookAtRef?: MutableRefObject<((yaw: number, pitch: number) => void) | null>
   /** Remapea el dedo si el tour root usa CSS rotate(90deg). */
   remapTouch?: boolean
   /** Puntos 360 del ambiente que se está viendo en B. */
@@ -139,6 +143,8 @@ export function CompareSidePano({
   syncPose = null,
   syncPoseRef,
   onPoseChange,
+  onPoseCommit,
+  lookAtRef,
   remapTouch = false,
   hotspots = [],
   locale = 'es',
@@ -154,6 +160,8 @@ export function CompareSidePano({
   const userDrivingUntilRef = useRef(0)
   const onPoseChangeRef = useRef(onPoseChange)
   onPoseChangeRef.current = onPoseChange
+  const onPoseCommitRef = useRef(onPoseCommit)
+  onPoseCommitRef.current = onPoseCommit
   const onHotspotRef = useRef(onHotspot)
   onHotspotRef.current = onHotspot
   const hotspotsRef = useRef(hotspots)
@@ -207,6 +215,7 @@ export function CompareSidePano({
     let onReady: (() => void) | null = null
     let emitPose: (() => void) | null = null
     let syncFromMain: (() => void) | null = null
+    let commitPose: (() => void) | null = null
     let onMarker: ((event: markerEvents.SelectMarkerEvent) => void) | null = null
 
     const bumpSize = () => {
@@ -252,8 +261,9 @@ export function CompareSidePano({
               alpha: true,
               antialias: false,
               powerPreference:
-                typeof navigator !== 'undefined' &&
-                (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                typeof window !== 'undefined' &&
+                (window.matchMedia('(pointer: coarse)').matches ||
+                  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
                   ? 'low-power'
                   : 'high-performance',
@@ -306,9 +316,29 @@ export function CompareSidePano({
         const pin = hotspotsRef.current.find((item) => item.id === id)
         if (pin) onHotspotRef.current?.(pin)
       }
+      commitPose = () => onPoseCommitRef.current?.()
+      if (lookAtRef) {
+        lookAtRef.current = (yaw, pitch) => {
+          const current = viewerRef.current
+          if (!current) return
+          try {
+            void current.animate({ yaw, pitch, speed: 700, easing: 'inOutSine' })
+          } catch {
+            try {
+              current.rotate({ yaw, pitch })
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
       viewer.addEventListener('position-updated', emitPose)
       viewer.addEventListener('zoom-updated', emitPose)
       viewer.addEventListener('before-render', syncFromMain)
+      if (commitPose) {
+        viewer.container.addEventListener('pointerup', commitPose)
+        viewer.container.addEventListener('pointercancel', commitPose)
+      }
       viewer.addEventListener('ready', onReady)
       viewer.getPlugin<MarkersPlugin>(MarkersPlugin)?.addEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
 
@@ -363,6 +393,9 @@ export function CompareSidePano({
           if (emitPose) viewer.removeEventListener('position-updated', emitPose)
           if (emitPose) viewer.removeEventListener('zoom-updated', emitPose)
           if (syncFromMain) viewer.removeEventListener('before-render', syncFromMain)
+          if (commitPose) viewer.container.removeEventListener('pointerup', commitPose)
+          if (commitPose) viewer.container.removeEventListener('pointercancel', commitPose)
+          if (lookAtRef) lookAtRef.current = null
           if (onReady) viewer.removeEventListener('ready', onReady)
           if (onMarker) viewer.getPlugin<MarkersPlugin>(MarkersPlugin)?.removeEventListener(markerEvents.SelectMarkerEvent.type, onMarker)
         } catch {
@@ -375,7 +408,7 @@ export function CompareSidePano({
         }
       }
     }
-  }, [mode, url, syncPoseRef, remapTouch])
+  }, [mode, url, syncPoseRef, remapTouch, lookAtRef])
 
   useEffect(() => {
     const viewer = viewerRef.current

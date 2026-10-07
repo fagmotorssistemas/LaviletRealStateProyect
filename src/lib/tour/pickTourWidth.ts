@@ -120,18 +120,30 @@ export function tourRenderUrl(publicUrl: string, width: 2048 | 4096): string | n
   }
 }
 
-/**
- * En táctil: 4096 o 2048 ya elegidos aparte. Si solo queda un 8K, transformación
- * a 4096, o nada si Storage no puede recortarla.
- */
+/** 2048 en celular. 4096 solo con memoria holgada o un iPhone de pantalla grande. */
+export function coarseTourWidth(): 2048 | 4096 {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return 2048
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+  if (typeof memory === 'number' && memory >= 6) return 4096
+  const iphone = /iPhone/.test(navigator.userAgent || '')
+  const shortSide = Math.min(window.screen.width, window.screen.height)
+  if (iphone && shortSide >= 390 && (window.devicePixelRatio || 1) >= 3) return 4096
+  return 2048
+}
+
+/** En táctil: 2048 por defecto. Si solo queda un 8K, se pide el ancho que el teléfono aguanta. */
 export function tourCoarsePanoUrl(baseUrl: string | null | undefined, eightKUrl?: string | null): string | null {
   const source =
     baseUrl && !isPngAssetUrl(baseUrl) ? baseUrl : eightKUrl && !isPngAssetUrl(eightKUrl) ? eightKUrl : null
   if (!source) return null
+  const cap = coarseTourWidth()
   const width = namedWidth(source)
-  if (width === 2048 || width === 4096) return tourDisplayUrl(source)
+  if (width === 2048) return tourDisplayUrl(source)
+  if (width === 4096) {
+    return cap === 4096 ? tourDisplayUrl(source) : tourRenderUrl(source, 2048) ?? tourDisplayUrl(source)
+  }
   if (!isEightKAsset(source)) return null
-  return tourRenderUrl(source, 4096)
+  return tourRenderUrl(source, cap)
 }
 
 /** Siguiente variante más chica tras un fallo del visor (8192 → 4096 → 2048). */
@@ -175,7 +187,8 @@ function screenCap(): TourWidth {
   if (typeof window === 'undefined') return 8192
   const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false
   const small = Math.min(window.innerWidth, window.innerHeight) < 1024
-  return coarse || small ? 4096 : 8192
+  if (coarse) return coarseTourWidth()
+  return small ? 4096 : 8192
 }
 
 /** Elige el mejor ancho disponible según GPU y pantalla. */
@@ -240,8 +253,11 @@ export function pickCatalogPanoUrl(
     return tourDisplayUrl(raw)
   }
   const coarse = pointerIsCoarse(options?.coarse)
+  const phoneCap = coarse ? coarseTourWidth() : null
   const order: Array<'2048' | '4096' | '8192'> = coarse
-    ? ['4096', '2048']
+    ? phoneCap === 4096
+      ? ['4096', '2048']
+      : ['2048', '4096']
     : width >= 8192
       ? ['8192', '4096', '2048']
       : width >= 4096

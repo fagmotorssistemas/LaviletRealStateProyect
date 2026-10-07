@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     const versionedKey = floorPlanHtmlMemoryKey(typologyCode, floor, version)
     const cachedVersioned = getFloorPlanHtmlMemory(versionedKey)
     if (cachedVersioned) {
-      return htmlResponse(cachedVersioned.html, cachedVersioned.etag, true)
+      return htmlResponse(cachedVersioned.html, cachedVersioned.etag, false)
     }
   }
 
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   if (!fresh) {
     const cachedResolved = getFloorPlanHtmlMemory(resolvedKey)
     if (cachedResolved) {
-      return htmlResponse(cachedResolved.html, cachedResolved.etag, true)
+      return htmlResponse(cachedResolved.html, cachedResolved.etag, htmlIsImmutable(version, htmlUrl))
     }
   }
 
@@ -351,7 +351,25 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
     setFloorPlanHtmlMemory(resolvedKey, { html, etag })
   }
 
-  return htmlResponse(html, etag, !fresh && Boolean(version || resolvedVersion))
+  return htmlResponse(html, etag, !fresh && htmlIsImmutable(version, htmlUrl))
+}
+
+function documentVersion(htmlUrl: string | null | undefined) {
+  if (!htmlUrl) return ''
+  try {
+    const parsed = new URL(htmlUrl, 'https://local.invalid')
+    const query = parsed.searchParams.get('v')?.trim()
+    if (query) return query
+    const stamp = parsed.pathname.match(/-r([^./]+)/)
+    return stamp?.[1] ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function htmlIsImmutable(requestVersion: string, htmlUrl: string | null | undefined) {
+  const docVersion = documentVersion(htmlUrl)
+  return Boolean(requestVersion) && Boolean(docVersion) && requestVersion === docVersion
 }
 
 function htmlResponse(html: string, etag: string, versioned: boolean) {

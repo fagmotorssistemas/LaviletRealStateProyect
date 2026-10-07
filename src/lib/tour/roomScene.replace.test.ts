@@ -129,7 +129,7 @@ test('a coarse pointer never receives an 8192 file', () => {
     { coarse: true },
   )
   assert.match(transformed ?? '', /\/render\/image\/public\//)
-  assert.match(transformed ?? '', /width=4096/)
+  assert.match(transformed ?? '', /width=2048/)
   assert.doesNotMatch(transformed ?? '', /_8192/)
   const missing = pickCatalogPanoUrl(
     {

@@ -56,7 +56,13 @@ export function CmafVideo({
 
   useEffect(() => {
     const video = localRef.current
-    if (!video || defer) return
+    if (!video) return
+    if (defer) {
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
+      return
+    }
     let cancelled = false
     let usedMp4 = !hls
     let armed = false

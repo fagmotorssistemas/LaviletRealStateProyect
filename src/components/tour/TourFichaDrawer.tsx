@@ -2,7 +2,7 @@
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-import { UnitPublicQr } from './UnitPublicQr'
+import { QrShareButton } from './QrShareButton'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
@@ -150,7 +150,7 @@ function SpecRow({
 
   if (tile) {
     return (
-      <div className="tour-ficha-tile flex min-h-[4.5rem] flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3 py-2.5 sm:min-h-[8rem] sm:px-3.5 sm:py-3.5">
+      <div className="tour-ficha-tile flex min-h-0 flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3 py-2.5 sm:px-3.5 sm:py-3.5">
         <span className="flex items-center gap-1.5 text-[11px] font-semibold leading-none tracking-normal text-[#8a7760] uppercase">
           {icon ? <span className="shrink-0 text-[#8e7654]">{t(icon)}</span> : null}
           {t(label)}
@@ -415,6 +415,7 @@ export function TourFichaDrawer({
             aria-label={t("Ficha técnica")}
             className={cn(
               'tour-modal-sheet tour-ficha-sheet z-[95] flex flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[0_12px_40px_rgba(15,23,42,0.22)]',
+              expanded ? 'tour-ficha-sheet--expanded' : 'tour-ficha-sheet--compact',
               'w-[min(22.5rem,calc(100%-1.5rem))] left-3 sm:left-4',
               // Reserve the showroom toolbar in both embedded and fullscreen layouts.
               'top-[calc(4.75rem+env(safe-area-inset-top))] bottom-[max(0.75rem,env(safe-area-inset-bottom))]',
@@ -680,7 +681,6 @@ export function TourFichaDrawer({
                     ))}
                   </div>
 
-                  {expanded ? <UnitPublicQr number={unit.unit_number} /> : null}
                   </div>
                 </div>
 
@@ -695,6 +695,7 @@ export function TourFichaDrawer({
                       <Download size={14} strokeWidth={2} />
                       {t(pdfBusy ? 'Generando…' : 'Descargar PDF')}
                     </button>
+                    <QrShareButton number={unit.unit_number} />
                     <button
                       type="button"
                       onClick={() => void onShare()}
