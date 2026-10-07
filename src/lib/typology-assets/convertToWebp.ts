@@ -31,8 +31,6 @@ export type ConvertSceneInput = {
 
 const TOUR_WIDTHS = [4096, 2048] as const
 
-const LOSSLESS_WEBP = { lossless: true, effort: 4 } as const
-
 async function loadSharp() {
   const sharpMod = await import('sharp')
   const sharp = sharpMod.default
@@ -40,20 +38,40 @@ async function loadSharp() {
     throw Object.assign(new Error('El conversor de imágenes no está disponible'), { status: 500 })
   }
   sharp.concurrency(1)
+  sharp.cache(false)
   return sharp
+}
+
+/**
+ * Effort solo cambia el tiempo y el peso. Sigue siendo VP8L.
+ * En fotos de 8K el effort alto tarda varios minutos y la galería se queda con el PNG.
+ */
+function losslessEffort(width: number, height: number) {
+  const pixels = width * height
+  if (pixels > 8_000_000) return 0
+  return 4
+}
+
+function renderBase(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, '').replace(/-r\d+$/i, '')
 }
 
 /** WebP sin pérdida, tamaño original (solo se endereza la orientación). */
 export async function encodeLosslessWebp(sourceBuffer: Buffer) {
   const sharp = await loadSharp()
-  const meta = await sharp(sourceBuffer, SHARP_OPTS).rotate().metadata()
-  const buffer = await sharp(sourceBuffer, SHARP_OPTS).rotate().webp(LOSSLESS_WEBP).toBuffer()
-  const width = meta.width || 1
-  const height = meta.height || 1
-  if (width <= 1 || height <= 1) {
+  const header = await sharp(sourceBuffer, SHARP_OPTS).metadata()
+  const headerWidth = header.width || 1
+  const headerHeight = header.height || 1
+  if (headerWidth <= 1 || headerHeight <= 1) {
     throw Object.assign(new Error('No se pudieron leer las dimensiones de la imagen'), { status: 400 })
   }
-  return { buffer, width, height }
+  const { data, info } = await sharp(sourceBuffer, SHARP_OPTS)
+    .rotate()
+    .webp({ lossless: true, effort: losslessEffort(headerWidth, headerHeight) })
+    .toBuffer({ resolveWithObject: true })
+  const width = info.width || headerWidth
+  const height = info.height || headerHeight
+  return { buffer: data, width, height }
 }
 
 export type ConvertRenderInput = {
@@ -103,8 +121,18 @@ export async function convertUploadedRenderToLosslessWebp(
     'render',
     input.uploadedFileName,
   )
-  if (!stillSource || stillSource.created_at !== sourceStamp) {
-    return stillSource ?? sourceRow
+  if (stillSource && stillSource.created_at !== sourceStamp) {
+    return stillSource
+  }
+  if (!stillSource) {
+    const current = await listTypologyAssets(admin, input.typologyCode)
+    const replacement = current.find(
+      (row) =>
+        row.kind === 'render' &&
+        /\.webp$/i.test(row.file_name) &&
+        renderBase(row.file_name) === renderBase(input.uploadedFileName),
+    )
+    if (replacement) return replacement
   }
 
   const storagePath = typologyAssetStoragePath(input.typologyCode, 'render', webpFileName)
@@ -140,7 +168,7 @@ export async function convertUploadedRenderToLosslessWebp(
     if (row.id === asset.id || row.file_name === webpFileName) return false
     if (row.kind !== 'render') return false
     if (row.file_name === input.uploadedFileName) return true
-    if (!input.sceneKey) return false
+    if (!input.sceneKey) return renderBase(row.file_name) === renderBase(webpFileName)
     return fileMatchesScene(row.file_name, input.sceneKey.room, input.sceneKey.finish, input.sceneKey.light, {
       exactRoom: true,
     })

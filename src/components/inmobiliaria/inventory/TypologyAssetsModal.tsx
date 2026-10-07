@@ -49,7 +49,7 @@ type AssetRow = TypologyAsset & { public_url: string }
 type FileJob = {
   id: string
   name: string
-  status: 'pending' | 'uploading' | 'done' | 'duplicate' | 'error'
+  status: 'pending' | 'uploading' | 'converting' | 'done' | 'duplicate' | 'error'
   message?: string
 }
 
@@ -121,6 +121,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
   const [jobs, setJobs] = useState<FileJob[]>([])
   const [loadingList, setLoadingList] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [busyLabel, setBusyLabel] = useState('Subiendo…')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -431,17 +432,61 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     if (confRes.status === 409 || conf.code === 'duplicate') return 'duplicate'
     if (!confRes.ok) throw new Error(conf.error || `Error al confirmar (${confRes.status})`)
 
-    // Conversión WebP en segundo plano (no bloquear; evita 504 en panoramas pesados).
-    if (conf.convert_pending) {
-      const convertBody = {
-        typology_code: prep.typology_code || code,
-        kind: prep.kind || nextKind,
-        file_name: prep.file_name,
-        storage_path: prep.storage_path,
-        room: room || null,
-        finish: finish ?? null,
-        light: light ?? null,
+    const convertBody = {
+      typology_code: prep.typology_code || code,
+      kind: prep.kind || nextKind,
+      file_name: prep.file_name,
+      storage_path: prep.storage_path,
+      room: room || null,
+      finish: finish ?? null,
+      light: light ?? null,
+    }
+    const isRenderUpload = (prep.kind || nextKind) === 'render'
+
+    // Galería: no dar por guardada hasta que el archivo que queda sea WebP sin pérdida.
+    if (conf.convert_pending && isRenderUpload) {
+      setBusyLabel('Convirtiendo a WebP…')
+      setNotice({ tone: 'info', text: `Convirtiendo ${file.name} a WebP sin pérdida…` })
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.name === file.name && (job.status === 'uploading' || job.status === 'pending')
+            ? { ...job, status: 'converting' }
+            : job,
+        ),
+      )
+      let lastError = 'No se pudo convertir a WebP sin pérdida'
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const res = await fetch('/api/typology-assets/convert', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(convertBody),
+          })
+          if (res.ok) {
+            if (code) await loadAssets(code)
+            return 'done'
+          }
+          const raw = await res.text().catch(() => '')
+          let parsed: { error?: string } = {}
+          try {
+            parsed = raw ? (JSON.parse(raw) as { error?: string }) : {}
+          } catch {
+            parsed = {}
+          }
+          lastError = parsed.error || `No se pudo convertir a WebP sin pérdida (${res.status})`
+          console.warn('[typology-assets] convert', attempt, res.status, raw.slice(0, 200))
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : lastError
+          console.warn('[typology-assets] convert', attempt, err)
+        }
+        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 2000))
       }
+      throw new Error(`${lastError}. La foto quedó en el formato original: borrala y volvé a subirla.`)
+    }
+
+    // 360: en segundo plano. Un panorama pesado tumba el request si se espera aquí.
+    if (conf.convert_pending) {
       void (async () => {
         for (let attempt = 1; attempt <= 3; attempt += 1) {
           try {
@@ -503,6 +548,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     }))
     setJobs(nextJobs)
     setUploading(true)
+    setBusyLabel(nextKind === 'render' ? 'Subiendo y convirtiendo…' : 'Subiendo…')
     toast.message(`Subiendo ${pngs.length} archivo(s)…`)
 
     let ok = 0
@@ -567,6 +613,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
       return
     }
     setUploading(true)
+    setBusyLabel(tab === 'galeria' ? 'Subiendo y convirtiendo…' : 'Subiendo…')
     setUploadingRoom(`${slot.room}:${slot.finish ?? ''}:${slot.light}`)
     setNotice({
       tone: 'info',
@@ -858,7 +905,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                               <span className="min-w-0 truncate text-[11px] text-[#3a3d36]">{combo.label}</span>
                               <span className="flex shrink-0 items-center gap-1">
                                 <span className="text-[10px] text-[#787D62]">
-                                  {busy ? 'Subiendo…' : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
+                                  {busy ? busyLabel : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
                                 </span>
                                 {asset && (
                                   <span
@@ -904,8 +951,8 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
               </p>
               <p className="text-xs text-[#8a8d87]">
                 {isCommonAreaCode(code)
-                  ? 'Estas fotos se abren al tocar el área en el plano. El 360, si lo subís, tiene prioridad.'
-                  : 'Estos renders los comparten todos los locales asignados a esta tipología. No hay 360 ni comparador.'}
+                  ? 'Estas fotos se abren al tocar el área en el plano. El 360, si lo subís, tiene prioridad. Se guardan en WebP sin pérdida, al tamaño original.'
+                  : 'Estos renders los comparten todos los locales asignados a esta tipología. No hay 360 ni comparador. Se guardan en WebP sin pérdida, al tamaño original.'}
               </p>
             </div>
             <button
@@ -915,7 +962,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
               className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-[#2B1A18]/20 bg-[#f7f6f2] px-4 py-8 text-sm text-[#3a3d36] disabled:opacity-60"
             >
               <ImagePlus size={16} />
-              {uploading ? 'Subiendo…' : 'Subir renders'}
+              {uploading ? busyLabel : 'Subir renders'}
             </button>
             <input
               ref={localesFileRef}
@@ -957,7 +1004,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             <div className="space-y-1">
               <p className="text-sm text-[#3a3d36]">Galería</p>
               <p className="text-xs text-[#8a8d87]">
-                Imágenes del showroom (Galería). Renders por ambiente — acabado 1 y 2, día y noche.
+                Imágenes del showroom (Galería). Renders por ambiente — acabado 1 y 2, día y noche. Se guardan en WebP sin pérdida, al tamaño original.
               </p>
             </div>
             {roomSlots.length === 0 ? (
@@ -1009,7 +1056,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                               <span className="min-w-0 truncate text-[11px] text-[#3a3d36]">{combo.label}</span>
                               <span className="flex shrink-0 items-center gap-1">
                                 <span className="text-[10px] text-[#787D62]">
-                                  {busy ? 'Subiendo…' : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
+                                  {busy ? busyLabel : fallback ? 'Ya cargada' : asset ? 'Cambiar' : 'Subir'}
                                 </span>
                                 {asset && (
                                   <span
@@ -1131,11 +1178,13 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                     job.status === 'done' && 'text-[#787D62]',
                     job.status === 'duplicate' && 'text-[#9a7d55]',
                     job.status === 'error' && 'text-[#8a5c58]',
-                    (job.status === 'pending' || job.status === 'uploading') && 'text-[#8a8d87]',
+                    (job.status === 'pending' || job.status === 'uploading' || job.status === 'converting') &&
+                      'text-[#8a8d87]',
                   )}
                 >
                   {job.status === 'pending' && 'En cola'}
                   {job.status === 'uploading' && 'Subiendo…'}
+                  {job.status === 'converting' && 'WebP sin pérdida…'}
                   {job.status === 'done' && 'Listo'}
                   {job.status === 'duplicate' && (job.message ?? 'Duplicado')}
                   {job.status === 'error' && (job.message ?? 'Error')}
