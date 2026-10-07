@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
+import { galleryRenderMobileFileName, typologyAssetStoragePath } from '@/lib/typology-assets'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import {
   isExcludedTourAssetFile,
@@ -266,10 +267,21 @@ async function toCatalogTypology(
       .filter(
         (item) =>
           item.kind === 'render' &&
+          !item.storage_path.includes('/_original/') &&
+          !/_2048(?:-r\d+)?\./i.test(item.file_name) &&
           !isTourPanoramaFileName(item.file_name) &&
           !parseRoomSceneFileName(item.file_name),
       )
-      .map(toPublic),
+      .map((item) => {
+        const mobileName = galleryRenderMobileFileName(item.file_name)
+        const mobilePath = typologyAssetStoragePath(item.typology_code, 'render', mobileName)
+        return {
+          ...toPublic(item),
+          variants: {
+            '2048': getTypologyAssetPublicUrl(admin, mobilePath, item.created_at),
+          },
+        }
+      }),
     planos: list.filter((item) => item.kind === 'plano').map(toPublic),
     vistas: slots
       .map((room) => {

@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       asset,
       converted: false,
       convert_pending: shouldConvert,
-      convert_mode: isAmbienteScene ? 'lossless' : isRender ? 'lossless' : null,
+      convert_mode: isAmbienteScene ? 'lossless' : isRender ? 'quality' : null,
     })
   } catch (error) {
     console.error('POST /api/typology-assets/confirm-upload', error)

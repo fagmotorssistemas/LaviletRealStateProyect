@@ -2466,10 +2466,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       }).map((item) => ({
         id: item.id,
         label: item.label,
-        url: item.url,
+        url: entryCoarse && item.url2048 ? item.url2048 : item.url,
         roomSlug: item.roomSlug,
       })),
-    [currentTypology, catalogFinishes, galleryFinishSlug, light, galleryOnly],
+    [currentTypology, catalogFinishes, galleryFinishSlug, light, galleryOnly, entryCoarse],
   )
   const leadGalleryUrl = galeriaImages[0]?.url ?? null
   useLayoutEffect(() => {
@@ -2526,9 +2526,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       }).map((item) => ({
         id: item.id,
         label: item.label,
-        url: item.url,
+        url: entryCoarse && item.url2048 ? item.url2048 : item.url,
       })),
-    [currentTypology, publicCatalog?.finishes, galleryOnly],
+    [currentTypology, publicCatalog?.finishes, galleryOnly, entryCoarse],
   )
 
   const planoImages = useMemo<StillItem[]>(() => {
@@ -2660,6 +2660,14 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   )
   const stillSwipe = useSwipePages(viewMode !== 'tour', stillItems.length, stepStill)
   const stillUrl = stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.url ?? null
+  useEffect(() => {
+    if (viewMode !== 'galeria' || stillItems.length === 0) return
+    const total = stillItems.length
+    const index = Math.min(stillIndex, total - 1)
+    void preloadStill(stillItems[index]?.url)
+    void preloadStill(stillItems[(index + 1) % total]?.url)
+    void preloadStill(stillItems[(index - 1 + total) % total]?.url)
+  }, [viewMode, stillItems, stillIndex])
   const stillScope = `${currentTypology?.id ?? ''}:${selectedUnitId ?? ''}`
   if (stillScopeRef.current !== stillScope) {
     stillScopeRef.current = stillScope

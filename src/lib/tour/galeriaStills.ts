@@ -5,6 +5,8 @@ export type GaleriaStill = {
   id: string
   label: string
   url: string
+  /** Variante de 2048 px para celular. La `url` es la de 3840. */
+  url2048?: string
   /** Slug del ambiente (vista-sala → sala / slug de tipología). */
   roomSlug?: string
   finish?: string | null
@@ -113,6 +115,7 @@ export function buildGaleriaStills(
         id: render.id || render.file_name,
         label: stillLabelFromFile(render.file_name) || 'Render',
         url: render.url,
+        url2048: render.variants?.['2048'],
       }))
   }
 
@@ -129,7 +132,7 @@ export function buildGaleriaStills(
     id: string,
     label: string,
     url: string | null | undefined,
-    meta?: { roomSlug?: string; finish?: string | null; light?: string | null },
+    meta?: { roomSlug?: string; finish?: string | null; light?: string | null; url2048?: string },
   ) => {
     if (!url || seen.has(url)) return
     seen.add(url)
@@ -137,6 +140,7 @@ export function buildGaleriaStills(
       id,
       label,
       url,
+      url2048: meta?.url2048,
       roomSlug: meta?.roomSlug,
       finish: meta?.finish,
       light: meta?.light,
@@ -149,6 +153,7 @@ export function buildGaleriaStills(
         render.id || render.file_name,
         stillLabelFromFile(render.file_name) || typology.name || 'Foto',
         render.url,
+        { url2048: render.variants?.['2048'] },
       )
     }
   }
@@ -237,7 +242,9 @@ export function buildGaleriaStills(
   if (!randomPerRoom) {
     for (const render of typology.renders ?? []) {
       if (!render.url) continue
-      add(render.id || render.file_name, stillLabelFromFile(render.file_name) || 'Imagen', render.url)
+      add(render.id || render.file_name, stillLabelFromFile(render.file_name) || 'Imagen', render.url, {
+        url2048: render.variants?.['2048'],
+      })
     }
   }
 

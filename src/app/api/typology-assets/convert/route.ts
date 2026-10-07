@@ -5,7 +5,7 @@ import { canAccessPath, canWriteCrm } from '@/lib/inmobiliaria/roleAccess'
 import { TYPOLOGY_ASSETS_BUCKET, isTypologyAssetKind, typologyAssetStoragePath } from '@/lib/typology-assets'
 import { isTourRoomSlug, isVistaRoomSlug } from '@/lib/tour/tourRooms'
 import type { TourLightMode } from '@/types/tour'
-import { convertUploadedRenderToLosslessWebp, convertUploadedSceneToWebp } from '@/lib/typology-assets/convertToWebp'
+import { convertUploadedRenderToWebp, convertUploadedSceneToWebp } from '@/lib/typology-assets/convertToWebp'
 
 export const runtime = 'nodejs'
 /** Conversión WebP de panoramas grandes; se corre en request aparte para no tumbar el confirm. */
@@ -17,7 +17,7 @@ function jsonError(message: string, status: number, extra?: Record<string, unkno
 
 /**
  * Convierte lo ya subido.
- * Render (galería, local, área común): WebP lossless a tamaño original.
+ * Render (galería, local, área común): WebP calidad alta a 3840 y variante 2048.
  * 360: el flujo de ambiente, con variantes.
  */
 export async function POST(request: Request) {
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     }
 
     if (isRender) {
-      const asset = await convertUploadedRenderToLosslessWebp(admin, {
+      const asset = await convertUploadedRenderToWebp(admin, {
         typologyCode,
         uploadedFileName: fileName,
         uploadedStoragePath: storagePath,
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
         asset,
         converted: true,
         format: 'webp',
-        lossless: true,
+        lossless: false,
       })
     }
 

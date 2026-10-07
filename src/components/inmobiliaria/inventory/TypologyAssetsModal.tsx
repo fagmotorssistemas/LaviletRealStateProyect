@@ -443,10 +443,10 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
     }
     const isRenderUpload = (prep.kind || nextKind) === 'render'
 
-    // Galería: no dar por guardada hasta que el archivo que queda sea WebP sin pérdida.
+    // Galería: no dar por guardada hasta que el archivo que queda sea el WebP de 3840.
     if (conf.convert_pending && isRenderUpload) {
       setBusyLabel('Convirtiendo a WebP…')
-      setNotice({ tone: 'info', text: `Convirtiendo ${file.name} a WebP sin pérdida…` })
+      setNotice({ tone: 'info', text: `Convirtiendo ${file.name} a WebP…` })
       setJobs((prev) =>
         prev.map((job) =>
           job.name === file.name && (job.status === 'uploading' || job.status === 'pending')
@@ -454,7 +454,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             : job,
         ),
       )
-      let lastError = 'No se pudo convertir a WebP sin pérdida'
+      let lastError = 'No se pudo convertir a WebP'
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
           const res = await fetch('/api/typology-assets/convert', {
@@ -474,7 +474,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
           } catch {
             parsed = {}
           }
-          lastError = parsed.error || `No se pudo convertir a WebP sin pérdida (${res.status})`
+          lastError = parsed.error || `No se pudo convertir a WebP (${res.status})`
           console.warn('[typology-assets] convert', attempt, res.status, raw.slice(0, 200))
         } catch (err) {
           lastError = err instanceof Error ? err.message : lastError
@@ -951,8 +951,8 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
               </p>
               <p className="text-xs text-[#8a8d87]">
                 {isCommonAreaCode(code)
-                  ? 'Estas fotos se abren al tocar el área en el plano. El 360, si lo subís, tiene prioridad. Se guardan en WebP sin pérdida, al tamaño original.'
-                  : 'Estos renders los comparten todos los locales asignados a esta tipología. No hay 360 ni comparador. Se guardan en WebP sin pérdida, al tamaño original.'}
+                  ? 'Estas fotos se abren al tocar el área en el plano. El 360, si lo subís, tiene prioridad. Se guardan en WebP de alta calidad.'
+                  : 'Estos renders los comparten todos los locales asignados a esta tipología. No hay 360 ni comparador. Se guardan en WebP de alta calidad.'}
               </p>
             </div>
             <button
@@ -1004,7 +1004,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
             <div className="space-y-1">
               <p className="text-sm text-[#3a3d36]">Galería</p>
               <p className="text-xs text-[#8a8d87]">
-                Imágenes del showroom (Galería). Renders por ambiente — acabado 1 y 2, día y noche. Se guardan en WebP sin pérdida, al tamaño original.
+                Imágenes del showroom (Galería). Renders por ambiente — acabado 1 y 2, día y noche. Se guardan en WebP de alta calidad.
               </p>
             </div>
             {roomSlots.length === 0 ? (
@@ -1184,7 +1184,7 @@ export function TypologyAssetsModal({ isOpen, onClose }: TypologyAssetsModalProp
                 >
                   {job.status === 'pending' && 'En cola'}
                   {job.status === 'uploading' && 'Subiendo…'}
-                  {job.status === 'converting' && 'WebP sin pérdida…'}
+                  {job.status === 'converting' && 'Convirtiendo…'}
                   {job.status === 'done' && 'Listo'}
                   {job.status === 'duplicate' && (job.message ?? 'Duplicado')}
                   {job.status === 'error' && (job.message ?? 'Error')}

@@ -43,3 +43,13 @@ export function planoVariantFromFileName(fileName: string): PlanoVariant {
 export function matchesPlanoVariant(fileName: string, variant: PlanoVariant): boolean {
   return planoVariantFromFileName(fileName) === variant
 }
+
+/** Copia del archivo subido. No entra al catálogo ni se sirve en el showroom. */
+export function typologyRenderOriginalPath(typologyCode: string, fileName: string) {
+  return `${typologyCode}/render/_original/${fileName}`
+}
+
+/** `foto-r123.webp` → `foto_2048-r123.webp`. Misma revisión que el render de 3840. */
+export function galleryRenderMobileFileName(fileName: string) {
+  return fileName.replace(/(-r\d+)?\.webp$/i, (_match, revision: string | undefined) => `_2048${revision || ''}.webp`)
+}
