@@ -4599,7 +4599,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             )}
           >
             <CmafVideo
-              mp4="/inicio/portada.mp4?v=gop"
+              mp4={
+                entryCoarse
+                  ? '/inicio/portada-v2/portada-v2-mobile.mp4'
+                  : '/inicio/portada-v2/portada-v2.mp4'
+              }
               preload="auto"
               defer={entryCoarse && !planEntryOpen}
               autoPlay={planEntryOpen && !coverHidden}

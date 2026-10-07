@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
@@ -86,6 +86,14 @@ export function HeroStage() {
   const [headline, setHeadline] = useState(false)
   const [showBrand, setShowBrand] = useState(false)
   const [showImage, setShowImage] = useState(false)
+  const [coverSrc, setCoverSrc] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    setCoverSrc(
+      window.matchMedia('(pointer: coarse)').matches
+        ? '/inicio/portada-v2/portada-v2-mobile.mp4'
+        : '/inicio/portada-v2/portada-v2.mp4',
+    )
+  }, [])
 
   useEffect(() => {
     if (editorial) return
@@ -134,7 +142,7 @@ export function HeroStage() {
       video.removeEventListener('error', lockStill)
       video.removeEventListener('timeupdate', onTime)
     }
-  }, [editorial])
+  }, [editorial, coverSrc])
 
   if (editorial) return <HeroEditorial />
 
@@ -146,16 +154,16 @@ export function HeroStage() {
           animate={{ opacity: showImage ? 0 : 1 }}
           transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
         >
-          <CmafVideo
-            mp4="/inicio/portada.mp4?v=gop"
-            hls="/inicio/portada-hls/index.m3u8"
-            poster="/inicio/portada-poster.jpg"
-            label="Fachada Lavilet del día a la noche"
-            loop={false}
-            videoRef={videoRef}
-            onEnded={lockStill}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
+          {coverSrc ? (
+            <CmafVideo
+              mp4={coverSrc}
+              label="Fachada Lavilet del día a la noche"
+              loop={false}
+              videoRef={videoRef}
+              onEnded={lockStill}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : null}
         </motion.div>
 
         <motion.div

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Building2, DoorOpen, ScanLine } from 'lucide-react'
 import { CmafVideo } from '@/components/media/CmafVideo'
@@ -14,6 +14,14 @@ const FEATURES = [
 ] as const
 
 export function HeroEditorial() {
+  const [coverSrc, setCoverSrc] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    setCoverSrc(
+      window.matchMedia('(pointer: coarse)').matches
+        ? '/inicio/portada-v2/portada-v2-mobile.mp4'
+        : '/inicio/portada-v2/portada-v2.mp4',
+    )
+  }, [])
   useEffect(() => {
     notifyHeroLocked()
   }, [])
@@ -21,12 +29,14 @@ export function HeroEditorial() {
   return (
     <section id="inicio" className="sticky top-0 z-0 h-svh overflow-hidden bg-[#e4e4de] lg:bg-[#1a1410] text-[#3f3d2e]">
       <div className="absolute top-0 inset-x-0 h-[48svh] sm:h-[55svh] lg:h-full">
-        <CmafVideo
-          mp4="/inicio/portada.mp4?v=gop"
-          preload="auto"
-          label="Fachada Lavilet del día a la noche"
-          className="absolute inset-0 h-full w-full object-cover object-[65%_center] lg:object-center"
-        />
+        {coverSrc ? (
+          <CmafVideo
+            mp4={coverSrc}
+            preload="auto"
+            label="Fachada Lavilet del día a la noche"
+            className="absolute inset-0 h-full w-full object-cover object-[65%_center] lg:object-center"
+          />
+        ) : null}
         <div className="absolute inset-0 bg-gradient-to-t from-[#e4e4de] via-[#e4e4de]/20 to-transparent lg:hidden" />
       </div>
 
