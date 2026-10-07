@@ -1095,6 +1095,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (!planEntryOpen || shellMode !== 'plan') return
     const timer = window.setTimeout(() => setCoverReady(true), 2500)
+    // En celular la portada se vuelve a pedir: el botón espera el primer cuadro.
+    if (entryCoarse) return () => window.clearTimeout(timer)
     const video = coverVideoRef.current
     const markLoaded = () => {
       if (video && video.readyState >= 2) setCoverReady(true)
@@ -1105,7 +1107,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       window.clearTimeout(timer)
       video?.removeEventListener('loadeddata', markLoaded)
     }
-  }, [planEntryOpen, shellMode])
+  }, [planEntryOpen, shellMode, entryCoarse])
   const entryFailedRef = useRef(false)
   const [droneOn, setDroneOn] = useState(false)
   const droneRef = useRef<HTMLVideoElement>(null)
@@ -3317,6 +3319,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setViewMode('planos-3d')
           setPlanFloor(openingPlanFloor)
           const reopen = view !== 'plan'
+          if (reopen && entryCoarse) setCoverReady(false)
           setPlanEntryOpen(reopen)
           setFichaOpen(false)
           setFichaExpanded(false)
@@ -4598,7 +4601,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <CmafVideo
               mp4="/inicio/portada.mp4?v=gop"
               preload="auto"
-              defer={!planEntryOpen}
+              defer={entryCoarse && !planEntryOpen}
               autoPlay={planEntryOpen && !coverHidden}
               label={t('Fachada Lavilet del día a la noche')}
               videoRef={coverVideoRef}
