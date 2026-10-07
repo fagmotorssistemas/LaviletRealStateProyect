@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -33,15 +34,15 @@ export function NutritionWeekOneSettings({ projectId, initial, updatedAt, onSave
   }
   return <div className="space-y-5 text-sm text-[#3a3d36]">
     <p>Tras siete días sin respuesta, comparte el brochure si el contacto todavía no lo recibió. Si ya se compartió, ofrece un siguiente paso relacionado con la conversación. Se elige un solo mensaje.</p>
-    <label className="flex gap-2 font-semibold"><input type="checkbox" checked={config.enabled} onChange={e => setConfig({ ...config, enabled: e.target.checked })} />Activar semana 1</label>
-    <label className="flex gap-2"><input type="checkbox" checked={config.brochureEnabled} onChange={e => setConfig({ ...config, brochureEnabled: e.target.checked })} />Compartir el brochure cuando aún no se haya enviado</label>
-    <label className="block">Cuando ya se compartió el brochure
+    <label className="flex gap-2 font-semibold"><input type="checkbox" checked={config.enabled} onChange={e => setConfig({ ...config, enabled: e.target.checked })} />Activar semana 1<SettingsFieldHelp title="Activar semana 1" section="seguimiento" /></label>
+    <label className="flex gap-2"><input type="checkbox" checked={config.brochureEnabled} onChange={e => setConfig({ ...config, brochureEnabled: e.target.checked })} />Compartir el brochure cuando aún no se haya enviado<SettingsFieldHelp title="Compartir el brochure cuando aún no se haya enviado" section="seguimiento" /></label>
+    <label className="block">Cuando ya se compartió el brochure<SettingsFieldHelp title="Cuando ya se compartió el brochure" section="seguimiento" />
       <select className="crm-field mt-2 block w-full" value={config.alreadyShared} onChange={e => setConfig({ ...config, alreadyShared: e.target.value as 'relevant' | 'skip' })}>
         <option value="relevant">Enviar seguimiento si hay un tema relevante</option><option value="skip">Omitir el mensaje de semana 1</option>
       </select>
     </label>
     <fieldset className="space-y-3 rounded-xl border border-[#deded4] p-4"><legend className="px-2 font-semibold">Temas permitidos para el seguimiento</legend>
-      {([['unitDetails', 'Distribución del inmueble de interés'], ['comparison', 'Comparación de opciones disponibles'], ['financing', 'Información sobre financiamiento'], ['visits', 'Coordinación de una visita a la oficina']] as const).map(([key, label]) => <label key={key} className="flex gap-2"><input type="checkbox" checked={config[key]} onChange={e => setConfig({ ...config, [key]: e.target.checked })} />{label}</label>)}
+      {([['unitDetails', 'Distribución del inmueble de interés'], ['comparison', 'Comparación de opciones disponibles'], ['financing', 'Información sobre financiamiento'], ['visits', 'Coordinación de una visita a la oficina']] as const).map(([key, label]) => <label key={key} className="flex gap-2"><input type="checkbox" checked={config[key]} onChange={e => setConfig({ ...config, [key]: e.target.checked })} />{label}<SettingsFieldHelp title={label} section="seguimiento" /></label>)}
       <p className="text-xs">Se usan únicamente temas relacionados con lo que pidió el lead y con la oferta disponible. Si no hay un siguiente paso útil, se omite el envío.</p>
     </fieldset>
     <p>Si el lead responde, se cancela el seguimiento pendiente y la conversación continúa según su respuesta. Aceptar información sobre financiamiento no autoriza una solicitud de crédito.</p>
@@ -54,7 +55,7 @@ export function NutritionWeekOneSettings({ projectId, initial, updatedAt, onSave
     <Button onClick={() => void save()} disabled={busy}>{busy ? 'Guardando…' : 'Guardar día 7'}</Button>
     <div className="space-y-3 rounded-xl border border-[#deded4] bg-[#f7f7f2] p-4">
       <p className="font-semibold">Brochure entregado por un asesor</p><p>Si lo compartió por fuera del sistema, registre la entrega para evitar repetirlo. Los mensajes automáticos quedan registrados al ser aceptados por Kommo; eso no confirma su lectura.</p>
-      <label className="block">ID del lead en Kommo<Input type="number" min="1" value={leadId} onChange={e => setLeadId(e.target.value)} /></label>
+      <label className="block"><span>ID del lead en Kommo<SettingsFieldHelp title="ID del lead en Kommo" section="seguimiento" /></span><Input type="number" min="1" value={leadId} onChange={e => setLeadId(e.target.value)} /></label>
       <Button variant="outline" disabled={busy || !leadId} onClick={() => void mark()}>Registrar que ya compartí el brochure</Button>
     </div>
   </div>

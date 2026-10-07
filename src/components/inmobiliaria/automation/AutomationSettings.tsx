@@ -6,6 +6,8 @@ import { useVisitInboxContext } from '@/contexts/VisitInboxContext'
 import { AutomationSectionTabs } from './AutomationSectionTabs'
 import { KnowledgeNavigation } from './KnowledgeNavigation'
 import { knowledgeSectionFor } from '@/lib/inmobiliaria/knowledgeSections'
+import { automationHelpFor, type AutomationHelp } from '@/lib/inmobiliaria/automationHelp'
+import { SettingsHelp } from './SettingsHelp'
 import workspace from './AutomationWorkspace.module.css'
 import styles from './AutomationSettings.module.css'
 
@@ -19,7 +21,7 @@ export function AutomationSettingsHeader({ active, title, description, project }
     <header className={workspace.header}>
       <div>
         <p className={workspace.eyebrow}><strong>Automatización</strong><span>/</span>Control comercial</p>
-        <h1 className={workspace.title}>{title}</h1>
+        <h1 className={workspace.title}>{title}<SettingsHelp title={title} {...automationHelpFor(active, description)} /></h1>
         <p className={workspace.description}>{description}</p>
       </div>
       <div className={workspace.headerActions}>
@@ -73,11 +75,11 @@ export function AutomationSettingsSections({ sections, initial, selected, onSele
   </SectionsContext.Provider>
 }
 
-export function AutomationSettingsPanel({ id, title, description, action, children }: { id: string; title: string; description: string; action?: ReactNode; children: ReactNode }) {
+export function AutomationSettingsPanel({ id, title, description, action, children, help }: { id: string; title: string; description: string; action?: ReactNode; children: ReactNode; help?: AutomationHelp }) {
   const context = useContext(SectionsContext)
   if (!context) throw Error('AutomationSettingsPanel requires AutomationSettingsSections')
   return <section role="tabpanel" id={`${context.prefix}-panel-${id}`} aria-labelledby={`${context.prefix}-tab-${id}`} hidden={context.active !== id} className={styles.panel} tabIndex={0}>
-    <div className={styles.panelHeader}><div><h2>{title}</h2><p>{description}</p></div>{action && <div className={styles.panelAction}>{action}</div>}</div>
+    <div className={styles.panelHeader}><div><h2>{title}<SettingsHelp title={title} {...(help || automationHelpFor(id, description))} /></h2><p>{description}</p></div>{action && <div className={styles.panelAction}>{action}</div>}</div>
     <div className={styles.panelBody}>{children}</div>
   </section>
 }

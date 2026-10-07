@@ -1,14 +1,15 @@
 'use client'
 
 import { useState, useTransition, type ReactNode } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { loadEarlyPurchaseDiscountSettings, saveEarlyPurchaseDiscountSettings } from '@/app/inmobiliaria/automatizacion/descuentos/actions'
 import { defaultEarlyPurchaseDiscountSettings, draftEarlyPurchaseDiscount, DISCOUNT_CATEGORIES, type DiscountRule, type EarlyPurchaseDiscountResult } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
 import { AutomationSettingsHeader, automationSettingsStyles } from './AutomationSettings'
 import styles from './EarlyPurchaseDiscountSettings.module.css'
 
-function Field({ label, children }: { label: string; children: ReactNode }) { return <label className={styles.field}>{label}{children}</label> }
+function Field({ label, children }: { label: string; children: ReactNode }) { return <label className={styles.field}><span>{label}<SettingsFieldHelp title={label} section="descuentos" /></span>{children}</label> }
 function Toggle({ label, value, onChange, disabled = false }: { label: string; value: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
-  return <label className={styles.toggle}><input type="checkbox" checked={value} disabled={disabled} onChange={event => onChange(event.target.checked)} />{label}</label>
+  return <label className={styles.toggle}><input type="checkbox" checked={value} disabled={disabled} onChange={event => onChange(event.target.checked)} />{label}<SettingsFieldHelp title={label} section="descuentos" /></label>
 }
 const referenceText = (rule: DiscountRule) => rule.referencePrices.map(reference => `${reference.unitNumber}=${reference.amount}`).join('\n')
 

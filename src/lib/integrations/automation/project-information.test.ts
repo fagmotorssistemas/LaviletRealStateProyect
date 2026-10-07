@@ -29,7 +29,7 @@ describe('project information conversation', () => {
     }
     assert.equal(greetingForTurn('Quiero información',[{role:'bot',content:'Bienvenido'}],null,at),'')
     assert.equal(greetingForTurn('Quiero información',[],at,at),'')
-    assert.equal(greetingForTurn('Gracias',[],null,at),'')
+    assert.equal(greetingForTurn('Gracias',[],null,at),'Hola')
   })
   it('uses interpreted project intent for a typo after a greeting', () => {
     const reply = projectInformationReply({ ...info([{ role: 'bot', content: 'Hola, ¿en qué podemos ayudarle?' }]),

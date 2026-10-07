@@ -5,6 +5,34 @@ import { normalizeReviewReferences } from './turn-evidence'
 import { factualValueIssues } from './semantic-review'
 import { structuredReviewSchema } from './structured-facts'
 
+test('task projection preserves the active exploration, original need and affirmed category without duplicating catalog', () => {
+  const source = { property_context: { query: { group: 'residential', category: 'departamento', requirements: [
+    { field: 'bedrooms', operator: 'eq', value: 3, evidence: 'quiero saber de los de tres dormitorios' }] },
+    original_query: { group: 'residential', category: null, filters: { bedrooms: 5, bedrooms_required: true } },
+    exploration_state: { version: 'property-exploration-v1', authorized: true, evidence: 'quiero saber de los de tres dormitorios' },
+    category_preference: { category: 'departamento', confirmed: true, evidence: 'Me interesan más los departamentos' },
+    selected_ids: [], pending_question: { id: 'property_floor', act: 'choose_floor', candidate_ids: ['d302'] },
+    retrieval_diagnostic: { omitted: true } },
+    contexto_verificado: { prompt_context_selection: { version: 'task-context-v1' } },
+    evidencia_turno: { units: [{ id: 'd302', unit_number: '302', bedrooms: 3 }] } }
+  const original = JSON.stringify(source)
+  for (const preserveUnitIds of [false, true]) {
+    const projected = compactTurnPromptContext(source, { preserveUnitIds })
+    const property = projected.property_context as typeof source.property_context
+    assert.deepEqual(property.query, source.property_context.query)
+    assert.deepEqual(property.original_query, source.property_context.original_query)
+    assert.deepEqual(property.exploration_state, source.property_context.exploration_state)
+    assert.deepEqual(property.category_preference, source.property_context.category_preference)
+    assert.deepEqual(property.selected_ids, [])
+    assert.equal(property.pending_question.act, 'choose_floor')
+    assert.deepEqual(property.pending_question.candidate_ids, [preserveUnitIds ? 'd302' : '302'])
+    assert.equal('retrieval_diagnostic' in property, false)
+    assert.deepEqual((projected.evidencia_turno as typeof source.evidencia_turno).units,
+      [{ id: preserveUnitIds ? 'd302' : '302', unit_number: '302', bedrooms: 3 }])
+  }
+  assert.equal(JSON.stringify(source), original)
+})
+
 test('task projection distinguishes a proposed subject from the original need and preserves pending consent', () => {
   const proposal_information = { version: 'proposal-information-v1', active: true, informational_only: true,
     query: { filters: { bedrooms: 3 }, operation: 'details', scope: 'offered' },

@@ -216,12 +216,12 @@ function recoveryHarness(options = {}) {
   const conversation = { lead_id: lead.id, summary: structuredClone(options.summary || {}) }
   let stopped = !!options.paused
   function from(table) {
-    const filters = {}, q = { select() { return q }, eq(k, v) { filters[k] = v; return q }, match() { return q }, gt() { return q }, in() { return q }, is() { return q },
+    const filters = {}, q = { select() { return q }, eq(k, v) { filters[k] = v; return q }, match() { return q }, gt() { return q }, in() { return q }, is() { return q }, order() { return q }, limit() { return q },
       update(values) { calls.push({ name: 'update:' + table, values }); if (table === 'leads') Object.assign(lead, values); return q },
       then(resolve) {
         const count = table === 'messages' ? (filters.role === 'bot' ? options.answered : options.human)
           : table === 'lv_outbox' ? options.uncertainOutbox : options.newer
-        return Promise.resolve({ error: null, count: count ? 1 : 0 }).then(resolve)
+        return Promise.resolve({ error: null, count: count ? 1 : 0, data: table === 'messages' ? options.history || [] : [] }).then(resolve)
       } }
     return q
   }
@@ -338,4 +338,31 @@ test('a superseded recovery still preserves the inbound batch without sending or
   assert.deepEqual(h.calls.filter(call => call.name === 'register_inbound_message').map(call => call.args.p_content), messages)
   assert.deepEqual(h.conversation.summary, summary)
   assert.equal(h.calls.some(call => ['send', 'handoff_lead', 'update:conversations'].includes(call.name)), false)
+})
+
+for (const message of ['Cuál es el precio?', 'Hola, cuál es el precio?', 'Gracias', 'Quiero ver el proyecto']) {
+  test('initial recovery has a greeting for any incoming intent: ' + message, async () => {
+    const h = recoveryHarness({ message })
+    await h.run()
+    const out = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.match(out.p_content, /^Hola\. Disculpe la demora/)
+    assert.equal(out.p_tool_calls.writer_greeting, 'Hola')
+    assert.equal(h.calls.filter(call => call.name === 'send').length, 1)
+  })
+}
+
+for (const role of ['bot', 'asesor']) test('recovery preserves ongoing conversation without an initial greeting after ' + role, async () => {
+  const h = recoveryHarness({ history: [{ role, content: 'Respuesta anterior', sent_at: new Date(Date.now() - 5000).toISOString(),
+    tool_calls: { provider_status: 'accepted' } }] })
+  await h.run()
+  const out = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.match(out.p_content, /^Disculpe la demora/)
+  assert.equal(out.p_tool_calls.writer_greeting, '')
+})
+
+test('a rejected earlier send does not suppress the first greeting in recovery', async () => {
+  const h = recoveryHarness({ history: [{ role: 'bot', content: 'No enviado', sent_at: new Date(Date.now() - 5000).toISOString(),
+    tool_calls: { provider_status: 'rejected' } }] })
+  await h.run()
+  assert.match(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /^Hola\./)
 })

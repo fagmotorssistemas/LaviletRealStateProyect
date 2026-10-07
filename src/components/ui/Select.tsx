@@ -1,19 +1,20 @@
 'use client'
 
-import { forwardRef, useEffect, useId, useMemo, useRef, useState, type SelectHTMLAttributes } from 'react'
+import { forwardRef, useEffect, useId, useMemo, useRef, useState, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string
+  labelAccessory?: ReactNode
   error?: string
   options: { value: string; label: string }[]
   placeholder?: string
 }
 
 const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, label, error, id, options, placeholder, value, defaultValue, onChange, disabled, name, required, ...props }, ref) => {
+  ({ className, label, labelAccessory, error, id, options, placeholder, value, defaultValue, onChange, disabled, name, required, ...props }, ref) => {
     const uid = useId()
     const selectId = id ?? uid
     const rootRef = useRef<HTMLDivElement>(null)
@@ -123,7 +124,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
       <div ref={rootRef} className="relative flex min-w-0 w-full flex-col gap-1.5">
         {label && (
           <label htmlFor={selectId} className="crm-field-label">
-            {label}
+            {label}{labelAccessory}
           </label>
         )}
 

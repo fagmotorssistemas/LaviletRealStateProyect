@@ -1,14 +1,15 @@
 'use client'
 
 import { useState, useTransition, type ReactNode } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { loadFinancingGuidance, saveFinancingGuidance } from '@/app/inmobiliaria/automatizacion/financiamiento/actions'
 import { defaultFinancingGuidance, type FinancingGuidanceResult, type GuidanceSource, type EntryRequirement } from '@/lib/inmobiliaria/financingGuidance'
 import { AutomationSettingsHeader, automationSettingsStyles } from './AutomationSettings'
 import styles from './FinancingGuidanceSettings.module.css'
 
-function Field({ label, children }: { label: string; children: ReactNode }) { return <label className={styles.field}>{label}{children}</label> }
+function Field({ label, children }: { label: string; children: ReactNode }) { return <label className={styles.field}><span>{label}<SettingsFieldHelp title={label} section="financiamiento" /></span>{children}</label> }
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return <label className={styles.check}><input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} />{label}</label>
+  return <label className={styles.check}><input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} />{label}<SettingsFieldHelp title={label} section="financiamiento" /></label>
 }
 function NumberField({ label, value, onChange, max }: { label: string; value: number | null; onChange: (v: number | null) => void; max?: number }) {
   return <Field label={label}><input type="number" min="0" max={max} step="any" value={value ?? ''} placeholder="Sin confirmar" onChange={e => onChange(e.target.value === '' ? null : Number(e.target.value))} /></Field>

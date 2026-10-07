@@ -30,3 +30,10 @@
 .history pre { white-space:pre-wrap; font-family:inherit; font-size:14px; padding:12px; background:#f7f9f4; }
 .navigation a:focus-visible,.buttons button:focus-visible,.toolbar button:focus-visible,.card a:focus-visible { outline:3px solid #a29166; outline-offset:3px; }
 @media(max-width:640px) { .form { grid-template-columns:1fr; } .card,.editor { padding:16px; } }
+
+.areaSection { margin-top:28px; scroll-margin-top:24px; }
+.areaSection h2 { font-size:21px; font-weight:600; color:#26372d; }
+.areaSection h3 { font-size:18px; font-weight:600; color:#26372d; }
+.checks { display:flex; flex-wrap:wrap; gap:14px; }
+.form .checks label,.form label.confirmation { flex-direction:row; align-items:flex-start; gap:8px; line-height:1.6; }
+.form .checks input,.form .confirmation input { width:18px; height:18px; margin-top:3px; flex-shrink:0; }

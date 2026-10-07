@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { SettingsHelp } from './SettingsHelp'
 import { loadResponseReviewAction, saveResponseReviewAction } from '@/app/inmobiliaria/automatizacion/pruebas/review-actions'
 import type { ResponseReviewResult } from '@/lib/inmobiliaria/responseReview'
 import styles from './ConversationToneSettings.module.css'
@@ -27,7 +28,7 @@ export function ResponseReviewControl({ initial }: { initial: ResponseReviewResu
     })
   }
   return <section className={styles.card} aria-busy={pending} aria-labelledby="response-review-title">
-    <h2 id="response-review-title">Revisión final de mensajes · Control general</h2>
+    <h2 id="response-review-title">Revisión final de mensajes · Control general<SettingsHelp title="Revisión final de mensajes" configures="Activa o desactiva la revisión del borrador para todos los contactos autorizados del proyecto." usedByBot="El revisor contrasta hechos y obligaciones antes del envío. Desactivarlo envía el primer borrador sin esas correcciones comerciales; los controles técnicos y permisos de operaciones continúan." applies="Incluye contactos de pruebas; es independiente de quién tiene habilitado el bot." saving="Pulsar Activar o Desactivar guarda inmediatamente. Las respuestas ya en curso conservan su configuración. Actualizar estado solo consulta la configuración guardada." /></h2>
     <p>Se aplica a todos los contactos autorizados de La Vilet, incluidos los números de prueba.</p>
     <p><strong>{needsRefresh || !state ? 'Estado pendiente de comprobar.' : state.enabled ? 'Revisión activada.' : 'Revisión desactivada.'}</strong>{' '}
       Al desactivarla, se envía el primer borrador del redactor sin revisor, correcciones automáticas ni validaciones comerciales posteriores.

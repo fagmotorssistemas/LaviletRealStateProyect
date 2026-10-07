@@ -39,7 +39,8 @@ import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
-import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
+import { ensureReferentialPriceConditions } from './price-conditions'
+import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
 import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
@@ -526,7 +527,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const state = sdrState(lead, context.historial)
   const repair = isConversationRepair(current) && !!state.ultima_respuesta
   if (repair) greeting = false
-  const turnGreeting = greetingForTurn(current, context.historial, lead.last_bot_message_at, activeLast.sentAt)
+  const turnGreeting = greetingForTurn(current, pendingRead.data || context.historial, lead.last_bot_message_at, activeLast.sentAt)
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period,preferred_location_type').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
@@ -1408,6 +1409,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (Object.keys(visitDialoguePlan).length) audit.visit_dialogue_plan = visitDialoguePlan
   const plannedResponse = responsePlan(reply, audit)
   let reviewedText = ''
+  let finalVerifiedContext: Row = context
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
   const catalogBaseReply = audit.verified_catalog === true ? reply : ''
   const recoveringTurn = () => object(object(audit.turn_completeness).recovery).pending === true
@@ -1508,6 +1510,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       base_preview: traceText(reply, MAX_REPLY_CHARACTERS), source: text(audit.source) || 'commercial',
       catalog_coverage: audit.catalog_coverage,
     })
+    finalVerifiedContext = info
     const reviewed = await completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: reply,
       costBaseline,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
@@ -1657,6 +1660,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const openingDecision = object(audit.turn_completeness).opening_decision
   const withOpening = (body: string) => reviewedText ? body : openingDecision ? applyDecidedOpening(body, text(object(openingDecision).prefix)) : variedReplyOpening(body, context.historial)
   reply = !reviewing || reviewedText ? direct : naturalConversationReply(withOpening(direct), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
+  // Every allowed reply, including direct templates and operational recovery,
+  // passes this idempotent preparation. Reviewed drafts already contain it.
+  const greetedFinal = applyTurnGreeting(reply, turnGreeting)
+  const greetingApplied = greetedFinal !== reply
+  const pricePreparedFinal = ensureReferentialPriceConditions(greetedFinal, finalVerifiedContext, audit)
+  reply = pricePreparedFinal.reply
+  audit.reply_preparation = { greeting_applied: greetingApplied, prices_applied: pricePreparedFinal.applied }
   // The last prose transformation is checked too, before any external send.
   const finalCatalogValidation = reviewing ? validateCatalogReply(reply, audit) : { valid: true, reason: '' }
   if (!finalCatalogValidation.valid && catalogBaseReply) {
@@ -1665,6 +1675,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       recovery: { version: 'turn-recovery-v1', pending: true, base_used: false, reason: 'final_catalog_guard' },
       fallback_validation: { passed: false, issues: ['response_requires_validation', finalCatalogValidation.reason].filter(Boolean) } }
     reply = approvedAllowed ? reviewedText : naturalConversationReply(withOpening(recoveryReply(object(audit.turn_completeness))), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
+    reply = ensureReferentialPriceConditions(applyTurnGreeting(reply, turnGreeting), finalVerifiedContext, audit).reply
     if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
     if (!approvedAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }

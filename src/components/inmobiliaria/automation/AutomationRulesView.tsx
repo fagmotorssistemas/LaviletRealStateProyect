@@ -1,14 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Settings2, Clock3, Users, ChartNoAxesColumnIncreasing, CalendarClock } from 'lucide-react'
 import { AutomationSettingsHeader, AutomationSettingsSummary, AutomationSettingsSections, AutomationSettingsPanel as RulesCard, automationSettingsStyles as styles } from './AutomationSettings'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Select } from '@/components/ui/Select'
+import { Input as BaseInput, type InputProps } from '@/components/ui/Input'
+import { Select as BaseSelect, type SelectProps } from '@/components/ui/Select'
 import { Spinner } from '@/components/ui/Spinner'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { useAuth } from '@/contexts/AuthContext'
@@ -45,6 +46,9 @@ import { nutritionWeekOneConfig, type NutritionWeekOneConfig } from '@/lib/inmob
 import { nutrition24hConfig, type Nutrition24hConfig } from '@/lib/inmobiliaria/nutrition24h'
 import { BotVisitSettings } from './BotVisitSettings'
 import { botVisitPolicy, type BotVisitPolicy } from '@/lib/inmobiliaria/botVisits'
+
+function Input(props: InputProps) { return <BaseInput {...props} labelAccessory={props.label ? <SettingsFieldHelp title={props.label} section="reglas" /> : undefined} /> }
+function Select(props: SelectProps) { return <BaseSelect {...props} labelAccessory={props.label ? <SettingsFieldHelp title={props.label} section="reglas" /> : undefined} /> }
 
 function Toggle({
   checked,

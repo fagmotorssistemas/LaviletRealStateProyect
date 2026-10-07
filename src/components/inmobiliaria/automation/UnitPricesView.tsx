@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { SettingsHelp } from './SettingsHelp'
 import { useEffect, useState } from 'react'
 import { Building2, DollarSign, MessageSquareText, RefreshCw, Search, Save } from 'lucide-react'
 import { toast } from 'sonner'
@@ -128,7 +129,7 @@ export function UnitPricesView() {
         <div className="flex flex-wrap items-center justify-between gap-4 py-3">
           <label className="flex items-center gap-3 font-medium" htmlFor="launch-price-visibility">
             <input id="launch-price-visibility" type="checkbox" className="h-5 w-5 accent-[#34412d]" checked={launchVisible} disabled={!!saving} aria-describedby="launch-price-help" onChange={event => setLaunchVisible(event.target.checked)} />
-            Mostrar precios aproximados en Lanzamiento
+            Mostrar precios aproximados en Lanzamiento<SettingsHelp title="Visibilidad de precios en lanzamiento" configures="Permite informar los precios publicados durante lanzamiento." usedByBot="Si está habilitado, comunica valores referenciales que pueden cambiar. En preventa rige el modo comercial correspondiente; no altera el precio de las unidades." applies="Solo durante lanzamiento y para unidades publicadas y disponibles." saving="Guarde con Guardar visibilidad. Cambiar la casilla sin guardar no cambia las próximas respuestas; no modifica la fase ni el avance de obra." />
           </label>
           <Button size="sm" disabled={!!saving || !visibilityDirty} onClick={() => void saveVisibility()}><Save size={14} />{saving === 'visibility' ? 'Guardando…' : 'Guardar visibilidad'}</Button>
         </div>
@@ -145,7 +146,7 @@ export function UnitPricesView() {
         <div className={priceStyles.caption}><span>{visible.length} unidades · Ejemplos: 200000 o 200.000,50 USD</span>{dirty && <><strong>Hay cambios sin guardar</strong><Button size="sm" variant="outline" disabled={!!saving} onClick={discard}>Descartar cambios</Button></>}</div>
         <div className={`${styles.panelBody} ${priceStyles.tableWrap}`}>
           <table className={priceStyles.table}>
-            <thead><tr><th>Unidad</th><th>Características</th><th>Precio guardado</th><th>Nuevo precio · USD</th><th>Uso en el bot</th><th><span className="sr-only">Guardar</span></th></tr></thead>
+            <thead><tr><th>Unidad</th><th>Características</th><th>Precio guardado</th><th>Nuevo precio · USD<SettingsHelp title="Precio comercial de cada unidad" configures="Precio total de venta en USD de la unidad identificada en la fila." usedByBot="Usa ese mismo dato del inventario cuando su publicación y modo permiten informarlo; no modifica el costo por metro cuadrado." applies="A consultas de precios y comparaciones con el presupuesto. No establece un descuento ni un precio futuro." saving="Guarde cada fila modificada. Vaciar el campo y guardar retira el precio comercial de esa unidad. Los filtros solo cambian la lista visible." example="Ingrese 200000 o 200.000,50 USD. Revise la unidad antes de guardar." /></th><th>Uso en el bot</th><th><span className="sr-only">Guardar</span></th></tr></thead>
             <tbody>{visible.map(unit => <tr key={unit.id}>
               <td><strong>{unit.unit_number}</strong><small>{label(unit)}</small></td>
               <td>{unit.bedrooms ? `${unit.bedrooms} dormitorios` : '—'}<small>{unit.floor_number === 0 ? 'Planta baja' : unit.floor_number != null ? `Piso ${unit.floor_number}` : 'Piso sin registrar'}</small><small>{unit.area_internal_m2 ? `${unit.area_internal_m2.toLocaleString('es-EC')} m² interiores` : 'Área sin registrar'}</small></td>

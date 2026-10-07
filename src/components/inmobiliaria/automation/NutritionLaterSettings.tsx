@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/Button'
 import { LATER_ROUTES, type LaterConfig, type LaterWeek } from '@/lib/inmobiliaria/nutritionLater'
@@ -22,7 +23,7 @@ export function NutritionLaterSettings({ projectId, initial, updatedAt, onSaved 
   return <div className="space-y-5 text-sm text-[#3a3d36]">
     <p>Se programan a los 14 y 21 días sin respuesta. Se respeta un mínimo de siete días entre seguimientos; un mensaje aplazado puede desplazar el siguiente. Cada paso se envía como máximo una vez por contacto y proyecto.</p>
     {([2, 3] as const).map(week => <div key={week} className="space-y-3 rounded-xl border border-[#deded4] p-4">
-      <label className="flex gap-2 font-semibold"><input type="checkbox" checked={enabled[week]} onChange={e => setEnabled({ ...enabled, [week]: e.target.checked })} />Activar día {week === 2 ? '14' : '21'}</label>
+      <label className="flex gap-2 font-semibold"><input type="checkbox" checked={enabled[week]} onChange={e => setEnabled({ ...enabled, [week]: e.target.checked })} />Activar día {week === 2 ? '14' : '21'}<SettingsFieldHelp title={week === 2 ? 'Activar día 14' : 'Activar día 21'} section="seguimiento" /></label>
       <p>{week === 2 ? 'Invita a compartir una duda pendiente. La variable describe lo que busca: hogar, local, inversión o una opción por definir.' : 'Ofrece un siguiente paso pertinente: información de financiamiento, proceso de compra o conversación con un asesor. Si ya se ofreció o explicó, se busca otra opción útil; si no la hay, se omite el mensaje.'}</p>
       <details><summary className="cursor-pointer">Ver plantilla y conexión</summary><p className="mt-3 whitespace-pre-line">{LATER_ROUTES[week].body.replace('{{1}}', `[Nutricion_${week}s]`)}</p><p className="mt-2 text-xs">Salesbot {LATER_ROUTES[week].botId} · campo {LATER_ROUTES[week].fieldId}{week === 2 ? ' · incluye LaVilet.png' : ''}</p></details>
     </div>)}

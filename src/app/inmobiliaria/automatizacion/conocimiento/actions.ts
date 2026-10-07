@@ -3,6 +3,7 @@
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { businessPolicies, changeBusinessPolicy, type PolicyCommand } from '@/lib/inmobiliaria/businessPolicies'
 import { catalogSearchSettings, changeCatalogSearch } from '@/lib/inmobiliaria/catalogSearch'
+import { loadProjectAreaFacts } from './area-fact-actions'
 
 async function access(projectId: string) {
   const session = await assertAdmin()
@@ -15,7 +16,8 @@ async function access(projectId: string) {
 }
 export async function loadBusinessPolicies(projectId: string) {
   const { project } = await access(projectId)
-  return { projectName: project.name as string, updatedAt: project.updated_at as string, state: businessPolicies(project.policies_json), catalogSearch: catalogSearchSettings(project.policies_json) }
+  const area = await loadProjectAreaFacts(projectId)
+  return { projectName: project.name as string, updatedAt: project.updated_at as string, state: businessPolicies(project.policies_json), catalogSearch: catalogSearchSettings(project.policies_json), areaFacts: area.facts, areaError: area.error }
 }
 export async function saveCatalogSearch(projectId: string, enabled: boolean, expectedUpdatedAt: string) {
   const { supabase, project, user } = await access(projectId)

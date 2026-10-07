@@ -1,5 +1,6 @@
 'use client'
 import dynamic from 'next/dynamic'
+import { SettingsHelp } from './SettingsHelp'
 import { useEffect, useState } from 'react'
 import { MapPin, ExternalLink, CalendarCheck, Navigation } from 'lucide-react'
 import { toast } from 'sonner'
@@ -81,7 +82,7 @@ export function ProjectLocationView() {
       <section className={`${styles.mapCard} grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]`}>
       <div className="min-w-0 space-y-3">
         <ProjectLocationMap key={projectId} point={point} onChange={value => { if (!saving) setPoint(value) }} />
-        <p className={styles.mapCaption}><MapPin size={15} className="shrink-0" />Haga clic en el mapa o arrastre el marcador hasta la entrada del proyecto.</p>
+        <p className={styles.mapCaption}><MapPin size={15} className="shrink-0" />Haga clic en el mapa o arrastre el marcador hasta la entrada del proyecto.<SettingsHelp title="Punto de encuentro del mapa" configures="Coordenadas del punto de encuentro compartido con los clientes." usedByBot="Comparte el enlace al responder una petición de ubicación o confirmar realmente una cita; no lo añade a todas las invitaciones." applies="Al proyecto seleccionado. Un mapa no habilita visitas al edificio ni cambia el destino autorizado." saving="Mover el marcador solo cambia la vista previa. Guardar ubicación aplica el nuevo punto a las próximas respuestas pertinentes." /></p>
       </div>
       <div className="space-y-5">
         <div><MapPin size={22} className="mb-3 text-[#787d62]" /><h2 className="text-xl font-semibold text-[#3e4735]">{selected?.name}</h2><p className="mt-1 text-sm text-[#7b8170]">{selected?.address || 'Seleccione el punto de encuentro'}</p></div>

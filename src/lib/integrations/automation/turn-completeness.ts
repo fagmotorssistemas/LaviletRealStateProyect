@@ -1,3 +1,6 @@
+import { applyTurnGreeting } from './conversation-style'
+import { ensureReferentialPriceConditions } from './price-conditions'
+import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues } from './continuation-validation'
 import { responseReviewEnabled, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { turnContinuationIssues } from './turn-continuation'
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
@@ -477,6 +480,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const opening = { ...decidedOpening(input.baseReply, input.history),
     policy: informationOpeningRequired ? 'first_information_request' : 'editorial_suggestion', applied: false }
   const writerContract = finalWriterContract(input.baseReply, input.audit, input)
+  const prepareReply = (reply: string) => ensureReferentialPriceConditions(
+    applyTurnGreeting(reply, text(input.audit?.writer_greeting)), input.verified, input.audit).reply
   const profileQuestionAudit = { ...input.audit,
     profile_collection_decision: object(writerContract.estado_comercial).profile_collection_decision }
   const profileQuestionContentIssues = (actualQuestion: unknown): Row[] => leadProfileQuestionIssues(actualQuestion, profileQuestionAudit)
@@ -489,6 +494,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         ? 'Retire la pregunta de nombre o residencia. Conserve la respuesta actual y retome la decisión comercial y las necesidades vigentes, sin insistir en datos de presentación pospuestos o rechazados.'
         : 'Solicite únicamente los datos autorizados en profile_collection_decision.allowed_fields y conserve el propósito de allowed_question_ids, sin repetir datos confirmados.' }))
   const turnObligations = reviewObligations(input.audit || {}, input.verified, writerContract)
+  if (input.audit?.source === 'virtual_showroom' && !object(input.audit.unit_model).unit_id
+    && !(Array.isArray(object(input.verified.property_context).selected_ids) && (object(input.verified.property_context).selected_ids as unknown[]).length))
+    turnObligations.push({ id: 'general_visualization_reference',
+      instruction: 'El recorrido compartido es general y el cliente todavía no eligió una unidad. Preséntelo como recorrido de las opciones o departamentos del proyecto, sin afirmar que muestra el departamento elegido ni tratar un singular coloquial del cliente como selección. El material visual no cambia dormitorios, tipo ni pregunta pendiente: retome el siguiente paso comercial autorizado.' })
   const writerRequestRefs = requestReferences(input.current,
     (Array.isArray(turnIntent.requests) ? turnIntent.requests : []).map(raw => ({ fragment: text(object(raw).evidence) || text(object(raw).request) })))
   const activeWriterSchema = coverageReferenceSchema(coverageSchema, writerRequestRefs)
@@ -633,6 +642,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     delete writerContext.oraciones_borrador
     const writerSections: [string, string | false][] = [
       ['Función y salida del redactor', COVERAGE_RULES],
+      ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro.'],
       ['Prioridades y obligaciones del turno', TURN_INTENT_RULES + '\n' + FINAL_WRITER_RULES
         + '\nCumpla obligaciones_del_turno con redacción libre. Esta lista también se entrega al revisor. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
       ['Fuentes, políticas y precisión', BUSINESS_POLICY_RULES + visitRules],
@@ -677,8 +687,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       // No metadata repair, reviewer call or extra writer attempt in disabled
       // mode. Normalize only the deterministic, authorized brochure insertion.
       const transport = unreviewedWriterReply(proposedReply)
-      const reply = includeRequiredBrochure(transport.reply, input.audit, input)
+      const reply = prepareReply(includeRequiredBrochure(transport.reply, input.audit, input))
       const issues = [...mandatoryReplyIssues(input, reply),
+        ...continuationContentIssues(reply, input.verified.siguiente_paso_comercial).map(issue => text(issue.code)),
         ...turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review_enabled: false } }, reply),
         ...(() => { const check = validateCatalogReply(reply, { ...input.audit, semantic_review: {} }); return check.valid ? [] : [check.reason || 'unsupported_catalog_rewrite'] })(),
         ...(input.validateReply?.(reply) || [])]
@@ -717,12 +728,17 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const normalizedReply = input.audit?.semantic_review_enabled === true ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply
     const openedReply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
     opening.applied = openedReply !== normalizedReply
-    const reply = includeRequiredBrochure(openedReply, input.audit, input)
+    const brochureReply = includeRequiredBrochure(openedReply, input.audit, input)
+    const greetedReply = applyTurnGreeting(brochureReply, text(input.audit?.writer_greeting))
+    const pricePrepared = ensureReferentialPriceConditions(greetedReply, input.verified, input.audit)
+    const reply = pricePrepared.reply
     textTransformations = [
       ...(proposedReply !== preparedReply ? [{ stage: 'Formato de la propuesta', before: proposedReply, after: preparedReply }] : []),
       ...(preparedReply !== normalizedReply ? [{ stage: 'Normalización de la ruta antes de revisión', before: preparedReply, after: normalizedReply }] : []),
       ...(normalizedReply !== openedReply ? [{ stage: 'Apertura de la primera solicitud de información', before: normalizedReply, after: openedReply }] : []),
-      ...(openedReply !== reply ? [{ stage: 'Enlace del brochure programado', before: openedReply, after: reply }] : []),
+      ...(openedReply !== brochureReply ? [{ stage: 'Enlace del brochure programado', before: openedReply, after: brochureReply }] : []),
+      ...(brochureReply !== greetedReply ? [{ stage: 'Saludo común antes de revisión', before: brochureReply, after: greetedReply }] : []),
+      ...(pricePrepared.applied ? [{ stage: 'Condiciones de precios referenciales antes de revisión', before: greetedReply, after: reply }] : []),
     ]
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.
@@ -767,15 +783,21 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         sharedEvidence.groups, effectiveTurnBudget(input.verified))
       let factChecks = checkFacts(rawReview.facts)
       const originalChecks = factChecks
-      const repairableChecks = factChecks.filter(check => check.status === 'contradiction' || check.repairable)
+      const writerQuestionValid = validContinuationMetadata(question, reply, input.verified.siguiente_paso_comercial)
+      const contentQuestionIssues = continuationContentIssues(reply, input.verified.siguiente_paso_comercial)
+      const originalQuestionChecks = rawReview.question
+        ? continuationMetadataIssues(rawReview.question, reply, input.verified.siguiente_paso_comercial) : []
+      const repairableChecks: Row[] = [...factChecks.filter(check => check.status === 'contradiction' || check.repairable),
+        ...originalQuestionChecks.map(code => ({ code, kind: 'review_metadata', actual_question: replyQuestionText(reply),
+          writer_question: question, reviewer_question: rawReview.question }))]
       // A valid content rejection already requires a rewrite. Rechecking its
       // auxiliary facts first adds latency without making that draft sendable.
       // Metadata recovery remains available for otherwise approved drafts.
-      if ((!riskDecision.valid || riskDecision.approved && repairableChecks.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
+      if ((!riskDecision.valid || riskDecision.approved && repairableChecks.length && !contentQuestionIssues.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
         const originalReview = rawReview
         let repairError = ''
         try {
-          rawReview = await generate(riskRules + '\nREPARE SOLO LA REVISIÓN del mismo borrador, sin redactar otro mensaje. Compruebe si las observaciones señaladas interpretan fielmente lo escrito. Si la extracción es correcta y el dato del borrador es falso, mantenga ese dato y señale el riesgo. Si era un error de ficha, corrija kind, referencia, scope o relación. Los filtros de scope describen el conjunto afirmado, no los requisitos del cliente; no cambie las cifras para acomodarlas a un grupo incorrecto. Conserve statement para vincular cada reparación; no elimine una contradicción sin resolverla. Conserve las observaciones no afectadas y las obligaciones. Un cálculo no soportado por código no es por sí mismo un error comercial.',
+          rawReview = await generate(riskRules + '\nREPARE SOLO LA REVISIÓN del mismo borrador, sin redactar otro mensaje. question describe la última pregunta realmente escrita: purpose, continuation_id y continuation_act deben concordar. Pedir nombre o residencia usa profile y collect_lead_profile; elegir planta usa choose_floor. No cambie el texto ni reabra decisiones resueltas. Compruebe si las observaciones señaladas interpretan fielmente lo escrito. Si la extracción es correcta y el dato del borrador es falso, mantenga ese dato y señale el riesgo. Si era un error de ficha, corrija kind, referencia, scope o relación. Los filtros de scope describen el conjunto afirmado, no los requisitos del cliente; no cambie las cifras para acomodarlas a un grupo incorrecto. Conserve statement para vincular cada reparación; no elimine una contradicción sin resolverla. Conserve las observaciones no afectadas y las obligaciones. Un cálculo no soportado por código no es por sí mismo un error comercial.',
             { ...riskContext, revision_anterior: originalReview, comprobaciones_a_revisar: repairableChecks },
             riskSchema, undefined, undefined, undefined, 'review')
         } catch (error) {
@@ -806,33 +828,47 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       }
       const questionErrors: string[] = []
       const reviewedQuestion = rawReview.question ? questionRow(rawReview.question, reply, questionErrors) : null
-      if (reviewedQuestion && !questionErrors.length) question = reviewedQuestion
+      const reviewedQuestionChecks = rawReview.question
+        ? continuationMetadataIssues(rawReview.question, reply, input.verified.siguiente_paso_comercial) : []
+      const preserveWriterQuestion = writerQuestionValid && (questionErrors.length > 0 || reviewedQuestionChecks.length > 0)
+      // Metadata cannot invalidate an otherwise valid question in an approved draft.
+      // It has its own repair budget, even after the commercial text was repaired.
+      if (reviewedQuestion && !questionErrors.length && !reviewedQuestionChecks.length) question = reviewedQuestion
+      if (preserveWriterQuestion) questionErrors.length = 0
       proposedQuestion = question
       const numericFindings = factFindings(factChecks)
-      const profileIssues = profileQuestionContentIssues(question)
+      const actualQuestion = actualContinuation(reply)
+      const profileCheckQuestion = text(actualQuestion.id).startsWith('lead_') && !financingCollectionActive(input.audit || {})
+        ? { continuation_id: actualQuestion.id, continuation_act: 'profile', purpose: 'collect_lead_profile' } : question
+      const profileIssues = [...profileQuestionContentIssues(profileCheckQuestion),
+        ...contentQuestionIssues]
       const riskFindings = [...riskDecision.findings, ...numericFindings,
         ...profileIssues.map(issue => ({ category: issue.code, statement: question.text,
-          reason: issue.reason, authoritative_fact: JSON.stringify(profileQuestionAudit.profile_collection_decision) }))]
+          reason: issue.reason, authoritative_fact: issue.authoritative_fact || JSON.stringify(profileQuestionAudit.profile_collection_decision) }))]
       const approved = riskDecision.approved && numericFindings.length === 0 && profileIssues.length === 0
       const riskIssues: Row[] = [...riskDecision.findings, ...numericFindings].map(finding => ({ code: text(finding.category),
         kind: 'commercial_content', statement: text(finding.statement),
         reason: [text(finding.reason), text(finding.authoritative_fact) && `Dato o regla autorizada: ${text(finding.authoritative_fact)}`].filter(Boolean).join(' '),
         authoritative_fact: text(finding.authoritative_fact), owner: numericFindings.includes(finding) ? 'system' : 'reviewer', repair_owner: 'writer' }))
       riskIssues.push(...profileIssues)
-      const usableQuestion = !question.text || (!!question.purpose && question.purpose !== 'none' && question.role !== 'none')
+      const usableQuestion = !question.text || (!!question.purpose && question.purpose !== 'none' && question.role !== 'none'
+        && (!reviewedQuestionChecks.length || preserveWriterQuestion))
       const offeredAction = text(object(rawReview.question).offered_action)
       semanticReview = { status: riskDecision.valid ? approved ? 'checked' : 'rejected' : 'invalid_review',
         review_contract: BUSINESS_RISK_REVIEW_VERSION, validation_owner: BUSINESS_RISK_REVIEW_VERSION,
         findings: riskFindings, validation_details: riskIssues, query: input.audit?.catalog_query || null,
         claims: [], factual_values: [], extracted_facts: rawReview.facts || [], fact_checks: JSON.parse(JSON.stringify(factChecks)),
         original_fact_checks: JSON.parse(JSON.stringify(originalChecks)), question, offered_action: offeredAction, quality_checks: 'not_requested',
+        question_metadata: { owner: preserveWriterQuestion ? 'validated_writer' : reviewedQuestion && !questionErrors.length && !reviewedQuestionChecks.length ? 'reviewer' : 'writer', text_source: 'actual_reply',
+          corrected: originalQuestionChecks.length > 0, original_issues: originalQuestionChecks, remaining_issues: reviewedQuestionChecks,
+          writer_preserved: preserveWriterQuestion },
         turn_obligations: { status: riskDecision.valid ? 'checked' : 'invalid_review', ids: turnObligations.map(obligation => obligation.id) },
         acceptance: { content_approved: approved, follow_up_usable: riskDecision.valid && usableQuestion } }
       continuationChecks = { validation_scope: 'business_risks_and_explicit_turn_obligations', all_requests_considered: approved, answered_content_preserved: approved,
         question_has_purpose: approved, answers_supported: approved,
         operational_goal_preserved: approved }
       followUp = { usable: riskDecision.valid && usableQuestion,
-        warnings: [...questionErrors, ...(!usableQuestion ? ['question_metadata_unusable'] : [])], writer_metadata_observations: writerQuestionWarnings }
+        warnings: [...questionErrors, ...(!preserveWriterQuestion ? reviewedQuestionChecks : []), ...(!usableQuestion ? ['question_metadata_unusable'] : [])], writer_metadata_observations: writerQuestionWarnings }
       if (!riskDecision.valid) return fallback('rejected_review', requests, ['invalid_business_risk_review'])
       if (!approved) {
         if (attempt === 0) {

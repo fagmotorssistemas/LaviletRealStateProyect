@@ -1,0 +1,77 @@
+export type AutomationHelp = { configures: string; usedByBot: string; applies: string; saving: string; example?: string }
+const immediate = 'Guardar aplica la configuración a las próximas ejecuciones del proyecto. Editar sin guardar no cambia lo que utiliza el bot; no modifica mensajes ya enviados.'
+const publishing = 'Guardar borrador conserva la publicación actual. Publicar habilita la versión confirmada para las próximas ejecuciones compatibles. Pausar la publicación retira esa información de futuras respuestas.'
+export const AUTOMATION_HELP: Record<string, AutomationHelp> = {
+  conocimiento: { configures: 'Organiza hechos del proyecto, catálogo, políticas comerciales, conversación y operación.', usedByBot: 'Los hechos y políticas aprobados acompañan a la consulta; las reglas del sistema deciden acciones, permisos y siguiente pregunta.', applies: 'Según la consulta, etapa comercial y vigencia de cada información.', saving: 'Cada tarjeta abre su editor. En políticas y entorno hay borrador y publicación; otros ajustes se aplican al guardar su sección.', example: 'La información del barrio se administra en Información del proyecto → Entorno y seguridad, y los descuentos en Políticas comerciales.' },
+  proyecto: { configures: 'Estado de la obra, lugares habilitados para visitas y plazo de entrega.', usedByBot: 'Explica lo que puede visitarse y las fechas que están confirmadas; no inventa obra terminada ni entrega.', applies: 'Cuando preguntan por construcción, entrega o visitas.', saving: immediate, example: 'Si la oficina está en el mismo terreno del proyecto, configure ese destino sin ofrecer una visita a departamentos todavía no construidos.' },
+  ubicacion: { configures: 'Dirección y punto de encuentro del proyecto.', usedByBot: 'Comparte la ubicación ante una consulta o una cita realmente confirmada.', applies: 'No se añade el mapa a todas las respuestas ni a una invitación todavía pendiente.', saving: immediate },
+  precios: { configures: 'Precios publicados de las unidades y permiso de informar valores en lanzamiento.', usedByBot: 'Comunica valores autorizados del catálogo; conserva la condición referencial cuando corresponda.', applies: 'Consultas de precios y comparación con el presupuesto del lead.', saving: immediate, example: 'Cambiar un precio no autoriza por sí solo afirmar un descuento; configure la política de descuentos correspondiente.' },
+  financiamiento: { configures: 'Entrada, reserva y condiciones de las entidades autorizadas.', usedByBot: 'Explica requisitos y continúa solo la revisión que el cliente acepta.', applies: 'Según la entidad y la etapa del trámite, sin garantizar aprobación de crédito.', saving: immediate },
+  descuentos: { configures: 'Descuentos autorizados por compra anticipada: porcentaje, alcance, vigencia y condiciones.', usedByBot: 'Calcula únicamente promociones activas compatibles con la unidad; no deduce ahorro solo por estar en preventa.', applies: 'Cuando la política está habilitada, vigente y corresponde a la unidad consultada.', saving: immediate, example: 'Un porcentaje para departamentos no se aplica a penthouses si no están incluidos en su alcance.' },
+  guion: { configures: 'Preguntas e instrucciones editables de conversación por tema.', usedByBot: 'Redacta con esas indicaciones y con los hechos y la decisión del turno; los permisos y controles del sistema siguen activos.', applies: 'Al tema y etapa correspondientes, sin repetir preguntas ya resueltas.', saving: immediate, example: 'Cambiar el tono de una pregunta no cambia el orden protegido de tipo → planta → unidad.' },
+  estilo: { configures: 'Tono, calidez y detalle de las respuestas.', usedByBot: 'Adapta la forma de explicar sin cambiar cifras, preferencias conocidas o acciones autorizadas.', applies: 'A las próximas respuestas del proyecto.', saving: immediate },
+  reglas: { configures: 'Horarios de atención, equipo, plazos y puntaje de interés.', usedByBot: 'Orienta la atención y los seguimientos; los rangos horarios no confirman una cita libre.', applies: 'Según el proyecto y el proceso activo del lead.', saving: 'Guarde la sección editada. La jornada y los límites son del proyecto; los puntos por evento se comparten en la plataforma, como indica su editor.' },
+  pruebas: { configures: 'Contactos de prueba, respuesta rápida y revisión de mensajes.', usedByBot: 'Limita los contactos habilitados para pruebas; la revisión final se controla por separado para el proyecto.', applies: 'El modo de pruebas no modifica el alcance de políticas publicadas.', saving: 'Cada control ejecuta la acción indicada. Reiniciar una prueba limpia su estado; reanudar conserva la conversación. La respuesta rápida evita la espera de agrupación, no garantiza envío inmediato.' },
+  seguimiento: { configures: 'Activa y configura los seguimientos de 24 horas y días 7, 14 y 21.', usedByBot: 'Retoma un tema pertinente de la conversación cuando el lead no responde, respetando las pausas, permisos y horario de atención.', applies: 'Nuevos turnos elegibles con IA activa, sin atención humana ni consulta pendiente sin responder. Si el cliente responde, cancela los seguimientos pendientes.', saving: 'Guarde cada bloque. La activación se aplica a nuevos turnos atendidos; no genera envíos retroactivos a conversaciones antiguas. Las confirmaciones de plantilla describen una conexión ya comprobada en Kommo y Meta.', example: 'Si el brochure ya se compartió, el seguimiento puede retomar una consulta pertinente o no enviarse, según su configuración.' },
+  politicas: { configures: 'Condiciones comerciales confirmadas, fuente, alcance y vigencia.', usedByBot: 'Las utiliza el redactor y el revisor como datos del negocio; no otorgan por sí solas consentimiento del cliente.', applies: 'A todos los leads del proyecto cuya consulta y etapa estén dentro del alcance.', saving: publishing },
+  entorno: { configures: 'Información del barrio y su entorno, con fuente, fecha de verificación y redacción aprobada.', usedByBot: 'Recibe solo fichas publicadas y verificadas, pertinentes para la consulta y etapa comercial.', applies: 'Consultas del entorno, servicios, calidad de vida o seguridad del sector. Seguridad del edificio y del barrio se describen por separado.', saving: publishing, example: 'Una descripción de servicios cercanos no demuestra niveles de seguridad. Publique únicamente lo confirmado por una fuente o responsable identificado.' },
+}
+export function automationHelpFor(key: string, description = ''): AutomationHelp {
+  return AUTOMATION_HELP[key] || { configures: description || 'Los ajustes de esta sección.', usedByBot: 'Se utilizan junto con la información vigente y el estado de la conversación, sin reiniciar preferencias ya resueltas.', applies: 'En las próximas ejecuciones a las que corresponda esta sección.', saving: immediate }
+}
+
+const FIELD_HELP: Record<string, string> = {
+  'Modo': 'Etapa comercial del proyecto. Lanzamiento y preventa determinan permisos comerciales, pero no demuestran que la obra haya comenzado ni habilitan automáticamente visitas.',
+  'Zona horaria': 'Zona usada para interpretar horarios y plazos del proyecto; no es la residencia del lead.',
+  'Admin de escalamiento': 'Responsable para solicitudes que requieren escalamiento; no confirma por sí mismo una asignación ya realizada.',
+  'Plazo de revisión de citas (minutos)': 'Plazo objetivo para que el equipo revise una solicitud de cita; no es una confirmación automática de disponibilidad.',
+  'Reserva temporal de horario (minutos)': 'Duración de la retención interna de un horario durante su revisión; no equivale a reservar un inmueble ni a confirmar una cita.',
+  'Máximo de reasignaciones automáticas': 'Límite de cambios automáticos de responsable antes de escalar una solicitud.',
+  'Tibio desde (puntos)': 'Umbral de puntaje para clasificar el interés como tibio; no indica consentimiento para reservar o derivar.',
+  'Caliente desde (puntos)': 'Umbral para clasificar alto interés; no confirma selección ni autoriza un trámite.',
+  'Orden': 'Prioridad orientativa de una pregunta del guion. El sistema omite datos resueltos y conserva las decisiones comerciales pendientes.',
+  'Instrucción / respuesta': 'Indicaciones editables por tema. Se combinan con instrucciones del sistema y obligaciones activas del turno; este campo no contiene todos los controles de la plataforma.',
+  'Descripción del uso': 'Explica al administrador para qué se usa este tema; las rutas y permisos del bot se determinan en el sistema.',
+  'Nombre de plantilla': 'Nombre exacto de la plantilla de WhatsApp aprobada para este seguimiento. Cambiarlo retira las comprobaciones de conexión y desactiva el envío hasta revisarlas.',
+  'ID del Salesbot': 'Salesbot de Kommo que está conectado a la plantilla aprobada, comprobado por el administrador.',
+  'ID del campo Nutricion_24h': 'Campo de Kommo que recibe el tema breve del seguimiento. Debe coincidir con la variable de la plantilla.',
+  'Cuando ya se compartió el brochure': 'Decide si se envía un seguimiento pertinente o se omite el día 7; no vuelve a enviar el mismo brochure.',
+  'ID del lead en Kommo': 'Lead al que el asesor ya compartió material por fuera del sistema. Registrar la entrega evita repetirlo; no envía el brochure.',
+  'Descuento (%)': 'Porcentaje autorizado. No habilita por sí solo la regla: necesita alcance, vigencia, condiciones y fuente confirmados.',
+  'Cómo se relaciona con el precio publicado': 'Distingue un descuento adicional de uno ya incluido. Si ya está incluido, el bot no vuelve a restar el porcentaje.',
+  'Cuándo se obtiene el beneficio': 'Condición comprobable para obtener el descuento: una reserva formal confirmada o una compra anticipada comprobada.',
+  'Precios originales autorizados (opcional; una unidad por línea)': 'Precio original confirmado para calcular ahorro por la misma unidad. Use una línea como 304=300000.00; no representa una promesa de precio futuro.',
+  'Unidades específicas (opcional)': 'Códigos de unidades a las que aplica la regla. Vacío incluye las unidades de los tipos elegidos, dentro de la etapa y vigencia.',
+  'Condiciones comerciales autorizadas': 'Límites y requisitos del beneficio que el bot puede explicar. No confirma una reserva, pago ni disponibilidad.',
+  'Vigente desde': 'Primer día de vigencia de la regla. Antes de esa fecha el beneficio no se ofrece.',
+  'Vigente hasta': 'Último día de vigencia. Después deja de aplicarse en nuevas consultas.',
+  'Verificado el': 'Fecha en que se comprobó la condición con una fuente autorizada.',
+  'Revisar antes del (opcional)': 'Fecha interna de próxima revisión; al vencer, estas condiciones dejan de comunicarse y calcularse.',
+  'Fuente o documento autorizado': 'Documento o responsable que confirmó la condición. Guardar la referencia no verifica automáticamente su contenido.',
+  'Condición del proyecto': 'Distingue una condición requerida, no exigida o sin confirmar. Sin confirmar nunca significa monto cero.',
+  'Forma de definir la entrada': 'Define si la entrada es porcentaje del precio o un monto fijo en USD.',
+  'Entrada (%)': 'Porcentaje de entrada exigido por el proyecto. La entidad financiera puede requerir mayor aportación propia; no se suman ambas como pagos separados.',
+  'Entrada (USD)': 'Monto fijo de entrada exigido por el proyecto, cuando esté confirmado.',
+  'Monto de reserva (USD)': 'Monto confirmado de reserva. Informarlo no ejecuta una reserva ni confirma una unidad.',
+  '¿Se abona a la entrada?': 'Aclara si el monto de reserva se descuenta de la entrada; Por confirmar no permite deducirlo.',
+  'Porcentaje anunciado, incluidos gastos (%)': 'Referencia anunciada por la entidad que puede incluir gastos. No equivale necesariamente al porcentaje aplicado al precio del inmueble.',
+  'Porcentaje aplicable al precio del inmueble (%)': 'Porcentaje confirmado que financia la entidad sobre el precio del inmueble, sujeto a sus condiciones.',
+  'Estado de obra': 'Avance físico confirmado. La etapa comercial de lanzamiento o preventa no determina por sí sola este estado.',
+  'Fecha de verificación': 'Fecha en que se comprobaron los hechos de esta sección. Revise periódicamente si siguen siendo vigentes.',
+  'Avance que el bot puede comunicar': 'Descripción autorizada del avance de obra; no implica que estén permitidas las visitas.',
+  'Lugar principal': 'Destino preferente entre los lugares habilitados; requiere coordinación y confirmación, no confirma una cita libre.',
+  'La oficina está en el mismo sitio del proyecto': 'Permite aclarar que una atención en oficina ocurre en el sitio del futuro edificio, sin presentarla como visita a una vivienda construida.',
+  'Condiciones de acceso': 'Restricciones reales de los lugares habilitados, por ejemplo acompañamiento y cita previa.',
+  'Información disponible': 'Precisión del plazo conocido: fecha, mes y año, año, duración o todavía sin fecha.',
+  'Grado de certeza': 'Distingue un plazo estimado que puede cambiar de uno confirmado por el proyecto.',
+  'El plazo se cuenta desde': 'Punto de partida de un plazo en meses: una fecha fija o el inicio de obra. Nunca se recalcula desde el día de cada consulta.',
+  'Fuente o responsable que confirmó el plazo': 'Respaldo de la fecha o duración autorizada del proyecto.',
+  'Calidez': 'Cambia la cercanía del tono sin modificar datos, consentimiento ni preguntas comerciales pendientes.',
+  'Nivel de detalle': 'Ajusta cuánto explica la respuesta; no elimina obligaciones comerciales o condiciones necesarias.',
+  'Respuesta rápida': 'Evita esperar la agrupación de mensajes de este contacto. La generación y los mensajes en curso todavía pueden añadir tiempo.',
+  'Nombre para identificarlo (opcional)': 'Etiqueta interna del contacto de prueba. No confirma el nombre que declaró el lead en la conversación.',
+  'Número de WhatsApp': 'Número autorizado para recibir respuestas en modo de pruebas. No cambia quién recibe políticas del proyecto.',
+}
+export function fieldHelpFor(title: string, section: string) {
+  return FIELD_HELP[title.trim()] || title + '. ' + automationHelpFor(section).configures
+}

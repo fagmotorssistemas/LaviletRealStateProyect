@@ -1,5 +1,6 @@
 'use client'
 import { useState, type ReactNode } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { addTestContactAction, loadTestResponseAction, updateTestContactAction } from '@/app/inmobiliaria/automatizacion/pruebas/actions'
 import { NORMAL_RESPONSE_SECONDS, testContactControls, type TestContact, type TestResponseState, type TestResponseActionResult } from '@/lib/inmobiliaria/testResponseMode'
 import { AutomationSettingsHeader, automationSettingsStyles as shared } from './AutomationSettings'
@@ -47,8 +48,8 @@ export function TestResponseSettings({initial,initialError='',reviewControl}:{in
       <form className={local.form} onSubmit={event=>{event.preventDefault();if(disabled)return;void perform(async()=>{
         if(applyResult(await addTestContactAction(phone,label))){setPhone('');setLabel('')}
       })}}>
-        <label className={local.field}>Nombre para identificarlo (opcional)<input value={label} maxLength={80} disabled={disabled} onChange={e=>setLabel(e.target.value)} placeholder="Por ejemplo, prueba de ventas"/></label>
-        <label className={local.field}>Número de WhatsApp<input type="tel" value={phone} disabled={disabled} required onChange={e=>setPhone(e.target.value)} placeholder="0991234567 o +593991234567" autoComplete="off"/></label>
+        <label className={local.field}><span>Nombre para identificarlo (opcional)<SettingsFieldHelp title="Nombre para identificarlo (opcional)" section="pruebas" /></span><input value={label} maxLength={80} disabled={disabled} onChange={e=>setLabel(e.target.value)} placeholder="Por ejemplo, prueba de ventas"/></label>
+        <label className={local.field}><span>Número de WhatsApp<SettingsFieldHelp title="Número de WhatsApp" section="pruebas" /></span><input type="tel" value={phone} disabled={disabled} required onChange={e=>setPhone(e.target.value)} placeholder="0991234567 o +593991234567" autoComplete="off"/></label>
         <button className={styles.primary} disabled={disabled||!phone.trim()} type="submit">Añadir número</button>
       </form>
       <button disabled={busy} onClick={()=>void perform(async()=>{
@@ -60,7 +61,7 @@ export function TestResponseSettings({initial,initialError='',reviewControl}:{in
         {!state.contacts.length&&!needsRefresh&&<p className={local.empty}>Todavía no hay números de prueba. Añada el primero arriba.</p>}
         {state.contacts.map(contact=>{const controls=testContactControls(contact);const helpId=`test-contact-help-${contact.id}`;return <article className={local.contact} key={contact.id}>
           <div className={local.heading}><div><h3>{contact.label||'Contacto de prueba'}</h3><span className={local.phone}>+{contact.phone}</span></div><span className={local.badge}>{controls.label}</span></div>
-          <label className={local.switch}><input type="checkbox" role="switch" checked={contact.fastResponse} disabled={disabled} onChange={e=>void update(contact,e.target.checked?'fast_on':'fast_off')}/>Respuesta rápida</label>
+          <label className={local.switch}><input type="checkbox" role="switch" checked={contact.fastResponse} disabled={disabled} onChange={e=>void update(contact,e.target.checked?'fast_on':'fast_off')}/>Respuesta rápida<SettingsFieldHelp title="Respuesta rápida" section="pruebas" /></label>
           <p>{contact.fastResponse?'Sin espera de agrupación: cada mensaje puede iniciar una respuesta por separado.':`Espera de ${NORMAL_RESPONSE_SECONDS} segundos para agrupar mensajes consecutivos.`} La generación y una respuesta que ya esté en curso pueden añadir tiempo.</p>
           {contact.lastResetAt&&<p>Último reinicio confirmado: <time dateTime={contact.lastResetAt}>{new Date(contact.lastResetAt).toLocaleString('es-EC',{timeZone:'America/Guayaquil',dateStyle:'short',timeStyle:'short'})}</time> (hora de Ecuador).</p>}
           {controls.explanation&&<p id={helpId}>{controls.explanation}</p>}

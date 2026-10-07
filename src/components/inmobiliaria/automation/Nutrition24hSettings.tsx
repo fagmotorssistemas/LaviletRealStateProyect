@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -31,14 +32,14 @@ export function Nutrition24hSettings({ projectId, initial, updatedAt: initialUpd
       <p className="text-xs">Una plantilla general que contiene únicamente [Nutricion_24h] no sustituye una plantilla de WhatsApp aprobada por Meta.</p>
     </div>
     <div className="grid gap-4 md:grid-cols-3">
-      <label>Nombre de plantilla<Input value={config.templateName} onChange={e => setConfig({ ...config, templateName: e.target.value, metaApproved: false, templateLinked: false, enabled: false })} /></label>
-      <label>ID del Salesbot<Input type="number" min="1" value={config.botId} onChange={e => setConfig({ ...config, botId: Number(e.target.value), templateLinked: false, enabled: false })} /></label>
-      <label>ID del campo Nutricion_24h<Input type="number" min="1" value={config.fieldId} onChange={e => setConfig({ ...config, fieldId: Number(e.target.value), templateLinked: false, enabled: false })} /></label>
+      <label><span>Nombre de plantilla<SettingsFieldHelp title="Nombre de plantilla" section="seguimiento" /></span><Input value={config.templateName} onChange={e => setConfig({ ...config, templateName: e.target.value, metaApproved: false, templateLinked: false, enabled: false })} /></label>
+      <label><span>ID del Salesbot<SettingsFieldHelp title="ID del Salesbot" section="seguimiento" /></span><Input type="number" min="1" value={config.botId} onChange={e => setConfig({ ...config, botId: Number(e.target.value), templateLinked: false, enabled: false })} /></label>
+      <label><span>ID del campo Nutricion_24h<SettingsFieldHelp title="ID del campo Nutricion_24h" section="seguimiento" /></span><Input type="number" min="1" value={config.fieldId} onChange={e => setConfig({ ...config, fieldId: Number(e.target.value), templateLinked: false, enabled: false })} /></label>
     </div>
     <div className="space-y-3">
-      <label className="flex gap-2"><input type="checkbox" checked={config.metaApproved} onChange={e => setConfig({ ...config, metaApproved: e.target.checked, enabled: false })} />La plantilla de WhatsApp con este texto aparece como Aprobada por Meta.</label>
-      <label className="flex gap-2"><input type="checkbox" checked={config.templateLinked} onChange={e => setConfig({ ...config, templateLinked: e.target.checked, enabled: false })} />El Salesbot envía esa plantilla una sola vez, con la variable vinculada a Nutricion_24h, sin otro temporizador ni mensajes adicionales.</label>
-      <label className="flex gap-2 font-semibold"><input type="checkbox" checked={config.enabled} disabled={!config.metaApproved || !config.templateLinked} onChange={e => setConfig({ ...config, enabled: e.target.checked })} />Activar seguimiento de 24 horas</label>
+      <label className="flex gap-2"><input type="checkbox" checked={config.metaApproved} onChange={e => setConfig({ ...config, metaApproved: e.target.checked, enabled: false })} />La plantilla de WhatsApp con este texto aparece como Aprobada por Meta.<SettingsFieldHelp title="La plantilla de WhatsApp con este texto aparece como Aprobada por Meta." section="seguimiento" /></label>
+      <label className="flex gap-2"><input type="checkbox" checked={config.templateLinked} onChange={e => setConfig({ ...config, templateLinked: e.target.checked, enabled: false })} />El Salesbot envía esa plantilla una sola vez, con la variable vinculada a Nutricion_24h, sin otro temporizador ni mensajes adicionales.<SettingsFieldHelp title="El Salesbot envía esa plantilla una sola vez, con la variable vinculada a Nutricion_24h, sin otro temporizador ni mensajes adicionales." section="seguimiento" /></label>
+      <label className="flex gap-2 font-semibold"><input type="checkbox" checked={config.enabled} disabled={!config.metaApproved || !config.templateLinked} onChange={e => setConfig({ ...config, enabled: e.target.checked })} />Activar seguimiento de 24 horas<SettingsFieldHelp title="Activar seguimiento de 24 horas" section="seguimiento" /></label>
     </div>
     <p className="text-xs">Solo se envía con permiso de seguimiento, IA activa y sin atención de un asesor, cita pendiente o consulta sin responder. Si el cliente contesta, se cancela el mensaje pendiente. Máximo un seguimiento de este tipo cada 7 días. Al activarlo se programan los nuevos turnos atendidos; no se escribe a conversaciones antiguas.</p>
     <Button onClick={() => void save()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar seguimiento de 24 horas'}</Button>

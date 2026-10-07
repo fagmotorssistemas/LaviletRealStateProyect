@@ -9,10 +9,14 @@ import { POLICY_TOPICS, emptyPolicy, type BusinessPolicyState, type PolicyConten
 import { saveBusinessPolicy, saveCatalogSearch } from '@/app/inmobiliaria/automatizacion/conocimiento/actions'
 import type { CatalogSearchSettings } from '@/lib/inmobiliaria/catalogSearch'
 import { CatalogSearchControl } from './CatalogSearchControl'
+import { SettingsHelp } from './SettingsHelp'
+import { automationHelpFor } from '@/lib/inmobiliaria/automationHelp'
+import type { ProjectAreaFact } from '@/lib/inmobiliaria/projectAreaFacts'
+import { ProjectAreaFactsSettings } from './ProjectAreaFactsSettings'
 import styles from './KnowledgeCenter.module.css'
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-type Initial = { projectName: string; updatedAt: string; state: BusinessPolicyState; catalogSearch: CatalogSearchSettings }
+type Initial = { projectName: string; updatedAt: string; state: BusinessPolicyState; catalogSearch: CatalogSearchSettings; areaFacts: ProjectAreaFact[]; areaError: string }
 export function KnowledgeCenter({ projectId, initial, section, policyId }: {
   projectId: string; initial: Initial; section?: string; policyId?: string
 }) {
@@ -69,12 +73,12 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
     <p className={styles.description}>{search ? 'Resultados en todas las categorías.' : active.description}</p>
     <div className={styles.grid}>
       {entries.map(entry => <article className={styles.card} key={entry.href}>
-        <span className={styles.badge}>{entry.category}</span><h2>{entry.title}</h2><p>{entry.description}</p>
+        <span className={styles.badge}>{entry.category}</span><h2>{entry.title}<SettingsHelp title={entry.title} {...automationHelpFor(entry.href.startsWith('conocimiento?') ? 'entorno' : entry.href.split('#')[0], entry.description)} /></h2><p>{entry.description}</p>
         <p>Lo aplica: {entry.owner}.</p><Link href={entry.href.startsWith('/') ? entry.href.replace('{projectId}', projectId) : `/inmobiliaria/automatizacion/${entry.href}`}>Abrir configuración →</Link>
       </article>)}
       {showPolicies && policies.map(item => <article className={styles.card} key={item.id}>
         <span className={styles.badge}>{item.published ? item.published.validUntil && item.published.validUntil < new Date().toISOString().slice(0, 10) ? 'Vencida' : `Publicada · versión ${item.published.version}` : 'Borrador · sin publicación activa'}</span>
-        <h2>{item.published?.title || item.draft.title}</h2><p>{POLICY_TOPICS[item.draft.topic]}</p>
+        <h2>{item.published?.title || item.draft.title}<SettingsHelp title="Política comercial" {...automationHelpFor('politicas')} /></h2><p>{POLICY_TOPICS[item.draft.topic]}</p>
         <p>Aplica a todos los leads del proyecto según su etapa y vigencia. El modo de pruebas controla por separado a quién responde el bot.</p>
         <p>{item.published?.scope || item.draft.scope || 'Alcance pendiente de definir.'}</p>
         <p>Contenido: negocio · Uso: redactor y revisor.</p>
@@ -84,6 +88,7 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
     {showPolicies && !policies.length && <div className={styles.card}><h2>{search ? 'Sin políticas coincidentes' : 'Todavía no hay políticas comerciales'}</h2>
       <p>Registre las condiciones que su equipo haya confirmado. Una política sin publicar no se utiliza para responder al cliente.</p></div>}
     {!showPolicies && !entries.length && <p className={styles.description}>No se encontraron configuraciones.</p>}
+    {active.id === 'proyecto' && !search && <ProjectAreaFactsSettings projectId={projectId} initial={saved.areaFacts} loadError={saved.areaError} />}
     {active.id === 'conversacion' && !search && <div className={styles.card}>
       <h2>Reglas obligatorias del flujo</h2><p>La restricción de presentar tipos de inmuebles antes de recoger los datos sigue en el flujo de apertura. La validación de cifras exactas, identidad confirmada y acciones realizadas sigue a cargo del sistema.</p>
       <p>Estas reglas requieren cambios de desarrollo; la personalidad y las preguntas editables se administran arriba.</p>
@@ -95,13 +100,13 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
       {found?.published && <p>Versión publicada: {found.published.version}. Editar y guardar un borrador no reemplaza esa versión.</p>}
       <fieldset disabled={busy} className={styles.form}>
         <legend className="sr-only">Contenido de la política</legend>
-        <label>Título<input maxLength={120} value={draft.title} onChange={e => update({ title: e.target.value })} /></label>
-        <label>Tema<select value={draft.topic} onChange={e => update({ topic: e.target.value as PolicyContent['topic'] })}>{Object.entries(POLICY_TOPICS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        <label className={styles.wide}>Condiciones confirmadas<textarea maxLength={3000} value={draft.content} onChange={e => update({ content: e.target.value })} placeholder="Describa qué está permitido, qué condiciones deben cumplirse y qué queda pendiente de confirmar." /></label>
-        <label className={styles.wide}>Alcance y excepciones<textarea maxLength={600} value={draft.scope} onChange={e => update({ scope: e.target.value })} placeholder="A quién y a qué etapas aplica. Por ejemplo: información, reserva o firma; residencia y nacionalidad se distinguen." /></label>
-        <label className={styles.wide}>Fuente o responsable que confirmó la información<input maxLength={600} value={draft.source} onChange={e => update({ source: e.target.value })} placeholder="Documento y versión, enlace o responsable y fecha de confirmación" /></label>
-        <label>Etapa comercial<select value={draft.mode} onChange={e => update({ mode: e.target.value as PolicyContent['mode'] })}><option value="todos">Todas</option><option value="lanzamiento">Lanzamiento</option><option value="preventa">Preventa</option></select></label>
-        <label>Vigente hasta (opcional)<input type="date" value={draft.validUntil} onChange={e => update({ validUntil: e.target.value })} /></label>
+        <label><span>Título<SettingsHelp title="Título" configures="Identifica esta política en la plataforma." usedByBot="Permite localizar una condición publicada; el título no sustituye su alcance." applies="A las consultas del proyecto que correspondan a la etapa, alcance y vigencia de la política." saving="Guardar borrador conserva la versión publicada. Publicar aplica la versión confirmada a futuras ejecuciones; pausar la retira." /></span><input maxLength={120} value={draft.title} onChange={e => update({ title: e.target.value })} /></label>
+        <label><span>Tema<SettingsHelp title="Tema" configures="Clasifica el tipo de condición comercial." usedByBot="Ayuda a seleccionar políticas pertinentes sin modificar el orden de la conversación." applies="A las consultas del proyecto que correspondan a la etapa, alcance y vigencia de la política." saving="Guardar borrador conserva la versión publicada. Publicar aplica la versión confirmada a futuras ejecuciones; pausar la retira." /></span><select value={draft.topic} onChange={e => update({ topic: e.target.value as PolicyContent['topic'] })}>{Object.entries(POLICY_TOPICS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label className={styles.wide}><span>Condiciones confirmadas<SettingsHelp title="Condiciones confirmadas" configures="La condición comercial que su equipo ha confirmado." usedByBot="Se usa como dato del negocio; no modifica los controles de acciones, consentimiento o precios." applies="A las consultas del proyecto que correspondan a la etapa, alcance y vigencia de la política." saving="Guardar borrador conserva la versión publicada. Publicar aplica la versión confirmada a futuras ejecuciones; pausar la retira." /></span><textarea maxLength={3000} value={draft.content} onChange={e => update({ content: e.target.value })} placeholder="Describa qué está permitido, qué condiciones deben cumplirse y qué queda pendiente de confirmar." /></label>
+        <label className={styles.wide}><span>Alcance y excepciones<SettingsHelp title="Alcance y excepciones" configures="A quién, a qué unidad y a qué situación aplica la política." usedByBot="Impide extender una condición parcial a unidades o trámites que no incluye." applies="A las consultas del proyecto que correspondan a la etapa, alcance y vigencia de la política." saving="Guardar borrador conserva la versión publicada. Publicar aplica la versión confirmada a futuras ejecuciones; pausar la retira." /></span><textarea maxLength={600} value={draft.scope} onChange={e => update({ scope: e.target.value })} placeholder="A quién y a qué etapas aplica. Por ejemplo: información, reserva o firma; residencia y nacionalidad se distinguen." /></label>
+        <label className={styles.wide}><span>Fuente o responsable que confirmó la información<SettingsHelp title="Fuente o responsable que confirmó la información" configures="El documento o responsable que confirma el contenido." usedByBot="Respalda su publicación. El sistema no comprueba automáticamente el contenido de una referencia." applies="A las consultas del proyecto que correspondan a la etapa, alcance y vigencia de la política." saving="Guardar borrador conserva la versión publicada. Publicar aplica la versión confirmada a futuras ejecuciones; pausar la retira." /></span><input maxLength={600} value={draft.source} onChange={e => update({ source: e.target.value })} placeholder="Documento y versión, enlace o responsable y fecha de confirmación" /></label>
+        <label><span>Etapa comercial<SettingsHelp title="Etapa comercial" configures="Los modos comerciales en los que está autorizada esta política." usedByBot="Solo incorpora la política cuando coincide con el modo del proyecto." applies="A las consultas del proyecto que correspondan a la etapa, alcance y vigencia de la política." saving="Guardar borrador conserva la versión publicada. Publicar aplica la versión confirmada a futuras ejecuciones; pausar la retira." /></span><select value={draft.mode} onChange={e => update({ mode: e.target.value as PolicyContent['mode'] })}><option value="todos">Todas</option><option value="lanzamiento">Lanzamiento</option><option value="preventa">Preventa</option></select></label>
+        <label><span>Vigente hasta (opcional)<SettingsHelp title="Vigente hasta (opcional)" configures="La última fecha en que aplica la política." usedByBot="Las políticas vencidas dejan de enviarse al bot en nuevas ejecuciones." applies="A las consultas del proyecto que correspondan a la etapa, alcance y vigencia de la política." saving="Guardar borrador conserva la versión publicada. Publicar aplica la versión confirmada a futuras ejecuciones; pausar la retira." /></span><input type="date" value={draft.validUntil} onChange={e => update({ validUntil: e.target.value })} /></label>
       </fieldset>
       {error && <p role="alert" className={styles.error}>{error}</p>}
       {notice && <p role="status" className={styles.notice}>{notice}</p>}

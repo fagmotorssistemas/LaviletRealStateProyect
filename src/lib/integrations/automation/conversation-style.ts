@@ -11,13 +11,19 @@ export function isCourtesyOnly(message: string) {
   // «Está bien», «de acuerdo» u «ok» también pueden autorizar una propuesta.
   return /^(?:(?:perfecto|muchas gracias|muchisimas gracias|gracias|con mucho gusto|muy amable|muy bien|excelente|entendido|hasta luego|igualmente|estare puntual|ahi estare|alli estare|nos vemos|le esperamos|hasta entonces)\s*)+$/.test(normalized(message))
 }
+function previousReplies(history: unknown): Row[] {
+  return (Array.isArray(history) ? history : []).map(object).filter(row => {
+    const status = text(row.provider_status || object(row.tool_calls).provider_status)
+    return ['bot', 'asesor'].includes(text(row.role)) && !['rejected', 'failed', 'cancelled', 'not_sent', 'pending', 'queued'].includes(status)
+  })
+}
 export function greetingForTurn(current: string, history: unknown, lastBotAt: unknown, at: string) {
   const match = current.trim().match(/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas tardes\b|buenas noches\b|buenas\b)/i)
-  const hasPreviousReply = (Array.isArray(history) ? history : []).map(object).some(r => ['bot', 'asesor'].includes(text(r.role)))
-    || Number.isFinite(Date.parse(text(lastBotAt)))
-  if (!match) return current.trim() && !hasPreviousReply && !isCourtesyOnly(current) ? 'Hola' : ''
-  const previous = (Array.isArray(history) ? history : []).map(object)
-    .filter(r => ['bot', 'asesor'].includes(text(r.role))).map(r => Date.parse(text(r.sent_at)))
+  const replies = previousReplies(history)
+  const hasPreviousReply = replies.length > 0 || Number.isFinite(Date.parse(text(lastBotAt)))
+  // Greeting belongs to the first allowed reply, irrespective of route or intent.
+  if (!match) return !hasPreviousReply ? 'Hola' : ''
+  const previous = replies.map(r => Date.parse(text(r.sent_at)))
   const last = Math.max(0, Date.parse(text(lastBotAt)) || 0, ...previous.filter(Number.isFinite))
   const now = Date.parse(at)
   if (last && ecuadorYmd(new Date(last)) === ecuadorYmd(new Date(now)) && now - last < 15 * 60_000) return ''
@@ -29,14 +35,18 @@ export function localGreeting(at: string) {
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Guayaquil', hour: '2-digit', hourCycle: 'h23' }).format(new Date(at)))
   return hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'
 }
+export function applyTurnGreeting(reply: string, greeting: string): string {
+  const body = reply.trim()
+  if (!body || !greeting || /^(?:hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas(?: tardes| noches)?\b)/i.test(body)) return body
+  return `${greeting}. ${body}`
+}
 export function naturalConversationReply(reply: string, name: string, greeting: string, at?: string) {
   const full = name.trim(), first = conversationalFirstName(full)
   let result = reply.trim().replace(/\\n/g, '\n').replace(/\bamenidades\b/gi, 'instalaciones').replace(/p\. m\.\.|a\. m\.\./g, value => value.slice(0, -1))
   result = result.replace(/^buenas(?=\s*[,!.:;]|$)/i, at ? localGreeting(at) : 'Hola')
   if (at) result = result.replace(/^(hola[, .!]*\s*)?buen(?:os días|as tardes|as noches)/i, (_, hola: string) => (hola || '') + localGreeting(at))
   if (full && full !== first) result = result.replace(new RegExp(full.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&'), 'gi'), first)
-  if (greeting && !/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas\b)/i.test(result)) result = greeting + '. ' + result
-  return result
+  return applyTurnGreeting(result, greeting)
 }
 export function minimalGreeting(greeting: string) {
   return `${greeting || 'Hola'}, un gusto saludarle. ¿En qué podemos ayudarle?`

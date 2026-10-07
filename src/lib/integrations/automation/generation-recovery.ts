@@ -8,6 +8,7 @@ import { compareInboundOrder } from './inbound-order'
 import { preserveCtwaForContact } from './ctwa-lead-store'
 import type { Guard } from './visits'
 import { normalized } from './sdr-rules'
+import { applyTurnGreeting, greetingForTurn } from './conversation-style'
 
 export class GenerationRecoveryError extends Error {
   constructor(public original: unknown, public deliveryUncertain: boolean) { super('GENERATION_RECOVERY_FAILED') }
@@ -145,14 +146,18 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     if (reactivated.error) throw Error('HANDOFF_BOT_STATE_FAILED')
     const handed = await one('leads', text(lead.id))
     if (!['queued', 'assigned', 'acknowledged'].includes(text(handed.handoff_status))) throw Error('HANDOFF_NOT_RECORDED')
-    const notice = 'Disculpe la demora. He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.'
+    const previousMessages = await db().from('messages').select('role, content, sent_at, tool_calls')
+      .eq('conversation_id', conversationId).in('role', ['bot', 'asesor']).order('sent_at', { ascending: false }).limit(50)
+    if (previousMessages.error) throw Error('RECOVERY_CONTEXT_READ_FAILED')
+    const greeting = greetingForTurn(current, previousMessages.data, lead.last_bot_message_at, last.sentAt)
+    const notice = applyTurnGreeting('Disculpe la demora. He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.', greeting)
     if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
     await setKommoField(last.kommoId, 457014, notice)
     if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
     sendStarted = true
     await launchSalesbot(last.kommoId, 15578)
     await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: notice, p_model: reviewFailure ? 'system:review-recovery' : 'system:generation-recovery',
-      p_tool_calls: { source_message_id: last.externalId, provider_status: 'accepted', source: reviewFailure ? 'review_recovery' : 'generation_recovery', ...recoveryDetail } })
+      p_tool_calls: { source_message_id: last.externalId, provider_status: 'accepted', writer_greeting: greeting, source: reviewFailure ? 'review_recovery' : 'generation_recovery', ...recoveryDetail } })
     return { action: 'advisor_recovery', delivery_status: 'accepted', ...recoveryDetail, requires_review: false }
   } catch (error) { throw new GenerationRecoveryError(error, sendStarted) }
 }

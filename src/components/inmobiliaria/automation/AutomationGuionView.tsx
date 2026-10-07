@@ -1,16 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { MessageSquareText, ListChecks, Workflow, CalendarClock, Landmark } from 'lucide-react'
 import { AutomationSettingsHeader, AutomationSettingsSummary, AutomationSettingsSections, AutomationSettingsPanel as GuionCard, automationSettingsStyles as styles } from './AutomationSettings'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Select } from '@/components/ui/Select'
+import { Input as BaseInput, type InputProps } from '@/components/ui/Input'
+import { Select as BaseSelect, type SelectProps } from '@/components/ui/Select'
 import { Spinner } from '@/components/ui/Spinner'
-import { Textarea } from '@/components/ui/Textarea'
+import { Textarea as BaseTextarea, type TextareaProps } from '@/components/ui/Textarea'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { useAuth } from '@/contexts/AuthContext'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
@@ -34,6 +35,10 @@ import {
   type TopicPromptRow,
 } from '@/types/automationGuion'
 import type { Project } from '@/types/inmobiliaria'
+
+function Input(props: InputProps) { return <BaseInput {...props} labelAccessory={props.label ? <SettingsFieldHelp title={props.label} section="guion" /> : undefined} /> }
+function Select(props: SelectProps) { return <BaseSelect {...props} labelAccessory={props.label ? <SettingsFieldHelp title={props.label} section="guion" /> : undefined} /> }
+function Textarea(props: TextareaProps) { return <BaseTextarea {...props} labelAccessory={props.label ? <SettingsFieldHelp title={props.label} section="guion" /> : undefined} /> }
 
 function Toggle({
   checked,

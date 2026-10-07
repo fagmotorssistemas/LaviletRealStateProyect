@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { SettingsFieldHelp } from './SettingsHelp'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/Button'
 import { visitInvitation, type BotVisitPolicy } from '@/lib/inmobiliaria/botVisits'
@@ -14,7 +15,7 @@ export function BotVisitSettings({ projectId, initial, mode, updatedAt, onSaved 
     finally { setSaving(false) }
   }
   return <div className="space-y-5 text-sm text-[#3a3d36]">
-    <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={policy.allowSuggestions} onChange={e => setPolicy({ ...policy, allowSuggestions: e.target.checked })} />Permitir que el bot sugiera una visita</label>
+    <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={policy.allowSuggestions} onChange={e => setPolicy({ ...policy, allowSuggestions: e.target.checked })} />Permitir que el bot sugiera una visita<SettingsFieldHelp title="Permitir que el bot sugiera una visita" section="proyecto" /></label>
     <p>Al desactivarlo, el bot responde las consultas y comparte material sin invitar a una visita. Si el cliente pide una cita por iniciativa propia, puede ayudarle a coordinarla.</p>
     {policy.readiness ? <p>Los lugares habilitados se administran en <a className="underline" href="/inmobiliaria/automatizacion/proyecto">Estado del proyecto</a>.</p> : <label className="block">Destino de la visita durante Lanzamiento
       <select className="mt-2 block w-full rounded-lg border border-[#deded4] bg-white p-3" value={policy.launchDestination} onChange={e => setPolicy({ ...policy, launchDestination: e.target.value as BotVisitPolicy['launchDestination'] })}>
