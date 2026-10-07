@@ -15,6 +15,8 @@ export type Inbound = {
   /** Solo si Kommo reenvió ctwa_clid; no implica atribución ads/orgánico. */
   ctwa: CtwaCapture | null
   adReferral?: AdReferral | null
+  /** Database ingestion sequence, never a provider ID interpreted as ordering. */
+  transportSequence?: number
   /**
    * Resumen seguro del probe pre-normalización (sin valores/PII).
    * Se persiste en lv_integration_events.payload para correlacionar sin Vercel.
@@ -204,7 +206,7 @@ export function normalizeKommoWebhook(raw: string, contentType: string, now = Da
       chatId: get('chat_id'),
       text: body,
       name: get('author][name').slice(0, 200),
-      sentAt: validEventDate(get('created_at') || String(Number(get('sec_created_at'))/1000), now),
+      sentAt: validEventDate(Number(get('sec_created_at')) ? String(Number(get('sec_created_at')) / 1000) : get('created_at'), now),
       origin: get('origin'),
       media: mediaUrl || mediaType || mediaName ? { type: mediaType, url: mediaUrl, name: mediaName } : null,
       ctwa,
@@ -248,7 +250,7 @@ export function normalizeKommoWebhook(raw: string, contentType: string, now = Da
         chatId: get('chat_id'),
         text: body,
         name: get('author][name').slice(0, 200),
-        sentAt: validEventDate(get('created_at') || String(Number(get('sec_created_at'))/1000), now),
+        sentAt: validEventDate(Number(get('sec_created_at')) ? String(Number(get('sec_created_at')) / 1000) : get('created_at'), now),
         origin: get('origin'),
         userId,
         authorType,

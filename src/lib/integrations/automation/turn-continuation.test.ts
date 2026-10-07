@@ -44,7 +44,10 @@ test('the same pending decision applies across information topics, without a key
           missing_datum: 'vivienda o local', next_decision: 'Mostrar opciones', continuation_id: 'property_category', continuation_act: 'choose_category' } }
       }))
     assert.deepEqual(errors, [])
-    assert.equal(result.reply, reply); assert.deepEqual(calls, ['writing'])
+    if (source === 'brochure') {
+      assert.ok(result.reply.startsWith(reply)); assert.match(result.reply, /https:\/\/www\.lavilett\.com\/materiales\//)
+    } else assert.equal(result.reply, reply)
+    assert.deepEqual(calls, ['writing'])
     assert.equal(object(result.audit.commercial_journey).action, 'discover_use')
     assert.equal(object(object(result.audit.writer_contract).continuacion_del_turno).required, true)
     assert.equal(journeyPendingQuestion(reply, object(result.audit.commercial_journey), true, result.audit.question).id, 'property_category')
@@ -144,6 +147,7 @@ test('the existing reviewer can repair a disconnected answer with a present CTA 
 test('a delivery inquiry preserves known preferences and carries the same timeline to writer and reviewer', async () => {
   const entrega_proyecto=deliveryContext({project_delivery:{current:{...emptyProjectDelivery(),enabled:true,timing:'year',year:2028,source:'Dirección del proyecto'}}},'2026-10-05')
   const info={...fresh(),...compatibleCatalog,entrega_proyecto,lead:{purchase_purpose:'vivir',preferred_bedrooms:2},
+    recorrido_comercial:{presented_unit_ids:['d304']},
     property_context:{query:{group:'residential',category:'departamento',filters:{bedrooms:2}}}}
   const reply='La entrega se estima para 2028; aún no hay un mes definido. Para orientarle entre las opciones de dos dormitorios, ¿tiene un presupuesto estimado?'
   const errors:unknown[]=[],calls:string[]=[]
@@ -221,10 +225,11 @@ test('the reviewer can reject a generic CTA that replaces the actual pending dec
   assert.equal(result.needsAdvisor, false)
 })
 
-test('review disabled remains a real bypass; an omitted question is never saved as delivered', async () => {
+test('review disabled skips paid calls but cannot send a missing required decision', async () => {
   const answer = 'El proyecto combina viviendas y espacios comerciales.'
   const result = await withResponseReviewPolicy(off, () => completeTurnReply({ current: 'que es mixto', baseReply: answer, verified: fresh(), audit }, async () => draft(answer)))
-  assert.equal(result.reply, answer); assert.equal(result.audit.status, 'review_disabled')
+  assert.notEqual(result.reply, answer); assert.equal(result.audit.status, 'rejected_guard')
+  assert.equal(object(result.audit.final_validation).passed, false)
   const plan = object(result.audit.commercial_journey)
   assert.equal(plan.question_id, 'property_category')
   assert.deepEqual(journeyPendingQuestion(answer, plan, true), {})

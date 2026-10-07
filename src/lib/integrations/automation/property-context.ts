@@ -16,13 +16,27 @@ const code = (value: unknown) => `${/^LC/i.test(text(value)) ? 'LC-' : ''}${Numb
 
 /** Read actual delivered copy, not the model's summary, preserving the displayed order. */
 export function unitsInPropertyReply(catalog: Row[], reply: string) {
-  const value = normalized(reply).replace(/https?:\/\/\S+/g, '')
+  const value = reply.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ')
   const hits: { index: number; units: Row[] }[] = []
-  const matches = [...value.matchAll(/\b(?:penthouse|departamento|apartamento|suite|unidad|local(?: comercial)?|lc-?)\s*(?:numero\s*)?(\d{1,4})\b/g)]
+  const matches = [...value.matchAll(/\b(?:penthouses?|departamentos?|apartamentos?|suites?|unidad(?:es)?|local(?:es)?(?: comerciales?)?|lc-?)\s*(?:numeros?\s*)?(\d{1,4})\b/g)]
+  // Bind every code in an explicit list to its category. An area, price or
+  // room count elsewhere in the message is not an offered unit identifier.
+  for (const list of value.matchAll(/\b(penthouses?|departamentos?|apartamentos?|suites?|unidad(?:es)?|local(?:es)?(?: comerciales?)?)\s*(?:numeros?\s*)?((?:lc-?)?\d{1,4}(?:\s*(?:,|y|e)\s*(?:lc-?)?\d{1,4})+)\b/g)) {
+    const category = list[1].startsWith('apartamento') ? 'departamento' : list[1].startsWith('local') ? 'local'
+      : list[1].startsWith('unidad') ? '' : list[1].replace(/s$/, '')
+    for (const member of list[2].matchAll(/(?:lc-?)?\d{1,4}/g)) {
+      const units = available(catalog).filter(unit => code(unit.unit_number) === code(member[0])
+        && (!category || unit.category === category))
+      if (units.length === 1) hits.push({ index: (list.index || 0) + list[0].indexOf(list[2]) + (member.index || 0), units })
+    }
+  }
   if (/departamentos?|suites?|penthouses?|unidades?|locales?/.test(value)) {
     matches.push(...value.matchAll(/\b(?:el|del|la|y|con|entre)\s+(?:(?:el|la)\s+)?(\d{3,4})\b|\((\d{3,4})\)/g))
   }
   for (const match of matches) {
+    if (/^(?:el|del|la|y|con|entre)\s/.test(match[0])
+      && /^\s*(?:m(?:²|2)?\b|usd\b|dolares\b|dormitorios?\b|banos?\b)/.test(value.slice((match.index || 0) + match[0].length))) continue
     const number = match[1] || match[2]
     const isLocal = /^(?:lc|local)/.test(match[0])
     const units = available(catalog).filter(unit => Number(text(unit.unit_number).replace(/\D/g, '')) === Number(number)
@@ -83,6 +97,12 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const base = resolveCatalogReference(catalog, current, summary._unit_reference, history)
   const m = normalized(current)
   const pending = normalizedPendingQuestion(Object.keys(object(summary._pending_question)).length ? summary._pending_question : context.pending_question)
+  if (pending.id === 'property_requirements' && pending.act === 'other' && isBareAffirmative(current)
+    && !Object.keys(object(pending.proposed_query)).length) {
+    const clarification = 'Para buscar alternativas necesito saber qué requisito podemos cambiar: ¿cuál desea mantener y cuál podría flexibilizar?'
+    return { ...base, matches: [], explicit: false, needsClarification: true, reason: 'requirement_adjustment_not_identified',
+      clarification, query: context.query, context: { ...context, pending_question: { ...pending, question: clarification } } as Row }
+  }
   const ambiguous = unresolvedChoice(current, pending)
   if (ambiguous) return { ...base, matches: [], explicit: false, needsClarification: true, reason: 'unresolved_choice',
     query: { ...object(context.query), operation: 'none' }, context, choice_clarification: ambiguous }

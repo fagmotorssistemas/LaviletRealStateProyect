@@ -3,6 +3,7 @@ import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import 'server-only'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { activePrompt, aiJson, draftReply } from './ai'
+import { projectPublicName, PROJECT_NAME_WRITING_RULES } from './conversation-tone'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
 import { deliveryContext, PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
@@ -19,7 +20,7 @@ import { catalogReferenceReply, resolveCatalogReference } from './catalog-refere
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
 import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
-import { commercialEngagement, passiveSalesCopy } from './commercial-engagement'
+import { passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules } from './response-openings'
 import { MAX_REPLY_CHARACTERS } from './response-plan'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
@@ -110,7 +111,9 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage, unit_id: lead.unit_id, budget: lead.budget,
     budget_max: lead.budget_max, behavior_signals: lead.behavior_signals }, historial: history,
     perfil_lead: profile, conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
-    proyecto: { name: projectData.name, address: projectData.address, description: projectData.description }, modo_comercial: mode,
+    proyecto: { name: projectPublicName(projectData, projectData.policies_json),
+      public_name: projectPublicName(projectData, projectData.policies_json),
+      address: projectData.address, description: projectData.description }, modo_comercial: mode,
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
     politicas_negocio: policies,
     politica_descuentos: discounts.policy,
@@ -136,6 +139,9 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  const project = object(info.proyecto)
+  if (project.name || project.public_name) info = { ...info, proyecto: { ...project,
+    name: projectPublicName(project), public_name: projectPublicName(project) } }
   info = projectLocationForPrompt(info, locationDisclosurePolicy({ current, verified: info }))
   info = { ...info, hechos_confirmados: confirmedInterpretationMemory(summary) }
   // Explicit project information wins over an inferred or remembered catalogue query.
@@ -262,7 +268,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     const financing = mentionsFinancing(current) ? priceFinancingReply(current, { partners, current: object(finance.current) }) : ''
     return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price',
       verified_price_only: quote.quoted === true && turnAnswers.topics.every(topic => ['price', 'options'].includes(topic)),
-      passive_sales: commercialEngagement(current, info.historial, summary._sales_memory).passive,
+      passive_sales: plan.engagement.passive,
       ...(quote.comparison ? { price_comparison: quote.comparison } : {}),
       ...(quote.followUp ? { offered_unit_ids: quote.followUp.candidate_ids,
         pending_question: { id: 'unit_choice', act: 'explore_quoted_options', question: quote.followUp.question, candidate_ids: quote.followUp.candidate_ids, target_ids: [] },
@@ -305,6 +311,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
     + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\n' + PROJECT_DELIVERY_RULES
+    + '\n' + PROJECT_NAME_WRITING_RULES
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'

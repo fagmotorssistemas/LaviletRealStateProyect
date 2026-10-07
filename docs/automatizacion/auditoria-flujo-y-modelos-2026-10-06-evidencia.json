@@ -1,0 +1,670 @@
+{
+  "audit_type": "read_only_cost_model_prompt_audit",
+  "source": "tmp/complete-runtime-audit-readonly.json",
+  "captured_at": "2026-10-07T02:53:19.872Z",
+  "limitation": "Limited recent call and retrieval samples. Not all leads, full account spend, billing invoice, or production-quality proof. Model-request durations exclude message grouping and delivery. No network calls were performed by this audit.",
+  "complete_model_turns": 14,
+  "complete_model_calls": 65,
+  "model_costs": {
+    "reviewer|gpt-5-mini": {
+      "calls": 21,
+      "measuredCalls": 21,
+      "pricedCalls": 21,
+      "inputTokens": 341195,
+      "cachedInputTokens": 28672,
+      "outputTokens": 21058,
+      "totalTokens": 362253,
+      "estimatedUsd": 0.12096355,
+      "inputUsd": 0.07813075000000003,
+      "cachedUsd": 0.0007168,
+      "outputUsd": 0.042115999999999994,
+      "embeddingTokens": 0,
+      "embeddingUsd": 0,
+      "unmeasuredTransportAttempts": 0,
+      "priceVersion": "2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-5-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+        }
+      ],
+      "complete": true
+    },
+    "writer|gpt-4.1-mini": {
+      "calls": 16,
+      "measuredCalls": 16,
+      "pricedCalls": 16,
+      "inputTokens": 286106,
+      "cachedInputTokens": 33792,
+      "outputTokens": 3941,
+      "totalTokens": 290047,
+      "estimatedUsd": 0.1106104,
+      "inputUsd": 0.1009256,
+      "cachedUsd": 0.0033792000000000006,
+      "outputUsd": 0.0063056,
+      "embeddingTokens": 0,
+      "embeddingUsd": 0,
+      "unmeasuredTransportAttempts": 0,
+      "priceVersion": "2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-4.1-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+        }
+      ],
+      "complete": true
+    },
+    "extractor|gpt-4.1": {
+      "calls": 14,
+      "measuredCalls": 14,
+      "pricedCalls": 14,
+      "inputTokens": 191548,
+      "cachedInputTokens": 55680,
+      "outputTokens": 13691,
+      "totalTokens": 205239,
+      "estimatedUsd": 0.409104,
+      "inputUsd": 0.271736,
+      "cachedUsd": 0.02784,
+      "outputUsd": 0.10952799999999999,
+      "embeddingTokens": 0,
+      "embeddingUsd": 0,
+      "unmeasuredTransportAttempts": 0,
+      "priceVersion": "2026-09-29",
+      "priceSnapshots": [
+        {
+          "model": "gpt-4.1",
+          "version": "2026-09-29",
+          "source": null
+        }
+      ],
+      "complete": true
+    },
+    "scope|gpt-4o-mini": {
+      "calls": 14,
+      "measuredCalls": 14,
+      "pricedCalls": 14,
+      "inputTokens": 22300,
+      "cachedInputTokens": 1024,
+      "outputTokens": 369,
+      "totalTokens": 22669,
+      "estimatedUsd": 0.0034896,
+      "inputUsd": 0.0031914,
+      "cachedUsd": 0.0000768,
+      "outputUsd": 0.00022140000000000004,
+      "embeddingTokens": 0,
+      "embeddingUsd": 0,
+      "unmeasuredTransportAttempts": 0,
+      "priceVersion": "2026-09-29",
+      "priceSnapshots": [
+        {
+          "model": "gpt-4o-mini",
+          "version": "2026-09-29",
+          "source": null
+        }
+      ],
+      "complete": true
+    }
+  },
+  "total_cost": {
+    "calls": 65,
+    "measuredCalls": 65,
+    "pricedCalls": 65,
+    "inputTokens": 841149,
+    "cachedInputTokens": 119168,
+    "outputTokens": 39059,
+    "totalTokens": 880208,
+    "estimatedUsd": 0.6441675500000001,
+    "inputUsd": 0.4539837500000001,
+    "cachedUsd": 0.0320128,
+    "outputUsd": 0.158171,
+    "embeddingTokens": 0,
+    "embeddingUsd": 0,
+    "unmeasuredTransportAttempts": 0,
+    "priceVersion": "2026-09-29 y 2026-09-30",
+    "priceSnapshots": [
+      {
+        "model": "gpt-5-mini",
+        "version": "2026-09-30",
+        "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+      },
+      {
+        "model": "gpt-4.1-mini",
+        "version": "2026-09-30",
+        "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+      },
+      {
+        "model": "gpt-4.1",
+        "version": "2026-09-29",
+        "source": null
+      },
+      {
+        "model": "gpt-4o-mini",
+        "version": "2026-09-29",
+        "source": null
+      }
+    ],
+    "complete": true
+  },
+  "mini_writer_statistics": {
+    "duration_ms": {
+      "n": 16,
+      "min": 2062,
+      "p50": 3146,
+      "p90": 4129,
+      "max": 6516,
+      "mean": 3341.6875
+    },
+    "characters": {
+      "instructions": {
+        "n": 16,
+        "min": 31332,
+        "p50": 33190,
+        "p90": 35399,
+        "max": 36601,
+        "mean": 33639.375
+      },
+      "context": {
+        "n": 16,
+        "min": 22076,
+        "p50": 45993,
+        "p90": 52024,
+        "max": 62061,
+        "mean": 39963.9375
+      },
+      "schema": {
+        "n": 16,
+        "min": 2052,
+        "p50": 3192,
+        "p90": 3197,
+        "max": 3202,
+        "mean": 2838.875
+      },
+      "total": {
+        "n": 16,
+        "min": 60675,
+        "p50": 80849,
+        "p90": 88379,
+        "max": 98484,
+        "mean": 76478.1875
+      }
+    }
+  },
+  "conditional_writer_scenarios": [
+    {
+      "model": "gpt-4o-mini",
+      "rates_per_million": {
+        "input": 0.15,
+        "cached": 0.075,
+        "output": 0.6
+      },
+      "writer_usd": 0.04274609999999999,
+      "total_usd": 0.5763032500000002
+    },
+    {
+      "model": "gpt-5.4-nano",
+      "rates_per_million": {
+        "input": 0.2,
+        "cached": 0.02,
+        "output": 1.25
+      },
+      "writer_usd": 0.056064890000000006,
+      "total_usd": 0.5896220400000002
+    }
+  ],
+  "scenario_assumptions": "Identical token usage, cache counts, prompts and calls. Model quality, latency and any changed retry rate were not tested. Rates supplied by parent official documentation audit.",
+  "latest_turn": {
+    "turn": "turn_1",
+    "cost": {
+      "calls": 5,
+      "measuredCalls": 5,
+      "pricedCalls": 5,
+      "inputTokens": 54533,
+      "cachedInputTokens": 11136,
+      "outputTokens": 3605,
+      "totalTokens": 58138,
+      "estimatedUsd": 0.03631425,
+      "inputUsd": 0.01777525,
+      "cachedUsd": 0.005568,
+      "outputUsd": 0.012970999999999998,
+      "embeddingTokens": 0,
+      "embeddingUsd": 0,
+      "unmeasuredTransportAttempts": 0,
+      "priceVersion": "2026-09-29 y 2026-09-30",
+      "priceSnapshots": [
+        {
+          "model": "gpt-5-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-5-mini"
+        },
+        {
+          "model": "gpt-4.1-mini",
+          "version": "2026-09-30",
+          "source": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+        },
+        {
+          "model": "gpt-4.1",
+          "version": "2026-09-29",
+          "source": null
+        },
+        {
+          "model": "gpt-4o-mini",
+          "version": "2026-09-29",
+          "source": null
+        }
+      ],
+      "complete": true
+    },
+    "roles": [
+      {
+        "role": "reviewer",
+        "model": "gpt-5-mini",
+        "code_version": "fc57d24ba5cb0f55ee868383aacf9dbabb9a17e5",
+        "ms": 15788,
+        "size": {
+          "unit": "characters",
+          "total": 58439,
+          "schema": 14536,
+          "context": 24786,
+          "user_prefix": 36,
+          "instructions": 19081
+        },
+        "usage": {
+          "input_tokens": 12812,
+          "total_tokens": 13765,
+          "output_tokens": 953,
+          "reasoning_tokens": 320,
+          "cached_input_tokens": 0
+        }
+      },
+      {
+        "role": "reviewer",
+        "model": "gpt-5-mini",
+        "code_version": "fc57d24ba5cb0f55ee868383aacf9dbabb9a17e5",
+        "ms": 15299,
+        "size": {
+          "unit": "characters",
+          "total": 52526,
+          "schema": 14536,
+          "context": 19563,
+          "user_prefix": 36,
+          "instructions": 18391
+        },
+        "usage": {
+          "input_tokens": 11360,
+          "total_tokens": 12744,
+          "output_tokens": 1384,
+          "reasoning_tokens": 448,
+          "cached_input_tokens": 0
+        }
+      },
+      {
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "code_version": "fc57d24ba5cb0f55ee868383aacf9dbabb9a17e5",
+        "ms": 2531,
+        "size": {
+          "unit": "characters",
+          "total": 67261,
+          "schema": 3192,
+          "context": 28797,
+          "user_prefix": 36,
+          "instructions": 35236
+        },
+        "usage": {
+          "input_tokens": 14452,
+          "total_tokens": 14714,
+          "output_tokens": 262,
+          "reasoning_tokens": 0,
+          "cached_input_tokens": 0
+        }
+      },
+      {
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "code_version": "fc57d24ba5cb0f55ee868383aacf9dbabb9a17e5",
+        "ms": 7869,
+        "size": {
+          "unit": "characters",
+          "total": 67803,
+          "schema": 13810,
+          "context": 8885,
+          "user_prefix": 36,
+          "instructions": 45072
+        },
+        "usage": {
+          "input_tokens": 13966,
+          "total_tokens": 14949,
+          "output_tokens": 983,
+          "reasoning_tokens": 0,
+          "cached_input_tokens": 11136
+        }
+      },
+      {
+        "role": "scope",
+        "model": "gpt-4o-mini",
+        "code_version": "fc57d24ba5cb0f55ee868383aacf9dbabb9a17e5",
+        "ms": 1170,
+        "size": {
+          "unit": "characters",
+          "total": 8980,
+          "schema": 461,
+          "context": 4276,
+          "user_prefix": 36,
+          "instructions": 4207
+        },
+        "usage": {
+          "input_tokens": 1943,
+          "total_tokens": 1966,
+          "output_tokens": 23,
+          "reasoning_tokens": 0,
+          "cached_input_tokens": 0
+        }
+      }
+    ],
+    "model_path_elapsed_ms": 44609,
+    "extra_review_cause": "Parent verified latest_coverage target=review_metadata, status=review_completed, issues_count=5."
+  },
+  "retrieval": {
+    "unique_turn_step_records": 44,
+    "methods": {
+      "current_catalog": 29,
+      "structured_catalog": 14,
+      "structured_catalog_and_embeddings": 1
+    },
+    "applied": [
+      {
+        "at": "2026-10-05T17:50:19.976+00:00",
+        "model": "text-embedding-3-small",
+        "tokens": 17,
+        "duration_ms": 433,
+        "reason": "complete_filtered_catalog"
+      }
+    ]
+  },
+  "local_synthetic_current_capture": {
+    "file": "tmp/audit-current-prompt-sizes-readonly.json",
+    "cmd": "node scripts/evaluate-prompt-compaction.cjs --out tmp/audit-current-prompt-sizes-readonly.json",
+    "calls": 0,
+    "mode": "Fixture extractor prompt from file + DEFAULT_TONE, current code, with all fetch blocked. Then independently captured exact current aiJson wrapper by replacing requestOpenAI locally; actual trust suffix is 81 characters longer than evaluator suffix.",
+    "cases": [
+      {
+        "id": "price-of-proposal",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 1985,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 60604
+        }
+      },
+      {
+        "id": "size-of-proposal",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 1986,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 60605
+        }
+      },
+      {
+        "id": "accept-alternatives",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 1991,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 60610
+        }
+      },
+      {
+        "id": "reject-alternatives",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 2012,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 60631
+        }
+      },
+      {
+        "id": "explicit-new-topic",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 2023,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 60642
+        }
+      },
+      {
+        "id": "people-not-bedrooms",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 477,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59096
+        }
+      },
+      {
+        "id": "minimum-bedroom-count",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 457,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59076
+        }
+      },
+      {
+        "id": "tentative-budget",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 561,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59180
+        }
+      },
+      {
+        "id": "jep-choice",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 593,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59212
+        }
+      },
+      {
+        "id": "pichincha-choice",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 610,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59229
+        }
+      },
+      {
+        "id": "partial-identity",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 543,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59162
+        }
+      },
+      {
+        "id": "compound-information",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 2019,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 60638
+        }
+      },
+      {
+        "id": "negated-visit",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 2028,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 60647
+        }
+      },
+      {
+        "id": "explicit-advisor",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 460,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59079
+        }
+      },
+      {
+        "id": "opt-out",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 462,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59081
+        }
+      },
+      {
+        "id": "typo-information",
+        "role": "extractor",
+        "model": "gpt-4.1",
+        "size": {
+          "instructions": 44773,
+          "context": 469,
+          "schema": 13810,
+          "user_prefix": 36,
+          "total": 59088
+        }
+      },
+      {
+        "id": "greeting-1753",
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "size": {
+          "instructions": 42048,
+          "context": 14128,
+          "schema": 3192,
+          "user_prefix": 36,
+          "total": 59404
+        }
+      },
+      {
+        "id": "greeting-paraphrase",
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "size": {
+          "instructions": 42048,
+          "context": 14044,
+          "schema": 3192,
+          "user_prefix": 36,
+          "total": 59320
+        }
+      },
+      {
+        "id": "exact-price-floor",
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "size": {
+          "instructions": 37286,
+          "context": 22434,
+          "schema": 3192,
+          "user_prefix": 36,
+          "total": 62948
+        }
+      },
+      {
+        "id": "family-guidance",
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "size": {
+          "instructions": 36794,
+          "context": 20751,
+          "schema": 3192,
+          "user_prefix": 36,
+          "total": 60773
+        }
+      },
+      {
+        "id": "personal-acknowledgement",
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "size": {
+          "instructions": 36794,
+          "context": 20998,
+          "schema": 3192,
+          "user_prefix": 36,
+          "total": 61020
+        }
+      },
+      {
+        "id": "writer-recommend-alternative",
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "size": {
+          "instructions": 33202,
+          "context": 22297,
+          "schema": 3192,
+          "user_prefix": 36,
+          "total": 58727
+        }
+      },
+      {
+        "id": "writer-price-of-proposal",
+        "role": "writer",
+        "model": "gpt-4.1-mini",
+        "size": {
+          "instructions": 31703,
+          "context": 23045,
+          "schema": 3192,
+          "user_prefix": 36,
+          "total": 57976
+        }
+      }
+    ]
+  }
+}

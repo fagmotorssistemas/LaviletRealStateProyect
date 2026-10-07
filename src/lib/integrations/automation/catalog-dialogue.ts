@@ -89,6 +89,45 @@ export function filterCatalog(catalog: Row[], query: CatalogQuery, scopedIds?: s
   return partitionCatalog(catalog, query, scopedIds).units
 }
 
+/** A recommendation changes one verified physical requirement, never the
+ * customer's price limit or an indispensable number of bedrooms. */
+export function catalogRequirementAlternative(catalog: Row[], query: CatalogQuery, excluded: Set<string>, scopedIds?: string[]) {
+  if (query.filters.bedrooms_required === true) return null
+  const fields = new Set(rows(query.requirements).filter(r => r.strength === 'required'
+    && !['published_commercial_price', 'unmodeled', 'spaces'].includes(text(r.field))).map(r => text(r.field)))
+  if (query.filters.bedrooms !== null || query.filters.bedrooms_any?.length) fields.add('bedrooms')
+  if (query.filters.floor_number !== null) fields.add('floor_number')
+  if (query.filters.min_area_m2 !== null || query.filters.max_area_m2 !== null) fields.add('area_internal_m2')
+  const proposals: { field: string; query: CatalogQuery; units: Row[] }[] = []
+  for (const field of fields) {
+    const filters = { ...query.filters }
+    if (field === 'bedrooms') Object.assign(filters, { bedrooms: null, bedrooms_any: [], bedrooms_operator: null, bedrooms_upper: null, bedrooms_required: false })
+    if (field === 'floor_number') filters.floor_number = null
+    if (field === 'area_internal_m2') Object.assign(filters, { min_area_m2: null, max_area_m2: null })
+    // An unavailable apartment count can be explored across compatible housing
+    // types. This is an explicit proposal, never a silent category selection;
+    // exclusions and every other physical/price constraint still apply.
+    let proposed = catalogQuery({ ...query, operation: 'search', selector: null,
+      category: field === 'bedrooms' && query.group === 'residential' && query.category === 'departamento' ? null : query.category, filters,
+      requirements: rows(query.requirements).filter(r => r.field !== field) })
+    let units = filterCatalog(catalog, proposed, scopedIds).filter(unit => !excluded.has(text(unit.category))
+      && unit[field] != null && unit[field] !== '' && Number.isFinite(Number(unit[field])))
+    if (!units.length) continue
+    if (field === 'bedrooms' && units.every(unit => typeof unit.bedrooms === 'number' && Number.isFinite(unit.bedrooms) && unit.bedrooms > 0)) {
+      const requested = query.filters.bedrooms ?? query.filters.bedrooms_any?.[0]
+        ?? rows(query.requirements).find(r => r.field === field && typeof r.value === 'number')?.value
+      const count = typeof requested === 'number' ? units.reduce((best, unit) =>
+        Math.abs(Number(unit.bedrooms) - requested) < Math.abs(best - requested) ? Number(unit.bedrooms) : best, Number(units[0].bedrooms)) : null
+      if (count !== null) {
+        proposed = catalogQuery({ ...proposed, filters: { ...proposed.filters, bedrooms: count } })
+        units = filterCatalog(units, proposed)
+      }
+    }
+    proposals.push({ field, query: proposed, units })
+  }
+  return proposals.length === 1 ? proposals[0] : null
+}
+
 export function rankCatalog(units: Row[], selector: string | null, pricesAllowed = false) {
   const field = ['largest', 'smallest'].includes(selector || '') ? 'area_internal_m2'
     : pricesAllowed && ['cheapest', 'most_expensive'].includes(selector || '') ? 'published_commercial_price' : null
@@ -257,14 +296,20 @@ export function catalogFloorOverview(units: Row[]) {
 }
 
 /** Category-level alternatives precede individual specifications and floor selection. */
-function alternativeOverview(units: Row[]) {
+function alternativeOverview(units: Row[], includeFloorDetails = true) {
   const groups = [...categories].filter(category => units.some(unit => unit.category === category)).map(category => {
     const members = units.filter(unit => unit.category === category)
     const areas = members.map(unit => measurement(unit.area_internal_m2))
+    const min = areas.every(area => area !== null) ? Math.min(...areas as number[]) : null
     const max = areas.every(area => area !== null) ? Math.max(...areas as number[]) : null
+    const exterior = members.map(unit => measurement(unit.area_exterior_m2))
+    const exteriorMin = exterior.every(area => area !== null) ? Math.min(...exterior as number[]) : null
+    const exteriorMax = exterior.every(area => area !== null) ? Math.max(...exterior as number[]) : null
+    const floors = [...new Set([...members].sort((a, b) => Number(a.floor_number) - Number(b.floor_number)).map(floorLabel).filter(Boolean))]
     const description = categorySummary(members)[0]
-    return { category, max_area_internal_m2: max,
-      description: `${description}${max !== null ? `, con hasta ${number(max)} m² interiores` : ''}` }
+    return { category, min_area_internal_m2: min, max_area_internal_m2: max,
+      min_area_exterior_m2: exteriorMin, max_area_exterior_m2: exteriorMax, floors,
+      description: `${description}${min !== null && max !== null ? min === max ? `, con ${number(min)} m² interiores` : `, desde ${number(min)} hasta ${number(max)} m² interiores` : ''}${includeFloorDetails && exteriorMin !== null && exteriorMax !== null ? exteriorMin === exteriorMax ? ` y ${number(exteriorMin)} m² exteriores` : ` y desde ${number(exteriorMin)} hasta ${number(exteriorMax)} m² exteriores` : ''}${includeFloorDetails && floors.length ? ` en ${join(floors)}` : ''}` }
   })
   const reply = groups.map(group => `${group.description.charAt(0).toUpperCase()}${group.description.slice(1)}.`).join(' ')
   return { reply, groups }
@@ -339,7 +384,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     && reference.explicit !== true && reference.needsClarification !== true) query.operation = 'search'
   const partition = partitionCatalog(catalog, query, scopedIds)
   const candidates = partition.units
-  const excluded = ids(semantic.excluded_categories)
+  const excluded = [...new Set([...ids(semantic.excluded_categories), ...ids(context.excluded_categories)])]
   const units = candidates.filter(unit => !excluded.includes(text(unit.category)))
   const unknown = partition.unknown.filter(unit => !excluded.includes(text(unit.category)))
   const availableIds = new Set(unitIds(filterCatalog(catalog, catalogQuery({}))))
@@ -376,29 +421,18 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
       : verifiedAbsenceReply(baseAudit) || `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
     if (unknown.length) return respond(opening)
     if (query.filters.bedrooms_required === true) return respond(opening)
-    let proposed = catalogQuery({ ...query, operation: 'search', scope: 'catalog', selector: null,
-      filters: { ...query.filters, bedrooms_any: [], bedrooms: null, floor_number: null, min_area_m2: null, max_area_m2: null } })
-    let wider = filterCatalog(catalog, proposed).filter(unit => !excluded.includes(text(unit.category)))
-    const offerOtherHomes = query.category === 'departamento' && (query.filters.bedrooms !== null || !!query.filters.bedrooms_any?.length)
-      && query.filters.floor_number === null && query.filters.min_area_m2 === null && query.filters.max_area_m2 === null
-    if (query.group === 'residential' && (!wider.length || offerOtherHomes)) {
-      proposed = { ...proposed, category: null }
-      wider = filterCatalog(catalog, proposed).filter(unit => !excluded.includes(text(unit.category)))
-    }
-    if ((query.filters.bedrooms !== null || query.filters.bedrooms_any?.length) && wider.length) {
-      const maxBedrooms = Math.max(...wider.map(unit => measurement(unit.bedrooms) || 0))
-      if (maxBedrooms > 0) {
-        proposed = { ...proposed, filters: { ...proposed.filters, bedrooms: maxBedrooms, bedrooms_required: false, bedrooms_operator: undefined, bedrooms_upper: undefined } }
-        wider = wider.filter(unit => measurement(unit.bedrooms) === maxBedrooms)
-      }
-    }
-    if (!wider.length) return respond(opening, { original_query: query })
-    const overview = alternativeOverview(wider)
-    const next = '¿Le gustaría revisar las alternativas disponibles?'
-    return respond(`${opening} Podemos ofrecerle estas alternativas: ${overview.reply} ${next}`,
+    const alternative = catalogRequirementAlternative(catalog, query, new Set(excluded), scopedIds)
+    if (!alternative) return respond(opening, { original_query: query })
+    const proposed = alternative.query, wider = alternative.units
+    const overview = alternativeOverview(wider, false)
+    const next = alternative.field === 'bedrooms' && proposed.filters.bedrooms !== null
+      ? `¿Le gustaría revisar las opciones de ${proposed.filters.bedrooms} dormitorios que tenemos disponibles?`
+      : '¿Le gustaría revisar estas alternativas con ese cambio de requisito?'
+    return respond(`${opening} Podemos revisar estas alternativas y valorar si se adaptan a lo que necesita: ${overview.reply} ${next}`,
       { original_query: query, alternative_results: { query: proposed, unit_ids: unitIds(wider), units: wider.map(unit => facts(unit, object(info.politica_comercial).precios_autorizados === true)) },
         alternative_presentation: { kind: 'category_overview', groups: overview.groups },
-        pending_question: { ...question('property_category', 'explore_alternatives', next, [], wider), proposed_query: proposed } })
+        pending_question: { ...question('property_requirements', 'explore_alternatives', next, [], wider), proposed_query: proposed,
+          requirement_change: { field: alternative.field } } })
   }
   if (query.operation === 'rank') {
     const ranked = rankCatalog(units, query.selector, object(info.politica_comercial).precios_autorizados === true)
@@ -433,23 +467,22 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
       progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(units), reason: 'comparison_answered_before_selection' },
       catalog_coverage: { ...object(baseAudit.catalog_coverage), required_dimensions: ['bedrooms', 'area_internal_m2', 'area_exterior_m2', 'floor_number'] } })
   }
-  if (query.operation === 'search' && !query.category && Object.keys(object(context.original_query)).length
+  const concreteDetails = query.operation === 'details' && (reference.explicit === true
+    || Array.isArray(semantic.unit_numbers) && semantic.unit_numbers.length > 0)
+  if (['search', 'details'].includes(query.operation) && !concreteDetails && !query.category
+    && (query.filters.bedrooms !== null || query.filters.bedrooms_any?.length || Object.keys(object(context.original_query)).length)
     && new Set(units.map(unit => unit.category)).size > 1) {
-    const overview = alternativeOverview(units)
+    const overview = alternativeOverview(units, false)
     const names = [...new Set(units.map(unit => plural[text(unit.category)]))]
     const next = `¿Prefiere que revisemos primero ${join(names, 'o')}?`
-    const rankedGroups = [...overview.groups].sort((a, b) => Number(b.max_area_internal_m2) - Number(a.max_area_internal_m2))
-    const comparable = rankedGroups.length === 2 && rankedGroups.every(g => g.max_area_internal_m2 !== null)
-      && rankedGroups[0].max_area_internal_m2 !== rankedGroups[1].max_area_internal_m2
-    const continuation = comparable
-      ? `Los ${categorySummary(units.filter(u => u.category === rankedGroups[0].category))[0]} ofrecen hasta ${number(rankedGroups[0].max_area_internal_m2!)} m² interiores, frente a un máximo de ${number(rankedGroups[1].max_area_internal_m2!)} m² interiores en los ${categorySummary(units.filter(u => u.category === rankedGroups[1].category))[0]}.`
-      : overview.reply
-    return respond(`${continuation} ${next}`, {
+    return respond(`${overview.reply} ${next}`, {
       offered_unit_ids: unitIds(units), alternative_presentation: { kind: 'category_overview', groups: overview.groups },
       pending_question: question('property_category', 'choose_category', next),
+      progressive_selection: { stage: 'choose_category', question: next, candidate_ids: unitIds(units), criteria: query.filters,
+        reason: 'compatible_types_before_floor_or_unit' },
     })
   }
-  if (query.operation === 'details' || query.operation === 'select' || units.length === 1) {
+  if (concreteDetails || query.operation === 'select' || units.length === 1) {
     if (units.length !== 1 || reference.needsClarification === true) {
       const next = '¿Cuál de estas opciones le gustaría conocer?'
       return respond(`${groupedCharacteristics(units)}\n${floorComparison(units)} ${next}`, { offered_unit_ids: unitIds(units), pending_question: question('unit_choice', 'choose_unit', next),
@@ -482,7 +515,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   const choosingChangedCategory = object(context.preference_transition).active === true && query.category && query.filters.floor_number === null
   if (floors.length > 1) {
     const next = '¿En qué planta le gustaría revisar las opciones?'
-    const body = `${semanticCandidates ? 'Entre las opciones encontradas hay' : 'Tenemos'} ${catalogFloorOverview(units)}.`
+    const body = `${semanticCandidates ? 'Entre las opciones encontradas hay' : 'Podemos revisar estas opciones:'} ${alternativeOverview(units).reply}`
     return respond(`${body} ${next}`,
       { offered_unit_ids: unitIds(units), pending_question: question('property_floor', 'choose_floor', next),
         progressive_selection: { stage: 'choose_floor', question: next, candidate_ids: unitIds(units), criteria: query.filters, reason: 'choose_floor_before_unit', client_requested_change: !!choosingChangedCategory,

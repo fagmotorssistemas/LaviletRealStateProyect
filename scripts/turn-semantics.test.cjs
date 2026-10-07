@@ -258,6 +258,43 @@ test('legacy reply parsing recognizes generic profile questions without inventin
   for (const id of ['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation']) assert.ok(ids.includes(id))
 })
 
+test('explanations and passive offers never become a pending question from their subject alone', () => {
+  for (const reply of [
+    'No tenemos viviendas de cinco dormitorios. Disponemos de departamentos y penthouses de tres dormitorios. Quedo atento a sus indicaciones.',
+    'Perfecto, Carlos. Quedo a su disposición para ayudarle a evaluar opciones de tres dormitorios o suites.',
+    'Puede indicarme cualquier otra preferencia o duda que tenga.',
+    'El presupuesto total, el capital inicial y la entrada se revisan con la institución.',
+    'Podemos coordinar una visita a la oficina. Nuestro horario es de lunes a viernes.',
+    'Los departamentos de tres dormitorios están en varias plantas. Si desea, puedo seguir apoyándole con detalles.',
+  ]) {
+    const pending = pendingQuestionFromReply(reply)
+    assert.deepEqual(pending, {}, reply)
+    const answer = extract('está bien', {}, pending, { question_id: 'property_category', kind: 'affirmative' })
+    assert.equal(answer.answer_to_previous.question_id, null, reply)
+  }
+})
+
+test('actual requests distinguish alternatives, categories, floors and concrete units', () => {
+  for (const [reply, id, act] of [
+    ['¿Desea revisar las opciones de tres dormitorios disponibles?', 'property_bedrooms', 'explore_alternatives'],
+    ['¿Le gustaría evaluar las alternativas de 3 dormitorios?', 'property_bedrooms', 'explore_alternatives'],
+    ['¿Está interesado en una vivienda o en un local para su negocio?', 'property_category', 'choose_category'],
+    ['¿Desea conocer los departamentos o los penthouses?', 'property_category', 'choose_category'],
+    ['Por favor, indíqueme qué planta prefiere.', 'property_floor', 'choose_floor'],
+    ['Para continuar, señale cuál de estas plantas le interesa.', 'property_floor', 'choose_floor'],
+    ['Tenemos los departamentos 202 y 302. ¿Cuál de estas unidades desea revisar?', 'unit_choice', 'choose_unit'],
+  ]) {
+    const pending = pendingQuestionFromReply(reply)
+    assert.equal(pending.id, id, reply)
+    assert.equal(pending.act, act, reply)
+  }
+  for (const reply of [
+    'Tenemos departamentos y penthouses de tres dormitorios. ¿Cuál de estas opciones le interesa?',
+    'Tenemos departamentos de 3 dormitorios entre la segunda y quinta planta. ¿Cuál de estas unidades le interesa?',
+    '¿Cuál unidad específica le interesa?',
+  ]) assert.notEqual(pendingQuestionFromReply(reply).id, 'unit_choice', reply)
+})
+
 test('the strict extraction schema requires every field and forbids unexpected keys recursively', () => {
   function check(schema) {
     if (schema.type === 'object') {

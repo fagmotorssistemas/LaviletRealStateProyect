@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { financingCollection } from './financing-intake'
+import { financingCollection, financingReadyForHandoff } from './financing-intake'
 import { financingInputs, financingPendingQuestion } from './financing'
 import { financingJourney } from './financing-stage'
 import { reviewObligations } from './focused-review'
@@ -11,6 +11,31 @@ import { object, type Row } from './data'
 
 const partners = ['Banco Pichincha', 'Cooperativa JEP']
 const personalFields = ['legal_name', 'national_id', 'applicant_type', 'monthly_income']
+
+test('RPC readiness never hands off to a disabled, absent or approximately matched lender', () => {
+  assert.equal(financingReadyForHandoff({ ready_for_handoff: true, selected_partner_name: '  BANCO PICHINCHA ' }, ['Banco Pichincha']), true)
+  assert.equal(financingReadyForHandoff({ ready_for_handoff: false, selected_partner_name: 'Banco Pichincha' }, partners), false)
+  for (const selected of ['Cooperativa JEP', '', null, 'Pichincha', 'Banco Pichincha Ecuador'])
+    assert.equal(financingReadyForHandoff({ ready_for_handoff: true, selected_partner_name: selected }, ['Banco Pichincha']), false)
+  assert.equal(financingReadyForHandoff({ ready_for_handoff: true, selected_partner_name: 'Banco Pichincha' }, []), false)
+})
+
+test('a persisted lender disabled by configuration cannot continue personal-data collection', () => {
+  const fin = { state: 'cedula_pendiente', explicit_consent: true, selected_partner_name: 'Cooperativa JEP', full_name: 'Ana Paz', legal_name_confirmed: true }
+  const result = financingCollection(fin, { full_name: 'Ana Paz', complete: true }, { status: 'invalid_length' }, ['Banco Pichincha'])
+  assert.equal(result.collection.collection_allowed, false)
+  assert.equal(result.collection.state, 'entidad_pendiente')
+  assert.equal(result.collection.selected_partner, null)
+  assert.deepEqual(result.collection.requested_fields, ['selected_partner_name'])
+  assert.match(result.reply, /Banco Pichincha/)
+  assert.doesNotMatch(result.reply, /JEP|cédula|nombre completo/)
+  const noConsent = financingCollection({ ...fin, explicit_consent: false }, {}, { status: 'missing' }, ['Banco Pichincha'])
+  assert.doesNotMatch(noConsent.reply, /JEP/)
+  assert.deepEqual(noConsent.collection.requested_fields, ['financing_consent'])
+  const noBank = financingCollection(fin, {}, { status: 'missing' }, [])
+  assert.equal(noBank.collection.collection_allowed, false)
+  assert.deepEqual(noBank.collection.requested_fields, [])
+})
 
 for (const partner of partners) test(`choosing ${partner} before consent preserves its invitation instead of requesting legal data`, () => {
   const choice = financingInputs({}, `Prefiero ${partner}`, '', { partners, current: {} })

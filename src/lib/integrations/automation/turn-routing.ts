@@ -28,15 +28,100 @@ export function teamAttendanceReply(appointments: Row[], proposals: Row[]) {
   if (proposals.some(p => ['awaiting_advisor', 'awaiting_client'].includes(text(p.status)))) return 'Gracias por su mensaje. Tenemos una solicitud de visita a La Vilet pendiente de confirmación; todavía no hay una cita confirmada. Puede haber una confusión con otra coordinación.'
   return 'Gracias por su mensaje. Lamento la confusión: no tenemos una cita confirmada con usted. Si se refiere a una coordinación con alguien de nuestro equipo, podemos ayudarle a verificarla.'
 }
+
+// The action vocabulary is shared across permission clauses. Negation must
+// govern a predicate, rather than vetoing an unrelated "no" in the message.
+const visitPermissionPredicate = '(?:quiero|quisiera|deseo|necesito|prefiero|acepto|autorizo|puedo|podemos|podr[ií]a|podr[ií]amos|me interesa|me gustar[ií]a|voy|vamos|se puede|es posible|agend\\w*|reagend\\w*|coordin\\w*|program\\w*|reprogram\\w*|reserv\\w*|visit\\w*|hacer|realizar|tener|solicitar|ir|venir|pasar|asistir|ver|conocer)'
+const negatedVisitPredicate = new RegExp('\\b(?:no|nunca|jam[aá]s|tampoco|ni)\\s+(?:(?:me|nos|le|les|lo|la|se)\\s+)?' + visitPermissionPredicate + '\\b')
+const newVisitPredicate = new RegExp('\\s+y\\s+(?=(?:(?:no|nunca|jam[aá]s|tampoco|ni)\\s+)?(?:(?:me|nos|le|les)\\s+)?' + visitPermissionPredicate + '\\b)', 'i')
+
+function visitClauseIsConditional(clause: string) {
+  const value = normalized(clause), literal = clause.normalize('NFKC').toLowerCase().trim()
+  if (/\b(?:solo si|solamente si|siempre que|a condicion de|con la condicion de|dependiendo de|en caso de|quizas|quiza|tal vez|supongamos|hasta que|cuando se confirme)\b/.test(value)) return true
+  // Do not erase the accent distinguishing affirmative "sí" from "si".
+  // An unaccented short affirmative before a request is also common in chat.
+  const affirmative = /^si(?:\s*,\s*|\s+)(?:quiero|quisiera|deseo|acepto|autorizo|necesito|me interesa|me gustaria|por favor|claro|de acuerdo)\b/.test(value)
+  for (const condition of literal.matchAll(/\bsi\s+(?=\S)/g)) {
+    if (condition.index === 0 && affirmative) continue
+    const before = literal.slice(0, condition.index)
+    const queryAt = [...before.matchAll(/\b(?:saber|consultar|averiguar|comprobar|confirmar|preguntar|revisar)\b/g)].at(-1)?.index ?? -1
+    const actionAt = [...before.matchAll(/\b(?:agend\w*|reagend\w*|coordin\w*|program\w*|reprogram\w*|visit\w*|reserv\w*)\b/g)].at(-1)?.index ?? -1
+    // "Visitar para saber si hay ascensor" keeps an independent information
+    // question; "saber los precios y visitar si bajan" binds the visit.
+    if (queryAt > actionAt) continue
+    // A capability question can also use conjugated knowledge or uncertainty:
+    // "No sé si puedo visitar" asks permission; it does not condition a visit
+    // on a future price/credit event. Match its immediate subordinate question
+    // so a later "si bajan los precios" still governs the requested visit.
+    const uncertaintyAt = [...before.matchAll(/\b(?:s[eé]|sabes|sabe|sabemos|saben|(?:estoy|estamos)\s+segur[oa]s?(?:\s+de)?|(?:tengo|tenemos)\s+claro|me pregunto|nos preguntamos)\s*$/g)].at(-1)?.index ?? -1
+    const permissionQuestion = /^si\s+(?:puedo|podemos|podr[ií]a|podr[ií]amos|se puede|es posible)\b/.test(literal.slice(condition.index))
+    if (uncertaintyAt > actionAt && permissionQuestion) continue
+    return true
+  }
+  return false
+}
+
+
+/** Balanced reported command quotes cannot become the lead's own permission.
+ * Keep quoted names/emphasis and a whole-message quotation; those are not an
+ * attributed command. This is a bounded source check, not a general parser. */
+function maskReportedVisitCommands(current: string) {
+  const quoted = /«[^»]*»|“[^”]*”|"[^"]*"|(?<!\p{L})'[^']*'(?!\p{L})/gu
+  const command = /\b(?:agend\w*|reagend\w*|coordin\w*|program\w*|reprogram\w*|visit\w*|reserv\w*)\b/
+  let masked = false
+  const withoutReportedCommands = current.replace(quoted, (quote: string, index: number) => {
+    const value = normalized(quote.slice(1, -1))
+    if (!command.test(value) || current.trim() === quote) return quote
+    const before = normalized(current.slice(0, index)).trim()
+    // Quotation around an infinitive can emphasize the actual current request:
+    // "Quiero 'visitar la oficina'" still expresses the lead's own desire.
+    if (/\b(?:quiero|quisiera|deseo|necesito|prefiero|me interesa|me gustaria)\s*[:]?\s*$/.test(before)
+      && /^(?:agendar|reagendar|coordinar|programar|reprogramar|visitar|reservar)\b/.test(value)) return quote
+    masked = true
+    return quote.replace(/[^\r\n]/g, ' ')
+  })
+  return { current: withoutReportedCommands, masked }
+}
+
+function visitPermissionClauses(current: string) {
+  return current.split(/[.!?;\n]+|\bpero\b|\badem[aá]s\b|\bsin embargo\b|\ben cambio\b/iu).flatMap(clause =>
+    // Never detach a consequent from its condition merely because it starts
+    // another predicate after "y". A clear sentence/contrast boundary resets it.
+    visitClauseIsConditional(clause) ? [clause] : clause.split(newVisitPredicate))
+}
+
+function visitClausePermissionVeto(clause: string) {
+  const value = normalized(clause)
+  return negatedVisitPredicate.test(value) || visitClauseIsConditional(clause)
+}
+
+/** Veto a denied or conditional current request without requiring a recognized
+ * stock phrase. Evaluate the enclosing clause, so a clipped evidence quote
+ * cannot omit its governing "no" or "si". An independent positive clause keeps
+ * its permission even when a different destination/request was declined. */
+export function visitRequestPermissionVeto(current: string, evidence = current): boolean {
+  const literal = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+  const proof = literal(evidence)
+  if (!proof || !literal(current).includes(proof)) return false
+  const reported = maskReportedVisitCommands(current)
+  if (reported.masked && !literal(reported.current).includes(proof) && !explicitlyRequestsVisit(reported.current)) return true
+  const clauses = visitPermissionClauses(reported.current).filter(clause => {
+    const quote = literal(clause)
+    return Boolean(quote && (quote.includes(proof) || proof.includes(quote)))
+      && /\b(?:cita|visita|visit\w*|agend\w*|reagend\w*|coordin\w*|program\w*|reprogram\w*|oficina|edificio|obra|proyecto|departamento|suite|local)\b/.test(normalized(clause))
+  })
+  return clauses.length > 0 && clauses.every(visitClausePermissionVeto)
+}
+
 export function explicitlyRequestsVisit(current: string) {
   if (asksTeamAttendance(current)) return false
   // Permission questions are requests too. Evaluate each clause so an unrelated
   // booking or a declined visit cannot borrow an intent from another question.
-  return current.split(/[.!?;\n]+|\bpero\b|\badem[aá]s\b/iu).some(clause => {
+  return visitPermissionClauses(maskReportedVisitCommands(current).current).some(clause => {
     // Repair common appointment typos only after a booking verb. Keep the raw
     // message intact and still apply refusals / unrelated-service checks below.
     const value = normalized(clause).replace(/\b(agendar|reagendar|coordinar|programar|reservar)( una| la)? (?:cira|sita)\b/g, '$1$2 cita')
-    if (!value || /\b(?:no|tampoco|ni) (?:quiero|quisiera|prefiero|puedo|podemos|deseo|me interesa|me gustaria|necesito)\b/.test(value)) return false
+    if (!value || visitClausePermissionVeto(clause)) return false
     if (hasUnrelatedAppointmentTarget(value)) return false
     if (/\bprefiero (?:hacer |realizar |coordinar |agendar )?(?:una |la )?visita\b/.test(value)) return true
     if (/\b(?:no|tampoco)\s+(?:coordinamos|agendamos|programamos|coordinemos|agendemos)\b/.test(value)) return false

@@ -6,20 +6,25 @@ import { LAVILET_KOMMO_ORIGIN } from '../lavilet'
 import { assertLive } from './config'
 import { object, text, type Row } from './data'
 import { accountBlockedStatus, recordKommoBlock, rejectedWriteStatus } from './delivery-state'
+import { reserveKommoCall } from './kommo-admission'
 
 export class ProviderError extends Error {
   constructor(public status: number, public uncertain: boolean, public operation = 'unknown') { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
 }
-let nextCall = 0
 async function request(path: string, method = 'GET', body?: unknown, attempt = 0): Promise<unknown> {
   if (new URL(process.env.KOMMO_BASE_URL || '').origin !== LAVILET_KOMMO_ORIGIN) throw new Error('WRONG_KOMMO_ACCOUNT')
   const token = process.env.KOMMO_ACCESS_TOKEN
   if (!token) throw new Error('KOMMO_CREDENTIALS_MISSING')
   if (method !== 'GET') assertLive()
-  // Un worker global y llamadas secuenciales; mantener margen sobre el límite de la cuenta.
-  const wait = Math.max(0, nextCall - Date.now()); nextCall = Date.now() + wait + 400
-  if (wait) await new Promise(resolve => setTimeout(resolve, wait))
   const operation = method === 'GET' ? 'read' : method === 'PATCH' ? 'update_field' : 'launch_bot'
+  try { await reserveKommoCall() } catch {
+    // Admission is a known local rejection before fetch, including before POST.
+    // Keep the existing safe rejected-write classification without claiming a
+    // provider timeout or permitting a replay of any earlier uncertain write.
+    const error = new ProviderError(429, false, operation)
+    error.message = 'KOMMO_ADMISSION_FAILED'
+    throw error
+  }
   const retryRead = async (status: number): Promise<unknown> => {
     // Reads have no delivery side effects. A bot POST or field mutation is never replayed.
     if (method === 'GET' && attempt < 2 && (!status || status === 429 || status >= 500)) {

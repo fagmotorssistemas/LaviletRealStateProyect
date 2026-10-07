@@ -1285,7 +1285,9 @@ test('the two-hour reminder fills all three Kommo fields before launching Salesb
   assert.equal(launched, 22246)
 })
 test('Kommo launch accepts an empty 202 response and never retries a network failure', async t => {
-  live(t); const { launchSalesbot } = require('../src/lib/integrations/automation/kommo.ts')
+  live(t); const { launchSalesbot } = load('src/lib/integrations/automation/kommo.ts', {
+    './kommo-admission': { reserveKommoCall: async () => {} },
+  })
   let calls = 0
   t.mock.method(global, 'fetch', async () => { calls++; return new Response(null, { status: 202 }) })
   await launchSalesbot(123, 15578); assert.equal(calls, 1)
@@ -1357,6 +1359,97 @@ function financingReadyFixture(extra = {}) {
         query: { group: 'residential', category: unit.category, filters: { bedrooms: 3 }, operation: 'select' } },
     }), ...extra }
 }
+
+test('a bare affirmative cannot accept a historical explanation saved as a phantom question', async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_PHANTOM_QUESTION_TEST') })
+  const previousReply = 'Tenemos departamentos y penthouses de tres dormitorios que puede valorar para su familia. Quedo atento a sus indicaciones.'
+  const current = 'Bueno, está bien'
+  const h = conversationHarness({ catalog: continuityCatalog, history: [{ role: 'bot', content: previousReply }],
+    summary: introducedSummary({ _pending_question: { id: 'property_category', act: 'choose_category', question: previousReply },
+      _property_context: { query: { group: 'residential', filters: { bedrooms: 5 } } } }),
+    commercialResult: { reply: 'Si le interesa, podemos revisar alternativas reales con las características verificadas.', audit: { source: 'commercial' } },
+    extracted: { turn_semantics: { primary_intent: 'answer_previous', confidence: 'high', primary_evidence: current,
+      answer_to_previous: { question_id: 'property_category', kind: 'affirmative', confidence: 'high', evidence: current } } } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const interpreted = h.calls.find(call => call.name === 'ai' && call.args.prompt.includes('extractor_eventos')).args.input
+  assert.deepEqual(interpreted.pregunta_pendiente, {})
+  const saved = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+  assert.deepEqual(saved._property_context.selected_ids || [], [])
+  assert.equal(saved._property_context.query.filters.bedrooms, 5)
+  assert.equal(h.calls.some(call => ['lv_request_reservation_handoff', 'lv_collect_visit_intake', 'process_financing_message_v3'].includes(call.name)), false)
+})
+
+for (const reviewEnabled of [true, false]) test(`family alternatives advance through type, floor, displayed unit and budget with review ${reviewEnabled}`, async t => {
+  live(t)
+  t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_FAMILY_REPLAY') })
+  const catalog = continuityCatalog
+  let summary = introducedSummary({ _sales_memory: { passive_sales: true, property_interest: false } })
+  let lead = { purchase_purpose: 'vivir' }, history = []
+  const turns = [
+    { current: 'Estoy buscando vivienda de cinco dormitorios porque mi familia es grande',
+      property: { group: 'residential', operation: 'search', filters: { bedrooms: 5 } },
+      reply: 'No contamos con viviendas de cinco dormitorios. Podemos revisar departamentos y penthouses de tres dormitorios, con espacios amplios que podrían adaptarse a las necesidades de su familia. ¿Le gustaría revisar estas opciones de tres dormitorios?',
+      question: 'property_requirements', selected: [] },
+    { current: 'Sí, me gustaría revisar esas opciones', property: { operation: 'none' },
+      answer: { question_id: 'property_requirements', kind: 'affirmative' },
+      reply: 'Los departamentos de tres dormitorios tienen 120,83 m² interiores; los penthouses cuentan con entre 140,53 y 142,09 m² interiores. Para empezar a revisar estas alternativas, ¿prefiere departamentos o penthouses?',
+      question: 'property_category', selected: [] },
+    { current: 'Me interesan más los departamentos', property: { category: 'departamento', operation: 'search' },
+      answer: { question_id: 'property_category', kind: 'value' },
+      reply: 'Los departamentos de tres dormitorios tienen 120,83 m² interiores y están disponibles en la segunda y tercera planta alta. Para revisar las opciones de ese tipo, ¿en qué planta le gustaría su departamento?',
+      question: 'property_floor', selected: [] },
+    { current: 'Me gustaría en la tercera planta', property: { operation: 'search', filters: { floor_number: 3 } },
+      answer: { question_id: 'property_floor', kind: 'value' },
+      reply: 'En la tercera planta está el departamento 302, de tres dormitorios y 120,83 m² interiores. Para valorar esta opción, ¿tiene un presupuesto establecido para esta compra?',
+      question: 'budget_amount', selected: [], presented: [unit302.id] },
+    { current: 'Mi presupuesto total es 300000 dólares', property: { operation: 'none' },
+      answer: { question_id: 'budget_amount', kind: 'value' },
+      budget: { status: 'maximum_total', amount: 300000, confidence: 'high', evidence: 'Mi presupuesto total es 300000 dólares' },
+      reply: 'El departamento 302 tiene un precio referencial de lanzamiento de $270,000, dentro de su presupuesto total de $300,000. ¿Desea continuar con el departamento 302?',
+      question: 'unit_choice', selected: [], presented: [unit302.id] },
+  ]
+  for (const turn of turns) {
+    let observedPlan, completionError, completionResult
+    const semantics = { ...extractedProperty(turn.current, turn.property),
+      ...(turn.answer ? { answer_to_previous: { ...turn.answer, confidence: 'high', evidence: turn.current } } : {}),
+      ...(turn.budget ? { budget: turn.budget } : {}) }
+    const h = conversationHarness({ reviewEnabled, summary, history, lead, catalog, captureTrace: true,
+      commercialInfo: { ...continuityInfo(), lead, catalog_read: { complete: true }, historial: history },
+      realCommercial: true, commercialAi: { activePrompt: async () => '', draftReply: async () => turn.reply,
+        aiJson: async () => ({ aprobada: true, motivos: [] }) },
+      extracted: { turn_semantics: semantics, requests: [{ domain: 'property', request: turn.current, evidence: turn.current, confidence: 'high' }] },
+      turnComplete: input => currentContractCoverage(input, async (...args) => {
+        const question = { ...fixtureQuestion(turn.reply, input), continuation_id: turn.question,
+          continuation_act: { property_requirements: 'explore_alternatives', property_category: 'choose_category',
+            property_floor: 'choose_floor', budget_amount: 'budget', unit_choice: 'confirm_unit' }[turn.question] }
+        if (args.at(-1) === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [],
+          question: { ...question, offered_action: 'information' } }
+        observedPlan = args[1].contexto_verificado.siguiente_paso_comercial
+        assert.equal(observedPlan.question_id, turn.question, turn.current)
+        return { reply: turn.reply, requests: [{ fragment: input.current, intent: 'Responder y continuar con las opciones solicitadas',
+          request_type: 'general_information', status: 'answered', evidence: turn.reply, fact_key: null }], question }
+      }).then(result => { completionResult = result.audit; return result }).catch(error => { completionError = error.message; throw error }) })
+    h.rows[0].payload.text = turn.current
+    let result
+    try { result = await h.process([h.rows[0]], async () => {}) }
+    catch (error) { throw new Error(`${turn.current}: ${JSON.stringify({ error: error.message, question: observedPlan?.question_id, completionError, status: completionResult?.status, issues: completionResult?.issues })}`, { cause: error }) }
+    assert.equal(result.action, 'accepted', turn.current)
+    const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+    assert.equal(sent.p_content.includes(turn.reply), true, turn.current)
+    summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
+    lead = { ...h.lead }
+    assert.equal(summary._pending_question.id, turn.question, turn.current)
+    assert.deepEqual(summary._property_context.selected_ids || [], turn.selected, turn.current)
+    assert.equal(summary._sales_memory.passive_sales, false, turn.current)
+    if (turn.presented) assert.deepEqual(summary._commercial_journey.presented_unit_ids, turn.presented, turn.current)
+    else assert.deepEqual(summary._commercial_journey.presented_unit_ids || [], [], turn.current)
+    if (turn.question !== 'budget_amount' && turn.question !== 'unit_choice') assert.doesNotMatch(sent.p_content, /presupuesto|unidad específica|departamento 302/i)
+    assert.equal(h.calls.some(call => ['handoff_lead', 'lv_request_reservation_handoff', 'lv_collect_visit_intake', 'process_financing_message_v3'].includes(call.name)), false, turn.current)
+    history = [...history, { role: 'cliente', content: turn.current }, { role: 'bot', content: sent.p_content }]
+  }
+})
 function visitEligibleInfo(extra = {}) {
   return { ...priceInfo(), perfil_lead: { full_name: 'Carlos', residence_city: 'Cuenca' },
     hechos_confirmados: { budget: { status: 'maximum_total', amount: 400000, confidence: 'high', evidence: 'Mi presupuesto total es 400000' } },
@@ -2229,6 +2322,7 @@ test('unknown budget returns to property selection and does not start financing'
 test('Kommo transient reads retry, permanent credentials errors and writes do not', async t => {
   live(t);const previous=global.fetch;t.after(()=>global.fetch=previous)
   const {getKommoLead,setKommoField}=load('src/lib/integrations/automation/kommo.ts',{
+    './kommo-admission': { reserveKommoCall: async () => {} },
     './delivery-state':{...require('../src/lib/integrations/automation/delivery-state.ts'),recordKommoBlock:async()=>{}}
   })
   let calls=0
@@ -4601,6 +4695,7 @@ test('unit price plus requested interior model survives in one reply without an 
 
 test('an initial when-can-I-visit question returns business hours and keeps intake collecting until the client gives a slot', async t => {
   live(t)
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-06T15:00:00Z').getTime() })
   const hours=Object.fromEntries([1,2,3,4,5].map(day=>[String(day),{open:'09:00',close:'18:00'}]))
   const info={...contextualInfo(),horario_atencion:hours}
   const h=conversationHarness({commercialInfo:info,extracted:{events:['requested_visit'],visit_needs_help:true},intake:{action:'collecting',needs_help:false,slot:{}}})

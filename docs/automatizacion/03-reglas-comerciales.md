@@ -32,20 +32,23 @@ La respuesta comercial se arma con datos del proyecto, no con conocimiento gener
 
 ## Alternativas cuando no existe lo solicitado
 
-La respuesta no está fijada al departamento 202. El sistema debe:
+La recomendación se obtiene del inventario compatible y no queda fijada a una unidad. Cuando no existe un requisito físico solicitado, el sistema debe:
 
 1. explicar brevemente que no existe la característica solicitada;
-2. filtrar alternativas reales de la misma categoría;
-3. ordenar por el atributo que mejor compensa la ausencia, como superficie o dormitorios;
-4. recomendar una unidad concreta con sus datos verificados;
-5. explicar por qué puede ajustarse a la necesidad;
-6. proponer un siguiente paso relacionado.
+2. recomendar alternativas reales y explicar amablemente por qué merece revisarlas, con características verificadas, sin asegurar que cubran la necesidad original;
+3. preguntar si el lead acepta revisar el cambio de requisito, antes de sustituir la búsqueda original;
+4. tras la aceptación, presentar un resumen de todos los tipos compatibles y preguntar cuál prefiere;
+5. una vez elegido el tipo, indicar sus dimensiones y plantas disponibles, y preguntar la planta si existe más de una;
+6. presentar las unidades identificadas de esa planta y sus características, y después preguntar el presupuesto si aún no se conoce;
+7. comparar las opciones y continuar con la elección explícita y los siguientes pasos autorizados.
 
 Ejemplo de forma, no de respuesta fija:
 
-> Actualmente no contamos con departamentos de 5 dormitorios. La opción más amplia disponible es [unidad], con 3 dormitorios y [área] m² interiores. Podemos mostrarle su distribución para que valore si se adapta a su familia.
+> No contamos con viviendas de cinco dormitorios, pero tenemos alternativas de tres dormitorios en departamentos y penthouses con espacios amplios que podrían adaptarse a las necesidades de su familia. ¿Le gustaría revisar estas opciones?
 
-La unidad recomendada cambia con el inventario. El número 202 solo sería correcto si realmente gana el criterio aplicado en ese momento.
+El ejemplo presupone que ambas categorías y su amplitud están verificadas. Si sólo hay una categoría o no existe información de superficie, la respuesta cambia con el inventario. No se ofrecen categorías excluidas ni se insiste cuando el requisito es indispensable o el lead rechaza el ajuste.
+
+Este recorrido no obliga a repetir datos: se conservan tipo, planta y presupuesto declarados voluntariamente; una sola planta no exige elegirla de nuevo. Mostrar una unidad compatible no la selecciona. Una comparación, consulta de precios o aceptación de revisar alternativas tampoco autoriza financiamiento, reserva ni visita.
 
 ## Sector y ubicación comercial
 

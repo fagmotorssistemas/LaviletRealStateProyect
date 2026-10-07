@@ -20,8 +20,8 @@ test('business fact extraction has bounded output room independent of catalogue 
 })
 const input = { respuesta_propuesta: 'Hola. Los valores referenciales van desde $145.000 hasta $550.000 USD, sujetos a cambios. Para compartirle el brochure y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?' }
 
-test('real request assembly and traces isolate the mini writer and support a writer-only rollback', async t => {
-  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_WRITER', 'OPENAI_MODEL_REVIEWER']) {
+test('real requests and traces isolate extractor and writer defaults and independent rollbacks', async t => {
+  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_EXTRACTOR', 'OPENAI_MODEL_WRITER', 'OPENAI_MODEL_REVIEWER']) {
     const previous = process.env[key]
     if (key === 'OPENAI_API_KEY') process.env[key] = 'synthetic'
     else if (key === 'OPENAI_MODEL') process.env[key] = 'gpt-4.1'
@@ -53,9 +53,13 @@ test('real request assembly and traces isolate the mini writer and support a wri
     process.env.OPENAI_MODEL_WRITER = 'gpt-4.1'
     await aiJson('Conserve las reglas del turno.', input, contracts[0], undefined, undefined, settings, 'writing')
     await aiJson('Conserve las reglas del turno.', input, contracts[2], undefined, undefined, settings, 'data')
+    process.env.OPENAI_MODEL_EXTRACTOR = 'gpt-4.1'
+    await aiJson('Conserve las reglas del turno.', input, contracts[2], undefined, undefined, settings, 'data')
+    delete process.env.OPENAI_MODEL_WRITER
+    await aiJson('Conserve las reglas del turno.', input, contracts[0], undefined, undefined, settings, 'writing')
   })
   await trace.flush()
-  const expectedModels = ['gpt-4.1-mini', 'gpt-4.1-mini', 'gpt-4.1', 'gpt-5-mini', 'gpt-4.1', 'gpt-4.1']
+  const expectedModels = ['gpt-4.1-mini', 'gpt-4.1-mini', 'gpt-4.1-mini', 'gpt-5-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1', 'gpt-4.1-mini']
   assert.deepEqual(requests.map(request => request.model), expectedModels)
   assert.deepEqual(stored.filter(step => step.step_key === 'model_request').map(step =>
     (step.input_summary as Record<string, unknown>).model), expectedModels)

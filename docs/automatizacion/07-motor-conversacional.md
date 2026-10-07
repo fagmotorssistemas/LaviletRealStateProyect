@@ -57,6 +57,16 @@ Una escritura fallida de bitácora no cambia el resultado comercial ni repite op
 
 ## Evaluación sin envíos
 
+Actualización local del 6 de octubre de 2026: la planificación y la memoria comparten el recorrido requisito incompatible → aceptación de alternativa → tipo → planta → unidades presentadas → presupuesto → elección. Antes, distintas rutas podían pedir presupuesto demasiado pronto y una marca antigua de modo informativo podía suprimir incluso una aclaración solicitada por el lead. Ahora una búsqueda concreta, interpretada con evidencia literal y alta confianza, puede renovar el interés; pedir sólo precios o información conserva el límite a ofertas no solicitadas.
+
+La pregunta pendiente se obtiene de la pregunta o solicitud directa realmente entregada. Un párrafo explicativo sin invitación no se convierte en una pregunta, aunque mencione dormitorios o tipos. Un «está bien» sin esa pregunta no elige una categoría ni acepta una alternativa. Los números de unidad se recuerdan como presentados sólo si aparecieron en el mensaje aceptado y pertenecen al conjunto autorizado; los candidatos internos no acreditan presentación.
+
+El nombre público se separa del título administrativo del proyecto. El redactor recibe la escritura pública normal y la instrucción de responder directamente en los turnos siguientes. Se mantienen las reglas de perfil y residencia, entrega del brochure, consentimiento financiero, ubicación, enlaces autorizados, integridad de precios y revisión activable. Esta corrección no cambia el modelo ni requiere una migración SQL.
+
+`npm run test:conversation-regression` incluye pruebas locales del recorrido, memoria, preguntas realmente entregadas y nombre público. Usan respuestas controladas y no consumen créditos de OpenAI; verifican lógica y contratos, sin garantizar por sí solas toda redacción de un modelo real.
+
+Validación de esta actualización: 783 pruebas de automatización, 399 de conversación y 271 de integración aprobadas. La suite rápida contiene 256 casos; sus pruebas también forman parte de otros conjuntos, por lo que no se suma su recuento como cobertura independiente. El replay recorre cinco dormitorios → aceptación de tres → tipo → planta → unidad presentada → presupuesto, tanto con revisión activada como desactivada; otro caso rechaza una pregunta histórica ficticia sin iniciar acciones comerciales.
+
 Las pruebas determinísticas verifican contratos, filtros, agregados, referentes, negaciones y recibos de herramientas con datos aislados. Deben incluir conversaciones completas: vivienda → categoría → mayor superficie → planta → aceptación del referente ofrecido. Un rango calculado debe incluir los IDs y filtros que lo respaldan.
 
 Una evaluación del modelo utiliza las instrucciones reales y mensajes anonimizados, con salida hacia un recolector de evaluación, nunca hacia `runAutomation`, `processConversation` ni herramientas que escriban o envíen. El modelo puede proponer operaciones; el entorno de evaluación solo permite herramientas de lectura simuladas. Registrar aciertos de interpretación, cobertura, aclaraciones innecesarias, fidelidad de referentes y latencia.

@@ -3,7 +3,7 @@ import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
 import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
-import { commercialEngagement, passiveSalesRules } from './commercial-engagement'
+import { commercialEngagement, passiveSalesRules, COMMERCIAL_ENGAGEMENT_VERSION, type CommercialEngagementTurn } from './commercial-engagement'
 import { commercialJourneyPlan } from './commercial-journey'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
@@ -65,8 +65,12 @@ export function mentionsFinancing(value: string) {
   return /\b(?:financ\w*|credito\w*|hipotec\w*|pichincha|jep|jardin\s*(?:azuayo|zauayo))\b/.test(normalized(value))
 }
 
-export function rememberSalesReply(previous: unknown, history: unknown, current: string, reply: string) {
-  return salesMemory(previous, [...rows(history), { role: 'cliente', content: current }, { role: 'bot', content: reply }])
+export function rememberSalesReply(previous: unknown, history: unknown, current: string, reply: string, turn?: CommercialEngagementTurn) {
+  const remembered = salesMemory(previous, [...rows(history), { role: 'cliente', content: current }, { role: 'bot', content: reply }])
+  if (!turn) return remembered
+  const engagement = commercialEngagement(current, history, previous, turn)
+  return { ...remembered, passive_sales: engagement.passive, property_interest: engagement.interested,
+    engagement_version: COMMERCIAL_ENGAGEMENT_VERSION }
 }
 
 export function salesTopics(current: string) {
@@ -81,7 +85,10 @@ export function salesTopics(current: string) {
 export function salesPlan(info: Row, current: string, summary: Row) {
   const history = rows(info.historial), replies = history.filter(r => ['bot', 'asesor'].includes(text(r.role)))
   const memory = salesMemory(summary._sales_memory, history)
-  const engagement = commercialEngagement(current, history, summary._sales_memory)
+  const engagement = commercialEngagement(current, history, summary._sales_memory, {
+    semantics: info.semantica_turno, intent: info.contrato_turno,
+    scope: object(info.contrato_turno).scope, pendingQuestion: object(info.contrato_turno).pending_question,
+  })
   const last = text(replies.at(-1)?.content), m = normalized(current)
   const pendingVisit = rows(info.propuestas).some(p => ['confirmed', 'awaiting_advisor', 'awaiting_client'].includes(text(p.status)))
     || object(info.coordinacion_visita).status === 'collecting'
@@ -97,7 +104,7 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
   if (policy.readiness) visits.readiness = policy.readiness as NonNullable<typeof visits.readiness>
   const recentInvitation = replies.slice(-3).some(row => invitation(text(row.content)))
-  const journey = commercialJourneyPlan({ ...info, recorrido_comercial: summary._commercial_journey || {}, _sales_memory: memory })
+  const journey = commercialJourneyPlan({ ...info, recorrido_comercial: summary._commercial_journey || {}, _sales_memory: memory, commercial_engagement: engagement })
   const invite = journey.visit_offer_allowed === true && !engagement.passive && visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
     && (!memory.visit_invited || replies.length >= 3) && !memory.visit_declined
   // An old offer must not block a useful next step after the client starts a new search.

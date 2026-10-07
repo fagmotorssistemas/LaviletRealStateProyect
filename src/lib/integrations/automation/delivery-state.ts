@@ -59,6 +59,7 @@ export async function deliveryHealth() {
     return { id: row.id, kommoId: Number.isSafeInteger(kommoId) && kommoId > 0 ? kommoId : null,
       reason: text(result.reason), at: row.completed_at || row.received_at,
       canResolve: row.status === 'cancelled' && result.requires_review === true,
+      canReconcile: row.status === 'uncertain' && ['inbound', 'advisor_outbound'].includes(row.kind),
       delivery: rejected ? 'rejected' as const : result.delivery_status === 'not_sent' ? 'not_sent' as const
         : result.delivery_status === 'generation_failed' || /^OPENAI_(?:HTTP_|NETWORK_ERROR)/.test(text(result.reason)) ? 'generation_failed' as const : 'unknown' as const }
   })
@@ -107,4 +108,29 @@ export async function resolveDeliveryIncident(id: string, actorId: string) {
     ...object(data.result), requires_review: false, reviewed_by: actorId, reviewed_at: new Date().toISOString(),
   } }).match(scope).eq('id', id).eq('status', 'cancelled')
   if (updateError) throw Error('INCIDENT_REVIEW_FAILED')
+}
+
+export type DeliveryReconciliation = {
+  outcome: 'sent' | 'not_sent'; reviewed: boolean; providerMessageId?: string; reviewReference: string
+}
+
+/** Explicit human review, with a durable proof/attestation. Does not launch a
+ * bot or replay the failed event; subsequent pending inputs get a new wakeup. */
+export async function reconcileDeliveryIncident(id: string, actorId: string, review: DeliveryReconciliation) {
+  if (review.reviewed !== true || !['sent', 'not_sent'].includes(review.outcome)
+    || review.reviewReference.trim().length < 3 || review.reviewReference.length > 300
+    || (review.outcome === 'sent' && !review.providerMessageId?.trim())
+    || (review.outcome === 'not_sent' && !!review.providerMessageId?.trim())) throw Error('DELIVERY_REVIEW_REQUIRED')
+  const result = object(await rpc('lv_app_reconcile_delivery', { p_event: id, p_actor: actorId,
+    p_outcome: review.outcome, p_reviewed: true, p_provider_message_id: review.providerMessageId?.trim() || null,
+    p_review_reference: review.reviewReference.trim() }))
+  if (result.reconciled !== true) throw Error('INCIDENT_REVIEW_FAILED')
+  const contact = text(result.contact_key)
+  if (contact) {
+    try {
+      const { scheduleConversations } = await import('./schedule-conversations')
+      await scheduleConversations([contact])
+    } catch { console.error('DELIVERY_REVIEW_WAKE_FAILED_CRON_FALLBACK') }
+  }
+  return result
 }

@@ -25,6 +25,13 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
     requested_destination: null, offered_destination: null, effective_destination: place(intake.preferred_location_type),
     alternative_accepted: false, status: intake.status === 'collecting' ? 'collecting' : 'none', missing_fields: [] }
   const knownProposal = rows(input.proposals).find(p => ['awaiting_advisor', 'awaiting_client', 'confirmed'].includes(text(p.status)))
+  // A supplied proposals array is the server's active-visit snapshot (past and
+  // cancelled visits are excluded upstream). Missing input means unknown.
+  if (Array.isArray(input.proposals) && !knownProposal && intake.status !== 'collecting'
+    && ['awaiting_advisor', 'awaiting_client', 'confirmed'].includes(text(state.status))) {
+    state = { ...state, status: 'none', request_id: null, missing_fields: [], pending_preference: null,
+      reconciliation: 'no_active_visit_in_authoritative_snapshot' }
+  }
   if (knownProposal) state = { ...state, status: knownProposal.status, request_id: knownProposal.request_id || knownProposal.id,
     effective_destination: place(knownProposal.preferred_location_type) || state.effective_destination }
   const pending = object(input.pendingQuestion)
@@ -79,7 +86,9 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
     alternative_accepted: state.alternative_accepted, explain_restriction: explainRestriction,
     readiness_changed: readinessChanged, question_id: questionId || null, question: question || null,
     information_only: ['availability_information', 'access_information'].includes(currentKind),
-    instruction: currentKind === 'other' ? 'Responda la consulta actual. La visita pendiente queda conservada, pero no repita restricciones ni ofrezca inmuebles o trámites por esa coordinación.'
+    instruction: currentKind === 'other' ? state.status === 'none'
+      ? 'Responda la consulta actual y siga el paso comercial vigente; no arrastre una visita que ya no está activa.'
+      : 'Responda la consulta actual. La visita pendiente queda conservada, pero no repita restricciones ni ofrezca inmuebles o trámites por esa coordinación.'
       : currentKind === 'availability_information' ? 'Responda con los horarios de atención verificados, diferenciándolos de cupos libres. No cree una solicitud ni tome esta consulta como aceptación del lugar alternativo. Conserve la decisión pendiente indicada.'
         : explainRestriction ? 'Explique la limitación física verificada, independientemente de la etapa comercial, y ofrezca únicamente el lugar autorizado indicado. No cambie el lugar elegido ni registre una cita antes de aceptar la alternativa.'
           : 'Atienda la gestión actual sin repetir una restricción ya explicada. Conserve las preferencias declaradas; una solicitud recibida no es una cita confirmada.' }

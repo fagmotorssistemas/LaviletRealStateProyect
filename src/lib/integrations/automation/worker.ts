@@ -30,6 +30,56 @@ async function scheduleTasks() {
   if (error) throw new Error('TASK_SCHEDULE_FAILED')
 }
 
+/** Database maintenance owns no Kommo send resources. Its lease can advance
+ * while contacts are busy; the global send worker retains its old exclusion. */
+async function runMaintenance(config: Row) {
+  const token = randomUUID(), results: Row[] = []
+  if (await rpc('lv_app_maintenance_lock', { p_token: token }) !== true) return results
+  const guard = async () => {
+    assertLive()
+    if (await rpc('lv_app_worker_lock', { p_token: token, p_action: 'renew' }) !== true) throw Error('MAINTENANCE_LEASE_LOST')
+  }
+  try {
+    await scheduleTasks()
+    for (let i = 0; i < 2; i++) {
+      await guard()
+      const batch = await rpc<Row[]>('lv_app_claim_maintenance', { p_token: token })
+      if (!Array.isArray(batch)) throw Error('TRANSPORT_CONTRACT_MISMATCH')
+      if (!batch.length) break
+      const first = object(batch[0]), settings = automationSettings()
+      try {
+        let result: Row
+        if (first.kind === 'decay') {
+          const allowed = settings.globalMaintenance && !settings.testLeadId && config.test_only === false
+          if (allowed) await rpc('apply_temperature_decay')
+          result = { action: allowed ? 'daily_decay' : 'daily_decay_skipped' }
+        } else {
+          const enqueued = await planVisits(guard)
+          if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) {
+            for (const name of ['lv_release_expired_holds', 'lv_escalate_overdue_requests', 'process_handoff_queue']) { await guard(); await rpc(name) }
+          }
+          await guard()
+          const transport = await syncTransportIncidents()
+          const { error } = await db().from('lv_outbox').update({ status: 'uncertain', detail: 'Worker interrumpido; comprobar Kommo' })
+            .match(scope).eq('status', 'claimed').contains('payload', { _app: 'lavilet' }).lt('claimed_at', new Date(Date.now() - 5 * 60_000).toISOString())
+          if (error) throw Error('STALE_OUTBOX_CHECK_FAILED')
+          result = { enqueued, transport }
+        }
+        await rpc('lv_app_finish', { p_token: token, p_ids: batch.map(row => row.id), p_status: 'completed', p_result: result })
+        results.push({ kind: first.kind, ...result })
+      } catch (error) {
+        const reason = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'MAINTENANCE_FAILED'
+        // Mutating SQL could have committed before its response was lost. Keep
+        // this attempt for review; the next minute has a separate maintenance key.
+        await rpc('lv_app_finish', { p_token: token, p_ids: batch.map(row => row.id), p_status: 'uncertain',
+          p_result: { reason, requires_review: true, recovery: 'not_replayed' } })
+        results.push({ kind: first.kind, status: 'uncertain', reason })
+      }
+    }
+    return results
+  } finally { await rpc('lv_app_worker_lock', { p_token: token, p_action: 'release' }) }
+}
+
 export async function runAutomation(contactKey?: string) {
   const inferenceDeadlineAt = Date.now() + 240_000
   const settings = automationSettings()
@@ -38,11 +88,12 @@ export async function runAutomation(contactKey?: string) {
   assertLive()
   const config = await autoConfig()
   if (config.enabled !== true || config.dry_run !== false) return { mode: 'live', processed: 0, reason: 'database_paused' }
+  const maintenance = !contactKey && !await kommoDeliveryBlock() ? await runMaintenance(config) : []
   const token = randomUUID()
   const acquired = contactKey
     ? await rpc('lv_app_contact_lock', { p_token: token, p_contact: contactKey })
     : await rpc('lv_app_worker_lock', { p_token: token, p_action: 'acquire' })
-  if (acquired !== true) return { mode: 'live', processed: 0, reason: 'worker_busy' }
+  if (acquired !== true) return { mode: 'live', processed: 0, reason: 'worker_busy', maintenance }
   const guard = async () => {
     assertLive()
     if (await rpc('lv_app_worker_lock', { p_token: token, p_action: 'renew' }) !== true) throw new Error('WORKER_LEASE_LOST')
@@ -51,7 +102,6 @@ export async function runAutomation(contactKey?: string) {
   try {
     const block = await kommoDeliveryBlock()
     if (block) return { mode: 'live', processed: 0, reason: 'kommo_account_blocked', http_status: block.http_status }
-    if(!contactKey) await scheduleTasks()
     // Reservas abandonadas del nuevo ejecutor requieren revisión; nunca reenvío automático.
     if(!contactKey) {
     const { error } = await db().from('lv_outbox').update({ status: 'uncertain', detail: 'Worker interrumpido; comprobar Kommo' })
@@ -69,7 +119,9 @@ export async function runAutomation(contactKey?: string) {
       try {
         let result: Row
         if (first.kind === 'advisor_outbound') {
-          result = await processAdvisorOutbound(first)
+          result = object(first.payload).identityAmbiguous === true
+            ? { action: 'cancelled', reason: 'ADVISOR_CONTACT_AMBIGUOUS', requires_review: true }
+            : await processAdvisorOutbound(first)
         }
         else if (first.kind === 'inbound') {
           await guard()

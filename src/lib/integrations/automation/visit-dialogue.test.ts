@@ -18,6 +18,22 @@ const turn = (current: string, purpose: string, previous: unknown = {}, destinat
   current, intent: intent(current, purpose, destination), previous, readiness, sourceMessageId: 'current', ...extra })
 const offered = () => turn('Quisiera recorrer el edificio', 'coordination', {}, 'building')
 
+it('reconciles expired visits only when the authoritative active-proposal snapshot was supplied', () => {
+  const previous = { version: 'visit-dialogue-v1', status: 'confirmed', request_id: 'old', effective_destination: 'office' }
+  const expired = visitDialogueTurn({ previous, current: 'Me interesan los departamentos', readiness, proposals: [], intent: { kind: 'none' } })
+  assert.equal(object(expired.state).status, 'none')
+  assert.equal(object(expired.state).request_id, null)
+  const unknown = visitDialogueTurn({ previous, current: 'Me interesan los departamentos', readiness, intent: { kind: 'none' } })
+  assert.equal(object(unknown.state).status, 'confirmed')
+  const active = visitDialogueTurn({ previous, current: 'Me interesan los departamentos', readiness,
+    proposals: [{ status: 'confirmed', request_id: 'active', preferred_location_type: 'office' }] })
+  assert.equal(object(active.state).status, 'confirmed')
+  assert.equal(object(active.state).request_id, 'active')
+  const collecting = visitDialogueTurn({ previous, current: 'Me interesan los departamentos', readiness,
+    proposals: [], intake: { status: 'collecting' } })
+  assert.equal(object(collecting.state).status, 'confirmed')
+})
+
 describe('semantic visit destination and informational continuity', () => {
   it('offers the authorized office at the project site without accepting it or creating a visit', () => {
     const plan = offered()

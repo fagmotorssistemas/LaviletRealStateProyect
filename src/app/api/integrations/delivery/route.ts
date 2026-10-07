@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSessionProfile } from '@/lib/auth/session'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
-import { deliveryHealth, resolveDeliveryIncident, resumeAfterKommoReview } from '@/lib/integrations/automation/delivery-state'
+import { deliveryHealth, reconcileDeliveryIncident, resolveDeliveryIncident, resumeAfterKommoReview } from '@/lib/integrations/automation/delivery-state'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,6 +31,10 @@ export async function POST(request: Request) {
       await resumeAfterKommoReview(session.profile.id)
     } else if (body?.action === 'incident_reviewed' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(body.id || '')) {
       await resolveDeliveryIncident(body.id, session.profile.id)
+    } else if (body?.action === 'reconcile_incident' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(body.id || '')
+      && ['sent', 'not_sent'].includes(body.outcome) && body.reviewed === true
+      && typeof body.reviewReference === 'string' && (!body.providerMessageId || typeof body.providerMessageId === 'string')) {
+      await reconcileDeliveryIncident(body.id, session.profile.id, body)
     } else return NextResponse.json({ error: 'Acción no válida' }, { status: 400, headers })
     return NextResponse.json(await deliveryHealth(), { headers })
   } catch (error) {

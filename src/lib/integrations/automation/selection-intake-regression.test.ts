@@ -46,9 +46,10 @@ test('bedroom evidence keeps all compatible types and inherits only a previously
   assert.equal(candidates.length, 7)
   const response = catalogDialogueReply({ ...baseInfo(), referencia_unidad: reference, property_context: reference.context, semantica_turno: semantics }, current)!
   assert.match(response.reply, /departamentos.*penthouses/)
-  assert.match(response.reply, /En qué planta/)
+  assert.match(response.reply, /Prefiere que revisemos primero departamentos o penthouses/)
   assert.doesNotMatch(response.reply, /304|404|504|601|603|604|606/)
-  assert.equal(object(response.audit.progressive_selection).stage, 'choose_floor')
+  assert.equal(object(response.audit.progressive_selection).stage, 'choose_category')
+  assert.equal(object(response.audit.pending_question).id, 'property_category')
   const remembered = resolvePropertyTurn(units, current, { _property_context: { query: { group: 'residential', category: 'departamento' } } }, [], semantics)
   assert.equal(object(remembered.query).category, 'departamento')
 })

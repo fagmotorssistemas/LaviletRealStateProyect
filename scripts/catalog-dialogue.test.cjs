@@ -237,7 +237,7 @@ test('broad housing presents one-bedroom suites and apartments without inventing
   for (const current of ['me interesa vivienda', 'busco algo para vivir', 'vivienda']) {
     const answer = propertySelectionReply(info(q, { lead: { preferred_category: 'departamento' } }), current)
     assert.match(answer.reply, /suites de 1 dormitorio/)
-    assert.match(answer.reply, /departamentos de 2 o 3 dormitorios/)
+    assert.match(answer.reply, /departamentos de 2 o 3 dormitorios/i)
     assert.match(answer.reply, /penthouses de 3 dormitorios/)
     assert.deepEqual(answer.audit.selected_unit_ids, [])
     assert.equal(answer.audit.pending_question.act, 'choose_category')
@@ -358,7 +358,7 @@ test('equal interior and exterior areas do not hide the different floors', () =>
 test('category choices introduce bedrooms and floors before enumerating unit numbers', () => {
   for (const operation of ['search', 'select']) {
     const answer = catalogDialogueReply(info(query(operation, { category: 'departamento' })), 'departamentos')
-    assert.match(answer.reply, /departamentos de 2 o 3 dormitorios/)
+    assert.match(answer.reply, /departamentos de 2 o 3 dormitorios/i)
     assert.match(answer.reply, /2.ª planta.*5.ª planta/)
     assert.match(answer.reply, /En qué planta/)
     assert.doesNotMatch(answer.reply, /202|302|402|502|304|404|504/)
@@ -506,11 +506,11 @@ test('five bedrooms, accepting available alternatives and refining the category 
     return result
   }
   const requested = run('busco vivienda de cinco habitaciones', { group: 'residential', operation: 'search', filters: { bedrooms: 5 } })
-  assert.match(requested.reply, /departamentos de 3 dormitorios, con hasta 120[.,]83 m² interiores/i)
-  assert.match(requested.reply, /penthouses de 3 dormitorios, con hasta 142[.,]09 m² interiores/i)
+  assert.match(requested.reply, /departamentos de 3 dormitorios, con 120[.,]83 m² interiores/i)
+  assert.match(requested.reply, /penthouses de 3 dormitorios, con 142[.,]09 m² interiores/i)
   assert.equal(requested.audit.original_query.filters.bedrooms, 5)
   assert.equal(pending.proposed_query.filters.bedrooms, 3)
-  const accepted = run('si esta bien', { operation: 'none' }, 'answer_previous', { question_id: 'property_category', kind: 'affirmative', evidence: 'si esta bien', confidence: 'high' })
+  const accepted = run('si esta bien', { operation: 'none' }, 'answer_previous', { question_id: pending.id, kind: 'affirmative', evidence: 'si esta bien', confidence: 'high' })
   assert.equal(accepted.audit.catalog_query.filters.bedrooms, 3)
   assert.deepEqual(accepted.audit.selected_unit_ids, [])
   assert.ok(accepted.audit.catalog_results.units.every(value => value.bedrooms === 3))

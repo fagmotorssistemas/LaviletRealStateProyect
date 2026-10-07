@@ -28,6 +28,25 @@ export const CURRENT_TONE = Object.freeze({
   "openingOptional": "Una apertura amable y breve es bienvenida si encaja con el mensaje; no está prohibida porque se haya utilizado varias respuestas atrás."
 } as const)
 
+/** Public naming is presentation, never a rewrite of the project's stored
+ * identity. An explicit public name takes precedence over administrative casing. */
+export function projectPublicName(projectRaw: unknown, policiesRaw: unknown = {}): string {
+  const project = projectRaw && typeof projectRaw === 'object' ? projectRaw as Record<string, unknown> : {}
+  const policies = policiesRaw && typeof policiesRaw === 'object' ? policiesRaw as Record<string, unknown> : {}
+  const presentation = policies.project_presentation && typeof policies.project_presentation === 'object'
+    ? policies.project_presentation as Record<string, unknown> : {}
+  const name = (value: unknown) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
+  const explicit = name(project.public_name) || name(project.display_name) || name(presentation.public_name)
+  if (explicit) return explicit
+  const source = name(project.name)
+  const publicName = source.replace(/^(?:edificio|proyecto|conjunto|condominio|urbanizacion|urbanización)\s+/iu, '')
+  if (!publicName || publicName !== publicName.toLocaleUpperCase('es') || !/\p{L}/u.test(publicName)) return publicName || source
+  return publicName.toLocaleLowerCase('es').replace(/(^|[\s-])\p{L}/gu, letter => letter.toLocaleUpperCase('es'))
+    .replace(/(?<=\S\s)(?:De|Del|La|Las|Los|El|Y)(?=\s)/gu, word => word.toLocaleLowerCase('es'))
+}
+
+export const PROJECT_NAME_WRITING_RULES = 'Nombre público del proyecto: use proyecto.public_name o proyecto.name de la fuente verificada, con su escritura pública normal; no copie títulos administrativos en MAYÚSCULAS ni anteponga «EDIFICIO» por costumbre. En la presentación inicial o una aclaración de identidad puede nombrarlo. En los siguientes turnos, si el proyecto ya está claro, responda directamente sobre las opciones o la consulta sin volver a abrir cada mensaje con su nombre. No cambie ni omita datos comerciales para variar la redacción.'
+
 /** Expand trusted prompt-template references before passing them to the model. */
 export function resolveToneReferences(content: string): string {
   return content.replace(/\{\{conversation_tone\.([a-zA-Z0-9_]+)\}\}/g, (_, key: string) => {

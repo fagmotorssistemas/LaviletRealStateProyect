@@ -4,6 +4,7 @@ import { assertLive, automationSettings } from './config'
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow } from './webhook'
+import { compareInboundOrder } from './inbound-order'
 import { preserveCtwaForContact } from './ctwa-lead-store'
 import type { Guard } from './visits'
 import { normalized } from './sdr-rules'
@@ -19,7 +20,7 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
   let sendStarted = false
   try {
     assertLive()
-    const events = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.externalId.localeCompare(b.externalId))
+    const events = rows.map(row => inboundFromRow(row.payload)).sort(compareInboundOrder)
     const last = events.at(-1)
     if (!last || events.some(e => e.kommoId !== last.kommoId || e.contactId !== last.contactId)) throw Error('MIXED_CONVERSATION_BATCH')
     if (Date.now() - Date.parse(last.sentAt) >= 24 * 3_600_000) return { action: 'expired', delivery_status: 'not_sent', requires_review: true, reason: 'REPLY_WINDOW_EXPIRED' }

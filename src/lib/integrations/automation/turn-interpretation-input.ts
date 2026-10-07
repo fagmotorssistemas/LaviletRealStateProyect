@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
+import { focusedNumericMentions } from './focused-numeric-syntax'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -11,6 +12,14 @@ const hasValue = (value: unknown): boolean => value !== null && value !== undefi
   && (typeof value === 'string' ? !!value.trim() : Array.isArray(value) ? value.some(hasValue)
     : typeof value === 'object' ? Object.values(value).some(hasValue) : true)
 const activeChoice = (value: unknown, absent: string) => hasValue(value) && value !== absent
+
+/** Numeric equivalence is independent of the model's monetary-role decision.
+ * Accept digits or written quantities, never fabricate a magnitude from a
+ * different number or from a statement without an amount. */
+export function budgetAmountWithLiteralQuantity(value: unknown, evidence: string): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  return focusedNumericMentions(evidence).some(mention => mention.value === value) ? value : null
+}
 
 /** A passive echo of the same known category/group is not a new declaration.
  * Keep the durable preference; don't pay for a repair to extract it again.
@@ -26,6 +35,64 @@ export function reconcilePassivePropertyMemory(raw: Row, input: Row): Row {
   return { ...raw,turn_semantics:{ ...semantics,property:{ ...property,group:null,category:null,evidence:'',confidence:'low' } } }
 }
 
+/** A question about previously offered options can echo quantities from that
+ * offer. A proven historical citation is reference context, never a current
+ * household declaration or catalogue requirement. New searches, filters and
+ * selections must still recover their own current evidence. */
+export function reconcileQuotedQuantityReferences(raw: Row, input: Row, current: string): { raw: Row; fields: string[] } {
+  const semantics = object(raw.turn_semantics), property = object(semantics.property)
+  const context = object(input.contexto_propiedades)
+  const pending = object(input.pregunta_pendiente || context.pending_question)
+  const hasKnownOptions = ['offered_ids', 'selected_ids', 'comparison_ids'].some(key => hasValue(context[key]))
+    || hasValue(pending.candidate_ids) || hasValue(pending.target_ids)
+  const informational = semantics.confidence === 'high' && text(semantics.primary_evidence).trim() && matches(semantics.primary_evidence, current)
+    && ['ask_price', 'project_information', 'ask_financing'].includes(text(semantics.primary_intent))
+    && property.confidence === 'high' && text(property.evidence).trim() && matches(property.evidence, current)
+    && ['details', 'compare'].includes(text(property.operation))
+    && ['followup', 'comparison'].includes(text(property.reference_kind))
+    && ['offered', 'selected', 'comparison'].includes(text(property.query_scope))
+  const catalog = object(raw.catalog_request)
+  if (!hasKnownOptions || !informational || hasValue(property.filters) || hasValue(property.excluded_categories)
+    || hasValue(catalog.requirements) || hasValue(catalog.semantic_preferences)) return { raw, fields: [] }
+  const historicalSources = [...rows(input.historial), ...rows(input.historial_reciente)].map(row => text(row.content))
+  historicalSources.push(text(pending.question), text(object(context.pending_question).question))
+  const fields: string[] = []
+  const quantities = rows(semantics.housing_quantities).filter((quantity, index) => {
+    const evidence = text(quantity.evidence).trim()
+    if (!evidence || matches(evidence, current) || !historicalSources.some(source => matches(evidence, source))) return true
+    fields.push(`housing_quantities.${index}`)
+    return false
+  })
+  return fields.length ? { raw: { ...raw, turn_semantics: { ...semantics, housing_quantities: quantities } }, fields } : { raw, fields }
+}
+
+/** An answered budget question is not a new question from the customer. Remove
+ * only a proven echo of that actual bot question when the independently
+ * evidenced current budget declaration already supplies the answer. Unknown
+ * citations, unsupported amounts and operational requests still need recovery. */
+export function reconcileEchoedBudgetQuestion(raw: Row, input: Row, current: string): { raw: Row; fields: string[] } {
+  const semantics = object(raw.turn_semantics), budget = object(semantics.budget)
+  const pending = object(input.pregunta_pendiente || object(input.contexto_propiedades).pending_question)
+  const monetary = ['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
+  const budgetDeclaration = ['amount_pending', 'no_defined_budget', 'unknown', 'amount', 'maximum_total', 'initial_capital',
+    'sufficient_for_selected_unit', 'insufficient_for_selected_unit'].includes(text(budget.status))
+  if (!text(pending.id).startsWith('budget_') || !text(pending.question).trim()
+    || semantics.confidence !== 'high'
+    || !text(semantics.primary_evidence).trim() || !matches(semantics.primary_evidence, current)
+    || !budgetDeclaration || budget.confidence !== 'high' || !text(budget.evidence).trim() || !matches(budget.evidence, current)
+    || (monetary ? budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) === null : hasValue(budget.amount))) return { raw, fields: [] }
+  const exactQuote = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
+  const fields: string[] = []
+  const requests = rows(raw.requests).filter((request, index) => {
+    const evidence = text(request.evidence).trim()
+    if (!['property', 'financing'].includes(text(request.domain)) || !evidence || matches(evidence, current)
+      || exactQuote(evidence) !== exactQuote(pending.question)) return true
+    fields.push(`requests.${index}`)
+    return false
+  })
+  return fields.length ? { raw: { ...raw, requests }, fields } : { raw, fields }
+}
+
 /** Canonicalize only empty, inactive blocks. Never fill facts or authorize actions. */
 export function normalizeInactiveInterpretation(raw: Row): Row {
   const semantics = { ...object(raw.turn_semantics) }
@@ -39,6 +106,13 @@ export function normalizeInactiveInterpretation(raw: Row): Row {
   neutralize('budget', budget.status === 'not_discussed' && !hasValue(budget.amount))
   neutralize('answer_to_previous', answer.kind === 'none' && !activeChoice(answer.question_id, 'none'))
   neutralize('reservation', reservation.kind === 'none' && !hasValue(reservation.unit_numbers))
+  // A strict extraction may emit empty quantity slots instead of an empty
+  // array. They assert no count, role, basis or evidence; remove only that
+  // structural absence. "Somos varios" is still an active people/context
+  // declaration even though its quantity is unknown.
+  if (Array.isArray(semantics.housing_quantities)) semantics.housing_quantities = rows(semantics.housing_quantities)
+    .filter(quantity => hasValue(quantity.values) || hasValue(quantity.evidence)
+      || quantity.role !== 'unknown' || quantity.count_basis !== 'unspecified')
   const visit = object(raw.visit_intent)
   return { ...raw, ...(Object.hasOwn(raw, 'turn_semantics') ? { turn_semantics: semantics } : {}),
     ...(visit.kind === 'none' ? { visit_intent: { ...visit, evidence: '', confidence: 'low' } } : {}) }
@@ -116,13 +190,20 @@ export function interpretationSourceIssues(raw: Row, current: string, pending: R
   const issues = evidence.flatMap(([key, value]) => !text(value).trim() ? [`missing_current_evidence:${key}`]
     : !matches(value, current) ? [`non_current_evidence:${key}`] : [])
   if (['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
-    && (typeof budget.amount !== 'number' || !Number.isFinite(budget.amount) || budget.amount <= 0)) issues.push('invalid_budget_amount')
+    && budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) === null) issues.push('invalid_budget_amount')
   return issues
 }
 
 /** A budget-only repair cannot erase unrelated interpretation fields. */
 export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: string[]): Row {
   const fields = [...new Set(issues.map(issue => issue === 'invalid_budget_amount' ? 'budget' : issue.split(':')[1]))]
+  if (fields.length && fields.every(field => /^quantity\.\d+$/.test(field || ''))) {
+    const quantities = object(repaired.turn_semantics).housing_quantities
+    // The focused repair owns this array only. A missing field keeps the
+    // original assertion invalid; [] explicitly means no current quantities.
+    return Array.isArray(quantities) ? { ...previous,
+      turn_semantics: { ...object(previous.turn_semantics), housing_quantities: quantities } } : previous
+  }
   // Other domains have coupled intents, requests, declarations and quantities;
   // keep their existing complete repair instead of merging inconsistent meanings.
   if (fields.length !== 1 || fields[0] !== 'budget') return repaired
@@ -146,3 +227,9 @@ USO RESIDENCIAL: una búsqueda de cuartos, habitaciones o dormitorios expresa vi
 SEPARACIÓN ENTRE MEMORIA Y NOVEDADES: hechos_confirmados conserva declaraciones ya aceptadas. Su salida contiene únicamente novedades del mensaje actual; no reconstruya el perfil completo. Si un presupuesto conocido no se vuelve a declarar, budget.status=not_discussed, amount=null y evidence=""; esto significa «sin actualización», no que el sistema olvide el presupuesto. Lo mismo aplica a cantidades familiares, preferencias, qualification y perfil: sin declaración nueva, use el valor neutro del esquema. La memoria se conserva por separado. Si el cliente cambia, niega o precisa un dato, extraiga esa novedad con evidencia actual aunque contradiga la memoria. Una consulta de financiamiento puede continuar con datos conocidos sin volver a declararlos. Ninguna memoria autoriza una gestión o consentimiento nuevo.
 REFERENTE DE PROPUESTAS: propuesta_pendiente distingue la necesidad original de las alternativas que el bot acaba de recomendar. Una consulta de precios, tamaños, características, cantidad o comparación sin un nuevo ámbito explícito se refiere a esas alternativas: use property.operation=details o compare, reference_kind=followup o comparison y query_scope=offered o comparison. No reconstruya requisitos originales incompatibles en catalog_request. Puede consultar una categoría de esa propuesta sin aceptar sustituir su necesidad ni elegir una unidad. Conserve el propósito informativo; solo una aceptación o negativa real responde al consentimiento pendiente. Una nueva búsqueda explícita o una consulta general de todo el catálogo sí tiene su propio ámbito.
 `
+
+export const QUANTITY_RECOVERY_RULES = `Corrija únicamente turn_semantics.housing_quantities con el esquema adjunto. La única fuente de cantidades es mensaje_actual; pregunta_pendiente solo permite interpretar una respuesta a esa pregunta. No recupere cantidades del historial, de las alternativas conocidas ni de una pregunta del bot que el cliente no está contestando.
+Si el mensaje actual no declara ni evalúa personas/dormitorios, devuelva housing_quantities=[]. No cree objetos vacíos para completar dimensiones. Cada elemento activo requiere evidencia literal actual que conserve el contexto y la corrección; values=[] es válido si habla de una cantidad desconocida (por ejemplo una familia numerosa sin cifra).
+dimension=people cuenta personas, bedrooms dormitorios, unknown conserva ambigüedad. role=requirement solicita una cantidad o restricción; evaluation pregunta si las opciones sirven o cómo funcionan; context describe la familia. Evaluar cuántos ocupantes caben no solicita otra búsqueda ni impone dormitorios. count_basis=total solo si incluye al hablante, excluding_speaker si explícitamente lo excluye, unspecified si no se sabe. Separe varias dimensiones sin convertir personas en dormitorios, sumar cifras que se solapen o inventar valores. Un sí a explorar opciones no declara de nuevo sus cantidades. Devuelva solo los campos solicitados, sin modificar otros datos o permisos.`
+
+export const EXTRACTION_CONSISTENCY_RULES = `Antes de devolver el JSON, compruebe coherencia entre los bloques: housing_quantities=[] si el turno actual no menciona ni evalúa cantidades; un catálogo o una pregunta previa no son una declaración nueva. Una consulta sobre si un espacio sirve a una familia es evaluation y details, con referencia a las opciones actuales; no es precio salvo que también pregunte importes, ni convierte esa cantidad en un requisito de búsqueda. Una cifra deseada y el operador eq no significan rigidez: bedrooms_required=true necesita una declaración actual inequívoca de que no acepta otra cantidad. Ante flexibilidad expresa no use true; conserve la cantidad deseada sin sustituirla automáticamente. Ninguna respuesta a una alternativa inmobiliaria acepta una visita, entidad o trámite diferente. Las acciones negadas, hipotéticas, condicionadas o citadas como palabras de otra persona no son permisos actuales.`

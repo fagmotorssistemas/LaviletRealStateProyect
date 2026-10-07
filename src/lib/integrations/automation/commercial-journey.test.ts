@@ -15,6 +15,17 @@ import { object, type Row } from './data'
 const unit = { id: 'u502', unit_number: '502', category: 'departamento', bedrooms: 3, status: 'disponible', is_published: true, published_commercial_price: 310000 }
 const profile = { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed', sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Carlos' }, residence_city: { source: 'lead_declaration', evidence: 'Vivo en Cuenca' } } }
 const money = (amount: number): Row => ({ status: 'maximum_total', amount, confidence: 'high', evidence: `Mi presupuesto total para la compra es ${amount}` })
+
+test('multiple incompatible constraints ask for a specific change rather than accepting an unspecified alternative', () => {
+  const verified = residentialSelection()
+  verified.property_context = { query: { group: 'residential', operation: 'search', filters: { bedrooms: 5, floor_number: 10 } } }
+  const next = commercialJourneyPlan(verified)
+  assert.equal(next.action, 'clarify_requirements')
+  assert.equal(next.question_act, 'other')
+  assert.equal(next.proposed_query, undefined)
+  assert.equal(next.adjustment_requires_specific_choice, true)
+  assert.match(String(next.question), /cuál podría flexibilizar/)
+})
 function info(budget: Row = money(350000), selected = true): Row {
   return { lead: { purchase_purpose: 'vivir', preferred_bedrooms: 3 }, perfil_lead: profile,
     catalogo: [unit], catalog_read: { complete: true }, politica_comercial: { precios_autorizados: true },
@@ -41,17 +52,17 @@ function residentialSelection(): Row {
 test('accepting financing keeps both compatible residential categories in the next question', () => {
   const data = residentialSelection(), next = commercialJourneyPlan(data)
   assert.equal(next.action, 'select_property')
-  assert.equal(next.question_id, 'property_floor')
+  assert.equal(next.question_id, 'property_category')
   assert.deepEqual(object(next.selection_scope).categories, ['departamento', 'penthouse'])
   assert.deepEqual(object(next.selection_scope).unit_ids, ['u202', 'u302', 'u402', 'u502', 'u602', 'u605'])
   assert.match(String(next.question), /departamentos.*penthouses/)
-  assert.match(String(next.question), /En qué planta/)
+  assert.match(String(next.question), /Prefiere que revisemos/)
   assert.doesNotMatch(String(next.question), /suite|comercial/)
   assert.equal(next.financing_offer_allowed, false)
   assert.equal(financingStage(data).collection_allowed, false)
   assert.match(financingPrerequisiteReply(data, 'bueno si esta bien'), /departamentos.*penthouses/)
   const pending = normalizedPendingQuestion(journeyPendingQuestion(String(next.question), next, true), data.catalogo as Row[])
-  assert.equal(pending.act, 'choose_floor')
+  assert.equal(pending.act, 'choose_category')
   assert.deepEqual(pending.candidate_ids, object(next.selection_scope).unit_ids)
 })
 
@@ -245,10 +256,10 @@ test('writer and independent reviewer receive the same reservation step through 
   assert.deepEqual(calls, ['writing', 'review'])
 })
 
-test('financing continuation sends the same floor choice across compatible categories to writer and reviewer', async () => {
+test('financing continuation sends the same type choice across compatible categories to writer and reviewer', async () => {
   const data = residentialSelection(), calls: string[] = [], assertions: string[] = []
   const categories = ['departamento', 'penthouse']
-  const reply = 'Para continuar con el financiamiento, primero elijamos su vivienda. ¿En qué planta le gustaría revisar los departamentos o penthouses de 3 dormitorios?'
+  const reply = 'Para continuar con el financiamiento, primero elijamos su vivienda. ¿Prefiere que revisemos los departamentos o los penthouses de 3 dormitorios?'
   const result = await completeTurnReply({ current: 'bueno si esta bien', baseReply: financingPrerequisiteReply(data, 'bueno si esta bien'), verified: data,
     audit: { source: 'financing_selection_required', semantic_review_enabled: true, business_risk_review_enabled: true } },
   async (_rules, raw, _schema, _image, _file, _tone, task) => {
@@ -256,9 +267,9 @@ test('financing continuation sends the same floor choice across compatible categ
     try {
       const next = (input.obligaciones_del_turno as Row[]).find(o => o.id === 'commercial_next_step')
       assert.deepEqual(object(next?.selection_scope).categories, categories)
-      assert.equal(next?.question_id, 'property_floor')
+      assert.equal(next?.question_id, 'property_category')
       if (task === 'writing') return { reply, requests: [],
-        question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'planta preferida', next_decision: 'Comparar las unidades compatibles en esa planta' } }
+        question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'tipo de vivienda', next_decision: 'Presentar las plantas del tipo elegido' } }
       assert.deepEqual(object(object(object(input.estado_del_turno).siguiente_paso_comercial).selection_scope).categories, categories)
       return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
     } catch (error) { assertions.push(String(error)); throw error }

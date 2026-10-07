@@ -11,6 +11,7 @@ import { catalogCostBaseline } from './catalog-cost-baseline'
 import { withPromptCostComparison } from './prompt-cost-comparison'
 import { turnBudgetAssessment, effectiveTurnBudget, budgetContinuationInstruction, budgetForCommercialPlan } from './turn-budget'
 import { commercialJourneyPlan, COMMERCIAL_JOURNEY_RULES } from './commercial-journey'
+import { unitsInPropertyReply } from './property-context'
 import { recordBudgetDecision } from './ai-execution-trace'
 import { focusedValueScopeIssues } from './focused-value-scope'
 import { numericSubjectIssues } from './focused-subject-scope'
@@ -59,6 +60,7 @@ import { aiJson } from './ai'
 import { object, text, type Row } from './data'
 import { commercialMemory, experienceContext, residentialContinuationIssues, RESIDENTIAL_CONTINUITY_RULES, turnWritingRules } from './commercial-experience'
 import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
+import { projectPublicName, PROJECT_NAME_WRITING_RULES } from './conversation-tone'
 import { assessMissingFacts, catalogCoversFragment, coverageFactKeys } from './coverage-evidence'
 import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
@@ -248,6 +250,40 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   return [...new Set(issues)]
 }
 
+/** Server-owned invariants remain mandatory even when the paid reviewer is off.
+ * These checks do not certify arbitrary prose or trust model review metadata. */
+export function mandatoryReplyIssues(input: TurnCompletenessInput, reply: string): string[] {
+  const audit = input.audit || {}, journey = object(input.verified.siguiente_paso_comercial || audit.commercial_journey)
+  const profile = object(audit.profile_introduction)
+  const issues = [
+    ...turnContinuationIssues(reply, audit, input.verified),
+    ...replyLinkIssues(reply, replyLinkContract(input.baseReply, audit, input)),
+    ...leadIntroductionIssues(reply, audit),
+    ...reservationOperationalIssues(reply, { ...audit, source: 'reservation_handoff' }),
+    ...turnIntentIssues(reply, audit.resolved_turn_intent || input.verified.contrato_turno, input.verified.respuesta_precio_verificada),
+    ...(!reply.trim() ? ['empty_reply'] : reply.length > MAX_REPLY_CHARACTERS ? ['transport_length'] : []),
+  ]
+  if (['collect_profile', 'collect_name', 'collect_residence', 'confirm_residence'].includes(text(profile.question_purpose))
+    && !replyQuestionText(reply)) issues.push('lead_profile_question_missing')
+  if (journey.requires_unit_presentation === true) {
+    const catalog = (Array.isArray(input.verified.catalogo_verificacion) ? input.verified.catalogo_verificacion
+      : Array.isArray(input.verified.catalogo) ? input.verified.catalogo : []).map(object)
+    const body = reply.replace(/¿[^?]*\?/g, '').replace(/[^.!?\n]*\?/g, '')
+    const presented = new Set(unitsInPropertyReply(catalog, body).map(unit => text(unit.id)))
+    const required = Array.isArray(object(journey.selection_scope).unit_ids)
+      ? (object(journey.selection_scope).unit_ids as unknown[]).map(text).filter(Boolean) : []
+    if (!required.length || required.some(id => !presented.has(id))) issues.push('required_unit_presentation_missing')
+    if (!/dormitorios?|habitaciones?|baños?|superficie|área|m(?:²|2)|balc[oó]n|terraza/i.test(body))
+      issues.push('required_unit_characteristics_missing')
+  }
+  const positiveSentences = protectedSentences(reply).map(normalize).filter(value => !/\b(?:no|sin|nunca|tampoco)\b.{0,60}(?:credito|aprobacion|financiamiento|soy|somos)/.test(value))
+  if (positiveSentences.some(value => /credito (?:ya |esta )?aprobado|aprobacion garantizada|financiamiento (?:garantizado|asegurado)/.test(value))) issues.push('credit_guarantee')
+  if (positiveSentences.some(value => /soy (?:una persona|humano|humana)|somos (?:personas|humanos)/.test(value))) issues.push('human_identity')
+  if (reply.split(/(?<=[.!?])\s+|\n+/).some(sentence => unsupportedRentalClaim(sentence, input.current, input.verified)))
+    issues.push('unsupported_rental_credit_claim')
+  return [...new Set(issues)]
+}
+
 /** These are visible writing suggestions, never reasons to reject supported copy. */
 export function turnEditorialObservations(input: TurnCompletenessInput, reply: string, question: Question): string[] {
   const count = (withoutUrls(reply).match(/[^.!?\n]*\?+/g) || []).length
@@ -372,6 +408,13 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, audit: { ...input.audit, resolved_turn_intent: turnIntent }, verified: { ...input.verified,
     perfil_lead: profile, lead: { ...object(input.verified.lead), name: profile.full_name || null,
       name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null }, contrato_turno: turnIntent } }
+  const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory, {
+    semantics: input.verified.semantica_turno, intent: turnIntent,
+    scope: turnIntent.scope, pendingQuestion: turnIntent.pending_question,
+  })
+  const publicName = projectPublicName(input.verified.proyecto, input.verified.politicas)
+  input = { ...input, verified: { ...input.verified, commercial_engagement: engagement,
+    ...(publicName ? { proyecto: { ...object(input.verified.proyecto), name: publicName, public_name: publicName } } : {}) } }
   const locationPolicy = locationDisclosurePolicy({ current: input.current, verified: input.verified, audit: input.audit })
   input = { ...input, verified: projectLocationForPrompt({ ...input.verified,
     ...(input.audit?.visit_dialogue_plan ? { visit_dialogue_plan: input.audit.visit_dialogue_plan } : {}) }, locationPolicy),
@@ -488,6 +531,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const verifiedAbsence = verifiedAbsenceReply(input.audit || {})
     if (verifiedAbsence && canRecoverAbsence(input.audit || {}, requests, turnIntent)
       && turnCompletenessIssues(input, verifiedAbsence).length === 0
+      && mandatoryReplyIssues(input, verifiedAbsence).length === 0
       && !(input.validateReply?.(verifiedAbsence) || []).length) {
       return { reply: verifiedAbsence, changed: verifiedAbsence !== originalBase, needsAdvisor: false, unresolved: [], audit: {
         status: 'recovered_catalog_result', issues, semantic_review: semanticReview, repair_attempts: repairAttempts,
@@ -535,7 +579,6 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const history = (Array.isArray(input.history) ? input.history : []).map(object).slice(-8)
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
-  const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory)
   const context = { contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: modelEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
     contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     referencias_solicitud: writerRequestRefs, obligaciones_del_turno: turnObligations,
@@ -581,6 +624,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       instruction: 'Conserve la respuesta a la consulta y sus hechos. Añada únicamente la pregunta del siguiente paso vigente, con redacción natural. No lo trate como información faltante ni derive al equipo por esta omisión.',
       continuation: writerContract.continuacion_del_turno,
     })
+    if (Array.isArray(lastRepair?.issues) && lastRepair.issues.some(issue => ['required_unit_presentation_missing', 'required_unit_characteristics_missing'].includes(String(issue)))) targetedRepairs.push({
+      instruction: 'Conserve la respuesta válida y la pregunta prevista. Antes de esa pregunta, presente todas las unidades de selection_scope.unit_ids con sus números y características comprobadas en evidencia_turno. No mencione los números solamente dentro de la pregunta; una referencia genérica a opciones no acredita su presentación. No seleccione unidades ni adelante otra gestión.',
+      selection_scope: object(input.verified.siguiente_paso_comercial).selection_scope,
+    })
     const writerContext: Row = { ...context }
     // Previous sentence IDs belong to the previous draft, not this rewrite.
     delete writerContext.oraciones_borrador
@@ -593,7 +640,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Siguiente paso comercial', !!input.verified.siguiente_paso_comercial && COMMERCIAL_JOURNEY_RULES],
       ['Consultas pendientes', 'contexto_verificado.consultas_pendientes contiene mensajes del cliente aún sin respuesta. Atienda sus consultas informativas junto con mensaje_actual, salvo que el cliente las haya cancelado o sustituido. No repita gestiones ni reutilice consentimientos del pasado.'],
       ['Comparaciones, mínimos y máximos', NUMERIC_RELATION_WRITING_RULES],
-      ['Reglas aplicables a esta respuesta', writingRules + '\n' + passiveSalesRules(engagement) + ACTION_INVITATION_RULE],
+      ['Reglas aplicables a esta respuesta', writingRules + '\n' + passiveSalesRules(engagement) + '\n' + PROJECT_NAME_WRITING_RULES + ACTION_INVITATION_RULE],
       ['Continuidad residencial', RESIDENTIAL_CONTINUITY_RULES],
       ['Alternativas de inmuebles', !!(input.audit?.alternative_results || input.audit?.alternative_presentation
         || /alternative/.test(text(input.audit?.source))) && UNIT_ALTERNATIVE_RULES],
@@ -627,9 +674,22 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       } } : {}) }), activeWriterSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
     if (!responseReviewEnabled()) {
-      const unreviewed = unreviewedWriterReply(proposedReply)
+      // No metadata repair, reviewer call or extra writer attempt in disabled
+      // mode. Normalize only the deterministic, authorized brochure insertion.
+      const transport = unreviewedWriterReply(proposedReply)
+      const reply = includeRequiredBrochure(transport.reply, input.audit, input)
+      const issues = [...mandatoryReplyIssues(input, reply),
+        ...turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review_enabled: false } }, reply),
+        ...(() => { const check = validateCatalogReply(reply, { ...input.audit, semantic_review: {} }); return check.valid ? [] : [check.reason || 'unsupported_catalog_rewrite'] })(),
+        ...(input.validateReply?.(reply) || [])]
+      if (issues.length) {
+        finalValidation = { passed: false, issues: [...new Set(issues)], validated_text: reply, policy: 'mandatory_server_guards' }
+        return fallback('rejected_guard', [], [...new Set(issues)])
+      }
+      const unreviewed = unreviewedWriterReply(reply)
       return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [],
         audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
+          final_validation: { passed: true, policy: 'mandatory_server_guards', issues: [], validated_text: reply },
           question: { ...object(candidate.question), ...continuationMetadata(candidate.question), text: replyQuestionText(unreviewed.reply) },
           writer_contract: writerContract } }
     }
@@ -670,7 +730,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     proposedQuestion = question
     editorialObservations = turnEditorialObservations(input, reply, question)
     continuationChecks = {}
-    const allIssues = turnCompletenessIssues(input, reply)
+    const allIssues = [...new Set([...mandatoryReplyIssues(input, reply), ...turnCompletenessIssues(input, reply)])]
     finalValidation = { passed: false, issues: allIssues,
       project_quantity_checks: input.audit?.semantic_review_enabled === true ? [] : validateProjectQuantities(reply, sharedEvidence.project_facts).details,
       validated_text: reply, policy: 'subject_attribute_quantity_v2' }
@@ -696,7 +756,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         units: modelEvidence.units, groups: modelEvidence.groups, projectFacts: modelEvidence.project_facts,
         claimSources, verified: input.verified, audit: input.audit || {},
         allowedLinks: linkContract.allowed_links })
-      const riskRules = businessRiskReviewInstructions(optimizedPrompt && !financialTask)
+      const riskRules = businessRiskReviewInstructions(optimizedPrompt && !financialTask) + '\n' + passiveSalesRules(engagement)
       normalRuleSets.set('review', { actual: riskRules, normal: BUSINESS_RISK_REVIEW_RULES })
       const riskSchema = businessRiskSchemaForSources(modelEvidence.units, modelEvidence.groups)
       let rawReview = await generate(riskRules, riskContext, riskSchema,
@@ -789,13 +849,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const numericCandidates = input.audit?.semantic_review_enabled === true ? [] : draftNumericCandidates(reply)
       Object.assign(context, { oraciones_borrador: sentenceReferences })
       const semanticEnabled = input.audit?.semantic_review_enabled === true
-      const reviewInstructions = semanticEnabled ? FOCUSED_REVIEW_RULES + '\n' + FOCUSED_EVIDENCE_RULES + '\n' + RELATIONAL_FACT_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES + '\n' + EVIDENCE_VERDICT_RULES
+      const reviewInstructions = (semanticEnabled ? FOCUSED_REVIEW_RULES + '\n' + FOCUSED_EVIDENCE_RULES + '\n' + RELATIONAL_FACT_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES + '\n' + EVIDENCE_VERDICT_RULES
         : REVIEW_RULES + '\n' + BUSINESS_POLICY_RULES + '\n' + TURN_INTENT_RULES + RESIDENTIAL_CONTINUITY_RULES
         + (input.audit?.profile_introduction ? '\n' + LEAD_INTRODUCTION_RULES + '\n' + LEAD_INTRODUCTION_REVIEW_RULES : '')
         + (input.audit?.progressive_selection || input.audit?.post_tour_continuation ? '\n' + PROGRESSIVE_OPTIONS_RULES : '')
-        + '\n' + passiveSalesRules(engagement) + visitRules
+        + visitRules
         + (semanticEnabled ? '\n' + CLAIM_RULES : '')
-        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES + '\n' + SEMANTIC_POLICY_REVIEW_RULES + (semanticEnabled ? '\n' + STRUCTURED_FACT_RULES + '\n' + SENTENCE_INVENTORY_RULES : '')
+        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES + '\n' + SEMANTIC_POLICY_REVIEW_RULES + (semanticEnabled ? '\n' + STRUCTURED_FACT_RULES + '\n' + SENTENCE_INVENTORY_RULES : ''))
+        + '\n' + passiveSalesRules(engagement)
       const openingSchema = leadIntroductionReviewSchema(input.audit, sentenceReferences)
       const reviewContext = { ...(openingSchema.required.length ? { contrato_apertura: {
         etapa: 'presentacion_inicial_sin_tipos_de_inmueble',
@@ -1043,7 +1104,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           .map(object).map(fact => ({ value: fact.value, upper_value: fact.operator === 'between' ? fact.upper_value : null })) } }, reply).filter(issue => issue === 'numbers_changed')
       : deferredIssues
     const catalogCheck = input.audit?.semantic_review_enabled === true ? { valid: true, reason: undefined, details: [] } : validateCatalogReply(reply, { ...input.audit, semantic_review: semanticReview })
-    const finalIssues = [...numericIssues, ...(!catalogCheck.valid ? [catalogCheck.reason || 'unsupported_catalog_rewrite'] : []), ...(input.audit?.semantic_review_enabled === true ? [] : input.validateReply?.(reply) || [])]
+    const finalIssues = [...mandatoryReplyIssues(input, reply), ...numericIssues, ...(!catalogCheck.valid ? [catalogCheck.reason || 'unsupported_catalog_rewrite'] : []), ...(input.audit?.semantic_review_enabled === true ? [] : input.validateReply?.(reply) || [])]
     finalValidation = { passed: !finalIssues.length, issues: finalIssues, details: catalogCheck.details || [],
       project_quantity_checks: [],
       validated_text: reply,

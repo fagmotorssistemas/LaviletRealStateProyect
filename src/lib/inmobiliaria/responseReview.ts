@@ -21,5 +21,5 @@ export function changeResponseReview(policies: unknown, enabled: boolean, userId
 export function responseSupportsContinuity(value: unknown) {
   const audit = record(value), control = record(audit.review_control), validation = record(audit.final_validation)
   return audit.status === 'checked' || (audit.status === 'review_disabled' && control.enabled === false
-    && control.source === 'project_setting' && validation.policy === 'transport_only' && validation.passed === true)
+    && control.source === 'project_setting' && ['transport_only', 'mandatory_server_guards'].includes(String(validation.policy)) && validation.passed === true)
 }

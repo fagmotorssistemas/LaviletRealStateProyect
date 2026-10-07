@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 require('./test-typescript.cjs')
 const { test } = require('node:test'), assert = require('node:assert/strict'), Module = require('node:module')
 const { createClient } = require('@supabase/supabase-js')
@@ -25,9 +26,17 @@ function database(overrides = {}) {
         assert.equal(url.searchParams.get('project_id'), `eq.${project}`)
         assert.equal(url.searchParams.get('id'), 'eq.lead')
         assert.equal(url.searchParams.get('updated_at'), 'eq.version')
+        assert.equal(new Headers(init.headers).get('Accept'), 'application/vnd.pgrst.object+json')
         writes.push(JSON.parse(init.body))
-        return Response.json(overrides.concurrent ? [] : [{ updated_at: 'new-version' }])
+        // PostgREST returns a singular object for PATCH.maybeSingle(); no-row
+        // optimistic updates use its singular-response error, not a JSON list.
+        return overrides.concurrent
+          ? Response.json({ code: 'PGRST116', message: 'Cannot coerce the result to a single JSON object',
+            details: 'The result contains 0 rows' }, { status: 406 })
+          : Response.json({ updated_at: 'new-version' })
       }
+      assert.equal(init.method, 'GET', 'Reviewing a result must not invoke another mutation or outbound request.')
+      assert.ok(['leads', 'units', 'conversations', 'financing_prequalifications'].includes(table))
       reads.push(table)
       const data = {
         leads: { id: 'lead', tenant_id: 'tenant', project_id: project, unit_id: 'unit', updated_at: 'version', behavior_signals: { sdr: { prioridad: 'Vista' } } },
@@ -64,6 +73,7 @@ test('recording a real result preserves other lead data and performs no reservat
   const result = await saveFinancingReview('lead', 'unit', 'version', input)
   assert.equal(result.updatedAt, 'new-version')
   assert.equal(calls.writes.length, 1)
+  assert.deepEqual([...calls.reads].sort(), ['conversations', 'financing_prequalifications', 'leads', 'units'])
   const signals = calls.writes[0].behavior_signals
   assert.deepEqual(signals.sdr, { prioridad: 'Vista' })
   assert.equal(signals.financing_review.reviewed_by, 'staff')

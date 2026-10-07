@@ -17,6 +17,7 @@ const join = (...parts: string[]) => parts.filter(part => part.trim()).join('\n\
 export type LeadIntroductionInput = {
   current: string; history?: unknown; summary?: unknown; extracted?: unknown; profile?: unknown
   reply: string; audit?: unknown; projectInfo?: unknown; catalog?: unknown; brochureUrl?: string
+  engagement?: unknown
 }
 
 function missingFields(profile: Row) {
@@ -283,7 +284,15 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
     if (!acknowledgement || !text(currentProfile.full_name)) return unchanged
     return { ...unchanged, applied: true, reply: join(acknowledgement, input.reply),
       audit: { ...audit, profile_introduction: { profile_state: profile, question_purpose: 'none',
-        collection_decision: deferredDecision, name_acknowledgement: acknowledgement } } }
+        collection_decision: unchanged.audit.profile_collection_decision, name_acknowledgement: acknowledgement } } }
+  }
+  // An informational request does not authorize proactive personal-data capture.
+  // Keep the previous introduction receipt intact and acknowledge volunteered
+  // facts without turning them into another name/residence reminder.
+  if (object(input.engagement).passive === true) {
+    unchanged.audit.profile_collection_decision = leadProfileCollectionDecision({ question_purpose: 'none',
+      profile_declined: declined, collection_reason: 'informational_sales_scope' }, profile, prior)
+    return acknowledgeOnly()
   }
   if (prior.collection_status === 'declined' || prior.status === 'skipped') return acknowledgeOnly()
   if (prior.status === 'complete' && !resumed && !declinedProfile(input.current)

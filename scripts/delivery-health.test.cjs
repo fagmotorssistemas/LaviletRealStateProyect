@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -76,6 +77,7 @@ test('explicit Kommo rejections are not ambiguous deliveries and account blocks 
   t.after(() => { if (old === undefined) delete process.env.KOMMO_BASE_URL; else process.env.KOMMO_BASE_URL = old; if (token === undefined) delete process.env.KOMMO_ACCESS_TOKEN; else process.env.KOMMO_ACCESS_TOKEN = token })
   const blocks = [], calls = []
   const p = load('src/lib/integrations/automation/kommo.ts', {
+    './kommo-admission': { reserveKommoCall: async () => {} },
     './config': { assertLive() {} },
     './delivery-state': { ...state, recordKommoBlock: async (...args) => blocks.push(args) },
   })
@@ -140,7 +142,7 @@ function workerHarness({ blocked = false, failure = null, action = 'accepted', r
   for (const method of ['upsert', 'update', 'match', 'eq', 'contains', 'lt']) q[method] = () => q
   const { runAutomation } = load('src/lib/integrations/automation/worker.ts', {
     './data': { ...data, db: () => ({ from: () => q }), autoConfig: async () => ({ enabled: true, dry_run: false }),
-      rpc: async (name, args) => { calls.push({ name, args }); if (name === 'lv_app_claim') { if (claimed) return []; claimed = true; return [event('pablo', 'processing', {}, { payload: { kommoId: 3577404 } })] } return true } },
+      rpc: async (name, args) => { calls.push({ name, args }); if (name === 'lv_app_claim_maintenance') return []; if (name === 'lv_app_claim') { if (claimed) return []; claimed = true; return [event('pablo', 'processing', {}, { payload: { kommoId: 3577404 } })] } return true } },
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live' }) },
     './kommo': provider,
     './generation-recovery': { ...require('../src/lib/integrations/automation/generation-recovery.ts'), recoverGenerationFailure: async () => {

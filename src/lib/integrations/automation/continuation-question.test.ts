@@ -7,7 +7,7 @@ import { financingInputs } from './financing'
 import { leadProfilePendingQuestion } from './lead-introduction'
 
 test('an emitted unit question is not remembered as the purpose the journey planned to ask', () => {
-  const reply = 'Tenemos varias opciones. ¿Cuál de estas unidades le gustaría revisar?'
+  const reply = 'Tenemos los departamentos 202 y 302. ¿Cuál de estas unidades le gustaría revisar?'
   const plan = { question_id: 'property_purpose', question: '¿Lo busca para vivir o invertir?' }
   for (const metadata of [undefined, { purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'choose_unit' }]) {
     const saved = journeyPendingQuestion(reply, plan, true, metadata)
@@ -36,7 +36,7 @@ test('semantic receipts allow free wording and preserve only matching proposal s
 
 test('an invitation to explore property cannot grant financing consent or reserve a planned unit', () => {
   const plan = { question_id: 'financing_invitation', question: '¿Desea iniciar la revisión financiera?', selected_unit_id: 'a' }
-  const reply = 'Podemos revisar financiamiento después. ¿Le gustaría conocer esta opción?'
+  const reply = 'Podemos revisar financiamiento después. ¿Le gustaría conocer el departamento 502?'
   const saved = deliveredPendingQuestion(reply, { plan, metadata: { purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'show_unit_details' } })
   assert.equal(saved.id, 'unit_choice')
   assert.deepEqual(saved.target_ids, [])
@@ -160,4 +160,42 @@ test('several fields in the same required collection remain data requests and ne
   }
   assert.deepEqual(deliveredPendingQuestion('¿Desea financiar? ¿Desea reservar?', { metadata: {
     purpose: 'permission_to_continue', continuation_id: 'financing_invitation', continuation_act: 'financing' } }), {})
+})
+
+test('a plan or metadata cannot create a CTA that the emitted explanation omitted', () => {
+  const reply = 'No tenemos cinco dormitorios. Tenemos departamentos y penthouses de tres dormitorios. Quedo atento a sus indicaciones.'
+  const plan = { question_id: 'property_bedrooms', question_act: 'explore_alternatives',
+    question: '¿Desea revisar las opciones de tres dormitorios?', alternative_unit_ids: ['a', 'b'],
+    proposed_query: { group: 'residential', filters: { bedrooms: 3 } } }
+  const metadata = { purpose: 'choose_property', continuation_id: plan.question_id, continuation_act: plan.question_act }
+  assert.deepEqual(deliveredPendingQuestion(reply, { plan, metadata }, [{ id: 'a' }, { id: 'b' }]), {})
+  assert.deepEqual(deliveredPendingQuestion('Tenemos departamentos y penthouses. ¿Cuál de estas opciones desea conocer?', {
+    metadata: { purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'choose_unit' },
+  }), {}, 'Types alone cannot authorize a concrete-unit question receipt')
+})
+
+test('a direct imperative CTA retains its verified question and scope without requiring punctuation', () => {
+  const question = 'Por favor, indíqueme qué planta prefiere'
+  const plan = { question_id: 'property_floor', question_act: 'choose_floor', question,
+    selection_scope: { unit_ids: ['a', 'b'] } }
+  const saved = deliveredPendingQuestion(`Podemos ofrecerle alternativas en varias plantas. ${question}.`, { plan,
+    metadata: { text: question, purpose: 'choose_property', continuation_id: plan.question_id, continuation_act: plan.question_act } },
+  [{ id: 'a' }, { id: 'b' }])
+  assert.equal(saved.id, 'property_floor')
+  assert.equal(saved.question, question)
+  assert.deepEqual(saved.candidate_ids, ['a', 'b'])
+})
+
+test('negated instructions and future subordinate explanations cannot become a current CTA', () => {
+  const plan = { question_id: 'property_floor', question_act: 'choose_floor', question: 'Indíqueme qué planta prefiere' }
+  const metadata = { purpose: 'choose_property', continuation_id: plan.question_id, continuation_act: plan.question_act }
+  for (const reply of [
+    'No es necesario que indique qué planta prefiere.',
+    'No hace falta que seleccione entre departamento o penthouse ahora.',
+    'Cuando indique qué planta prefiere podremos revisar las opciones.',
+    'Una vez que indique qué planta prefiere, podremos enviarle las dimensiones.',
+    'Cuando tenga una preferencia, indíqueme qué planta prefiere.',
+    'El equipo le explicará que debe seleccionar entre departamento o penthouse.',
+    'Por favor, no indique su presupuesto todavía.',
+  ]) assert.deepEqual(deliveredPendingQuestion(reply, { plan, metadata }), {}, reply)
 })

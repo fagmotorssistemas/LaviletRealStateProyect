@@ -17,6 +17,64 @@ const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroduction
   audit: { source: 'project_overview' }, ...overrides,
 })
 
+describe('informational engagement limits proactive profile capture', () => {
+  it('answers a current information request without capturing profile or consuming the previous receipt', () => {
+    const previous = { status: 'pending', request_sent: true, reminder_count: 0, requested_fields: ['full_name', 'residence'] }
+    const reply = 'Tenemos opciones de tres dormitorios.'
+    const turn = leadIntroductionTurn(input({ current: 'No quiero comprar; sólo por curiosidad, ¿hay tres dormitorios?',
+      summary: { _lead_introduction: previous }, reply, engagement: { passive: true, property_continuation_allowed: false },
+      extracted: { turn_semantics: { primary_intent: 'project_information', confidence: 'high' } }, audit: { source: 'catalog_search' } }))
+    assert.equal(turn.reply, reply)
+    assert.equal(turn.applied, false)
+    assert.deepEqual(turn.state, previous)
+    assert.deepEqual((turn.audit.profile_collection_decision as { allowed_fields: string[] }).allowed_fields, [])
+    assert.equal((turn.audit.profile_collection_decision as { action: string }).action, 'defer')
+  })
+
+  it('acknowledges a volunteered name without reopening the residence reminder in informational mode', () => {
+    const previous = { status: 'pending', request_sent: true, reminder_count: 0, requested_fields: ['full_name', 'residence'] }
+    const turn = leadIntroductionTurn(input({ current: 'Soy Carlos; sólo estoy consultando los precios',
+      summary: { _lead_introduction: previous }, engagement: { passive: true },
+      extracted: { lead_profile: declaredName('Carlos', 'Soy Carlos') }, reply: 'Estos son los precios de las opciones.', audit: { source: 'unit_price' } }))
+    assert.match(turn.reply, /Mucho gusto, Carlos/)
+    assert.match(turn.reply, /Estos son los precios/)
+    assert.doesNotMatch(turn.reply, /reside|su nombre|brochure/i)
+    assert.deepEqual(turn.state, previous)
+    assert.deepEqual((turn.audit.profile_collection_decision as { allowed_fields: string[] }).allowed_fields, [])
+  })
+
+  it('preserves the authorized one-time residence reminder for a normal name plus price answer', () => {
+    const turn = leadIntroductionTurn(input({ current: 'Soy Carlos, ¿qué precios tienen?',
+      summary: { _lead_introduction: { status: 'pending', request_sent: true, reminder_count: 0, requested_fields: ['full_name', 'residence'] } },
+      engagement: { passive: false }, extracted: { lead_profile: declaredName('Carlos', 'Soy Carlos'),
+        turn_semantics: { primary_intent: 'ask_price', confidence: 'high' } }, reply: 'Estos son los precios.', audit: { source: 'unit_price' } }))
+    assert.match(turn.reply, /reside actualmente/)
+    assert.equal((turn.audit.profile_introduction as { question_purpose: string }).question_purpose, 'collect_residence')
+    assert.equal(turn.state.reminder_count, 1)
+  })
+
+  it('does not alter an explicitly requested operation or its required question', () => {
+    const reply = 'Para coordinar la visita, ¿qué día y hora prefiere?'
+    const turn = leadIntroductionTurn(input({ current: 'Quiero visitar la oficina', engagement: { passive: true },
+      reply, audit: { source: 'visit_collecting', action: 'collecting' },
+      extracted: { turn_semantics: { primary_intent: 'request_visit', confidence: 'high' } } }))
+    assert.equal(turn.reply, reply)
+    assert.equal(turn.audit.action, 'collecting')
+    assert.deepEqual((turn.audit.profile_collection_decision as { allowed_fields: string[] }).allowed_fields, [])
+  })
+
+  it('preserves required financial collection after explicit consent without a separate profile invitation', () => {
+    const reply = 'Para la revisión que solicitó, ¿cuál es su nombre legal completo?'
+    const turn = leadIntroductionTurn(input({ current: 'Sí, quiero iniciar la revisión financiera', engagement: { passive: true },
+      reply, audit: { source: 'financing_collection', financing_collection: { collection_allowed: true, requested_fields: ['full_name'] } },
+      extracted: { financing_consent: true, turn_semantics: { primary_intent: 'ask_financing', confidence: 'high' } } }))
+    assert.equal(turn.reply, reply)
+    assert.equal(turn.audit.source, 'financing_collection')
+    assert.deepEqual((turn.audit.financing_collection as { requested_fields: string[] }).requested_fields, ['full_name'])
+    assert.deepEqual((turn.audit.profile_collection_decision as { allowed_fields: string[] }).allowed_fields, [])
+  })
+})
+
 describe('commercial opening uses the existing grounded interpretation', () => {
   const semantics = { primary_intent: 'ask_financing', confidence: 'high' }
   it('does not require correctly spelled commercial keywords to ask name and residence', () => {

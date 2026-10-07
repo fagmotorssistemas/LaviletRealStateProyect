@@ -80,7 +80,8 @@ export async function POST(request: Request) {
       try {
         if (inserted) await accelerateTestMessages(events)
         const { scheduleConversations } = await import('@/lib/integrations/automation/schedule-conversations')
-        await scheduleConversations([...events, ...advisorOutbound].map(event => `${event.kommoId}:${event.contactId}`))
+        const { persistedWakeupContacts } = await import('@/lib/integrations/automation/persisted-wakeup')
+        await scheduleConversations(await persistedWakeupContacts(events.map(event => event.externalId), advisorOutbound.map(event => event.externalId)))
       } catch {
         // Persisted events remain available to the scheduled worker; never replay sends here.
         console.error('CONVERSATION_WAKE_FAILED_CRON_FALLBACK')

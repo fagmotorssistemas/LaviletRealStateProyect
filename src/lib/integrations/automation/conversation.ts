@@ -21,6 +21,7 @@ import { normalizedVisitPreference, validateIntent, VISIT_PREFERENCE_EXTRACTION_
 import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
 import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { inboundFromRow, type Inbound } from './webhook'
+import { compareInboundOrder } from './inbound-order'
 import { preserveCtwaForContact } from './ctwa-lead-store'
 import { applyWhatsappAdsConsentFromClientMessage, evaluateWaLeadSubmittedForCurrentTurn } from '@/lib/meta/waLeadSubmittedTurn'
 import { resolveRecentUnitOfferText } from '@/lib/meta/waLeadSubmittedOfferContext'
@@ -42,14 +43,15 @@ import { greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationRe
 
 import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
 import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
-import { financingCollection, personalDataFragments } from './financing-intake'
+import { financingCollection, financingReadyForHandoff, personalDataFragments } from './financing-intake'
 import { financingIdentity } from './financing-identity'
 import { financingAmounts, financingBalance } from './financing-amounts'
 import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
 import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, isProjectInformationRequest, rememberCommercialReply, projectInformationChoiceReply, projectInformationReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
-import { propertyContext, resolvePropertyTurn, rememberPropertyReply } from './property-context'
+import { propertyContext, resolvePropertyTurn, rememberPropertyReply, unitsInPropertyReply } from './property-context'
+import { commercialEngagement } from './commercial-engagement'
 import { preferredPropertyCategory } from './property-selection'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { acceptsUnitOptions, acceptsVisitInvitation, ambiguousVisitAcceptance, rememberSalesReply } from './sales-policy'
@@ -169,7 +171,7 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
   let superseded = false
   const inferenceGuard = async () => {
     await guard()
-    const latest = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt)).at(-1)
+    const latest = rows.map(row => inboundFromRow(row.payload)).sort(compareInboundOrder).at(-1)
     if (!latest) return
     const { count, error } = await db().from('lv_integration_events').select('id', { count: 'exact', head: true })
       .match(scope).eq('contact_key', `${latest.kommoId}:${latest.contactId}`).eq('status', 'pending')
@@ -197,7 +199,7 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
 async function processConversationWithTone(rows: Row[], guard: Guard, trace: AutomationExecutionTrace, delivery: { replyWriteAttempted: boolean }) {
   const reviewing = responseReviewEnabled()
   assertLive()
-  const events = rows.map(row => inboundFromRow(row.payload)).sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.externalId.localeCompare(b.externalId))
+  const events = rows.map(row => inboundFromRow(row.payload)).sort(compareInboundOrder)
   const last = events[events.length - 1]
   if (!last || events.some(e => e.kommoId !== last.kommoId || e.contactId !== last.contactId)) throw new Error('MIXED_CONVERSATION_BATCH')
   const inboundStep = trace.start('message_received', 'Mensaje recibido', 'input', 'webhook.ts · conversation.ts', {
@@ -531,7 +533,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   // Common interpretation precedes every conversational response route.
   await guard()
   const minimalTurn = !meaningfulText || greeting
-  trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: process.env.OPENAI_MODEL })
+  trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor') })
   const toolsContextStep = trace.start('decision_context', 'Cargar catálogo y contexto financiero', 'context', 'sdr.ts · financing.ts', { required: !minimalTurn })
   const finance = minimalTurn ? { partners: [], current: {} } : await financingContext(lead)
   turnCatalog = minimalTurn ? [] : await publishedUnitCatalog()
@@ -546,7 +548,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const lastResponse = text(state.ultima_respuesta)
   const rememberedQuestion = normalizedPendingQuestion(previousSummary._pending_question || previousPropertyContext.pending_question, minimalTurn ? undefined : turnCatalog)
   const pendingQuestion = pendingFollowUpNeedsInterpretation(previousSummary, lastResponse) ? {}
-    : text(rememberedQuestion.question) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
+    : replyQuestionText(text(rememberedQuestion.question)) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
     ? rememberedQuestion
     : pendingQuestionFromReply(lastResponse)
   let interpretation = await interpretConversationTurn({
@@ -604,7 +606,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   trace.add('turn_intent', 'Resolver objetivo compartido del turno', 'decision', 'turn-intent.ts', 'succeeded',
     { classifier_scope: classifiedScope, extractor_intent: interpretation.diagnostic.primary_intent }, turnIntent)
   turnSemantics.requests = turnIntent.requests
-  trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: process.env.OPENAI_MODEL,
+  trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor'),
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
   const categoryPreference = preferredPropertyCategory(current, turnSemantics)
   // Legacy extraction cannot overwrite the new, evidenced interpretation with a mentioned rejection.
@@ -944,7 +946,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply && answeringIntroduction && !operationalTurn && !inbound.mediaFailed && !businessScope.uncertain
     && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
     const continuation = leadIntroductionTurn({ current, history: context.historial,
-      summary: { ...previousSummary, _lead_profile: summary._lead_profile }, extracted, reply: '', audit: { source: 'commercial' }, catalog: turnCatalog })
+      summary: { ...previousSummary, _lead_profile: summary._lead_profile }, extracted, reply: '', audit: { source: 'commercial' }, catalog: turnCatalog,
+      engagement: commercialEngagement(current, context.historial, previousSummary._sales_memory,
+        { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion }) })
     if (continuation.applied) {
       reply = continuation.reply
       audit = continuation.audit
@@ -1219,7 +1223,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         reply = await transferToAdvisor('continuar la revisión de financiamiento' + (financeInput.partner ? ' con ' + financeInput.partner : '') + '; comprobar el avance previo antes de volver a solicitar datos', { rule_id: 'financing.processing_failed', origin: 'operational', caused_by_step: semanticStep, facts: { failure_code: financeFailure } })
         if (financeInput.partner) reply = `Le ayudaremos a revisar la opción con ${financeInput.partner}. ` + reply
         audit = { source: 'financing_handoff', failure_code: financeFailure, selected_partner: financeInput.partner }
-      } else if (!visitRequested && (extracted.requested_advisor || fin.ready_for_handoff === true)) {
+      } else if (!visitRequested && (extracted.requested_advisor || financingReadyForHandoff(fin, finance.partners))) {
         reply = await transferToAdvisor(extracted.requested_advisor ? 'pidió hablar con un asesor' : 'información lista para revisión', { rule_id: extracted.requested_advisor ? 'advisor.explicit_request' : 'financing.ready_for_handoff', origin: extracted.requested_advisor ? 'client' : 'operational', caused_by_step: semanticStep })
         audit = { source: 'advisor_handoff' }
       } else if (visitRequested) {
@@ -1254,7 +1258,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           const identity = object(summary._financing_identity)
           const intake = financingCollection(fin, identity, document, finance.partners, financeInput.unsupported)
           reply = intake.reply
-          const selectedPartner = text(fin.selected_partner_name) || null
+          const selectedPartner = text(intake.collection.selected_partner) || null
           if (selectedPartner && financeInput.partner && !reply.includes(selectedPartner)) reply = `Continuamos con ${selectedPartner}. ` + reply
           audit = { source: 'financing', state: fin.state || fin.financing_state, selected_partner: selectedPartner,
             financing_collection: { ...intake.collection, next_question: reply,
@@ -1375,7 +1379,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   audit.brochure_intent = brochureIntent
   if (!audit.profile_introduction && !startingReservation) {
     const introduction = leadIntroductionTurn({ current, history: context.historial, summary: { ...previousSummary, _lead_profile: summary._lead_profile },
-      extracted, reply, audit, catalog: turnCatalog })
+      extracted, reply, audit, catalog: turnCatalog,
+      engagement: commercialEngagement(current, context.historial, previousSummary._sales_memory,
+        { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion }) })
     if (!finalNotice && !handoffNotice && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
       reply = introduction.reply
       audit = { ...audit, ...introduction.audit }
@@ -1451,6 +1457,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [],
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
       contrato_turno: turnIntent,
+      _sales_memory: previousSummary._sales_memory,
+      commercial_engagement: commercialEngagement(current, context.historial, previousSummary._sales_memory, {
+        semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion,
+      }),
       perfil_lead: summary._lead_profile,
       recorrido_comercial: summary._commercial_journey || {},
       solicitudes_interpretadas: turnIntent.requests,
@@ -1783,7 +1793,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     planned: summary._lead_introduction, profile: summary._lead_profile, reply, audit,
     accepted: true, followUpUsable: canTrackFollowUp, recovery: pendingRecovery })
   summary._commercial_journey = rememberCommercialJourney(object(summary._commercial_journey), object(audit.commercial_journey), object(audit.pending_question),
-    canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
+    canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness),
+    unitsInPropertyReply(turnCatalog, reply).map(unit => text(unit.id)))
   summary._visit_dialogue = rememberVisitDialogue(previousSummary._visit_dialogue, visitDialoguePlan, audit,
     canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
@@ -1808,8 +1819,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       : rememberPropertyReply(turnCatalog, summary._property_context || previousSummary._property_context, reply, audit),
     _pending_question: !meaningfulText ? previousSummary._pending_question || previousPropertyContext.pending_question || {} : audit.pending_question,
     _interpretation_pending: !meaningfulText && Boolean(text(rememberedQuestion.id)),
-    _sales_memory: pendingRecovery ? { ...object(previousSummary._sales_memory), ...rememberSalesReply(previousSummary._sales_memory, context.historial, current, '') }
-      : rememberSalesReply(previousSummary._sales_memory, context.historial, current, reply),
+    _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, pendingRecovery ? '' : reply,
+      { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion }),
     _brand_introduced: previousSummary._brand_introduced === true || /la\s*vilet/i.test(reply) || (Array.isArray(context.historial) ? context.historial.map(object) : []).some(row => ['bot', 'asesor'].includes(text(row.role)) && /la\s*vilet/i.test(text(row.content))),
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }
   const { error: memoryError } = await db().from('conversations').update({ summary: JSON.stringify(savedSummary) }).match(scope).eq('id', conversationId)

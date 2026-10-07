@@ -3,6 +3,7 @@ import { LAVILET_KOMMO_ORIGIN } from '../lavilet'
 import { autoConfig, db, object, scope, text, type Row } from './data'
 import { assertLive, automationSettings } from './config'
 import { inboundFreshness } from './inbound-freshness'
+import { reserveKommoCall } from './kommo-admission'
 
 type TransportIssue = { id: string; kommoId: number; at: string; minutes: number | null }
 export type TransportHealth = {
@@ -62,6 +63,7 @@ async function inspectTransport(now: number): Promise<TransportHealth> {
     // lead events exist. Check entity_type locally rather than hiding those events.
     const query = new URLSearchParams({ 'filter[type]': 'incoming_chat_message',
       'filter[created_at][from]': String(Math.floor(from / 1000)), limit: '100', page: String(page) })
+    await reserveKommoCall()
     const response = await fetch(`${LAVILET_KOMMO_ORIGIN}/api/v4/events?${query}`, {
       headers: { Authorization: `Bearer ${process.env.KOMMO_ACCESS_TOKEN}` }, cache: 'no-store', redirect: 'error',
       signal: AbortSignal.timeout(5_000),

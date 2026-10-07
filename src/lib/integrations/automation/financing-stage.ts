@@ -48,14 +48,19 @@ export function financingStage(info: Row): Row {
   const accepted = journey.status !== 'declined' && (journey.accepted === true || current.explicit_consent === true)
   const budget = leadBudget(info)
   const reviewed = reviewedFinancingCovers(info, unit)
+  const partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
+  const partnerUnavailable = !!text(current.selected_partner_name)
+    && !partners.some(name => normalized(name) === normalized(text(current.selected_partner_name)))
   return { accepted, selected_unit_id: unit?.id || null, selected_unit_number: unit?.unit_number || null,
     selected_partner_preference: rememberedFinancingPartner(journey, Array.isArray(finance.partners) ? finance.partners.map(text) : []),
     stage: !accepted ? 'explain_and_offer' : !unit ? 'select_property' : budget.answered !== true ? 'clarify_budget' : reviewed ? 'reviewed_ready' : 'continue_financing',
-    budget_status: budget.status, collection_allowed: accepted && !!unit && budget.answered === true && !reviewed,
+    budget_status: budget.status, partner_unavailable: partnerUnavailable,
+    collection_allowed: accepted && !!unit && budget.answered === true && !reviewed && !partnerUnavailable,
     instruction: !accepted ? 'Explique el proceso y las entidades autorizadas. Pregunte si desea continuar, sin ofrecer un contacto por rutina ni solicitar datos financieros.'
       : !unit ? 'El lead ya aceptó continuar con financiamiento. Retome sus preferencias conocidas y ayúdele a elegir una unidad concreta. No pida cédula ni datos laborales, no vuelva a pedir la aceptación y no derive a un asesor.'
         : budget.answered !== true ? 'La unidad y la aceptación están confirmadas. Pregunte si tiene presupuesto estimado; si dijo que sí sin monto, pregunte cuánto. Si declara no tenerlo definido, continúe sin exigir una cifra. No pida aún datos financieros.'
           : reviewed ? 'El equipo registró una revisión favorable que cubre esta unidad. Siga el paso comercial de reserva antes de visita, sin reabrir la recopilación ni afirmar que ya existe reserva.'
+            : partnerUnavailable ? 'La entidad del expediente ya no está habilitada. Conserve el progreso, explique el cambio y solicite una nueva elección entre las entidades vigentes, sin sustituirla automáticamente ni pedir datos personales todavía.'
             : 'La unidad, el interés y la situación del presupuesto están confirmados. Continúe con la entidad y el siguiente dato pendiente del procedimiento; no vuelva a preguntar si quiere financiamiento.',
   }
 }

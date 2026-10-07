@@ -93,7 +93,10 @@ test('accepting the explicit alternative changes only the exploration query, ret
     assert.ok(!Array.isArray(result.query.requirements) || !result.query.requirements.some((r: Row) => r.field === 'bedrooms' && r.value === 5))
     assert.deepEqual(context, before, 'Resolution must not mutate the stored original context')
     const resumed = { ...info(), property_context: result.context, semantica_turno: answer(current, pending) }
-    assert.equal(commercialJourneyPlan(resumed).action, 'ask_budget')
+    const next = commercialJourneyPlan(resumed)
+    assert.equal(next.action, 'select_property')
+    assert.equal(next.question_id, 'property_category', 'Accepting three bedrooms starts with its compatible types, before budget or floor.')
+    assert.deepEqual(object(next.selection_scope).categories, ['departamento', 'penthouse'])
     assert.equal(plan.selected_unit_id, null)
   }
 })
@@ -155,7 +158,7 @@ test('unknown or partial inventory limits the conclusion, while indispensable be
     const plan = commercialJourneyPlan(input)
     assert.equal(plan.match_complete, false)
     assert.match(String(plan.instruction), /faltan fichas o datos/)
-    assert.match(String(plan.question), /alternativas de 3 dormitorios/)
+    assert.match(String(plan.question), /opciones de 3 dormitorios/)
   }
   const strict = info()
   object(object(object(strict.property_context).query).filters).bedrooms_required = true

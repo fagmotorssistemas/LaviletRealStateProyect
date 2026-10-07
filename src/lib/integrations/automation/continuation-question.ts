@@ -79,7 +79,7 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   } else {
     // Compatibility for historical/transport-only drafts: never label arbitrary
     // prose with the planned ID. Exact planned wording or actual-text meaning is required.
-    const inferred = pendingQuestionFromReply(question)
+    const inferred = pendingQuestionFromReply(reply)
     const planned = same(plan.question, question) ? { id: plan.question_id, act: plan.question_act, question } : {}
     pending = normalizedPendingQuestion(Object.keys(planned).length ? planned : Object.keys(matchingQuestion).length
       ? { ...matchingQuestion, question } : inferred)
@@ -93,7 +93,10 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
     candidate_ids: ids(pending.act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
     ...(pending.act === 'explore_alternatives' && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),
   } : {}
-  return normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
+  const result = normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
     target_ids: matching.target_ids ?? scoped.target_ids ?? pending.target_ids,
     candidate_ids: matching.candidate_ids ?? scoped.candidate_ids ?? pending.candidate_ids }, catalog)
+  if (result.id === 'unit_choice' && !ids(result.target_ids).length && !ids(result.candidate_ids).length
+    && pendingQuestionFromReply(reply).id !== 'unit_choice') return {}
+  return result
 }

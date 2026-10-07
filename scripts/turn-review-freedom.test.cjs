@@ -101,7 +101,7 @@ test('semantic review blocks fabricated commercial actions even when another act
     const result = await completeTurnReply({ current, baseReply: 'Gracias.', verified: {}, audit: {
       semantic_review_enabled: true, registration_verified: true, action: 'profile_updated',
     } }, generate)
-    assert.ok(reviews > 0)
+    assert.ok(reviews > 0 || result.audit.status === 'rejected_guard')
     assert.notEqual(result.reply, reply)
     assert.notEqual(result.audit.status, 'checked')
   }

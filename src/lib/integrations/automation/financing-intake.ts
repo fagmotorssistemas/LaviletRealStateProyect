@@ -6,6 +6,13 @@ import { financingNameQuestion } from './financing-identity'
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
 export const intakeFragmentKey = (value: string) => createHash('sha256').update(normalized(value)).digest('hex')
 
+/** The RPC readiness flag cannot override the project's current enabled lenders. */
+export function financingReadyForHandoff(fin: Row, partners: string[]): boolean {
+  const selected = normalized(text(fin.selected_partner_name))
+  return fin.ready_for_handoff === true && !!selected
+    && partners.some(name => normalized(name) === selected)
+}
+
 /** Only literal personal-data declarations are exempt from business-gap
  * handoffs. Keep hashes in the audit; never duplicate the document there. A
  * mixed message's business question is deliberately not covered by this set. */
@@ -30,16 +37,19 @@ export function financingCollection(fin: Row, identity: Row, document: Row, part
   // persisted state carries consent because the RPC does not return its flag.
   const state = text(fin.state || fin.financing_state)
   const consentRequired = state === 'continuacion_pendiente' || fin.explicit_consent === false
-  const effective = consentRequired ? { ...fin, state: 'continuacion_pendiente' } : fin
-  const pending = financingPendingFields(fin)
+  const selected = text(fin.selected_partner_name)
+  const partnerUnavailable = !!selected && !partners.some(name => normalized(name) === normalized(selected))
+  const effective = consentRequired ? { ...fin, state: 'continuacion_pendiente', ...(partnerUnavailable ? { selected_partner_name: null } : {}) }
+    : partnerUnavailable ? { ...fin, state: 'entidad_pendiente', selected_partner_name: null } : fin
+  const pending = financingPendingFields(partnerUnavailable ? { ...fin, selected_partner_name: null } : fin)
   const invalidDocument = ['invalid_length', 'incomplete'].includes(text(document.status))
   const basic = ['legal_name', 'national_id', 'applicant_type'].filter(field => pending.includes(field))
-  const collectionAllowed = !consentRequired && !unsupported
+  const collectionAllowed = !consentRequired && !unsupported && !partnerUnavailable && partners.length > 0
     && !['entidad_pendiente', 'lista_para_revision'].includes(state)
   const collectBasics = collectionAllowed && (invalidDocument || !!fin.selected_partner_name && basic.length > 0)
   let reply = financingReply(effective, partners, unsupported)
   const requested = unsupported ? [] : consentRequired ? ['financing_consent']
-    : state === 'entidad_pendiente' ? ['selected_partner_name']
+    : partnerUnavailable || state === 'entidad_pendiente' ? partners.length ? ['selected_partner_name'] : []
       : state === 'lista_para_revision' ? [] : collectBasics ? basic : pending.slice(0, 1)
   if (collectBasics) {
     const parts: string[] = []
@@ -53,7 +63,8 @@ export function financingCollection(fin: Row, identity: Row, document: Row, part
   }
   return { reply, collection: { state: effective.state || effective.financing_state, next_question: reply,
     pending_fields: consentRequired ? ['financing_consent', ...pending] : pending,
-    requested_fields: requested, selected_partner: text(fin.selected_partner_name) || null,
+    requested_fields: requested, selected_partner: partnerUnavailable ? null : selected || null,
+    partner_availability: partnerUnavailable ? 'disabled_or_removed' : selected ? 'enabled' : 'not_selected',
     consent_required: consentRequired, collection_allowed: collectionAllowed,
     legal_name_complete: fin.legal_name_confirmed === true, document_validation: document,
     instruction: consentRequired

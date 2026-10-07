@@ -61,26 +61,33 @@ test('parallel turns keep independent snapshots and restore enabled mode afterwa
   assert.equal(responseReviewEnabled(), true)
 })
 
-test('disabled review delivers the first writer draft even with commercial errors and unusable metadata', async () => {
+test('disabled review blocks commercial errors without calling a reviewer or retrying the writer', async () => {
   const reply = 'El departamento 202 cuesta $1 y tiene 90 dormitorios. Su crédito ya está aprobado. https://example.com/otro'
   const mock = writer(reply, { invalid: true })
-  const result = await withResponseReviewPolicy(off, () => completeTurnReply({ ...input,
-    validateReply: () => { throw Error('Commercial validator must not run') },
-    normalizeReply: () => { throw Error('Draft must not be rewritten') },
-  }, mock.generate))
-  assert.equal(result.reply, reply)
+  const result = await withResponseReviewPolicy(off, () => completeTurnReply(input, mock.generate))
+  assert.notEqual(result.reply, reply)
   assert.deepEqual(mock.calls, ['writing'])
-  assert.equal(result.audit.status, 'review_disabled')
+  assert.equal(result.audit.status, 'rejected_guard')
   assert.equal(result.needsAdvisor, false)
   assert.deepEqual(result.unresolved, [])
   assert.deepEqual(result.audit.repair_attempts, [])
+  assert.equal(object(result.audit.final_validation).passed, false)
+  assert.equal(object(result.audit.final_validation).policy, 'mandatory_server_guards')
+  assert.throws(() => requireReviewedResponse(result.audit))
+  assert.notEqual(reviewDecision(result.audit).tone, 'accepted')
+})
+
+test('disabled review permits verified copy without inventing a semantic approval or requiring model metadata', async () => {
+  const reply = 'El departamento 202 tiene 3 dormitorios.'
+  const mock = writer(reply, { invalid: true })
+  const result = await withResponseReviewPolicy(off, () => completeTurnReply(input, mock.generate))
+  assert.equal(result.reply, reply)
+  assert.deepEqual(mock.calls, ['writing'])
+  assert.equal(result.audit.status, 'review_disabled')
   assert.equal(object(result.audit.semantic_review).status, 'disabled')
   assert.equal(object(result.audit.semantic_review).approved, undefined)
-  assert.equal(object(result.audit.final_validation).policy, 'transport_only')
+  assert.equal(object(result.audit.final_validation).policy, 'mandatory_server_guards')
   assert.doesNotThrow(() => requireReviewedResponse(result.audit))
-  const display = reviewDecision(result.audit)
-  assert.match(display.title, /Sin revisión/)
-  assert.notEqual(display.tone, 'accepted')
 })
 
 test('disabled review does not send empty or oversized writer output', async () => {
@@ -91,14 +98,15 @@ test('disabled review does not send empty or oversized writer output', async () 
   }
 })
 
-test('disabled review preserves the writer draft even when a brochure was scheduled', async () => {
+test('disabled review keeps the scheduled authorized brochure without another model call', async () => {
   const reply = 'Uso mixto significa que combina espacios residenciales y comerciales.'
   const mock = writer(reply)
   const result = await withResponseReviewPolicy(off, () => completeTurnReply({ ...input,
     current: 'a que te refieres con uso mixto',
     audit: { profile_introduction: { brochure_required: true, brochure_url: 'https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' } },
   }, mock.generate))
-  assert.equal(result.reply, reply)
+  assert.ok(result.reply.startsWith(reply))
+  assert.ok(result.reply.includes('https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf'))
   assert.deepEqual(mock.calls, ['writing'])
   assert.equal(result.audit.status, 'review_disabled')
 })
@@ -139,7 +147,7 @@ test('questions actually delivered without review retain profile continuity with
   assert.equal(responseSupportsContinuity({ ...result.audit, final_validation: { passed: false } }), false)
 })
 
-test('operational writer bypasses its reviewer and link checks, but still rejects invalid transport', async () => {
+test('operational writer skips the paid reviewer but preserves link and transport integrity', async () => {
   const calls: string[] = []
   let proposed = 'Puede revisar su información en https://example.com/nuevo'
   const generate: NonNullable<Parameters<typeof operationalReply>[4]> = async (_rules, _input, _schema, _image, _file, _tone, task = 'data') => {
@@ -149,8 +157,8 @@ test('operational writer bypasses its reviewer and link checks, but still reject
   }
   const run = () => withResponseReviewPolicy(off, () => operationalReply('Propuesta pendiente.', 'Gracias', [], {}, generate))
   const result = await run()
-  assert.equal(result.reply, proposed)
-  assert.equal(result.review_control?.enabled, false)
+  assert.equal(result.reply, 'Propuesta pendiente.')
+  assert.equal(result.generated, false)
   assert.deepEqual(calls, ['writing'])
   proposed = 'a'.repeat(MAX_REPLY_CHARACTERS + 1)
   assert.equal((await run()).reply, 'Propuesta pendiente.')

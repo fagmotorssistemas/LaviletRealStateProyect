@@ -3,6 +3,8 @@ import { bedroomComparison, type BedroomComparison } from './bedroom-comparison'
 import { normalized } from './sdr-rules'
 import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
 import { normalizeCatalogRequest } from './catalog-request'
+import { replyQuestions } from './reply-question'
+import { budgetAmountWithLiteralQuantity } from './turn-interpretation-input'
 
 export const questionIds = [
   'reservation_invitation',
@@ -63,9 +65,9 @@ const housingQuantityBases = new Set(['total', 'excluding_speaker', 'unspecified
 /** The complete strict schema for the turn_semantics property of an extraction. */
 export const TURN_SEMANTICS_SCHEMA = strictObject({
   primary_intent: enumSchema(primaryIntents), primary_evidence: { type: 'string' }, confidence: confidenceSchema,
-  housing_quantities: { type: 'array', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
+  housing_quantities: { type: 'array', description: 'Solo cantidades declaradas o evaluadas en mensaje_actual; [] si no hay. Nunca copie cantidades del catálogo, de una pregunta previa ni del historial. No cree elementos vacíos.', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
     values: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 1000 } },
-    role: enumSchema(housingQuantityRoles), count_basis: enumSchema(housingQuantityBases), evidence: { type: 'string' }, confidence: confidenceSchema }) },
+    role: { ...enumSchema(housingQuantityRoles), description: 'requirement busca/restringe; evaluation consulta si las opciones sirven; context describe la familia; unknown es ambiguo. Evaluar capacidad no impone otra búsqueda.' }, count_basis: enumSchema(housingQuantityBases), evidence: { type: 'string' }, confidence: confidenceSchema }) },
   answer_to_previous: strictObject({ question_id: enumSchema([...questionIds, 'none']), kind: enumSchema(answerKinds), evidence: { type: 'string' }, confidence: confidenceSchema }),
   reservation: strictObject({ kind: enumSchema(reservationKinds), evidence: { type: 'string' },
     unit_numbers: { type: 'array', items: { type: 'string' } }, confidence: confidenceSchema }),
@@ -108,15 +110,20 @@ export function normalizedPropertyQuery(raw: unknown): Row {
 
 const numberWords: Record<string, number> = { cero: 0, un: 1, una: 1, uno: 1, primera: 1, primer: 1, dos: 2, segunda: 2, segundo: 2, tres: 3, tercera: 3, tercer: 3, cuatro: 4, cuarta: 4, cuarto: 4, cinco: 5, quinta: 5, quinto: 5, seis: 6, sexta: 6, sexto: 6, siete: 7, septima: 7, septimo: 7, ocho: 8, octava: 8, octavo: 8, nueve: 9, novena: 9, noveno: 9, diez: 10, decima: 10, decimo: 10 }
 const numberToken = '(?:\\d{1,2}(?:ta|to|ra|ro|da|do|ma|mo|va|vo)?|' + Object.keys(numberWords).join('|') + ')'
+// Before/after a floor noun, un/una are indefinite articles ("un piso
+// exacto"), not evidence that the customer chose the first floor. "Uno",
+// ordinals and actual digits retain their numeric meanings.
+const floorNumberToken = '(?:\\d{1,2}(?:ta|to|ra|ro|da|do|ma|mo|va|vo)?|'
+  + Object.keys(numberWords).filter(word => !['un', 'una'].includes(word)).join('|') + ')'
 const tokenNumber = (value: string) => numberWords[value] ?? Number.parseInt(value, 10)
 
 /** Conservative spelling compatibility; model values still carry the original evidence. */
 export function propertyFiltersFromText(current: string, pendingId = ''): PropertyFilters {
   const value = normalized(current).replace(/(?<![a-z])(?:habiataciones|habitacones|abitaciones)\b/g, 'habitaciones')
   const filters = emptyPropertyFilters()
-  const floor = value.match(new RegExp('\\b(?:planta|piso|nivel)\\s*(?:numero\\s*)?(' + numberToken + ')\\b'))
-    || value.match(new RegExp('\\b(' + numberToken + ')\\s*(?:planta|piso|nivel)\\b'))
-    || (pendingId === 'property_floor' ? value.match(new RegExp('^(?:la |el )?(' + numberToken + ')$')) : null)
+  const floor = value.match(new RegExp('\\b(?:planta|piso|nivel)\\s*(?:numero\\s*)?(' + floorNumberToken + ')\\b'))
+    || value.match(new RegExp('\\b(' + floorNumberToken + ')\\s*(?:planta|piso|nivel)\\b'))
+    || (pendingId === 'property_floor' ? value.match(new RegExp('^(?:la |el )?(' + floorNumberToken + ')$')) : null)
   if (floor) filters.floor_number = tokenNumber(floor[1])
   if (/\bplanta baja\b/.test(value)) filters.floor_number = 0
   const bedrooms = value.match(new RegExp('(?:^|[^a-z0-9])(?:de\\s*)?(' + numberToken + ')\\s*(?:dormitorios?|habitaciones?|cuartos?)\\b'))
@@ -124,7 +131,7 @@ export function propertyFiltersFromText(current: string, pendingId = ''): Proper
   const choices = bedroomOptionsFromText(current)
   if (choices.length > 1) { filters.bedrooms = null; filters.bedrooms_any = choices }
   if (bedrooms && !/\bno (?:es|son|necesito|necesariamente|tienen que ser)\b/.test(value)
-    && (/\b(?:exactamente|indispensables?|obligatori[oa]s?|necesariamente)\b/.test(value)
+    && (/\b(?:exactamente|indispensables?|obligatori[oa]s?|obligatoriamente|necesariamente)\b/.test(value)
       || /\b(?:menos|otra cantidad)\b.{0,25}\bno me sirve\b|\bno (?:acepto|quiero) menos\b/.test(value))) filters.bedrooms_required = true
   const area = value.match(/\b(al menos|minimo|desde|hasta|maximo|menos de|mas de)\s*(\d+(?:[.,]\d+)?)\s*(?:m2|m²|metros)/)
   if (area) filters[/hasta|maximo|menos de/.test(area[1]) ? 'max_area_m2' : 'min_area_m2'] = Number(area[2].replace(',', '.'))
@@ -207,8 +214,28 @@ Use confidence=high solo cuando la evidencia literal y el contexto produzcan una
 
 function literalEvidence(value: unknown, current: string) {
   const evidence = text(value).trim()
-  if (!evidence || evidence.length > 240) return ''
+  // A compound current declaration may need more than 240 characters to retain
+  // its negations and corrections. Membership bounds the quote to the actual
+  // turn, instead of accepting it at extraction and silently discarding it here.
+  if (!evidence) return ''
   return normalized(current).includes(normalized(evidence)) ? evidence : ''
+}
+
+/** A missing duplicate boolean quote may reuse a constraint's current evidence.
+ * Required catalogue strength alone does not make a bedroom count inflexible. */
+function sharedBedroomRigidityEvidence(requirement: Row | null, quantities: Row[], current: string): string {
+  if (!requirement || !['eq', 'gte', 'lte', 'between'].includes(text(requirement.operator))) return ''
+  const evidence = literalEvidence(requirement.evidence, current)
+  const declaration = current.replace(/«[^»]*»|“[^”]*”|"[^"]*"/g, '')
+  if (!evidence || !normalized(declaration).includes(normalized(evidence))) return ''
+  const lexical = propertyFiltersFromText(evidence)
+  if (lexical.bedrooms_required !== true || lexical.bedrooms !== requirement.value) return ''
+  const compatibleQuantity = quantities.some(quantity => quantity.dimension === 'bedrooms'
+    && quantity.role === 'requirement' && quantity.confidence === 'high'
+    && Array.isArray(quantity.values) && quantity.values.includes(requirement.value)
+    && (normalized(evidence).includes(normalized(text(quantity.evidence)))
+      || normalized(text(quantity.evidence)).includes(normalized(evidence))))
+  return compatibleQuantity ? evidence : ''
 }
 
 /** The model owns the meaning of quantities; normalization only checks its typed,
@@ -260,35 +287,40 @@ export function normalizedReservation(raw: unknown, current: string): Row {
   } : { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' }
 }
 
-function lastQuestion(reply: string) {
-  const matches = reply.match(/[^?¿\n]*\?/g)
-  return text(matches?.at(-1)).trim() || reply.trim()
-}
-
 /**
  * Compatibility classifier for replies already sent before question memory was
  * introduced. New turns persist the returned id explicitly in the summary.
  */
 export function pendingQuestionFromReply(reply: string): Row {
-  const question = lastQuestion(reply)
+  const question = replyQuestions(reply).at(-1) || ''
+  if (!question) return {}
   const value = normalized(question)
   let id: PendingQuestionId | null = null
+  let act: string | undefined
   const asksName = /\b(?:su nombre|tu nombre|como (?:se llama|te llamas)|con (?:que|cual) nombre|con quien (?:tenemos|tengo) el gusto)\b/.test(value)
-  const asksResidence = /\b(?:resid(?:e|es|en|ir|encia)|viv(?:e|es|en|ir))\b/.test(value)
-  if (/[?¿]/.test(question) && (asksName || asksResidence)) id = asksName && asksResidence ? 'lead_profile' : asksName ? 'lead_profile_name' : 'lead_profile_residence'
+  const asksResidence = /\bresid(?:e|es|en|ir)\b|\b(?:su|tu|lugar de) residencia\b|\bresidencia (?:actual|habitual)\b|\b(?:donde|en que (?:ciudad|pais|lugar)).*\bviv(?:e|es|en|ir)\b/.test(value)
+  const unitReferent = /\b(?:unidades?|departamentos?|suites?|penthouses?|local(?:es)?)\s*(?:numero\s*)?(?:lc[- ]?)?\d{1,4}\b(?!\s*(?:dormitorios?|habitaciones?|cuartos?|banos?|metros?|m2))/.test(normalized(reply))
+  if (asksName || asksResidence) id = asksName && asksResidence ? 'lead_profile' : asksName ? 'lead_profile_name' : 'lead_profile_residence'
   else if (/visita|cita|recibirle|visitarnos|conocer el proyecto/.test(value)
     && /que dia|cual dia|fecha|que hora|horario|cuando/.test(value)) id = 'visit_date_time'
   else if (/visita|cita|visitarnos|conocer el proyecto|conocerlo en persona/.test(value)
     && /gustaria|desea|quiere|coordin|agend|animaria/.test(value)) id = 'visit_invitation'
   else if (/presupuesto total|monto disponible|capital inicial|entrada/.test(value)) id = 'budget_kind'
   else if (/presupuesto|cuanto.*(?:invertir|dispone|cuenta)|capital aproximado/.test(value)) id = 'budget_amount'
-  else if (/que tipo de espacio|suite.*departamento|departamento.*suite|departamento.*penthouse|penthouse.*departamento|locales comerciales/.test(value)) id = 'property_category'
+  else if (/vivir.*invertir|invertir.*vivir|residencia.*inversion|inversion.*residencia/.test(value)) id = 'property_purpose'
+  else if (/que tipo de espacio|suite.*departamento|departamento.*suite|departamento.*penthouse|penthouse.*departamento|vivienda.*local|local.*vivienda/.test(value)) id = 'property_category'
   else if (/que planta|cual.*planta|que piso|cual.*piso/.test(value)) id = 'property_floor'
   else if (/cuantos? (?:dormitorios?|habitaciones?|cuartos?)/.test(value)) id = 'property_bedrooms'
+  else if (/dormitorios?|habitaciones?|cuartos?/.test(value) && /revis|explor|evalu|acept|consider|servir/.test(value)) {
+    id = 'property_bedrooms'; act = 'explore_alternatives'
+  }
   else if (/que (?:area|superficie|tamano)|cuantos metros/.test(value)) id = 'property_area'
-  else if (/cual.*(?:revisar|explorar|conocer|prefiere|interesa)|que opcion|(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer esta opcion)/.test(value)) id = 'unit_choice'
+  else if (unitReferent && /cual.*(?:revisar|explorar|conocer|prefiere|interesa)|que opcion|(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer)/.test(value)) {
+    id = 'unit_choice'
+    if (/(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer)/.test(value)) act = 'show_unit_details'
+  }
   else if (/cuando.*decision|plazo.*compra/.test(value)) id = 'purchase_timing'
-  return id ? normalizedPendingQuestion({ id, question, ...(id === 'unit_choice' && /(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer esta opcion)/.test(value) ? { act: 'show_unit_details' } : {}) }) : {}
+  return id ? normalizedPendingQuestion({ id, question, ...(act ? { act } : {}) }) : {}
 }
 
 export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw: unknown): Row {
@@ -317,8 +349,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const budgetEvidence = literalEvidence(budget.evidence, current)
   const budgetStatus = budget.confidence === 'high' && budgetEvidence && budgetStatuses.has(text(budget.status))
     && budget.status !== 'not_discussed' ? text(budget.status) : 'not_discussed'
-  const amount = typeof budget.amount === 'number' && Number.isFinite(budget.amount) && budget.amount > 0
-    && /\d/.test(budgetEvidence) ? Number(budget.amount) : null
+  const amount = budgetAmountWithLiteralQuantity(budget.amount, budgetEvidence)
   const property = object(data.property)
   const propertyEvidence = literalEvidence(property.evidence, current)
   const propertyConfident = property.confidence === 'high' && !!propertyEvidence
@@ -340,8 +371,16 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     : category ? 'residential' : propertyConfident && ['residential', 'commercial'].includes(text(property.group)) ? text(property.group) : null
   const lexicalFilters = propertyFiltersFromText(current, pendingId)
   const semanticFilters = propertyConfident ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
+  const structuredCatalog = normalizeCatalogRequest(object(raw).catalog_request, current)
+  const bedroomRequirements = Array.isArray(structuredCatalog?.requirements) ? structuredCatalog.requirements.map(object)
+    .filter(requirement => requirement.field === 'bedrooms' && requirement.strength === 'required') : []
+  const bedroomRequirement = bedroomRequirements.length === 1 ? bedroomRequirements[0] : null
   const filterEvidence = Object.fromEntries(Object.keys(object(property.filter_evidence))
     .map(key => [key, propertyConfident ? literalEvidence(object(property.filter_evidence)[key], current) : '']))
+  if (semanticFilters.bedrooms_required === true && !filterEvidence.bedrooms_required) {
+    const sharedEvidence = sharedBedroomRigidityEvidence(bedroomRequirement, housingQuantities, current)
+    if (sharedEvidence) filterEvidence.bedrooms_required = sharedEvidence
+  }
   // Legacy extractions have no per-field evidence. New extractions cannot turn
   // historical attributes into current constraints merely by repeating them.
   if (property.filter_evidence !== undefined) {
@@ -363,7 +402,24 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     normalizationIssues.push('bedrooms_requirement_without_explicit_evidence')
   }
   const filters: PropertyFilters = { ...semanticFilters }
-  const structuredCatalog = normalizeCatalogRequest(object(raw).catalog_request, current)
+  // These are two representations of the same current constraint. A validated
+  // catalogue condition supplies its own evidence; an omitted duplicate quote
+  // must not change "at least two" into "exactly two" in durable filters.
+  // Multiple conditions and strict gt/lt remain in the catalogue contract.
+  if (propertyConfident && bedroomRequirement && ['eq', 'gte', 'lte', 'between'].includes(text(bedroomRequirement.operator))
+    && Number.isInteger(bedroomRequirement.value) && Number(bedroomRequirement.value) >= 1 && Number(bedroomRequirement.value) <= 30
+    && (bedroomRequirement.operator !== 'between' || Number.isInteger(bedroomRequirement.upper_value)
+      && Number(bedroomRequirement.upper_value) >= Number(bedroomRequirement.value) && Number(bedroomRequirement.upper_value) <= 30)) {
+    const before = JSON.stringify(filters)
+    filters.bedrooms = Number(bedroomRequirement.value)
+    delete filters.bedrooms_any; delete filters.bedrooms_operator; delete filters.bedrooms_upper
+    if (bedroomRequirement.operator !== 'eq') filters.bedrooms_operator = bedroomRequirement.operator as 'gte' | 'lte' | 'between'
+    if (bedroomRequirement.operator === 'between') filters.bedrooms_upper = Number(bedroomRequirement.upper_value)
+    filterEvidence.bedrooms = text(bedroomRequirement.evidence)
+    filterEvidence.bedrooms_operator = text(bedroomRequirement.evidence)
+    if (bedroomRequirement.operator === 'between') filterEvidence.bedrooms_upper = text(bedroomRequirement.evidence)
+    if (before !== JSON.stringify(filters)) normalizationIssues.push('catalog_requirement_supplies_bedroom_relation')
+  }
   for (const [key, lexicalValue] of Object.entries(lexicalFilters)) {
     if (structuredCatalog) continue
     if (lexicalValue === null) continue

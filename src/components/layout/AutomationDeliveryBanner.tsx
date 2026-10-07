@@ -16,6 +16,11 @@ export function AutomationDeliveryBanner() {
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [reviewId, setReviewId] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<'sent' | 'not_sent'>('not_sent')
+  const [providerMessageId, setProviderMessageId] = useState('')
+  const [reviewReference, setReviewReference] = useState('')
+  const [reviewed, setReviewed] = useState(false)
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await fetch('/api/integrations/delivery', { cache: 'no-store', signal })
@@ -33,14 +38,14 @@ export function AutomationDeliveryBanner() {
     window.addEventListener('focus', check)
     return () => { controller.abort(); window.clearInterval(interval); window.removeEventListener('focus', check) }
   }, [allowed, refresh])
-  async function update(action: string, id?: string) {
+  async function update(action: string, id?: string, evidence?: Record<string, unknown>) {
     setBusy(true)
     try {
       const response = await fetch('/api/integrations/delivery', { method: 'POST',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) })
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id, ...evidence }) })
       const result = await response.json()
       if (!response.ok) throw Error(result.error || 'No se pudo guardar la revisión.')
-      setHealth(result); setError('')
+      setHealth(result); setError(''); setReviewId(null)
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar la revisión.') }
     finally { setBusy(false) }
   }
@@ -65,6 +70,30 @@ export function AutomationDeliveryBanner() {
               {item.kommoId ? <a className="inline-flex items-center gap-1 underline" href={`https://lavilet.kommo.com/leads/detail/${item.kommoId}`} target="_blank" rel="noopener noreferrer">Lead #{item.kommoId}<ExternalLink size={12} /></a> : <span>Automatización</span>}
               <span className="text-xs">{item.reason === 'KOMMO_INBOUND_NOT_OBSERVED' ? 'Kommo registra un mensaje sin recepción aquí; revise el canal y atienda la consulta pendiente' : item.reason === 'SUPERSEDED_DELAYED_INBOUND' ? 'Mensaje recibido fuera de orden; revise que la conversación más reciente haya atendido su consulta' : item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Mensaje no enviado; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {reservationServiceError(item.reason) || item.reason}</span>
               {admin && item.canResolve && !health.blocked && <button type="button" disabled={busy} onClick={() => void update('incident_reviewed', item.id)} className="ml-auto text-xs font-medium underline disabled:opacity-50">Ya atendí esta conversación</button>}
+              {admin && item.canReconcile && <button type="button" disabled={busy} onClick={() => {
+                setReviewId(reviewId === item.id ? null : item.id); setOutcome('not_sent'); setProviderMessageId(''); setReviewReference(''); setReviewed(false)
+              }} className="ml-auto text-xs font-medium underline disabled:opacity-50">Comprobar este envío</button>}
+              {admin && item.canReconcile && reviewId === item.id && <form className="mt-2 w-full space-y-2 border-t border-amber-200 pt-3" onSubmit={event => {
+                event.preventDefault()
+                void update('reconcile_incident', item.id, { outcome, reviewed, reviewReference: reviewReference.trim(),
+                  ...(outcome === 'sent' ? { providerMessageId: providerMessageId.trim() } : {}) })
+              }}>
+                <p className="text-xs">Revise el historial de Kommo y compruebe el destinatario, el contenido y la hora del intento. Guardar esta revisión resuelve el bloqueo del intento; no vuelve a enviar ese mensaje.</p>
+                <label className="block text-xs">Resultado comprobado
+                  <select disabled={busy} value={outcome} onChange={event => { setOutcome(event.target.value as 'sent' | 'not_sent'); setReviewed(false) }} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2">
+                    <option value="not_sent">No se envió; cancelar este intento</option>
+                    <option value="sent">Se envió; registrar el mensaje encontrado</option>
+                  </select>
+                </label>
+                {outcome === 'sent' && <label className="block text-xs">Identificador del mensaje enviado en Kommo
+                  <input required maxLength={200} disabled={busy} value={providerMessageId} onChange={event => setProviderMessageId(event.target.value)} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" />
+                </label>}
+                <label className="block text-xs">Referencia de la comprobación y observaciones
+                  <textarea required minLength={10} maxLength={300} disabled={busy} value={reviewReference} onChange={event => setReviewReference(event.target.value)} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" />
+                </label>
+                <label className="flex items-start gap-2 text-xs"><input type="checkbox" required disabled={busy} checked={reviewed} onChange={event => setReviewed(event.target.checked)} className="mt-0.5" />He revisado el historial y comprobado que este resultado corresponde al intento y contacto indicados.</label>
+                <button type="submit" disabled={busy || !reviewed || reviewReference.trim().length < 10 || outcome === 'sent' && !providerMessageId.trim()} className="rounded border border-amber-700 px-3 py-2 text-xs font-medium disabled:opacity-50">Guardar comprobación</button>
+              </form>}
             </li>)}
           </ul>
           {health.incidentCount > health.incidents.length && <p className="mt-2 text-xs">Se muestran los últimos {health.incidents.length} intentos.</p>}

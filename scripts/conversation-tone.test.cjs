@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -37,9 +38,10 @@ async function fingerprints(originals = {}) {
   const openings = load('response-openings',source('response-openings'))
   for (const [i,history] of [[],[{role:'bot',content:'Con gusto. Tenemos opciones.'}],[{role:'bot',content:'Con gusto. Tenemos opciones.'},{role:'bot',content:'Perfecto. Revisamos su solicitud.'}]].entries()) result['opening.'+i] = hash(openings.openingWritingRules(history))
   let instructions
-  const ai = load('ai',source('ai'), {'./openai-request': {requestOpenAI:async (_url,init) => {
+  const ai = load('ai',source('ai'), {'./openai-request': {requestOpenAI:async (_url,init,_dependencies,consume) => {
     instructions=JSON.parse(init.body).instructions
-    return {json:async()=>({status:'completed',output:[{content:[{type:'output_text',text:'{"mensaje":"Respuesta de prueba"}'}]}]})}
+    const response={json:async()=>({status:'completed',output:[{content:[{type:'output_text',text:'{"mensaje":"Respuesta de prueba"}'}]}]})}
+    return consume ? consume(response) : response
   }}})
   const key=process.env.OPENAI_API_KEY,model=process.env.OPENAI_MODEL
   try {process.env.OPENAI_API_KEY='test';process.env.OPENAI_MODEL='test';await ai.draftReply('Instrucción base',{});assert.ok(instructions.includes(DIRECT_CONVERSATION_RULE));result.draft=hash(instructions.replace(DIRECT_CONVERSATION_RULE,'').replace(ACTION_INVITATION_RULE,''))}
@@ -49,10 +51,18 @@ async function fingerprints(originals = {}) {
 if (process.argv.includes('--capture-original')) {
   fingerprints(JSON.parse(fs.readFileSync(path.join(root,'tmp/tone-original-sources.json'),'utf8'))).then(result=>fs.writeFileSync(path.join(__dirname,'fixtures/conversation-tone-baseline.json'),JSON.stringify(result,null,2)+'\n'))
 } else {
-  test('centralization preserves every effective writing/review instruction and contextual opening byte for byte',async()=>{
-    // The user authorized this universal rule for Original too. Verify the
-    // historical prompt separately, without rebaselining unrelated wording.
-    assert.deepEqual(await fingerprints(),require('./fixtures/conversation-tone-baseline.json'))
+  test('the stable tone and contextual openings survive later authorized business-rule changes',async()=>{
+    // The historical fixture also hashes complete business prompts. Those have
+    // since gained consent, catalogue and continuation corrections; it would be
+    // false to call them byte-identical. Keep that original fixture, and protect
+    // the actual tone independently of functional rules covered by flow tests.
+    const {CURRENT_TONE}=require('../src/lib/integrations/automation/conversation-tone.ts')
+    const originalTone=Object.fromEntries(Object.entries(CURRENT_TONE).filter(([key])=>key!=='turnLength'))
+    assert.equal(hash(JSON.stringify(originalTone)),'a5f71b28808daff9bb74c075a80dc4e47e79c8086a869d642a850b4d2a6be941',
+      'Original centralized tone from commit cf3833e must remain unchanged')
+    assert.equal(CURRENT_TONE.turnLength,'Responda normalmente en 25 a 55 palabras.')
+    const actual=await fingerprints(),baseline=require('./fixtures/conversation-tone-baseline.json')
+    for(const key of ['opening.0','opening.1','opening.2']) assert.equal(actual[key],baseline[key],key)
   })
   test('database prompt references expand to the exact prior content and reject unknown keys',async()=>{
     const {resolveToneReferences}=require('../src/lib/integrations/automation/conversation-tone.ts')

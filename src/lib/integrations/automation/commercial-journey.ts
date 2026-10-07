@@ -1,7 +1,7 @@
 import { object, text, type Row } from './data'
 import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers } from './budget-state'
-import { catalogQuery, filterCatalog, partitionCatalog, type CatalogQuery } from './catalog-dialogue'
+import { catalogQuery, filterCatalog, partitionCatalog, catalogRequirementAlternative } from './catalog-dialogue'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { deliveredPendingQuestion } from './continuation-question'
 import { normalizedPropertyQuery } from './turn-semantics'
@@ -20,45 +20,7 @@ export function proposalInformationContext(info: Row): Row {
     && Object.keys(object(reference.query)).length ? reference : {}
 }
 
-/** Prefer a verified change to one physical requirement; never relax several
- * constraints, the customer's price limit or an explicitly indispensable count. */
-function alternativeRequirement(catalog: Row[], query: CatalogQuery, excluded: Set<string>, scopedIds?: string[]) {
-  if (query.filters.bedrooms_required === true) return null
-  const fields = new Set(rows(query.requirements).filter(r => r.strength === 'required'
-    && !['published_commercial_price', 'unmodeled', 'spaces'].includes(text(r.field))).map(r => text(r.field)))
-  if (query.filters.bedrooms !== null || query.filters.bedrooms_any?.length) fields.add('bedrooms')
-  if (query.filters.floor_number !== null) fields.add('floor_number')
-  if (query.filters.min_area_m2 !== null || query.filters.max_area_m2 !== null) fields.add('area_internal_m2')
-  const proposals: { field: string; query: CatalogQuery; units: Row[] }[] = []
-  for (const field of fields) {
-    const filters = { ...query.filters }
-    if (field === 'bedrooms') Object.assign(filters, { bedrooms: null, bedrooms_any: [], bedrooms_operator: null, bedrooms_upper: null, bedrooms_required: false })
-    if (field === 'floor_number') filters.floor_number = null
-    if (field === 'area_internal_m2') Object.assign(filters, { min_area_m2: null, max_area_m2: null })
-    let proposed = catalogQuery({ ...query, operation: 'search', selector: null, filters,
-      requirements: rows(query.requirements).filter(r => r.field !== field) })
-    let units = filterCatalog(catalog, proposed, scopedIds).filter(unit => !excluded.has(text(unit.category))
-      && unit[field] != null && unit[field] !== '' && Number.isFinite(Number(unit[field])))
-    if (!units.length) continue
-    if (field === 'bedrooms' && units.every(unit => typeof unit.bedrooms === 'number' && Number.isFinite(unit.bedrooms) && unit.bedrooms > 0)) {
-      const requested = query.filters.bedrooms ?? query.filters.bedrooms_any?.[0]
-        ?? rows(query.requirements).find(r => r.field === field && typeof r.value === 'number')?.value
-      // A smaller, nearest available count is a proposal to review, not an
-      // assertion that it accommodates the household or satisfies the need.
-      const count = typeof requested === 'number' ? units.reduce((best, unit) =>
-        Math.abs(Number(unit.bedrooms) - requested) < Math.abs(best - requested) ? Number(unit.bedrooms) : best, Number(units[0].bedrooms)) : null
-      if (count !== null) {
-        proposed = catalogQuery({ ...proposed, filters: { ...proposed.filters, bedrooms: count } })
-        units = filterCatalog(units, proposed)
-      }
-    }
-    proposals.push({ field, query: proposed, units })
-  }
-  // Several independently viable changes need a choice, not an arbitrary one.
-  return proposals.length === 1 ? proposals[0] : null
-}
-
-export const COMMERCIAL_JOURNEY_RULES = `Siga siguiente_paso_comercial después de atender la consulta actual. La presentación pide nombre y residencia actual y ofrece el brochure antes del descubrimiento; no repita datos confirmados ni el brochure ya enviado. Descubra uso, necesidades, presupuesto y unidad usando lo conocido. No ofrezca inmuebles de otros proyectos. Una aceptación de financiamiento conserva el interés y vuelve a la selección pendiente, nunca descarta al lead por comparar su efectivo con el precio total. No afirme que el crédito resolverá o no resolverá la diferencia sin evaluación. El financiamiento solo se ofrece ante presupuesto insuficiente comprobado, presupuesto expresamente no definido o solicitud del lead. Una cifra suficiente no invita a financiar. No confunda ausencia de presupuesto con declaración de no tenerlo. La pregunta tras explicar financiamiento es si desea continuar, no si desea que se lo explique otra vez. Para ofrecer reserva hace falta unidad elegida, ficha comercial y cobertura suficiente; datos financieros completos no son aprobación. La aceptación de una oferta de reserva inicia una solicitud al equipo, no reserva inventario ni cobra. La visita espontánea va después de declinar la reserva; también puede ayudar a comparar opciones ante indecisión o atender una petición explícita. No repita invitaciones declinadas. Si rechaza reserva y visita, deje abierta la atención sin otra pregunta obligatoria. No describa estados internos como «hemos registrado/confirmado su interés».` 
+export const COMMERCIAL_JOURNEY_RULES = `Siga siguiente_paso_comercial después de atender la consulta actual. La presentación pide nombre y residencia actual y ofrece el brochure antes del descubrimiento; no repita datos confirmados ni el brochure ya enviado. Descubra uso y dormitorios usando lo conocido. Si el requisito no está disponible, recomiende alternativas verificadas con amabilidad y pregunte si desea revisarlas: pueden merecer una comparación por sus espacios, pero no garantice que acomoden a la familia ni anuncie dormitorios adicionales o cambios arquitectónicos. Aceptar revisar un ajuste no elige tipo ni unidad. Después presente todos los tipos compatibles y pregunte cuál prefiere; muestre rangos de dimensiones y plantas reales del tipo elegido y pregunte planta sólo si hay varias. Con la planta definida, muestre números y características de sus unidades antes de preguntar presupuesto desconocido. Si sólo hay una compatible, preséntela con su recorrido 360 autorizado sin darla por elegida. No pregunte por una unidad específica cuando sólo se han presentado tipos ni por planta cuando sólo existe una. Respete datos aportados voluntariamente, presupuesto pospuesto y solicitudes explícitas; no repita pasos ya respondidos. No ofrezca inmuebles de otros proyectos. Una aceptación de financiamiento conserva el interés y vuelve a la selección pendiente, nunca descarta al lead por comparar su efectivo con el precio total. No afirme que el crédito resolverá o no resolverá la diferencia sin evaluación. El financiamiento solo se ofrece ante presupuesto insuficiente comprobado, presupuesto expresamente no definido o solicitud del lead. Una cifra suficiente no invita a financiar. No confunda ausencia de presupuesto con declaración de no tenerlo. La pregunta tras explicar financiamiento es si desea continuar, no si desea que se lo explique otra vez. Para ofrecer reserva hace falta unidad elegida, ficha comercial y cobertura suficiente; datos financieros completos no son aprobación. La aceptación de una oferta de reserva inicia una solicitud al equipo, no reserva inventario ni cobra. La visita espontánea va después de declinar la reserva; también puede ayudar a comparar opciones ante indecisión o atender una petición explícita. No repita invitaciones declinadas. Si rechaza reserva y visita, deje abierta la atención sin otra pregunta obligatoria. No describa estados internos como «hemos registrado/confirmado su interés».`
 
 /** Customer answers are persisted independently of whether our reply succeeds. */
 export function interpretCommercialJourney(previous: Row, semantics: Row, pending: Row, selectedIds: unknown): Row {
@@ -142,7 +104,9 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   if (object(info.financing_quote).orientation_only === true) return plan('financing_orientation',
     'Responda la consulta de entrada y cuotas con las referencias verificadas y sus límites. No repita la invitación al trámite ni pida datos personales. Si falta unidad, retome las preferencias ya conocidas para elegir una referencia; si faltan condiciones, explique cuáles sin derivar automáticamente.')
   if (visitPending) return plan('visit_pending', 'Atienda la consulta y la coordinación de visita vigente; no añada otras invitaciones.')
-  if (sales.passive_sales === true) return plan('leave_open', 'Responda la consulta sin ofertas proactivas. El cliente pidió limitarse a información.')
+  const engagement = object(info.commercial_engagement)
+  const passive = typeof engagement.passive === 'boolean' ? engagement.passive : sales.passive_sales === true
+  if (passive && engagement.property_continuation_allowed !== true) return plan('leave_open', 'Responda la consulta sin ofertas proactivas. El cliente pidió limitarse a información.')
 
   const selectionQuery = catalogQuery({ ...query, category: category || null, filters: { ...filters, bedrooms: filters.bedrooms ?? lead.preferred_bedrooms } })
   const scopedIds = selectionQuery.scope === 'offered' ? ids(context.offered_ids)
@@ -170,7 +134,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     const alternative = Object.keys(proposalInformation).length
       ? pendingUnits.length ? { field: text(object(pendingProposal.requirement_change).field)
         || (pendingQuery.filters.bedrooms !== selectionQuery.filters.bedrooms ? 'bedrooms' : 'other'), query: pendingQuery, units: pendingUnits } : null
-      : alternativeRequirement(planningCatalog, selectionQuery, excluded, scopedIds)
+      : catalogRequirementAlternative(planningCatalog, selectionQuery, excluded, scopedIds)
     const bedroomCount = alternative?.field === 'bedrooms' ? alternative.query.filters.bedrooms : null
     const strict = selectionQuery.filters.bedrooms_required === true
     const declined = object(context.requirements_declined)
@@ -179,12 +143,15 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
         === JSON.stringify(normalizedPropertyQuery({ ...selectionQuery, operation: 'search', selector: null }))
     const informationMissing = !complete && !alternative
     const question = strict || adjustmentDeclined || informationMissing ? '' : bedroomCount !== null
-      ? `¿Aceptaría revisar alternativas de ${bedroomCount} dormitorios?`
-      : '¿Estaría dispuesto a ajustar ese requisito para revisar las alternativas disponibles?'
+      ? `¿Le gustaría revisar las opciones de ${bedroomCount} dormitorios que tenemos disponibles?`
+      : alternative ? '¿Estaría dispuesto a ajustar ese requisito para revisar las alternativas disponibles?'
+        : '¿Cuál de sus requisitos considera indispensable y cuál podría flexibilizar para buscar alternativas?'
     return { ...plan('clarify_requirements',
       `${complete ? 'La consulta completa no tiene coincidencias con todos los requisitos actuales.'
         : 'No hay coincidencias confirmadas en el alcance consultado; faltan fichas o datos para afirmar ausencia en todo el proyecto.'} Reconozca el presupuesto solo si fue declarado, sin afirmar que alcanza para alternativas incompatibles. Explique el requisito que cambia y pregunte si aceptaría revisar ese cambio antes de pedir presupuesto, planta, unidad o financiamiento. No garantice que otra cantidad de dormitorios acomode a la familia.${alternative && !strict && !adjustmentDeclined ? ` ${Object.keys(proposalInformation).length ? 'Responda primero la consulta informativa sobre la propuesta pendiente con su referente verificado, incluidos precios autorizados si se preguntan. Después conecte esa respuesta con la decisión todavía pendiente de aceptar explorar el ajuste. Consultar detalles o precios no acepta la propuesta; no vuelva a presentar todo el catálogo ni cambie la necesidad original.' : 'Recomiende brevemente la alternativa verificable, no se limite a enumerar que existe. Explique por qué merece revisarla mediante rangos de área interior y características comunes comprobadas de los grupos requirement_alternatives, distinguiendo las categorías disponibles. Si un área no está verificada, omítala. No enumere números de unidad ni añada precios no solicitados antes de aceptar la alternativa. La recomendación invita a valorar otra opción, no afirma que satisfaga el requisito original ni que sea adecuada para toda la familia.'} La explicación y la pregunta reales deben identificar el mismo ajuste de proposed_query, incluida la cantidad propuesta si existe. El revisor debe comprobar tanto la recomendación sustentada (o la respuesta a la consulta informativa) como esa equivalencia antes de aprobar: un sí autoriza explorar esa propuesta, no otra ni seleccionar una unidad. Admita redacción equivalente sin exigir una frase literal.` : ''}${strict ? ' La cantidad de dormitorios fue declarada indispensable: respétela y no insista en alternativas ni añada una pregunta de ajuste.' : ''}${adjustmentDeclined ? ' El cliente rechazó ajustar esta búsqueda: respete su negativa, no repita la propuesta ni pida presupuesto; atienda la consulta y deje abierta la conversación sin una nueva pregunta obligatoria.' : ''}${informationMissing ? ' Falta información para comprobar este requisito y tampoco hay una alternativa verificada: explique ese límite, sin pedir que cambie una condición cuya ausencia no se ha confirmado.' : ''}`,
       question, question ? 'property_requirements' : ''), question_act: alternative ? 'explore_alternatives' : 'other',
+      ...(!alternative && question ? { adjustment_requires_specific_choice: true,
+        instruction: 'No hay una propuesta concreta que un sí pueda aceptar. Explique los requisitos incompatibles verificados y pregunte cuál desea mantener o flexibilizar; conserve la búsqueda original hasta recibir una preferencia específica. No repita una invitación genérica a aceptar alternativas inexistentes.' } : {}),
       selection_scope: selectionScope, presentation: 'requirements', requested_query: selectionQuery,
       match_complete: complete, unknown_unit_ids: unknownIds,
       ...(alternative && !strict && !adjustmentDeclined ? { proposed_query: alternative.query, alternative_unit_ids: alternative.units.map(unit => text(unit.id)),
@@ -203,7 +170,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const kindQuestion = budgetKindQuestion(budget)
   const budgetDeferred = ids(object(info.memoria_comercial).deferred_fields).includes('presupuesto')
     && budget.source !== 'current_lead_statement'
-  if (!accepted && kindQuestion && !budgetDeferred) return plan('clarify_budget_kind',
+  if (!accepted && kindQuestion && !budgetDeferred && !passive) return plan('clarify_budget_kind',
     'El monto fue declarado, pero no su significado. Responda la consulta y aclare si es presupuesto total o dinero para la entrada. No vuelva a pedir la cifra, no compare su suficiencia con el precio ni ofrezca financiamiento o reserva antes de esa aclaración.',
     kindQuestion, 'budget_kind')
 
@@ -216,12 +183,18 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     || budget.status === 'maximum_total' && Number(budget.amount) > 0
       && (Number(readiness.price) > Number(budget.amount) || assessment.status === 'below_available_prices')
   const undefinedBudget = budget.status === 'no_defined_budget'
-  if (!accepted && partners.length && (requestedFinance || !financeDeclined && (state.financing_offered !== true || object(object(info.semantica_turno).budget).status !== 'not_discussed' && !!object(object(info.semantica_turno).budget).evidence) && (insufficient || undefinedBudget))) {
+  if (!accepted && partners.length && (requestedFinance || !passive && !financeDeclined && (state.financing_offered !== true || object(object(info.semantica_turno).budget).status !== 'not_discussed' && !!object(object(info.semantica_turno).budget).evidence) && (insufficient || undefinedBudget))) {
     const result = plan('offer_financing', 'Explique brevemente el financiamiento con las entidades autorizadas, indique que primero se elige una unidad y pregunte únicamente si desea continuar. No ofrezca contactos ni otros proyectos. No rechace al lead por el presupuesto.',
       '¿Desea que continuemos con el proceso de financiamiento?', 'financing_invitation')
     return { ...result, financing_offer_allowed: true }
   }
-  if (selected && budget.answered !== true) return plan('ask_budget', 'Antes de datos financieros o reserva, aclare el presupuesto. Un sí sin monto requiere preguntar cuánto. Una declaración de no tenerlo definido permite continuar.', budgetQuestion(info), 'budget_amount')
+  if (selected && passive) return plan('leave_open', 'Responda la consulta solicitada sobre la unidad conocida. No convierta una consulta informativa en presupuesto, financiamiento, reserva ni visita.')
+  if (selected && budget.answered !== true && !budgetDeferred) return {
+    ...plan('ask_budget', 'La unidad ya fue identificada por el cliente. Responda su consulta y presente sus características si todavía no se han mostrado; antes de datos financieros o reserva, aclare el presupuesto. Un sí sin monto requiere preguntar cuánto. Una declaración de no tenerlo definido permite continuar.', budgetQuestion(info), 'budget_amount'),
+    selection_scope: { categories: category ? [category] : [], unit_ids: [selected], floors: [] },
+    presentation: ids(state.presented_unit_ids).includes(selected) ? 'known_units' : 'single_unit_before_budget',
+    requires_unit_presentation: !ids(state.presented_unit_ids).includes(selected),
+  }
   if (accepted && selected && readiness.can_offer_reservation !== true) return plan('continue_financing', stage.instruction ? text(stage.instruction) : 'Continúe con el siguiente dato financiero pendiente; no repita la aceptación ni ofrezca reserva mientras no exista revisión favorable.')
   if (selected && readiness.can_offer_reservation === true && profileDone) {
     if (ids(state.reservation_declined_ids).includes(selected)) {
@@ -236,37 +209,50 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   }
   const uncertain = object(object(info.semantica_turno).answer_to_previous)
   const comparing = ids(context.comparison_ids).length > 1 || query.operation === 'compare'
-  if (!accepted && !selected && comparing && uncertain.kind === 'uncertain' && uncertain.confidence === 'high'
+  if (!accepted && !passive && !selected && comparing && uncertain.kind === 'uncertain' && uncertain.confidence === 'high'
     && !visitDeclined && state.visit_offered !== true && visitPolicy.allowSuggestions) return {
       ...plan('offer_visit', 'El cliente no decide entre opciones. Ofrezca revisar los planos en la oficina si ayuda a comparar.', visitInvitation(text(info.modo_comercial), visitPolicy), 'visit_invitation'), visit_offer_allowed: true }
   if (selected) return plan('clarify_purchase', 'Responda y aclare únicamente lo necesario para avanzar. Sin cobertura confirmada no ofrezca reserva. Respete la negativa a financiamiento.')
   if (!category && !query.group && !purpose) return plan('discover_use', 'Presente brevemente las categorías disponibles y pregunte vivienda o comercio.', '¿Busca una vivienda o un local para su negocio?', 'property_category')
-  if (!purpose) return plan('discover_purpose', 'Pregunte el uso que aún falta sin repetir el tipo de espacio.', category === 'local' ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?' : '¿Lo busca para vivir o como inversión?', 'property_purpose')
+  if (!purpose && !passive) return plan('discover_purpose', 'Pregunte el uso que aún falta sin repetir el tipo de espacio.', category === 'local' ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?' : '¿Lo busca para vivir o como inversión?', 'property_purpose')
   if (category !== 'local' && category !== 'suite' && !filters.bedrooms && !(Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) && !lead.preferred_bedrooms)
     return plan('discover_bedrooms', 'Use la familia conocida, pero no convierta personas en dormitorios. Pregunte cuántos necesita.', '¿Cuántos dormitorios necesita?', 'property_bedrooms')
-  if (budget.answered !== true) return plan('ask_budget', 'Las necesidades básicas ya se conocen. Pregunte el presupuesto antes de continuar seleccionando unidades.', budgetQuestion(info), 'budget_amount')
   const selection = plan('select_property', accepted
     ? 'Ya aceptó financiamiento: retome las opciones con las preferencias conocidas hasta elegir una unidad concreta. No repita que no alcanza, no pida otra aceptación, cédula ni datos laborales. No exija elegir una planta si ya la conoce.'
     : 'Ayude a comparar y elegir una unidad concreta con las preferencias conocidas. No vuelva a pedir datos ya respondidos.')
   {
     if (!candidates.length) return clarifyRequirements()
-    if (!floors.length && categories.length > 1) {
+    if (!category && categories.length > 1) {
       const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))
       return { ...selection, question: `¿Prefiere que revisemos ${options}?`, question_id: 'property_category', question_act: 'choose_category',
-        selection_scope: selectionScope, instruction: `${text(selection.instruction)} Mantenga abiertas las categorías compatibles; no invente las plantas que faltan en las fichas.` }
+        selection_scope: selectionScope, presentation: 'categories',
+        instruction: `${text(selection.instruction)} Presente brevemente todas las categorías compatibles, incluidas las alternativas de penthouse que cumplan los dormitorios. Recomiende valorarlas con sus diferencias de amplitud verificadas; no garantice que se adapten a la familia. Pregunte cuál tipo prefiere antes de planta, presupuesto o unidad. No enumere números de unidad ni pida una unidad específica todavía.` }
     }
-    if (candidates.length === 1) return { ...selection, question: `¿Desea continuar con ${text(candidates[0].category)} ${text(candidates[0].unit_number)}?`,
-      question_id: 'unit_choice', question_act: 'confirm_unit', selection_scope: selectionScope, presentation: 'single_unit',
-      instruction: `${text(selection.instruction)} Presente la única opción compatible con sus características y su recorrido autorizado. Mostrarla no significa que el cliente ya la eligió; confirme si desea continuar con ella.` }
     if (floors.length > 1) {
       const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))
       return { ...selection, question: `¿En qué planta le gustaría revisar ${options || 'las opciones'}?`, question_id: 'property_floor', question_act: 'choose_floor',
         selection_scope: selectionScope, presentation: 'floors',
-        instruction: `${text(selection.instruction)} Presente las plantas de todas las categorías compatibles y pregunte explícitamente en qué planta desea revisar opciones. No enumere números de unidad todavía. No excluya penthouses compatibles del cuerpo ni de la pregunta. No repita las fichas completas.` }
+        instruction: `${text(selection.instruction)} El tipo ya está definido o sólo existe uno compatible. Resuma los rangos verificados de superficie interior y exterior y las plantas reales de ese tipo; no invente plantas intermedias ni que el precio aumenta por altura. Pregunte explícitamente en qué planta desea revisar opciones. No enumere números de unidad, no pregunte presupuesto todavía ni pida elegir una unidad. No repita las fichas completas.` }
     }
+    const presentedIds = new Set(ids(state.presented_unit_ids))
+    const unitsAlreadyPresented = candidates.every(unit => presentedIds.has(text(unit.id)))
+    if (!passive && budget.answered !== true && !budgetDeferred) return {
+      ...plan('ask_budget', unitsAlreadyPresented
+        ? 'Las unidades de la planta ya se mostraron con sus números y características. Responda la consulta actual sin repetir todas las fichas y pregunte únicamente el presupuesto todavía desconocido.'
+        : 'El tipo y la planta están definidos o sólo queda una planta compatible. Presente primero los números y las características verificadas de las unidades compatibles de esta planta. Si hay una única opción, muestre su recorrido 360 autorizado sin darla por elegida. Después pregunte únicamente el presupuesto todavía desconocido; no pida elegir una unidad en este mismo turno.',
+      budgetQuestion(info), 'budget_amount'), selection_scope: selectionScope,
+      presentation: unitsAlreadyPresented ? 'known_units' : candidates.length === 1 ? 'single_unit_before_budget' : 'units_before_budget',
+      requires_unit_presentation: !unitsAlreadyPresented,
+    }
+    if (candidates.length === 1) return { ...selection, question: passive
+      ? `¿Le gustaría conocer algún detalle adicional de ${text(candidates[0].category)} ${text(candidates[0].unit_number)}?`
+      : `¿Desea continuar con ${text(candidates[0].category)} ${text(candidates[0].unit_number)}?`,
+      question_id: 'unit_choice', question_act: passive ? 'show_unit_details' : 'confirm_unit', selection_scope: selectionScope, presentation: 'single_unit',
+      requires_unit_presentation: !unitsAlreadyPresented,
+      instruction: `${text(selection.instruction)} ${unitsAlreadyPresented ? 'La opción ya fue presentada: no repita toda su ficha.' : 'Presente la única opción compatible con su número, características y recorrido 360 autorizado.'} Mostrarla no significa que el cliente ya la eligió. ${passive ? 'La continuación ofrece sólo información solicitada, no consentimiento de compra ni trámites.' : 'El presupuesto ya se respondió o fue pospuesto; confirme si desea continuar con esa unidad.'}` }
     return { ...selection, question: '¿Cuál de las unidades de esta planta le gustaría revisar?', question_id: 'unit_choice', question_act: 'choose_unit',
-      selection_scope: selectionScope, presentation: 'units',
-      instruction: `${text(selection.instruction)} La planta está definida. Presente los números y características de las unidades compatibles para que elija una. Si ya indicó que una le interesa sin identificarla, pregunte cuál sin repetir el catálogo.` }
+      selection_scope: selectionScope, presentation: 'units', requires_unit_presentation: !unitsAlreadyPresented,
+      instruction: `${text(selection.instruction)} La planta está definida y el presupuesto ya se respondió, fue pospuesto o no se solicita en modo informativo. ${unitsAlreadyPresented ? 'Los números y características ya fueron mostrados: no repita todas las fichas.' : 'Presente primero los números y características de las unidades compatibles antes de preguntar cuál desea revisar.'} Si ya indicó que una le interesa sin identificarla, pregunte cuál sin repetir el catálogo. No ofrezca trámites no solicitados.` }
   }
 }
 
@@ -274,9 +260,12 @@ export function journeyPendingQuestion(reply: string, plan: Row, approved: boole
   return approved ? deliveredPendingQuestion(reply, { plan, metadata }) : {}
 }
 
-export function rememberCommercialJourney(previous: Row, plan: Row, pending: Row, approved: boolean): Row {
+export function rememberCommercialJourney(previous: Row, plan: Row, pending: Row, approved: boolean, presentedUnitIds: unknown = []): Row {
   if (!approved || !plan.action) return previous
   const next: Row = { ...previous, stage: plan.action, next_step: plan.instruction, selected_unit_id: plan.selected_unit_id || null }
+  const authorized = new Set([...ids(object(plan.selection_scope).unit_ids), text(plan.selected_unit_id)].filter(Boolean))
+  const presented = ids(presentedUnitIds).filter(id => authorized.has(id))
+  if (presented.length) next.presented_unit_ids = [...new Set([...ids(previous.presented_unit_ids), ...presented])]
   if (pending.id === 'reservation_invitation' && plan.selected_unit_id)
     next.reservation_offered_ids = [...new Set([...ids(previous.reservation_offered_ids), text(plan.selected_unit_id)])]
   if (pending.id === 'visit_invitation') next.visit_offered = true

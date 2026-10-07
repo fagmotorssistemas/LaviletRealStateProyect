@@ -220,8 +220,8 @@ test('a writer cannot replace a requested available price with a catalogue descr
   const result = await completeTurnReply({ current, baseReply,
     audit: { semantic_review_enabled: true, resolved_turn_intent: contract },
     verified: { respuesta_precio_verificada: baseReply } }, model(candidate, review, candidate, review).generate)
-  assert.equal(result.audit.status, 'rejected_review')
-  assert.ok(result.audit.issues.includes('review_check_failed:answers_supported'))
+  assert.equal(result.audit.status, 'rejected_guard')
+  assert.ok(result.audit.issues.includes('turn_price_unanswered'))
   assertPending(result, baseReply, candidate.reply)
   assert.equal(result.needsAdvisor, false)
 })
@@ -281,8 +281,8 @@ test('premature categories are repaired and a removed profile purpose is blocked
   const prematureBrochure = { ...candidate, reply: candidate.reply + '\n' + BROCHURE_URL }
   const brochureReview = { ...review, claims: [], operational_goal_preserved: false }
   const deferred = await completeTurnReply(input, model(prematureBrochure, brochureReview, prematureBrochure, brochureReview).generate)
-  assert.equal(deferred.audit.status, 'rejected_review')
-  assert.ok(deferred.audit.issues.includes('review_check_failed:operational_goal_preserved'))
+  assert.equal(deferred.audit.status, 'rejected_guard')
+  assert.ok(deferred.audit.issues.includes('lead_profile_brochure_premature'))
   assert.equal(deferred.reply.includes(BROCHURE_URL), false)
 })
 

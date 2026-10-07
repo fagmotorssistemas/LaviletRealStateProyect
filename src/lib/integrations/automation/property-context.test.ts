@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolvePropertyTurn } from './property-context'
+import { resolvePropertyTurn, unitsInPropertyReply } from './property-context'
 import { normalizeTurnSemantics } from './turn-semantics'
 import { catalogDialogueReply } from './catalog-dialogue'
 import type { Row } from './data'
@@ -11,6 +11,24 @@ const units: Row[] = [
   { id: 'u602', unit_number: '602', category: 'penthouse', floor_number: 6, bedrooms: 3, area_internal_m2: 142.09, published_commercial_price: 550000 },
 ]
 const purpose = { id: 'property_purpose', act: 'other', question: '¿Lo busca para vivir o como inversión?', target_ids: [], candidate_ids: [] }
+
+test('explicit plural unit lists retain every unique catalog member without converting measurements into identifiers', () => {
+  assert.deepEqual(unitsInPropertyReply(units, 'Los departamentos 502 y 504 tienen tres dormitorios.').map(u => u.id), ['u502', 'u504'])
+  assert.deepEqual(unitsInPropertyReply(units, 'Departamentos 504, 502 y 504: 120,83 m²; penthouse 602.').map(u => u.id), ['u504', 'u502', 'u602'])
+  assert.deepEqual(unitsInPropertyReply(units, 'Departamentos con 502 m² y precio 504 USD.'), [])
+  const locals = [{ id: 'l1', category: 'local', unit_number: 'LC-1' }, { id: 'l2', category: 'local', unit_number: 'LC-2' }]
+  assert.deepEqual(unitsInPropertyReply(locals, 'Los locales comerciales LC-1 y LC-2.').map(u => u.id), ['l1', 'l2'])
+})
+
+test('an affirmative cannot accept a nonexistent adjustment proposal', () => {
+  const pending = { id: 'property_requirements', act: 'other', question: '¿Cuál requisito podría flexibilizar?' }
+  const query = { group: 'residential', operation: 'search', filters: { bedrooms: 5, floor_number: 10 } }
+  const result = resolvePropertyTurn(units, 'Sí, está bien', { _property_context: { query, pending_question: pending }, _pending_question: pending }, [], {})
+  assert.equal(result.needsClarification, true)
+  assert.equal(result.reason, 'requirement_adjustment_not_identified')
+  assert.deepEqual(result.query, query)
+  assert.match(String(result.clarification), /qué requisito podemos cambiar/)
+})
 const saved = (change: Row = {}): Row => ({ version: 2, offered_ids: ['u502'], selected_ids: [], comparison_ids: [], focused_ids: ['u502'],
   pending_question: purpose, query: { group: 'residential', category: 'departamento', operation: 'search', scope: 'catalog', filters: { bedrooms: 3, floor_number: 5 } }, ...change })
 const choice = (current: string, pending: Row = purpose, changes: Row = {}) => normalizeTurnSemantics({ turn_semantics: {

@@ -147,3 +147,38 @@ test('an unsupported active property cannot pass by exhausting retries', async (
     (error: unknown) => error instanceof TurnInterpretationError && error.issues.includes('missing_current_evidence:property'))
   assert.equal(calls, 2)
 })
+
+test('empty quantity placeholders are absence rather than unsupported declarations', async () => {
+  for (const confidence of ['high', 'medium', 'low']) {
+    const raw = fixture(), semantics = object(raw.turn_semantics)
+    semantics.housing_quantities = ['people', 'bedrooms', 'unknown'].map(dimension => ({
+      dimension, values: [], role: 'unknown', count_basis: 'unspecified', evidence: '', confidence,
+    }))
+    assertSchema(raw, TURN_EXTRACTION_SCHEMA)
+    const before = structuredClone(raw)
+    assert.deepEqual(interpretationSourceIssues(raw, current), [])
+    let calls = 0
+    const result = await interpretConversationTurn(input, { activePrompt: async () => 'Extract', aiJson: async () => { calls++; return raw } })
+    assert.equal(calls, 1)
+    assert.deepEqual(result.semantics.housing_quantities, [])
+    assert.equal(object(result.diagnostic.interpretation_recovery).attempted, false)
+    assert.deepEqual(raw, before)
+    const normalized = normalizeInactiveInterpretation(raw)
+    assert.deepEqual(normalizeInactiveInterpretation(normalized), normalized)
+  }
+})
+
+test('quantity absence normalization preserves unknown counts, declarations, and invalid asserted values', () => {
+  const quantities: Row[] = [
+    { dimension: 'people', values: [], role: 'context', count_basis: 'unspecified', evidence: 'Somos varios', confidence: 'high' },
+    { dimension: 'people', values: [5], role: 'context', count_basis: 'total', evidence: '', confidence: 'high' },
+    { dimension: 'bedrooms', values: [], role: 'requirement', count_basis: 'unspecified', evidence: '', confidence: 'high' },
+    { dimension: 'unknown', values: [0], role: 'unknown', count_basis: 'unspecified', evidence: '', confidence: 'low' },
+    { dimension: 'people', values: [], role: 'unknown', count_basis: 'total', evidence: '', confidence: 'low' },
+  ]
+  const raw = { turn_semantics: { housing_quantities: quantities } }
+  assert.deepEqual(object(normalizeInactiveInterpretation(raw).turn_semantics).housing_quantities, quantities)
+  const issues = interpretationSourceIssues(raw, 'Somos varios')
+  assert.ok(!issues.some(issue => issue.endsWith('quantity.0')))
+  for (let index = 1; index < quantities.length; index++) assert.ok(issues.includes(`missing_current_evidence:quantity.${index}`))
+})
