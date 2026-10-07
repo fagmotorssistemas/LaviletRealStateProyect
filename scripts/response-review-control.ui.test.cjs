@@ -34,6 +34,7 @@ test('demo toggle and help work on desktop and mobile; failed save requires refr
       if (mobile) await help.tap(); else await help.click()
       await page.getByRole('dialog', { name: 'Modo demostración', exact: true }).waitFor()
       assert.match(await page.getByRole('dialog').innerText(), /Solo a contactos de prueba/)
+      assert.match(await page.getByRole('dialog').innerText(), /El extractor, la planificación, las rutas y los permisos conservan su funcionamiento habitual/)
       await page.keyboard.press('Escape')
       assert.equal(await help.evaluate(node => node === document.activeElement), true)
       await page.getByRole('button', { name: 'Activar modo demostración', exact: true }).click()

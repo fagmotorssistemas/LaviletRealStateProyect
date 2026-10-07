@@ -99,7 +99,7 @@ const values: Record<string, string> = {
   largest: 'Mayor superficie', smallest: 'Menor superficie', cheapest: 'Menor precio', most_expensive: 'Mayor precio', first: 'Primera opción', last: 'Última opción',
   high: 'Alta', medium: 'Media', low: 'Baja', affirmative: 'Acepta', negative: 'Rechaza', model: 'Interpretación con IA', literal_greeting: 'Saludo literal', unreadable_input: 'Entrada sin texto interpretable',
   answered: 'Atendida', unanswered: 'No atendida', missing_fact: 'Dato considerado faltante', clarification: 'Se pide aclaración', outside_scope: 'Fuera del alcance',
-  review_observed: 'Revisión observada sin bloqueo', observed_degraded: 'Interpretación limitada para demostración', checked: 'Revisión completada', rejected_guard: 'Borrador rechazado por un control', rejected_review: 'Borrador rechazado en revisión', unavailable: 'Revisión no disponible',
+  review_observed: 'Revisión observada sin bloqueo', observed_degraded: 'Registro histórico de interpretación limitada', checked: 'Revisión completada', rejected_guard: 'Borrador rechazado por un control', rejected_review: 'Borrador rechazado en revisión', unavailable: 'Revisión no disponible',
   rejected_catalog_guard: 'Reescritura rechazada por datos del catálogo', rejected_price_guard: 'Reescritura rechazada por precios',
   explicit_request: 'Petición explícita del cliente', customer_request: 'Petición explícita del cliente', client_request: 'Petición explícita del cliente',
   coverage: 'Revisión de cobertura', response_coverage: 'Revisión de cobertura', coverage_review: 'Revisión de cobertura', operational_failure: 'Problema operativo', operational_recovery: 'Recuperación operativa',
@@ -358,8 +358,8 @@ function interpretationRecoverySections(value: unknown): ExplanationSection[] {
           ? 'El extractor afirmó un dato o intención sin conservar una cita del mensaje actual que lo respalde.'
           : issue === 'invalid_budget_amount' ? 'El presupuesto interpretado no contiene una cantidad válida para aplicar una comparación.'
             : 'La interpretación no pudo validarse con los datos de esta ejecución; consulte el control registrado.'
-  return [{ title: 'Interpretación limitada · Modo demostración',
-    description: 'El extractor no completó una interpretación válida. Para este contacto de prueba el flujo continuó con contexto de conversación y una interpretación limitada. Esto no convierte el historial en declaraciones actuales ni acredita una acción operativa.',
+  return [{ title: 'Registro histórico · Interpretación limitada · Modo demostración',
+    description: 'Este registro conserva un comportamiento anterior: el extractor no completó una interpretación válida y el flujo de prueba continuó con una interpretación limitada. La demostración actual solo evita bloqueos por la revisión del borrador; no cambia la validación del extractor. El registro histórico no acredita una acción operativa.',
     facts: [fact('Resultado', 'Se registró el problema y se permitió preparar una respuesta informativa para la demostración.'),
       ...issues.map(issue => fact(issue, explanation(issue))),
       ...(typeof recovery.actions_allowed === 'boolean' ? [fact('Permiso para trámites', recovery.actions_allowed
@@ -740,7 +740,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     : step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
     : step.key === 'message_delivery' && output.action === 'accepted' ? 'Kommo aceptó iniciar Salesbot. Esto no confirma entrega ni lectura en WhatsApp.'
       : step.key === 'advisor_handoff' ? 'Este paso registra el intento de derivación y su resultado; el motivo debe estar respaldado por su propio registro.'
-        : ['semantic_extraction', 'interpretation_recovery'].includes(step.key) && interpretationRecoverySections(output).length ? 'La demostración continuó con una interpretación limitada porque el extractor no pudo validar su salida. El problema quedó registrado para análisis.'
+        : ['semantic_extraction', 'interpretation_recovery'].includes(step.key) && interpretationRecoverySections(output).length ? 'Este registro histórico muestra que el flujo continuó con una interpretación limitada porque el extractor no pudo validar su salida. La demostración actual mantiene la validación del extractor y solo evita bloqueos por la revisión del borrador.'
         : step.key === 'response_coverage' && output.status === 'invalid_coverage'
           ? `Se descartó el borrador antes de evaluar su contenido porque la ficha interna de la IA no pasó la validación. ${Array.isArray(output.issues) && output.issues.length ? 'Los controles muestran el campo, el valor recibido y lo esperado.' : 'Este registro antiguo no conserva el campo que falló.'} La decisión de derivar a un asesor se registra por separado.`
         : step.key === 'response_coverage' && isObservedReview(output) ? 'El modo demostración conservó la revisión como monitoreo y permitió el borrador sin exigir aprobación. La aceptación del envío se comprueba por separado.'

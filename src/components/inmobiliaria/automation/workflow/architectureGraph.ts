@@ -107,7 +107,7 @@ export const ARCHITECTURE_NODES: ArchitectureNode[] = [
     ['below_available_prices', 'Presupuesto inferior a los precios', 'Los precios comprobados de la búsqueda superan el importe declarado.'],
   ].map(([value, title, description], i) => branch(`budget_${value}`, title, description, 15, i + 9, 'budget_resolution', 'status', value)),
   agent('writer', 'Redactor de respuesta', 'Redactar usando los datos y obligaciones del turno. Cada llamada queda separada en el inspector.', 15, 3, ['writer', 'draft']),
-  agent('reviewer', 'Revisor de respuesta', 'Evaluar datos comerciales, restricciones y obligaciones; en el modo demostración se registran observaciones sin bloquear el borrador del contacto de prueba.', 16, 3, ['reviewer']),
+  agent('reviewer', 'Revisor de respuesta', 'Evaluar datos comerciales, restricciones y obligaciones; en el modo demostración se registran sus observaciones sin bloquear el borrador del contacto de prueba. El extractor y las rutas mantienen sus controles.', 16, 3, ['reviewer']),
   n('draft_validation', 'Comprobar riesgos y datos', 'Aplicar la decisión comercial y comprobar enlaces autorizados y condiciones de entrega.', 17, 3, 'draft_validation', 'decision', 'turn-completeness.ts'),
   branch('review_checked', 'Revisión aprobada', 'La revisión registró checked. Aún faltan controles de envío y aceptación de Kommo.', 18, 0, 'response_coverage', 'status', 'checked'),
   branch('review_observed', 'Revisión sin bloqueo · Demostración', 'El monitoreo conserva las observaciones del contacto de prueba sin exigir aprobación del contenido. El envío se comprueba por separado.', 18, 5, 'response_coverage', 'status', 'review_observed'),

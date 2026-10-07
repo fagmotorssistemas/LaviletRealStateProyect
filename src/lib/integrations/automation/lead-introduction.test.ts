@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import { leadIntroductionIssues, leadIntroductionReviewIssues, leadIntroductionReviewSchema, leadIntroductionRepairs,
   leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
 import { BROCHURE_URL } from './project-material'
+import { normalizeTurnSemantics } from './turn-semantics'
 
 const catalog = [
   { id: 'a201', unit_number: '201', category: 'departamento', bedrooms: 2, price: 210000 },
@@ -72,6 +73,132 @@ describe('informational engagement limits proactive profile capture', () => {
     assert.equal(turn.audit.source, 'financing_collection')
     assert.deepEqual((turn.audit.financing_collection as { requested_fields: string[] }).requested_fields, ['full_name'])
     assert.deepEqual((turn.audit.profile_collection_decision as { allowed_fields: string[] }).allowed_fields, [])
+  })
+})
+
+describe('initial profile opening follows current grounded need', () => {
+  const broadInterest = (current: string, purpose: string | null = 'vivir', group = 'residential', propertyOverrides = {}) => ({
+    purchase_purpose: purpose,
+    declaration_evidence: { purchase_purpose: purpose ? current : null },
+    requests: [],
+    turn_semantics: normalizeTurnSemantics({ turn_semantics: { primary_intent: 'other', primary_evidence: current, confidence: 'high',
+      property: { group, category: null, operation: 'none', evidence: current, confidence: 'high',
+        filters: { floor_number: null, bedrooms: null, bedrooms_any: [], bedrooms_operator: null,
+          bedrooms_upper: null, bedrooms_required: null, min_area_m2: null, max_area_m2: null },
+        unit_numbers: [], selector: null, ...propertyOverrides } } }, current, {}),
+  })
+  for (const [current, purpose, group] of [
+    ['Algo para vivienda', 'vivir', 'residential'],
+    ['Para mi familia', 'vivir', 'residential'],
+    ['Me gustaría comprar para arrendarlo', 'invertir', 'residential'],
+    ['Una segunda residencia', 'segunda_vivienda', 'residential'],
+    ['Para abrir mi negocio', 'negocio', 'commercial'],
+  ]) it('opens the profile from a declared purpose despite an other primary intent: '+current, () => {
+    const turn = leadIntroductionTurn(input({ current, extracted: broadInterest(current, purpose, group),
+      history: [{ role: 'bot', content: 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?' }],
+      audit: { source: 'catalog_search' }, reply: 'Hay varias alternativas disponibles. ¿Qué planta prefiere?' }))
+    assert.equal(turn.applied, true)
+    assert.equal((turn.audit.profile_collection_decision as { action: string }).action, 'capture')
+    assert.equal((turn.audit.profile_introduction as { generic_introduction: boolean }).generic_introduction, true)
+    assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+    assert.doesNotMatch(turn.reply, /Qué planta|suites|departamentos|penthouses|locales|https:/i)
+    assert.equal((turn.reply.match(/\?/g) || []).length, 1)
+    assert.equal(turn.state.brochure_sent, false)
+  })
+  it('uses a current grounded group search without a purpose or category declaration', () => {
+    const current = 'Me interesa revisar las alternativas'
+    const extracted = broadInterest(current, null, 'residential', { operation: 'search' })
+    const turn = leadIntroductionTurn(input({ current, extracted, audit: { source: 'future_catalog_handler' },
+      reply: 'Estas son las alternativas del catálogo. ¿Cuál prefiere?' }))
+    assert.equal(turn.applied, true)
+    assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+    assert.equal((turn.audit.profile_introduction as { generic_introduction: boolean }).generic_introduction, true)
+    assert.doesNotMatch(turn.reply, /Cuál prefiere/)
+  })
+  it('keeps the concrete answer when current search has dimensions or identified units', () => {
+    for (const [current, property] of [
+      ['Algo de tres dormitorios para mi familia', { operation: 'search', filters: { bedrooms: 3 } }],
+      ['Esa opción, por favor', { operation: 'details', unit_numbers: ['201'] }],
+    ] as const) {
+      const reply = 'La opción 201 tiene dos dormitorios y 100 m². ¿Qué planta prefiere?'
+      const turn = leadIntroductionTurn(input({ current, extracted: broadInterest(current, 'vivir', 'residential', property),
+        audit: { source: 'catalog_search' }, reply }))
+      assert.equal(turn.applied, true)
+      assert.match(turn.reply, /opción 201 tiene dos dormitorios y 100 m²/)
+      assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+      assert.equal((turn.audit.profile_introduction as { generic_introduction: boolean }).generic_introduction, false)
+    }
+  })
+  it('preserves a specific selector regardless of its transport representation', () => {
+    const current = 'Algo para mi familia'
+    for (const selector of ['largest', { kind: 'largest' }]) {
+      const extracted = broadInterest(current, 'vivir', 'residential', { operation: 'search' })
+      extracted.turn_semantics.property = { ...(extracted.turn_semantics.property as Record<string, unknown>), selector }
+      const turn = leadIntroductionTurn(input({ current, extracted, audit: { source: 'catalog_rank' },
+        reply: 'La opción más amplia disponible es la 901. ¿Qué planta prefiere?' }))
+      assert.match(turn.reply, /más amplia disponible es la 901/)
+      assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+      assert.equal((turn.audit.profile_introduction as { generic_introduction: boolean }).generic_introduction, false)
+    }
+  })
+  it('does not turn a new purpose answer into another reminder after the delivered profile invitation was ignored', () => {
+    const current = 'Para mi familia'
+    const turn = leadIntroductionTurn(input({ current, extracted: broadInterest(current), audit: { source: 'catalog_search' },
+      summary: { _lead_introduction: { version: 3, status: 'pending', request_sent: true,
+        requested_fields: ['full_name', 'residence'], reminder_count: 0, brochure_sent: false } },
+      reply: 'Podemos revisar las alternativas para su familia. ¿Cuántos dormitorios necesita?' }))
+    assert.equal((turn.audit.profile_collection_decision as { action: string }).action, 'defer')
+    assert.doesNotMatch(turn.reply, /indicarnos su nombre|reside actualmente/)
+    assert.ok(turn.reply.includes(BROCHURE_URL))
+    assert.equal(turn.state.reminder_count, 0)
+  })
+  it('answers a current price question before asking profile instead of replacing it with the broad opening', () => {
+    const current = 'Es para mi familia, ¿cuánto cuesta?'
+    const extracted = broadInterest(current)
+    extracted.turn_semantics = { ...extracted.turn_semantics, primary_intent: 'ask_price', primary_evidence: current, confidence: 'high' }
+    const turn = leadIntroductionTurn(input({ current, extracted, audit: { source: 'unit_price' },
+      reply: 'El precio referencial de lanzamiento es $250,000 y puede cambiar. ¿Qué planta prefiere?' }))
+    assert.match(turn.reply, /precio referencial de lanzamiento es \$250,000 y puede cambiar/)
+    assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+    assert.doesNotMatch(turn.reply, /Qué planta/)
+  })
+  it('does not open profile from historical purpose, group or catalogue evidence', () => {
+    for (const extracted of [
+      broadInterest('Para mi familia'),
+      broadInterest('Me interesa revisar las alternativas', null, 'residential', { operation: 'search' }),
+      { purchase_purpose: 'vivir', declaration_evidence: {}, requests: [], turn_semantics: {
+        primary_intent: 'other', confidence: 'low', property: { group: 'residential', operation: 'search', confidence: 'high', evidence: null } } },
+    ]) {
+      const reply = 'Podemos continuar con lo que estábamos revisando.'
+      const turn = leadIntroductionTurn(input({ current: 'continuemos', extracted, audit: { source: 'future_catalog_handler' },
+        history: [{ role: 'cliente', content: 'Para mi familia' }], reply }))
+      assert.equal(turn.applied, false)
+      assert.equal(turn.reply, reply)
+      assert.equal((turn.audit.profile_collection_decision as { action: string }).action, 'defer')
+    }
+  })
+  it('does not let a grounded current need override passive scope, a refusal or an authorized operation', () => {
+    const current = 'Algo para vivienda', extracted = broadInterest(current)
+    for (const overrides of [
+      { engagement: { passive: true } },
+      { summary: { _lead_introduction: { status: 'skipped', collection_status: 'declined' } } },
+      { audit: { source: 'visit_collecting', action: 'collecting' } },
+      { audit: { source: 'financing_collection', financing_collection: { collection_allowed: true } } },
+    ]) {
+      const reply = 'Seguimos con su consulta actual.'
+      const turn = leadIntroductionTurn(input({ current, extracted, reply, audit: { source: 'catalog_search' }, ...overrides }))
+      assert.equal(turn.applied, false)
+      assert.equal(turn.reply, reply)
+      assert.deepEqual((turn.audit.profile_collection_decision as { allowed_fields: string[] }).allowed_fields, [])
+    }
+  })
+  it('keeps a bare greeting short even when the model proposes current property interest', () => {
+    const current = 'Hola', reply = 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?'
+    const turn = leadIntroductionTurn(input({ current, extracted: broadInterest(current, 'vivir', 'residential', { operation: 'search' }),
+      reply, audit: { source: 'minimal_greeting' } }))
+    assert.equal(turn.applied, false)
+    assert.equal(turn.reply, reply)
+    assert.deepEqual(turn.state, {})
   })
 })
 

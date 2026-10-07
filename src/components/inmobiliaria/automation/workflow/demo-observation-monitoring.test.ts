@@ -28,6 +28,7 @@ test('observation displays rejected review evidence without reporting draft appr
   assert.match(decision.details.join(' '), /dormitorios recibido: 5; catálogo: 3/)
   assert.match(decision.explanation, /no certifica.*aprobado/)
   assert.match(decision.explanation, /Envío a Kommo/)
+  assert.match(decision.explanation, /interpretación, la planificación y la ruta mantienen sus controles/)
   assert.doesNotMatch(decision.title, /aprobada|descartada/)
   assert.equal(decision.recoveryPending, false)
 })
@@ -73,7 +74,7 @@ test('observation branch records monitoring only; delivery still needs an actual
   assert.equal(linkObserved({ from: 'review_observed', to: 'route_selected' }, steps), true)
 })
 
-test('observed source failures explain the historical mix with examples and retain operation limits', () => {
+test('legacy observed source failures remain readable without claiming current extractor bypass', () => {
   for (const issue of ['non_current_evidence:property', 'non_current_evidence:requests.0']) {
     const item = step(1, 'semantic_extraction', { interpretation_recovery: {
       status: 'observed_degraded', observation_only: true, issues: [issue], actions_allowed: false,
@@ -81,7 +82,9 @@ test('observed source failures explain the historical mix with examples and reta
     const explanation = explainStep(execution([item]), item)
     assert.match(explanation.summary, /interpretación limitada/)
     const section = explanation.coverageSections![0]
-    assert.match(section.title, /Modo demostración/)
+    assert.match(section.title, /Registro histórico/)
+    assert.match(section.description, /demostración actual.*solo evita bloqueos por la revisión del borrador/)
+    assert.match(section.description, /no cambia la validación del extractor/)
     assert.match(section.facts.find(item => item.label === issue)!.value, /Por ejemplo/)
     assert.match(section.facts.find(item => item.label === 'Permiso para trámites')!.value, /no autoriza reservas, citas, financiamiento/)
     assert.doesNotMatch(section.description, /asesor.*asignado|reserva.*confirmada/)

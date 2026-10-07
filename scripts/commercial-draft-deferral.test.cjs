@@ -32,3 +32,28 @@ test('optimized path skips preliminary draft and legacy path retains its draft',
     if (optimized) assert.equal(result.reply, '')
   }
 })
+
+
+const { withResponseReviewPolicy, configuredResponseReviewEnabled, responseReviewEnabled } = require('../src/lib/integrations/automation/response-review-policy.ts')
+for (const enabled of [false, true]) for (const embeddingsEnabled of [false, true])
+  test('normal/demo preserve preliminary drafting when general review=' + enabled + ' and embeddings=' + embeddingsEnabled, async () => {
+    const results = [], draftCounts = []
+    for (const observationOnly of [false, true]) {
+      drafts = 0
+      const info = { final_review_follows: true, catalog_search: { embeddingsEnabled },
+        lead: { name: 'Carlos', name_confirmed: true }, catalogo: [], historial: [],
+        politica_comercial: { precios_autorizados: true }, alcance_negocio: 'property',
+        referencia_unidad: { reason: 'no_reference', matches: [] },
+        property_context: { selected_ids: [] }, semantica_turno: { primary_intent: 'other' } }
+      results.push(await withResponseReviewPolicy({ enabled, observationOnly, updatedAt: null }, async () => {
+        assert.equal(configuredResponseReviewEnabled(), enabled)
+        assert.equal(responseReviewEnabled(), observationOnly || enabled)
+        return commercialReply(info, 'Ayúdeme a comprender ese detalle por favor', {}, async () => {})
+      }))
+      draftCounts.push(drafts)
+    }
+    const deferred = embeddingsEnabled || !enabled
+    assert.deepEqual(draftCounts, [deferred ? 0 : 1, deferred ? 0 : 1])
+    assert.deepEqual(results[1], results[0])
+    assert.equal(results[1].audit.drafting_deferred_to_final_writer === true, deferred)
+  })

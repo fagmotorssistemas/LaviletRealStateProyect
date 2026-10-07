@@ -109,7 +109,7 @@ test('expected access/read failures return renderable errors instead of masked S
 })
 
 
-test('demonstration preserves general review state and scopes review-on to enrolled contacts only', async () => {
+test('demonstration preserves general review state and scopes observation to enrolled contacts only', async () => {
   const h = harness({ testContact: true, policies: { response_review: { enabled: false, note: 'keep' }, catalog_search: { embeddings_enabled: true } } })
   const observing = await h.saveResponseReviewObservationAction(true, 'version')
   assert.equal(observing.ok, true)
@@ -118,7 +118,7 @@ test('demonstration preserves general review state and scopes review-on to enrol
   assert.equal((await h.loadResponseReviewPolicy()).observationOnly, false)
   assert.equal((await h.loadResponseReviewPolicy()).enabled, false)
   assert.equal((await h.loadResponseReviewPolicy(123)).observationOnly, true)
-  assert.equal((await h.loadResponseReviewPolicy(123)).enabled, true)
+  assert.equal((await h.loadResponseReviewPolicy(123)).enabled, false)
   assert.deepEqual(h.project.policies_json.catalog_search, { embeddings_enabled: true })
   assert.equal(h.project.policies_json.response_review.note, 'keep')
   assert.equal(h.project.policies_json.response_review.updated_by, 'admin')
@@ -186,7 +186,7 @@ test('observation applies only to a trusted test contact and defaults remain enf
   assert.equal(settings.scopeResponseReview({ enabled: false, updatedAt: null }, true).enabled, false)
   assert.equal(observing.observationOnly, true)
   const generalOff = { enabled: false, observationOnly: true, updatedAt: null }
-  assert.equal(settings.scopeResponseReview(generalOff, true).enabled, true)
+  assert.equal(settings.scopeResponseReview(generalOff, true).enabled, false)
   assert.equal(settings.scopeResponseReview(generalOff, false).enabled, false)
   assert.equal(settings.scopeResponseReview(settings.responseReviewSettings(settings.changeResponseReviewObservation({ response_review: { enabled: false } }, false, 'admin', 'now')), false).observationOnly, false)
 })

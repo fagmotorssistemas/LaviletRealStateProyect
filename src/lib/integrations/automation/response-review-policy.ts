@@ -9,7 +9,9 @@ export function withResponseReviewPolicy<T>(settings: ResponseReviewSettings, wo
   return policy.run(Object.freeze({ ...settings }), work)
 }
 export function responseReviewObservationOnly() { return policy.getStore()?.observationOnly === true }
-export function responseReviewEnabled() { return responseReviewObservationOnly() || policy.getStore()?.enabled !== false }
+/** General review setting, preserved for preparation decisions before the final writer. */
+export function configuredResponseReviewEnabled() { return policy.getStore()?.enabled !== false }
+export function responseReviewEnabled() { return responseReviewObservationOnly() || configuredResponseReviewEnabled() }
 export function responseReviewControl() {
   return { ...(policy.getStore() || responseReviewSettings(null)), source: 'project_setting' as const }
 }

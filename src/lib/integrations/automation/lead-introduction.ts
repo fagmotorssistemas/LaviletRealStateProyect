@@ -64,13 +64,48 @@ function explicitBrochure(current: string) {
 function concreteRequest(current: string) {
   return /precio|cuesta|cuestan|vale|valor|presupuesto|monto|dispongo|financ|credito|cuota|departamento|departmento|suite|penthouse|local|inver|vivir|dormitorio|habitacion|cuarto|visita|agend|reserv|ubicacion|direccion|constru|terminad|entrega|plano|modelo|recorrido|brochure|folleto|piscina|gimnasio|terraza|parqueader|area|metros|tamano|ampli|grande|espacio|opciones|informacion/.test(normalized(current))
 }
-function interpretedCommercialRequest(extracted: Row, audit: Row) {
+function currentEvidence(raw: unknown, current: string) {
+  const evidence = normalized(text(raw)).trim()
+  return evidence.length > 0 && normalized(current).includes(evidence)
+}
+function groundedCommercialInterest(current: string, extracted: Row) {
+  const semantics = object(extracted.turn_semantics), property = object(semantics.property)
+  const purpose = ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(extracted.purchase_purpose))
+    && currentEvidence(object(extracted.declaration_evidence).purchase_purpose, current)
+  const propertyRequest = property.confidence === 'high' && currentEvidence(property.evidence, current)
+    && ['search', 'details', 'compare', 'rank', 'select'].includes(text(property.operation))
+  return { purpose, propertyRequest }
+}
+function interpretedCommercialRequest(current: string, extracted: Row, audit: Row) {
   const semantics = object(extracted.turn_semantics)
   const intent = object(audit.resolved_turn_intent)
   const requests = Array.isArray(intent.requests) ? intent.requests
     : Array.isArray(extracted.requests) ? extracted.requests : Array.isArray(semantics.requests) ? semantics.requests : []
-  return semantics.confidence === 'high' && ['ask_price', 'ask_financing', 'discuss_budget', 'select_property', 'project_information', 'ask_reservation'].includes(text(semantics.primary_intent))
+  const interest = groundedCommercialInterest(current, extracted)
+  // A grounded purpose or catalogue request remains substantive when the broad
+  // primary-intent classifier says "other". Memory without current evidence
+  // cannot open a new profile exchange.
+  return interest.purpose || interest.propertyRequest
+    || semantics.confidence === 'high' && ['ask_price', 'ask_financing', 'discuss_budget', 'select_property', 'project_information', 'ask_reservation'].includes(text(semantics.primary_intent))
     || requests.map(object).some(request => ['property', 'financing'].includes(text(request.domain)) && request.confidence === 'high')
+}
+function genericPropertyOpening(current: string, extracted: Row) {
+  const semantics = object(extracted.turn_semantics), property = object(semantics.property)
+  const interest = groundedCommercialInterest(current, extracted)
+  const requests = rows(extracted.requests || semantics.requests)
+  const selector = typeof property.selector === 'string' ? property.selector : text(object(property.selector).kind)
+  const concreteSelector = !['', 'none'].includes(selector)
+  const specificFilters = Object.values(object(property.filters)).some(value =>
+    Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value.trim().length > 0
+      : typeof value === 'number' ? Number.isFinite(value) : value === true)
+  // Only broad, evidenced interest uses the brief project opening. Keep the
+  // actual answer for prices, comparisons, dimensions or identified units.
+  return (interest.purpose || interest.propertyRequest)
+    && ['other', 'project_information', ''].includes(text(semantics.primary_intent))
+    && !requests.some(request => request.confidence === 'high')
+    && !text(extracted.preferred_category) && !text(property.category)
+    && !specificFilters && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length) && !concreteSelector
+    && ['none', 'search', ''].includes(text(property.operation))
 }
 function protectedCurrentOperation(audit: Row, extracted: Row) {
   const semantics = object(extracted.turn_semantics), intent = object(audit.resolved_turn_intent)
@@ -80,7 +115,8 @@ function protectedCurrentOperation(audit: Row, extracted: Row) {
     || action !== '' && action === object(semantics.property).operation
   // These are workflow decisions, not names of informational reply routes.
   // A new catalogue or project-information route must not bypass the opening.
-  return audit.source === 'financing' || /^(?:visit|advisor|reservation_handoff|financing_handoff)/.test(text(audit.source))
+  return audit.source === 'financing' || object(audit.financing_collection).collection_allowed === true
+    || /^(?:visit|advisor|reservation_handoff|financing_handoff)/.test(text(audit.source))
     || Boolean(action && !informationalAction) || audit.registration_verified === true
     || reservation.kind === 'request' || reservation.handoff_verified === true
     || semantics.confidence === 'high' && ['request_visit', 'request_reservation'].includes(text(semantics.primary_intent))
@@ -90,7 +126,7 @@ function protectedCurrentOperation(audit: Row, extracted: Row) {
 }
 export function isProfileOnlyTurn(current: string, extractedRaw: unknown) {
   const extracted = object(extractedRaw), semantics = object(extracted.turn_semantics)
-  const currentCommercialIntent = ['ask_price', 'ask_financing', 'discuss_budget', 'request_visit', 'select_property', 'project_information'].includes(text(semantics.primary_intent))
+  const currentCommercialIntent = interpretedCommercialRequest(current, extracted, {}) || ['ask_price', 'ask_financing', 'discuss_budget', 'request_visit', 'select_property', 'project_information'].includes(text(semantics.primary_intent))
     && semantics.confidence === 'high'
   const budget = object(semantics.budget)
   return !currentCommercialIntent && !(budget.confidence === 'high' && budget.status !== 'not_discussed')
@@ -263,7 +299,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const unchanged = { reply: input.reply, state: prior, audit, applied: false, brochureDeferred: false }
   const currentProfile = object(extracted.lead_profile)
   const suppliedProfile = hasProfileAnswer(currentProfile)
-  const commercialRequest = interpretedCommercialRequest(extracted, audit)
+  const commercialRequest = interpretedCommercialRequest(input.current, extracted, audit)
   // A bare greeting keeps the short greeting route, including after a test reset.
   // Ask for the profile only once the lead expresses an actual request.
   if (!input.current.trim() || isGreetingOnly(input.current)
@@ -300,7 +336,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
   if (protectedCurrentOperation(audit, extracted)) return acknowledgeOnly()
   const url = input.brochureUrl || BROCHURE_URL
-  const category = categoryFor(input), overview = generalInformation(input.current, audit)
+  const category = categoryFor(input), overview = generalInformation(input.current, audit) || genericPropertyOpening(input.current, extracted)
   if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
   const materialRequested = material.requested

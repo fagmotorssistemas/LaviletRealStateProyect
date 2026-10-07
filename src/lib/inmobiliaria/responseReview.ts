@@ -16,7 +16,7 @@ export function responseReviewSettings(policies: unknown): ResponseReviewSetting
 /** Only an enabled test contact may use the administrator's observation mode. */
 export function scopeResponseReview(settings: ResponseReviewSettings, isTestContact: boolean): ResponseReviewSettings {
   const observationOnly = settings.observationOnly === true && isTestContact === true
-  return { ...settings, enabled: observationOnly || settings.enabled, observationOnly }
+  return { ...settings, observationOnly }
 }
 
 export function changeResponseReview(policies: unknown, enabled: boolean, userId: string, at: string) {

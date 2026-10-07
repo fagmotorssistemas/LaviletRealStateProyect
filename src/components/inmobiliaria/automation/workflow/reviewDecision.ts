@@ -114,7 +114,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []): ReviewDecision
       final_validation: { ...row(output.final_validation), policy: 'observed_findings' },
       recovery: {}, fallback_validation: {}, turn_completeness: {} }, catalog)
     return { ...assessed, tone: 'metadata', title: 'Modo demostración · Revisión sin bloqueo',
-      explanation: 'Se conservaron el resultado de la revisión y los controles disponibles. Su resultado no bloquea el borrador preparado para este contacto de prueba y no certifica que su contenido esté aprobado. El envío se comprueba en Envío a Kommo.',
+      explanation: 'Se conservaron el resultado de la revisión y los controles del borrador. Su resultado no bloquea el mensaje preparado para este contacto de prueba y no certifica que su contenido esté aprobado. La interpretación, la planificación y la ruta mantienen sus controles. El envío se comprueba en Envío a Kommo.',
       repair: 'En este modo no se exige corregir el mensaje ni reparar la ficha para permitir el envío.', recoveryPending: false,
     }
   }
