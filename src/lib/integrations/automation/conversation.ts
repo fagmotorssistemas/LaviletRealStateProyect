@@ -7,7 +7,8 @@ import { replyQuestionText } from './reply-question'
 import { requiresContentReview, unverifiedReply } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { loadResponseReviewPolicy } from './response-review-settings'
-import { responseReviewEnabled, withResponseReviewPolicy } from './response-review-policy'
+import { responseReviewEnabled, responseReviewObservationOnly, withResponseReviewPolicy } from './response-review-policy'
+import { TurnInterpretationError } from './turn-interpretation-input'
 import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import 'server-only'
@@ -89,7 +90,7 @@ import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-dis
 import { MAX_REPLY_CHARACTERS, responsePlan } from './response-plan'
 import { evaluateInterestDecision, requestReservationHandoff, reservationRequest, verifiedReservationReceipt } from './reservation-action'
 import { commercialTurnTopics } from './multi-topic-turn'
-import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
+import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, observedInterpretationFailure, rememberInterpretedTurn, type TurnInterpretation } from './turn-interpretation'
 import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
 import { withAIExecutionTrace } from './ai-execution-trace'
 import { PreReplySendError } from './delivery-phase'
@@ -181,7 +182,7 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
     if (count) { superseded = true; throw new Error('NEW_INPUT_PENDING') }
   }
   try {
-    const reviewPolicy = await loadResponseReviewPolicy()
+    const reviewPolicy = await loadResponseReviewPolicy(rows.length ? inboundFromRow(rows[rows.length - 1].payload).kommoId : undefined)
     const result = await withResponseReviewPolicy(reviewPolicy, () => withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)), inferenceGuard, inferenceDeadlineAt))
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
@@ -199,6 +200,7 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
 }
 async function processConversationWithTone(rows: Row[], guard: Guard, trace: AutomationExecutionTrace, delivery: { replyWriteAttempted: boolean }) {
   const reviewing = responseReviewEnabled()
+  const observing = responseReviewObservationOnly()
   assertLive()
   const events = rows.map(row => inboundFromRow(row.payload)).sort(compareInboundOrder)
   const last = events[events.length - 1]
@@ -552,7 +554,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     : replyQuestionText(text(rememberedQuestion.question)) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
     ? rememberedQuestion
     : pendingQuestionFromReply(lastResponse)
-  let interpretation = await interpretConversationTurn({
+  const interpretationInputForTurn = {
     catalog_search: catalogSearch,
     consultas_pendientes: pendingInputs,
     resumen: previousSummary, historial: context.historial,
@@ -566,7 +568,22 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     propuestas: proposals, coordinacion_visita: visitDraft, dialogo_visita: previousSummary._visit_dialogue, financiamiento: finance,
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence && businessScope.confidence !== 'low' ? '' : current,
-  }, { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
+  }
+  let interpretation: TurnInterpretation
+  try {
+    interpretation = await interpretConversationTurn(interpretationInputForTurn,
+      { aiJson, activePrompt, onPromptRevision: revision => trace.setVersions({ promptVersions: { extractor_eventos: revision } }) })
+  } catch (error) {
+    if (!observing || !(error instanceof TurnInterpretationError)) throw error
+    interpretation = observedInterpretationFailure(interpretationInputForTurn, error)
+  }
+  const degradedInterpretation = interpretation.method === 'observation_degraded'
+  if (degradedInterpretation) {
+    // The writer gets the actual message and verified catalog below. Discarded
+    // extraction cannot open booking/credit/reservation branches or select a unit.
+    reply = 'Con mucho gusto, puedo ayudarle a revisar las opciones del proyecto.'
+    audit = { source: 'observed_interpretation_recovery', interpretation_recovery: interpretation.diagnostic.interpretation_recovery }
+  }
   if (object(interpretation.diagnostic.interpretation_recovery).attempted === true) trace.add(
     'interpretation_recovery', 'Recuperar interpretación del mensaje actual', 'decision', 'turn-interpretation.ts', 'succeeded', {},
     object(interpretation.diagnostic.interpretation_recovery))
@@ -609,7 +626,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   turnSemantics.requests = turnIntent.requests
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor'),
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
-  const categoryPreference = preferredPropertyCategory(current, turnSemantics)
+  const categoryPreference = degradedInterpretation ? null : preferredPropertyCategory(current, turnSemantics)
   // Legacy extraction cannot overwrite the new, evidenced interpretation with a mentioned rejection.
   extracted.preferred_category = categoryPreference
   if (categoryPreference && object(turnSemantics.property).confidence !== 'high') {
@@ -619,7 +636,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     operation: object(turnSemantics.property).operation, filters: object(object(turnSemantics.property).filters),
     previous_query: object(previousPropertyContext.query), pending_question: pendingQuestion,
   })
-  const reference = resolvePropertyTurn(turnCatalog, current, previousSummary, context.historial, turnSemantics)
+  const reference = resolvePropertyTurn(turnCatalog, degradedInterpretation ? '' : current, previousSummary, context.historial, turnSemantics)
+  if (degradedInterpretation) {
+    reference.context = { ...previousPropertyContext }
+    reference.memory = object(previousSummary._unit_reference)
+    reference.explicit = false
+  }
   propertyTurn = reference
   currentSemantics = turnSemantics
   const unresolvedPropertyScope = businessScope.uncertain || businessScope.kind === 'out_of_scope'
@@ -643,13 +665,24 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   trace.add('lead_profile_resolution', 'Interpretar los datos del lead', 'decision', 'lead-profile.ts', 'succeeded', {},
     { profile: summary._lead_profile, decisions: object(summary._lead_profile).diagnostics })
   extracted.turn_semantics = turnSemantics
-  if(financeContinuation) Object.assign(extracted,financeContinuation)
+  if(financeContinuation && !degradedInterpretation) Object.assign(extracted,financeContinuation)
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
   const quoteInquiry = financingQuoteInquiry(extracted, current)
   const brochureIntent = brochureDeliveryIntent(current, context.historial, extracted, pendingQuestion)
   summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
   summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, text(state.ultima_respuesta))
   summary._financing_amounts = financingAmounts(object(previousSummary._financing_amounts), extracted.financing_amounts, current)
+  if (degradedInterpretation) {
+    summary._unit_reference = previousSummary._unit_reference || {}
+    summary._property_context = previousPropertyContext
+    summary._interpretation_memory = previousSummary._interpretation_memory || {}
+    summary._commercial_journey = previousSummary._commercial_journey || {}
+    summary._financing_journey = previousSummary._financing_journey || {}
+    summary._financing_identity = previousSummary._financing_identity || {}
+    summary._financing_amounts = previousSummary._financing_amounts || {}
+    summary._lead_profile = previousSummary._lead_profile || {}
+    financeInput.consent = null
+  }
   const financeSelection = { lead, catalogo: turnCatalog, referencia_unidad: reference, property_context: reference.context,
     semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
   const financingAccepted = financingStage({ ...financeSelection,
@@ -659,7 +692,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       || ['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
       || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
       || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null))
-  const resumeFinancing = !quoteInquiry.beforeApplication && (canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
+  const resumeFinancing = !degradedInterpretation && !quoteInquiry.beforeApplication && (canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
     || financingAccepted && !!selectedFinancingUnit(financeSelection) && leadBudget(financeSelection).answered === true
       && declaredBudget.confidence === 'high' && declaredBudget.status !== 'not_discussed'
       && !extracted.requested_advisor && !extracted.opt_out && object(extracted.visit_intent).kind !== 'request_visit')
@@ -676,7 +709,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const visitInfoForTurn: Row = !minimalTurn && (semanticVisit.confidence === 'high' && semanticVisit.kind !== 'none'
     || Object.keys(object(previousSummary._visit_dialogue)).length || collectingVisit)
     ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
-  const visitDialoguePlan = visitInfoForTurn.estado_proyecto ? visitDialogueTurn({ previous: previousSummary._visit_dialogue,
+  const visitDialoguePlan = !degradedInterpretation && visitInfoForTurn.estado_proyecto ? visitDialogueTurn({ previous: previousSummary._visit_dialogue,
     intent: semanticVisit, preference: extracted.visit_preference, readiness: visitInfoForTurn.estado_proyecto as ProjectReadiness,
     intake: visitDraft, proposals, current, sourceMessageId: activeLast.externalId, sourceAt: activeLast.sentAt, pendingQuestion }) : {}
   const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
@@ -691,7 +724,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
   const visitPermission = visitRoutePermission(interpretation.requests, turnSemantics, semanticVisit, visitSignal)
   trace.add('route_consistency', 'Comprobar ruta frente a la solicitud actual', 'decision', 'route-consistency.ts', 'succeeded', {}, visitPermission)
-  const canRequestVisit = visitPermission.allowed && visitDialoguePlan.information_only !== true && visitDialoguePlan.current_kind !== 'decline'
+  const canRequestVisit = !degradedInterpretation && visitPermission.allowed && visitDialoguePlan.information_only !== true && visitDialoguePlan.current_kind !== 'decline'
     && !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
     && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
     && (visitSignal || collectingVisit)
@@ -699,7 +732,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
   const priceTurn = turnIntent.required_facts.includes('price')
   const reservation = object(turnSemantics.reservation)
-  const startingReservation = turnIntent.requested_action === 'reservation_handoff'
+  const startingReservation = !degradedInterpretation && turnIntent.requested_action === 'reservation_handoff'
   const reservationInformation = turnIntent.objective === 'ask_reservation'
   const reservationSelectedIds = Array.isArray(previousPropertyContext.selected_ids) ? previousPropertyContext.selected_ids : []
   const reservationAction = startingReservation ? reservationRequest(reservation, inbound.normalized, turnCatalog,
@@ -709,11 +742,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
     && isProfileOnlyTurn(current, { ...extracted, turn_semantics: turnSemantics })
-  const financeTurn = !quoteInquiry.beforeApplication && !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
+  const financeTurn = !degradedInterpretation && !quoteInquiry.beforeApplication && !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
     || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
-  trace.finish(semanticStep, 'succeeded', {
+  trace.finish(semanticStep, degradedInterpretation ? 'failed' : 'succeeded', {
     ...interpretation.diagnostic,
     events: extracted.events,
     preferred_category: text(extracted.preferred_category) || null,
@@ -727,12 +760,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     primary_intent: text(turnSemantics.primary_intent),
     answers_question: text(object(turnSemantics.answer_to_previous).question_id) || null,
     answer_kind: text(object(turnSemantics.answer_to_previous).kind) || null,
+    observation_only: observing, actions_allowed: !degradedInterpretation,
     budget_status: text(object(turnSemantics.budget).status) || null,
     property_category: text(object(turnSemantics.property).category) || null,
     property_excluded_categories: object(turnSemantics.property).excluded_categories,
     reference_reason: reference.reason, reference_unit_ids: reference.matches.map(unit => unit.id),
     reference_needs_clarification: reference.needsClarification,
-  })
+  }, degradedInterpretation ? 'TURN_INTERPRETATION_INVALID' : undefined)
   trace.finish(catalogStep, 'succeeded', {
     reference_reason: reference.reason, needs_clarification: reference.needsClarification,
     candidate_unit_ids: reference.matches.map(unit => unit.id), query: object(object(reference).query),
@@ -872,7 +906,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const generated = await commercialReply(info, current, summary, guard)
     reply = generated.reply
     audit = { ...generated.audit, completed_visit_action: result, coverage_complete: false }
-    if (audit.requires_advisor === true) {
+    if (audit.requires_advisor === true && !observing) {
       pendingCommercialHandoff = text(audit.handoff_reason) || 'resolver las consultas adicionales a la confirmación de visita'
       reply = completeTurnAnswer('', turnAnswerFacts(info, current, summary)).reply || 'Ese detalle necesita verificación del equipo.'
     }
@@ -1289,7 +1323,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         } else {
           const generated = await commercialReply(info, current, summary, guard)
           audit = generated.audit
-          if (audit.requires_advisor === true) {
+          if (audit.requires_advisor === true && !observing) {
             // A draft rejection is only a proposed handoff. Finish checking the
             // available facts before mutating the lead or pausing the conversation.
             pendingCommercialHandoff = text(audit.handoff_reason) || 'consulta por verificar'
@@ -1422,7 +1456,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   audit = { ...audit, interest_decision: interestDecision, response_plan: plannedResponse, turn_contract: CONVERSATION_CONTRACT_VERSION, resolved_turn_intent: turnIntent,
     interpretation: interpretation.diagnostic, writer_greeting: turnGreeting }
-  const commercialPromptRoute = !text(audit.source) || ['commercial', 'verified_information_gap'].includes(text(audit.source))
+  const commercialPromptRoute = !text(audit.source) || ['commercial', 'verified_information_gap', 'observed_interpretation_recovery'].includes(text(audit.source))
   const dialogueStep = trace.add('dialogue_decision', 'Decidir la respuesta y la siguiente pregunta', 'decision', 'conversation.ts · catalog-dialogue.ts', 'succeeded',
     { primary_intent: turnSemantics.primary_intent, operation: object(turnSemantics.property).operation },
     { source: text(audit.source) || 'commercial', action: text(audit.action) || null, catalog_query: audit.catalog_query,
@@ -1440,7 +1474,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
             ? { kind: 'prompt', label: 'Conversación y orientación comercial', href: '/inmobiliaria/automatizacion/guion#respuestas', source: 'sdr.ts · respuesta_comercial' }
             : { kind: 'code', label: 'Ruta especializada de respuesta', source: `conversation.ts · ruta ${text(audit.source)}` } }) })
   await trace.flush(false)
-  if (!finalNotice && !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'vehicle_out_of_scope', 'commercial_location_budget'].includes(text(audit.source))) {
+  if ((!finalNotice || observing) && (observing || !['minimal_greeting', 'courtesy', 'media_not_understood', 'media_clarification', 'vehicle_out_of_scope', 'commercial_location_budget'].includes(text(audit.source)))) {
     await guard()
     const commercialInfo: Row = !scopeOnlyReview || businessScope.uncertain
       ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile, quoteInquiry.requested ? finance : undefined) : {}
@@ -1518,15 +1552,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.commercial_journey = reviewed.audit.commercial_journey
     // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
     const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
-    const catalogValidation = reviewing ? validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence }) : { valid: true, reason: '', details: [] }
-    if (object(reviewed.audit.fallback_validation).passed === false) {
+    const catalogValidation = reviewing && !observing ? validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence }) : { valid: true, reason: '', details: [] }
+    if (!observing && object(reviewed.audit.fallback_validation).passed === false) {
       // The fallback already failed coverage or factual validation. Presentation
       // obligations cannot restore that rejected base at this boundary.
       reply = recoveryReply(reviewed.audit)
       reviewed.audit = { ...reviewed.audit, retained_verified_reply: false, final_preview: traceText(reply, MAX_REPLY_CHARACTERS) }
     } else if (catalogValidation.valid) {
       reply = reviewed.reply
-      if (!reviewing) reviewedText = reply
+      if (!reviewing || observing) reviewedText = reply
       audit.semantic_review = semanticEvidence
       if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
         reviewedText = reply
@@ -1573,7 +1607,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const resolvedFromContext = catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status))
         || Array.isArray(audit.financing_orientation_fragments) && audit.financing_orientation_fragments.includes(text(request.fragment)))
-    const needsCommercialHandoff = reviewing && !!pendingCommercialHandoff && !resolvedFromContext
+    const needsCommercialHandoff = reviewing && !observing && !!pendingCommercialHandoff && !resolvedFromContext
     trace.finish(coverageStep, 'succeeded', {
       business_policy_sources: reviewed.audit.business_policy_sources,
       business_policy_context: commercialInfo.business_policy_context || { status: 'not_loaded_outside_scope' },
@@ -1591,7 +1625,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       ...(reviewed.audit.prompt_context_selection ? { prompt_context_selection: reviewed.audit.prompt_context_selection } : {}),
       catalog_retrieval: audit.catalog_retrieval,
       text_transformations: reviewed.audit.text_transformations,
-      status: reviewed.audit.status, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
+      status: reviewed.audit.status,
+      review_enforcement: reviewed.audit.review_enforcement,
+      observation: reviewed.audit.observation, transport_validation: reviewed.audit.transport_validation, requests: reviewed.audit.requests, issues: reviewed.audit.issues,
       review_control: reviewed.audit.review_control, independent_review: reviewed.audit.independent_review,
       price_evidence: reviewed.audit.price_evidence,
       final_validation: reviewed.audit.final_validation,
@@ -1615,14 +1651,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         setting: { kind: 'code', label: 'Revisión de cobertura y datos faltantes', source: 'turn-completeness.ts · coverage-evidence.ts' } }),
     })
     audit = { ...audit, turn_completeness: reviewed.audit, ...(pendingCommercialHandoff ? {
-      requires_advisor: needsCommercialHandoff, handoff_review: !reviewing ? 'review_disabled' : resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
+      requires_advisor: needsCommercialHandoff, handoff_review: observing ? 'observed_without_handoff' : !reviewing ? 'review_disabled' : resolvedFromContext ? 'resolved_from_context' : 'needs_advisor',
       ...(resolvedFromContext ? { handoff_reason: null } : {}),
     } : {}) }
     requireReviewedResponse(reviewed.audit)
     const visitCoordinationHandled = audit.source === 'visit_intake'
       && ['collecting', 'submitted', 'closed_day', 'outside_hours', 'past'].includes(text(audit.action))
       && (!reviewed.unresolved.length || reviewed.unresolved.every(item => /\b(?:visitas?|citas?|fechas?|horas?|horarios?|agenda|agendar|reagendar|propuestas?)\b/i.test(item)))
-    if (((reviewed.needsAdvisor && !visitCoordinationHandled) || needsCommercialHandoff) && !finalNotice && !handoffNotice) {
+    if (!observing && ((reviewed.needsAdvisor && !visitCoordinationHandled) || needsCommercialHandoff) && !finalNotice && !handoffNotice) {
       const reason = reviewed.unresolved.length ? 'resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650) : pendingCommercialHandoff
       const notice = await transferToAdvisor(reason, { rule_id: 'advisor.verified_information_gap', origin: 'coverage_review', caused_by_step: coverageStep,
         facts: { unresolved: reviewed.unresolved, review_status: reviewed.audit.status, pending_commercial_handoff: pendingCommercialHandoff || null } })
@@ -1668,7 +1704,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   reply = pricePreparedFinal.reply
   audit.reply_preparation = { greeting_applied: greetingApplied, prices_applied: pricePreparedFinal.applied }
   // The last prose transformation is checked too, before any external send.
-  const finalCatalogValidation = reviewing ? validateCatalogReply(reply, audit) : { valid: true, reason: '' }
+  const finalCatalogValidation = reviewing && !observing ? validateCatalogReply(reply, audit) : { valid: true, reason: '' }
   if (!finalCatalogValidation.valid && catalogBaseReply) {
     const approvedAllowed = !!reviewedText && !recoveringTurn() && validateCatalogReply(reviewedText, audit).valid
     if (!approvedAllowed && !recoveringTurn()) audit.turn_completeness = { ...object(audit.turn_completeness),
@@ -1680,7 +1716,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
     if (!approvedAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }
   }
-  if (reviewedText && reviewFinalContent && requiresContentReview(reviewedText, reply, handoffNotice)) {
+  if (!observing && reviewedText && reviewFinalContent && requiresContentReview(reviewedText, reply, handoffNotice)) {
     const step = trace.start('final_content_review', 'Revisar contenido modificado antes del envío', 'decision', 'delivery-integrity.ts', {
       approved_preview: reviewedText, candidate_preview: reply,
     })
@@ -1693,7 +1729,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       approved_text: reviewedText, candidate_text: beforeReview, final_text: reply, review: checked.audit }
     trace.finish(step, 'succeeded', audit.delivery_integrity as Row)
   } else if (reviewedText) {
-    audit.delivery_integrity = { changed_content: false, status: reviewing ? 'approved_content_preserved' : 'unreviewed_writer_preserved', ...(reviewing ? { approved_text: reviewedText } : { writer_text: reviewedText }), final_text: reply,
+    audit.delivery_integrity = { changed_content: false, status: observing ? 'observed_writer_preserved' : reviewing ? 'approved_content_preserved' : 'unreviewed_writer_preserved', ...(reviewing && !observing ? { approved_text: reviewedText } : { writer_text: reviewedText }), final_text: reply,
       confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
   }
   requireReviewedResponse(object(audit.turn_completeness))

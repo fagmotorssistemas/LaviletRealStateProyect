@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react'
 import type { WorkflowExecutionStep } from './executionWorkflow'
 import { reviewDiagnostics, reviewReferences, reviewStepRejected } from './reviewDiagnostics'
+import { isObservedReview } from './reviewDecision'
 import styles from './ReviewDiagnostics.module.css'
 
 export function ReviewDiagnostics({ step }: { step: WorkflowExecutionStep }) {
   const issues = reviewDiagnostics(step)
   if (!issues.length) return null
-  const previous = step.key === 'response_coverage' && !reviewStepRejected(step)
+  const observed = step.key === 'response_coverage' && isObservedReview(step.output)
+  const previous = step.key === 'response_coverage' && !observed && !reviewStepRejected(step)
   return <section className={styles.diagnostics} data-historical={previous} aria-label="Campos con errores identificados">
-    <h5>{previous ? 'Incidencias registradas durante los intentos' : 'Qué falló y en qué campo'}</h5>
+    <h5>{observed ? 'Observaciones del modo demostración' : previous ? 'Incidencias registradas durante los intentos' : 'Qué falló y en qué campo'}</h5>
+    {observed && <p>Estos controles quedaron registrados y no bloquearon el borrador del contacto de prueba. Se conservan para analizarlos; permitir el envío no significa que se hayan corregido.</p>}
     {previous && <p>Estos detalles pertenecen a intentos anteriores; no se presentan como un fallo vigente de la respuesta final.</p>}
     {issues.map((issue, i) => <div className={styles.issue} key={`${issue.code}-${i}`}>
       <strong>{issue.code}</strong><p>Campo: <code>{issue.field}</code>{issue.received !== undefined && <> · Valor recibido: <code>{JSON.stringify(issue.received)}</code></>}</p>

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { SettingsHelp } from './SettingsHelp'
-import { loadResponseReviewAction, saveResponseReviewAction } from '@/app/inmobiliaria/automatizacion/pruebas/review-actions'
+import { loadResponseReviewAction, saveResponseReviewAction, saveResponseReviewObservationAction } from '@/app/inmobiliaria/automatizacion/pruebas/review-actions'
 import type { ResponseReviewResult } from '@/lib/inmobiliaria/responseReview'
 import styles from './ConversationToneSettings.module.css'
 
@@ -12,32 +12,46 @@ export function ResponseReviewControl({ initial }: { initial: ResponseReviewResu
   const [error, setError] = useState(initial.ok ? '' : initial.error)
   const [needsRefresh, setNeedsRefresh] = useState(!initial.ok)
   const [notice, setNotice] = useState('')
-  function change(refresh = false) {
-    if (!refresh && (!state || needsRefresh)) return
+  function change(action: 'review' | 'observation' | 'refresh') {
+    if (action !== 'refresh' && (!state || needsRefresh)) return
     setError(''); setNotice('')
     startTransition(async () => {
       try {
-        const result = refresh ? await loadResponseReviewAction() : await saveResponseReviewAction(!state!.enabled, state!.version)
+        const result = action === 'refresh' ? await loadResponseReviewAction()
+          : action === 'observation' ? await saveResponseReviewObservationAction(!state!.observationOnly, state!.version)
+            : await saveResponseReviewAction(!state!.enabled, state!.version)
         if (!result.ok) { setError(result.error); setNeedsRefresh(true); return }
         setState(result.state); setNeedsRefresh(false)
-        setNotice(refresh ? 'Estado actualizado.' : result.state.enabled ? 'Revisión activada para los próximos mensajes.' : 'Revisión desactivada para los próximos mensajes.')
+        setNotice(action === 'refresh' ? 'Estado actualizado.'
+          : action === 'observation' ? result.state.observationOnly
+            ? 'Modo demostración activado para los próximos mensajes de contactos de prueba. La revisión registra observaciones sin bloquear esas respuestas.'
+            : 'Modo demostración desactivado. Los contactos de prueba vuelven a la configuración de revisión general.'
+          : result.state.enabled ? 'Revisión activada para los próximos mensajes.' : 'Revisión desactivada para los próximos mensajes. El modo demostración también queda desactivado.')
       } catch {
         setError('No se pudo confirmar la respuesta del servidor. Pulse «Actualizar estado» antes de repetir la acción.')
         setNeedsRefresh(true)
       }
     })
   }
+  const unavailable = pending || needsRefresh || !state
   return <section className={styles.card} aria-busy={pending} aria-labelledby="response-review-title">
-    <h2 id="response-review-title">Revisión final de mensajes · Control general<SettingsHelp title="Revisión final de mensajes" configures="Activa o desactiva la revisión del borrador para todos los contactos autorizados del proyecto." usedByBot="El revisor contrasta hechos y obligaciones antes del envío. Desactivarlo envía el primer borrador sin esas correcciones comerciales; los controles técnicos y permisos de operaciones continúan." applies="Incluye contactos de pruebas; es independiente de quién tiene habilitado el bot." saving="Pulsar Activar o Desactivar guarda inmediatamente. Las respuestas ya en curso conservan su configuración. Actualizar estado solo consulta la configuración guardada." /></h2>
-    <p>Se aplica a todos los contactos autorizados de La Vilet, incluidos los números de prueba.</p>
+    <h2 id="response-review-title">Revisión final de mensajes · Control general<SettingsHelp title="Revisión final de mensajes" configures="Activa o desactiva el revisor para todos los contactos autorizados del proyecto." usedByBot="Con revisión normal, contrasta hechos y obligaciones antes del envío. Al desactivarla no llama al revisor; las validaciones obligatorias y permisos de operaciones siguen activos y pueden detener una respuesta." applies="Incluye contactos de pruebas; es independiente de quién tiene habilitado el bot." saving="Pulsar Activar o Desactivar guarda inmediatamente. Desactivar la revisión también desactiva el modo demostración. Las respuestas ya en curso conservan su configuración. Actualizar estado solo consulta." /></h2>
+    <p>La revisión general se aplica a todos los contactos autorizados de La Vilet, incluidos los números de prueba.</p>
     <p><strong>{needsRefresh || !state ? 'Estado pendiente de comprobar.' : state.enabled ? 'Revisión activada.' : 'Revisión desactivada.'}</strong>{' '}
-      Al desactivarla, se envía el primer borrador del redactor sin revisor, correcciones automáticas ni validaciones comerciales posteriores.
-      Se mantienen los controles técnicos de envío y las condiciones para ejecutar citas, reservas y otras acciones.</p>
-    <button type="button" className={styles.primary} disabled={pending || needsRefresh || !state} onClick={() => change()}>
+      Desactivarla omite al revisor. Las validaciones obligatorias y las condiciones para ejecutar citas, reservas y otras acciones continúan.</p>
+    <button type="button" className={styles.primary} disabled={unavailable} onClick={() => change('review')}>
       {pending ? 'Procesando…' : !state ? 'Revisión no disponible' : state.enabled ? 'Desactivar revisión general' : 'Activar revisión general'}
     </button>
-    <button type="button" disabled={pending} onClick={() => change(true)}>Actualizar estado</button>
-    <p className={styles.note}>El cambio se aplica desde el siguiente mensaje. Las respuestas que ya estén en curso conservan su configuración.</p>
+    <div className={styles.observation} aria-labelledby="response-observation-title">
+      <h3 id="response-observation-title">Modo demostración · Solo contactos de prueba<SettingsHelp title="Modo demostración" configures="Separa la evaluación del bloqueo de respuestas únicamente para contactos de prueba habilitados." usedByBot="El redactor prepara el mensaje y la revisión conserva sus observaciones, aunque rechace el borrador o encuentre un error. Esas observaciones no bloquean la respuesta ni obligan a corregirla. Los registros distinguen una respuesta observada de una aprobada." applies="Solo a contactos de prueba. Siempre revisa esos contactos, aunque la revisión general esté desactivada. Los demás conservan su configuración general. Los fallos de conexión o de envío y los permisos para ejecutar acciones siguen siendo independientes." saving="Activar guarda inmediatamente y revisa los contactos de prueba, sin cambiar la revisión general. Desactivar devuelve esos contactos a la configuración general. Cada mensaje toma la configuración al iniciar; no altera respuestas ya en curso." example="Si el revisor detecta una pregunta mal clasificada, el contacto de prueba recibe el borrador y el problema queda registrado para revisarlo después." /></h3>
+      <p><strong>{needsRefresh || !state ? 'Estado pendiente de comprobar.' : state.observationOnly ? 'Demostración activada.' : 'Demostración desactivada.'}</strong>{' '}
+        Revisa y registra, pero las observaciones no bloquean el envío ni generan correcciones del mensaje. Solo se aplica a contactos de prueba, que se revisan incluso si la revisión general está desactivada.</p>
+      <button type="button" className={styles.primary} disabled={unavailable} aria-pressed={state?.observationOnly === true} onClick={() => change('observation')}>
+        {pending ? 'Procesando…' : state?.observationOnly ? 'Desactivar modo demostración' : 'Activar modo demostración'}
+      </button>
+    </div>
+    <button type="button" disabled={pending} onClick={() => change('refresh')}>Actualizar estado</button>
+    <p className={styles.note}>Los cambios se aplican desde el siguiente mensaje. Las respuestas que ya estén en curso conservan su configuración.</p>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     <div role="status" aria-live="polite">{notice}</div>
   </section>

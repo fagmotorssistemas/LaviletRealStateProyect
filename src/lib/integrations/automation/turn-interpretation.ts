@@ -87,7 +87,7 @@ export type TurnInterpretation = {
   extracted: Row
   semantics: Row
   requests: Row[]
-  method: 'model' | 'literal_greeting' | 'unreadable_input'
+  method: 'model' | 'literal_greeting' | 'unreadable_input' | 'observation_degraded'
   promptRevision: string | null
   diagnostic: Row
   withActionMessage?: (message: string) => TurnInterpretation
@@ -296,6 +296,25 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     return result
   }
   return withDiagnostics(normalizeInterpretation(input, raw, readable, method, promptRevision))
+}
+
+
+/** A failed interpretation may inform a demo reply, but never authorize an operation or a new durable fact. */
+export function observedInterpretationFailure(input: Row, error: TurnInterpretationError): TurnInterpretation {
+  const current = text(input.mensaje_actual)
+  const recovery = { status: 'observed_degraded', attempted: true, observation_only: true,
+    actions_allowed: false, error_code: error.message, issues: [...error.issues] }
+  const result = normalizeInterpretation({ ...input, mensaje_accion: '' }, {}, current, 'observation_degraded', null)
+  result.diagnostic.interpretation_recovery = recovery
+  result.diagnostic.actions_allowed = false
+  // Preserve a literal withdrawal independently of the invalid model result.
+  result.extracted.opt_out = globalContactRefusal(current)
+  result.extracted.requested_advisor = false
+  result.extracted.tracking_consent = false
+  result.extracted.financing_consent = null
+  result.requests = []
+  delete result.withActionMessage
+  return result
 }
 
 /** Reuse the same extraction after scope arbitration. No second model call and

@@ -1,7 +1,7 @@
 'use server'
 
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
-import { changeResponseReview, responseReviewSettings, type ResponseReviewResult } from '@/lib/inmobiliaria/responseReview'
+import { changeResponseReview, changeResponseReviewObservation, responseReviewSettings, type ResponseReviewResult } from '@/lib/inmobiliaria/responseReview'
 import { LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '@/lib/integrations/lavilet'
 
 async function access() {
@@ -23,12 +23,20 @@ export async function loadResponseReviewAction(): Promise<ResponseReviewResult> 
 export async function saveResponseReviewAction(enabled: boolean, expectedVersion: string): Promise<ResponseReviewResult> {
   if (typeof enabled !== 'boolean' || typeof expectedVersion !== 'string' || !expectedVersion)
     return { ok: false, error: 'Seleccione activar o desactivar la revisión de respuestas y actualice su estado.' }
+  return saveReviewSetting(expectedVersion, (policies, userId, at) => changeResponseReview(policies, enabled, userId, at))
+}
+export async function saveResponseReviewObservationAction(observationOnly: boolean, expectedVersion: string): Promise<ResponseReviewResult> {
+  if (typeof observationOnly !== 'boolean' || typeof expectedVersion !== 'string' || !expectedVersion)
+    return { ok: false, error: 'Seleccione activar o desactivar el modo demostración y actualice su estado.' }
+  return saveReviewSetting(expectedVersion, (policies, userId, at) => changeResponseReviewObservation(policies, observationOnly, userId, at))
+}
+async function saveReviewSetting(expectedVersion: string, change: (policies: unknown, userId: string, at: string) => unknown): Promise<ResponseReviewResult> {
   try {
     const { supabase, project, user } = await access()
     const conflict = 'La configuración cambió. Pulse «Actualizar estado» antes de volver a guardar.'
     if (project.updated_at !== expectedVersion) return { ok: false, error: conflict }
     const now = new Date().toISOString()
-    const policies = changeResponseReview(project.policies_json, enabled, user.id, now)
+    const policies = change(project.policies_json, user.id, now)
     const { data, error } = await supabase.from('projects').update({ policies_json: policies, updated_at: now })
       .eq('id', project.id).eq('tenant_id', project.tenant_id).eq('updated_at', expectedVersion).select('updated_at')
     if (error) return { ok: false, error: 'No se pudo confirmar el cambio. Pulse «Actualizar estado» antes de intentarlo nuevamente.' }

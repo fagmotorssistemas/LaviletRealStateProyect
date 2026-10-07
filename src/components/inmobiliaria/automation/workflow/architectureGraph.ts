@@ -2,6 +2,7 @@ import type { WorkflowExecutionStep } from './executionWorkflow'
 import { WORKFLOWS } from './workflowDefinitions'
 import { reviewStepRejected, reviewDiagnostics } from './reviewDiagnostics'
 import { hasCatalogSummary } from './catalogSummary'
+import { isObservedReview } from './reviewDecision'
 
 type Step = WorkflowExecutionStep
 export type ArchitectureNode = {
@@ -106,9 +107,10 @@ export const ARCHITECTURE_NODES: ArchitectureNode[] = [
     ['below_available_prices', 'Presupuesto inferior a los precios', 'Los precios comprobados de la búsqueda superan el importe declarado.'],
   ].map(([value, title, description], i) => branch(`budget_${value}`, title, description, 15, i + 9, 'budget_resolution', 'status', value)),
   agent('writer', 'Redactor de respuesta', 'Redactar usando los datos y obligaciones del turno. Cada llamada queda separada en el inspector.', 15, 3, ['writer', 'draft']),
-  agent('reviewer', 'Revisor de respuesta', 'Decidir pasa o bloquea por datos comerciales, restricciones y obligaciones del turno; sin calificar el estilo.', 16, 3, ['reviewer']),
+  agent('reviewer', 'Revisor de respuesta', 'Evaluar datos comerciales, restricciones y obligaciones; en el modo demostración se registran observaciones sin bloquear el borrador del contacto de prueba.', 16, 3, ['reviewer']),
   n('draft_validation', 'Comprobar riesgos y datos', 'Aplicar la decisión comercial y comprobar enlaces autorizados y condiciones de entrega.', 17, 3, 'draft_validation', 'decision', 'turn-completeness.ts'),
   branch('review_checked', 'Revisión aprobada', 'La revisión registró checked. Aún faltan controles de envío y aceptación de Kommo.', 18, 0, 'response_coverage', 'status', 'checked'),
+  branch('review_observed', 'Revisión sin bloqueo · Demostración', 'El monitoreo conserva las observaciones del contacto de prueba sin exigir aprobación del contenido. El envío se comprueba por separado.', 18, 5, 'response_coverage', 'status', 'review_observed'),
   branch('review_recovery', 'Recuperación pendiente', 'La revisión dejó la respuesta pendiente de recuperación; consultar las acciones posteriores.', 18, 9, 'response_coverage', 'recovery.pending', true),
   n('repair_metadata', 'Reintentar revisión inválida', 'Pedir de nuevo solo la decisión estructurada si la salida de la revisión es inválida, sin atribuir un error al borrador.', 16, 5),
   n('repair_draft', 'Solicitar nueva redacción', 'Corregir el borrador cuando la revisión identifica un problema que requiere cambiarlo.', 15, 6),
@@ -140,7 +142,7 @@ export const ARCHITECTURE_LINKS: ArchitectureLink[] = [
   link('dialogue', 'handoff', 'Requiere asesor'), link('dialogue', 'coverage'), link('coverage', 'writer'), link('writer', 'reviewer'),
   link('coverage', 'catalog_summary', 'Preparar evidencia'), link('catalog_summary', 'writer', 'Unidades y agregaciones'),
   ...['search', 'rank', 'compare', 'select', 'details', 'none'].map(value => link('dialogue', `catalog_${value}`)),
-  link('coverage', 'review_checked'), link('coverage', 'review_recovery'),
+  link('coverage', 'review_checked'), link('coverage', 'review_observed'), link('review_observed', 'route_selected', 'Borrador permitido para demostración'), link('coverage', 'review_recovery'),
   link('reviewer', 'draft_validation'), link('draft_validation', 'repair_metadata', 'Salida de revisión inválida'), link('repair_metadata', 'reviewer'),
   link('draft_validation', 'repair_draft', 'Texto requiere corrección'), link('repair_draft', 'writer'),
   link('draft_validation', 'route_selected', 'Respuesta autorizada'), link('draft_validation', 'failure', 'Sin respuesta autorizada'),
@@ -155,9 +157,11 @@ export const ARCHITECTURE_LINKS: ArchitectureLink[] = [
 const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
 const field = (value: unknown, path: string): unknown => path.split('.').reduce<unknown>((current, key) => record(current)[key], value)
 const decided = (s: Step) => ['succeeded', 'paused', 'skipped'].includes(s.status)
+  && !(s.key === 'response_coverage' && s.output.status === 'review_observed' && !isObservedReview(s.output))
 export function nodeEvidence(node: ArchitectureNode, steps: Step[]): Step[] {
   if (node.id === 'embedding_bypassed') return steps.filter(s => s.key === 'catalog_embedding_search' && decided(s) && s.output.applied === false && s.output.optimized !== true)
   if (node.id === 'catalog_summary') return steps.filter(hasCatalogSummary)
+  if (node.id === 'review_observed') return steps.filter(s => s.key === 'response_coverage' && decided(s) && isObservedReview(s.output))
   if (node.role) return steps.filter(s => s.key === 'model_request' && node.role!.includes(String(s.input.ai_role)))
   if (node.branch) return steps.filter(s => s.key === node.branch!.key && decided(s) && field(s.output, node.branch!.field) === node.branch!.value)
   if (node.id === 'repair_metadata' || node.id === 'repair_draft') return steps.filter(s => s.key === 'response_coverage'
@@ -170,6 +174,8 @@ export function nodeState(node: ArchitectureNode, steps: Step[]) {
   const evidence = nodeEvidence(node, steps)
   // This view proves that input was saved, not that the writer succeeded or failed.
   if (node.id === 'catalog_summary') return evidence.length ? 'observed' : 'unknown'
+  if (node.id === 'review_observed') return evidence.length ? 'observed' : 'unknown'
+  if (node.id === 'coverage' && evidence.some(s => isObservedReview(s.output))) return evidence.some(s => s.status === 'failed') ? 'failed' : 'observed'
   if (evidence.length) return evidence.some(s => s.status === 'failed') ? 'failed'
     : evidence.some(s => reviewStepRejected(s) || s.key === 'model_request' && reviewDiagnostics(s).length > 0) ? 'rejected'
     : evidence.some(s => s.status === 'paused') ? 'paused'

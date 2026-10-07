@@ -17,11 +17,21 @@ function load(file, mocks = {}) {
   return loaded.exports
 }
 const settings = load('src/lib/inmobiliaria/responseReview.ts')
-function harness({ authorized = true, projectAccess = true, concurrent = false, readError = false } = {}) {
+function harness({ authorized = true, projectAccess = true, concurrent = false, readError = false, policies = null, testContact = false } = {}) {
   const calls = []
   const project = { id: 'project', tenant_id: 'tenant', updated_at: 'version',
-    policies_json: { catalog_search: { embeddings_enabled: true }, business: { keep: true } } }
+    policies_json: policies || { catalog_search: { embeddings_enabled: true }, business: { keep: true } } }
   const supabase = { from(table) {
+    if (table === 'lv_test_contacts_state') {
+      const filters = []
+      const query = { select: () => query, abortSignal: () => query,
+        match: value => { filters.push(...Object.entries(value)); return query },
+        eq: (key, value) => { filters.push([key, value]); return query },
+        then: resolve => { calls.push({ filters, table });
+          return Promise.resolve({ data: testContact ? [{ lead_id: 'test-lead' }] : [], error: null }).then(resolve) },
+      }
+      return query
+    }
     assert.equal(table, 'projects')
     let write
     const filters = []
@@ -96,4 +106,87 @@ test('expected access/read failures return renderable errors instead of masked S
     assert.match(result.error, /No se pudo cargar.*Actualizar estado/)
     assert.doesNotMatch(result.error, /forbidden|SQL|digest/)
   }
+})
+
+
+test('demonstration preserves general review state and scopes review-on to enrolled contacts only', async () => {
+  const h = harness({ testContact: true, policies: { response_review: { enabled: false, note: 'keep' }, catalog_search: { embeddings_enabled: true } } })
+  const observing = await h.saveResponseReviewObservationAction(true, 'version')
+  assert.equal(observing.ok, true)
+  assert.equal(observing.state.enabled, false)
+  assert.equal(observing.state.observationOnly, true)
+  assert.equal((await h.loadResponseReviewPolicy()).observationOnly, false)
+  assert.equal((await h.loadResponseReviewPolicy()).enabled, false)
+  assert.equal((await h.loadResponseReviewPolicy(123)).observationOnly, true)
+  assert.equal((await h.loadResponseReviewPolicy(123)).enabled, true)
+  assert.deepEqual(h.project.policies_json.catalog_search, { embeddings_enabled: true })
+  assert.equal(h.project.policies_json.response_review.note, 'keep')
+  assert.equal(h.project.policies_json.response_review.updated_by, 'admin')
+  assert.equal(h.calls.filter(call => call.write).length, 1)
+  const normal = await h.saveResponseReviewObservationAction(false, observing.state.version)
+  assert.equal(normal.ok, true)
+  assert.equal(normal.state.enabled, false)
+  assert.equal(normal.state.observationOnly, false)
+})
+
+test('disabling general review clears demonstration; re-enabling does not silently reactivate it', async () => {
+  const h = harness()
+  const observing = await h.saveResponseReviewObservationAction(true, 'version')
+  const disabled = await h.saveResponseReviewAction(false, observing.state.version)
+  assert.equal(disabled.state.enabled, false)
+  assert.equal(disabled.state.observationOnly, false)
+  const enabled = await h.saveResponseReviewAction(true, disabled.state.version)
+  assert.equal(enabled.state.enabled, true)
+  assert.equal(enabled.state.observationOnly, false)
+})
+
+test('demonstration requires administrator access, valid boolean, accessible project and current version', async () => {
+  for (const [options, version, value] of [[{ authorized: false }, 'version', true],
+    [{ projectAccess: false }, 'version', true], [{ readError: true }, 'version', true],
+    [{}, 'stale', true], [{}, 'version', 'true'], [{}, '', true]]) {
+    const h = harness(options)
+    assert.equal((await h.saveResponseReviewObservationAction(value, version)).ok, false)
+    assert.equal(h.calls.some(call => call.write), false)
+  }
+  const h = harness({ concurrent: true })
+  assert.match((await h.saveResponseReviewObservationAction(true, 'version')).error, /configuración cambió/)
+  assert.equal(h.project.policies_json.response_review, undefined)
+})
+
+test('only explicit boolean enables observation without overwriting general review state', () => {
+  for (const value of [undefined, null, false, 'true', 1, {}, []])
+    assert.equal(settings.responseReviewSettings({ response_review: { observation_only: value } }).observationOnly, false)
+  assert.deepEqual(settings.responseReviewSettings({ response_review: { enabled: false, observation_only: true } }),
+    { enabled: false, observationOnly: true, updatedAt: null })
+  assert.throws(() => settings.changeResponseReviewObservation({}, 'true', 'admin', 'now'))
+  const previous = { response_review: { enabled: false }, unrelated: { keep: true } }
+  const observing = settings.changeResponseReviewObservation(previous, true, 'admin', 'now')
+  assert.deepEqual(previous, { response_review: { enabled: false }, unrelated: { keep: true } })
+  assert.deepEqual(observing.unrelated, previous.unrelated)
+})
+
+test('observed continuity remembers a usable question without treating failed business review as approval', () => {
+  const audit = { status: 'review_observed', review_control: { observationOnly: true, source: 'project_setting' },
+    transport_validation: { passed: true }, final_validation: { passed: false, policy: 'observation_only', enforcement: false } }
+  assert.equal(settings.responseSupportsContinuity(audit), true)
+  assert.equal(settings.responseSupportsContinuity({ ...audit, transport_validation: { passed: false } }), false)
+  assert.equal(settings.responseSupportsContinuity({ ...audit, review_control: { observationOnly: true, source: 'model' } }), false)
+  assert.equal(settings.responseSupportsContinuity({ ...audit, review_control: { source: 'project_setting' } }), false)
+})
+
+
+test('observation applies only to a trusted test contact and defaults remain enforced', () => {
+  const observing = settings.responseReviewSettings({ response_review: { observation_only: true } })
+  const production = settings.scopeResponseReview(observing, false)
+  assert.equal(production.observationOnly, false)
+  assert.equal(production.enabled, true)
+  assert.equal(settings.scopeResponseReview(observing, true).observationOnly, true)
+  assert.equal(settings.scopeResponseReview(observing, 'true').observationOnly, false)
+  assert.equal(settings.scopeResponseReview(settings.responseReviewSettings(null), true).observationOnly, false)
+  assert.equal(settings.scopeResponseReview({ enabled: false, updatedAt: null }, true).enabled, false)
+  assert.equal(observing.observationOnly, true)
+  const generalOff = { enabled: false, observationOnly: true, updatedAt: null }
+  assert.equal(settings.scopeResponseReview(generalOff, true).enabled, true)
+  assert.equal(settings.scopeResponseReview(generalOff, false).enabled, false)
+  assert.equal(settings.scopeResponseReview(settings.responseReviewSettings(settings.changeResponseReviewObservation({ response_review: { enabled: false } }, false, 'admin', 'now')), false).observationOnly, false)
 })

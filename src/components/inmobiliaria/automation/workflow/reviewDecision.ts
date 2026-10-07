@@ -87,7 +87,37 @@ export function repairBudgetFacts(output: Row) {
   })
 }
 
-export function reviewDecision(output: Row, catalog: Row[] = []) {
+/** Read the recorded server policy; the status alone never proves demonstration mode. */
+export function isObservedReview(output: Row) {
+  const control = row(output.review_control)
+  return output.status === 'review_observed' && control.observationOnly === true && control.source === 'project_setting'
+}
+
+export type ReviewDecisionResult = {
+  tone: 'accepted' | 'metadata' | 'rejected' | 'unknown'; title: string; explanation: string;
+  details: string[]; causes: string[]; repair: string; resolvedDetails: string[]; recoveryPending: boolean;
+}
+
+export function reviewDecision(output: Row, catalog: Row[] = []): ReviewDecisionResult {
+  if (isObservedReview(output)) {
+    const observation = row(output.observation), semantic = row(output.semantic_review)
+    const recorded = text(observation.status) || text(output.observed_status) || text(semantic.status)
+    const reviewStatus = ['checked', 'rejected_guard', 'rejected_review', 'invalid_coverage', 'unavailable'].includes(recorded) ? recorded
+      : row(output.final_validation).passed === false ? 'rejected_guard' : 'unavailable'
+    const findingCodes = [...new Set([...(Array.isArray(output.issues) ? output.issues : []),
+      ...(Array.isArray(row(output.final_validation).issues) ? row(output.final_validation).issues as unknown[] : []),
+      ...(text(semantic.error_code) ? [text(semantic.error_code)] : []),
+      ...(text(observation.error) ? [text(observation.error)] : []),
+    ].map(text).filter(Boolean))]
+    const assessed = reviewDecision({ ...output, status: reviewStatus, issues: findingCodes,
+      review_control: { ...row(output.review_control), observationOnly: false },
+      final_validation: { ...row(output.final_validation), policy: 'observed_findings' },
+      recovery: {}, fallback_validation: {}, turn_completeness: {} }, catalog)
+    return { ...assessed, tone: 'metadata', title: 'Modo demostración · Revisión sin bloqueo',
+      explanation: 'Se conservaron el resultado de la revisión y los controles disponibles. Su resultado no bloquea el borrador preparado para este contacto de prueba y no certifica que su contenido esté aprobado. El envío se comprueba en Envío a Kommo.',
+      repair: 'En este modo no se exige corregir el mensaje ni reparar la ficha para permitir el envío.', recoveryPending: false,
+    }
+  }
   if (output.status === 'review_disabled' || row(output.semantic_review).status === 'disabled'
     || row(output.final_validation).policy === 'transport_only') return {
     tone: 'unknown', title: 'Sin revisión · Control general desactivado',

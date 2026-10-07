@@ -37,7 +37,7 @@ test('review defaults to enabled; only the boolean false disables it', () => {
   const disabled = changeResponseReview(previous, false, 'admin', '2026-10-05T00:00:00Z')
   assert.deepEqual(disabled.catalog_search, previous.catalog_search)
   assert.deepEqual(disabled.unrelated, previous.unrelated)
-  assert.deepEqual(disabled.response_review, { note: 'keep', enabled: false, updated_by: 'admin', updated_at: '2026-10-05T00:00:00Z' })
+  assert.deepEqual(disabled.response_review, { note: 'keep', enabled: false, observation_only: false, updated_by: 'admin', updated_at: '2026-10-05T00:00:00Z' })
   assert.equal(responseReviewSettings(changeResponseReview(disabled, true, 'admin', 'later')).enabled, true)
   assert.throws(() => changeResponseReview(previous, 'false' as unknown as boolean, 'admin', 'now'))
   assert.equal('enabled' in previous.response_review, false)

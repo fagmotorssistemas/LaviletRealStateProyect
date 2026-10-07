@@ -1,4 +1,4 @@
-import { responseReviewEnabled, unreviewedWriterReply } from './response-review-policy'
+import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply } from './response-review-policy'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import 'server-only'
 import { confirmedInterpretationMemory } from './interpretation-memory'
@@ -326,6 +326,29 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const reasons: string[] = []
   const editorialCodes = new Set(['style', 'repeated_greeting', 'repeated_question', 'missing_next_step'])
   let reply = await draftReply(prompt + rules, input)
+  if (responseReviewObservationOnly()) {
+    reply = writerTransportReply(reply)
+    await guard()
+    let review: Row = {}, reviewFailure = ''
+    try {
+      review = await aiJson(reviewer + rules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, respuesta: reply }, reviewSchema, undefined, undefined, undefined, 'review')
+    } catch (error) { reviewFailure = error instanceof Error ? error.message : 'REVIEW_UNAVAILABLE' }
+    const observations = [...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan),
+      ...priceReplyIssues(reply, info, current, quote?.prices), ...commercialCoverageIssues(reply, turnAnswers.topics)]
+    const approved = !reviewFailure && review.aprobada === true && review.requiere_asesor !== true
+    recordDraftDecision(reply, 0, approved, review, observations)
+    return { reply, audit: { source: 'commercial', status: 'review_observed',
+      observation: { status: reviewFailure ? 'unavailable' : !approved ? 'rejected_review' : observations.length ? 'rejected_guard' : 'checked', enforcement: false }, review_control: responseReviewControl(),
+      review_enforcement: { blocking: false, mode: 'observation_only' }, independent_review: true,
+      semantic_review: { status: reviewFailure ? 'unavailable' : approved ? 'checked' : 'rejected',
+        review, ...(reviewFailure ? { error_code: reviewFailure } : {}), acceptance: { content_approved: approved } },
+      final_validation: { passed: approved && observations.length === 0, policy: 'observation_only', issues: observations, enforcement: false },
+      transport_validation: { passed: true, policy: 'nonempty_and_length' },
+      follow_up: { usable: false, source: 'legacy_writer_without_question_metadata' }, repair_attempts: [],
+      recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
+      rewritten: false, fallback: false, ai_draft_preserved: true,
+    } }
+  }
   if (!responseReviewEnabled()) {
     const unreviewed = unreviewedWriterReply(reply)
     return { reply: unreviewed.reply, audit: { source: 'commercial', ...unreviewed.audit } }

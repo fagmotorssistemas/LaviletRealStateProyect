@@ -1,7 +1,7 @@
 import { applyTurnGreeting } from './conversation-style'
 import { ensureReferentialPriceConditions } from './price-conditions'
 import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues } from './continuation-validation'
-import { responseReviewEnabled, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
+import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { turnContinuationIssues } from './turn-continuation'
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
@@ -391,6 +391,7 @@ function missingRequestInventory(current: string, requests: Coverage[], verified
 
 /** Bounded semantic review; reads no DB and performs no commercial action. */
 export async function completeTurnReply(input: TurnCompletenessInput, generate: typeof aiJson = aiJson): Promise<TurnCompletenessResult> {
+  const observationOnly = responseReviewObservationOnly()
   const normalRuleSets = new Map<string, { actual: string; normal: string }>()
   // Diagnostic failure must never interrupt delivery or change model inputs.
   let normalContext: ReturnType<typeof catalogCostBaseline> | null = null
@@ -528,7 +529,52 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     question: proposedQuestion, checks: continuationChecks,
     policy: adaptiveContinuation ? 'contextual_commercial_continuation' : 'route_contract',
   })
+  let observedDraft = ''
+  let observedWriterQuestion: Row = {}
+  let observedMetadataIssues: string[] = []
+  const observedResponse = (reason = 'completed', observedRequests: Coverage[] = requests, extraIssues: string[] = []): TurnCompletenessResult => {
+    const reply = writerTransportReply(observedDraft)
+    const catalogCheck = validateCatalogReply(reply, { ...input.audit, semantic_review: semanticReview })
+    const guardIssues = [...new Set([...mandatoryReplyIssues(input, reply),
+      ...turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review_enabled: false } }, reply),
+      ...continuationContentIssues(reply, input.verified.siguiente_paso_comercial).map(issue => text(issue.code)),
+      ...(!catalogCheck.valid ? [catalogCheck.reason || 'unsupported_catalog_rewrite'] : []),
+      ...(input.validateReply?.(reply) || []), ...observedMetadataIssues, ...extraIssues])]
+    const reviewerMetadataIssues = Array.isArray(object(semanticReview.question_metadata).original_issues)
+      ? (object(semanticReview.question_metadata).original_issues as unknown[]).map(text) : []
+    guardIssues.push(...reviewerMetadataIssues.filter(issue => !guardIssues.includes(issue)))
+    const contentApproved = semanticReview.status === 'checked'
+      && object(semanticReview.acceptance).content_approved !== false
+    const questionIssues = continuationMetadataIssues(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
+    const questionUsable = !observedMetadataIssues.some(issue => issue.startsWith('question:'))
+      && validContinuationMetadata(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
+    const passed = guardIssues.length === 0 && contentApproved
+    const observedStatus = reason === 'review_unavailable' ? 'unavailable' : reason !== 'completed' ? reason
+      : !contentApproved ? 'rejected_review' : guardIssues.length ? 'rejected_guard' : 'checked'
+    return { reply, changed: reply !== originalBase.trim(), needsAdvisor: false, unresolved: [], audit: {
+      observation: { status: observedStatus, enforcement: false },
+      status: 'review_observed', review_control: responseReviewControl(),
+      review_enforcement: { blocking: false, mode: 'observation_only', reason },
+      independent_review: semanticReview.status !== 'not_performed', semantic_review: semanticReview,
+      final_validation: { passed, policy: 'observation_only',
+        issues: guardIssues, validated_text: reply, details: catalogCheck.details || [], enforcement: false },
+      transport_validation: { passed: true, policy: 'nonempty_and_length' },
+      follow_up: { usable: questionUsable, source: 'validated_writer', warnings: questionIssues,
+        writer_metadata_observations: observedMetadataIssues },
+      question: observedWriterQuestion, requests: observedRequests, writer_contract: writerContract,
+      commercial_journey: input.verified.siguiente_paso_comercial, commercial_continuation: continuationAudit(),
+      resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
+      text_transformations: textTransformations, editorial_observations: editorialObservations, link_contract: linkContract,
+      repair_attempts: [], repair_budget: { writer: { limit: 0, used: 0 }, review_metadata: { limit: 0, used: 0 } },
+      recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
+      pending_missing_fact_fragments: reviewMissing,
+      base_preview: traceText(originalBase, MAX_REPLY_CHARACTERS), proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS),
+      final_preview: traceText(reply, MAX_REPLY_CHARACTERS),
+      operational_action_verified: object(input.audit?.reservation).handoff_verified === true,
+    } }
+  }
   const fallback = (status: string, requests: Coverage[] = [], issues: string[] = []): TurnCompletenessResult => {
+    if (observationOnly && observedDraft) return observedResponse(status, requests, issues)
     const lastRepair = repairAttempts.at(-1)
     if (lastRepair && ['invalid_coverage', 'unavailable'].includes(status)
       && ['rejected_guard', 'rejected_catalog_guard'].includes(text(lastRepair.status))) {
@@ -714,7 +760,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     // writer sheet is not a reason to rewrite or withhold its commercial text.
     const declaredQuestion = parsedQuestion || { text: replyQuestionText(proposedReply), purpose: 'none', missing_datum: '', next_decision: '' }
     writerQuestionWarnings = questionIssues
-    if (!rows) {
+    if (!rows && !observationOnly) {
       if (attempt === 0) {
         metadataDraft = proposedReply
         previousMetadata = { requests: candidate.requests, question: candidate.question }
@@ -723,7 +769,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       }
       return fallback('invalid_coverage', [], metadataIssues)
     }
-    requests = rows
+    requests = rows || []
     const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
     const normalizedReply = input.audit?.semantic_review_enabled === true ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply
     const openedReply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
@@ -744,6 +790,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     // actual client-facing text decides whether there is a question to audit.
     let question = replyQuestionText(reply) ? { ...declaredQuestion, text: replyQuestionText(reply) } : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
     proposedQuestion = question
+    if (observationOnly) {
+      observedDraft = writerTransportReply(reply)
+      observedWriterQuestion = { ...question }
+      observedMetadataIssues = [...metadataIssues, ...questionIssues.map(issue => `question:${issue}`)]
+    }
     editorialObservations = turnEditorialObservations(input, reply, question)
     continuationChecks = {}
     const allIssues = [...new Set([...mandatoryReplyIssues(input, reply), ...turnCompletenessIssues(input, reply)])]
@@ -756,7 +807,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const issues = allIssues.filter(issue => !deferredIssues.includes(issue))
     if (input.audit?.semantic_review_enabled !== true && groundedPrice) issues.push(...verifiedPriceReplyIssues(reply, input.verified, input.current, verifiedQuote!))
     if (input.audit?.semantic_review_enabled !== true && reply !== input.baseReply.trim() && passiveSalesCopy(reply, input.current, engagement) !== reply) issues.push('unsolicited_sales_offer')
-    if (issues.length) {
+    if (issues.length && !observationOnly) {
       const inventedUrl = issues.includes('unauthorized_link')
       const repairable = !inventedUrl && !issues.some(issue => ['unsupported_rental_credit_claim', 'credit_guarantee', 'human_identity'].includes(issue))
       if (repairable && attempt === 0) {
@@ -765,7 +816,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       return fallback('rejected_guard', requests, issues)
     }
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact').map(row => row.fragment)])]
-    const reviewRequired = unresolved.length > 0 || !!question.text || !!input.audit?.profile_introduction || adaptiveContinuation || input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
+    const reviewRequired = observationOnly || unresolved.length > 0 || !!question.text || !!input.audit?.profile_introduction || adaptiveContinuation || input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (input.audit?.semantic_review_enabled === true && input.audit?.business_risk_review_enabled === true) {
       const obligations = turnObligations
       const riskContext = businessRiskContext({ current: input.current, reply, obligations,
@@ -793,7 +844,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       // A valid content rejection already requires a rewrite. Rechecking its
       // auxiliary facts first adds latency without making that draft sendable.
       // Metadata recovery remains available for otherwise approved drafts.
-      if ((!riskDecision.valid || riskDecision.approved && repairableChecks.length && !contentQuestionIssues.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
+      if (!observationOnly && (!riskDecision.valid || riskDecision.approved && repairableChecks.length && !contentQuestionIssues.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
         const originalReview = rawReview
         let repairError = ''
         try {
@@ -871,7 +922,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         warnings: [...questionErrors, ...(!preserveWriterQuestion ? reviewedQuestionChecks : []), ...(!usableQuestion ? ['question_metadata_unusable'] : [])], writer_metadata_observations: writerQuestionWarnings }
       if (!riskDecision.valid) return fallback('rejected_review', requests, ['invalid_business_risk_review'])
       if (!approved) {
-        if (attempt === 0) {
+        if (attempt === 0 && !observationOnly) {
           repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: riskIssues,
             rejected_review: rawReview, proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) })
           continue
@@ -987,7 +1038,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           factual_values: evaluated.review.factual_values, validation_details: evaluated.issues, repair_eligibility: repairEligibility }
         // Recheck a faulty reviewer sheet even when it also reports a content
         // defect. The new sheet must still pass every content and catalog check.
-        if (repairEligibility.eligible && repairEligibility.budget_available) {
+        if (!observationOnly && repairEligibility.eligible && repairEligibility.budget_available) {
           const repair: Row = { status: 'invalid_review_metadata', target: 'review_metadata', issues: evaluated.issues,
             proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) }
           repairAttempts.push(repair)
@@ -1113,7 +1164,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         // A broken reviewer reference needs reviewer repair, not a new commercial
         // draft. Exhausting that budget must not move the same defect to the writer.
         if (reviewIssues.some(issue => ['commercial_content', 'catalog_data'].includes(text(issue.kind)))
-          && attempt === 0 && !sharedEvidence.conflicts.length) {
+          && attempt === 0 && !observationOnly && !sharedEvidence.conflicts.length) {
           repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: reviewIssues, rejected_review: review, proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) })
           continue
         }
@@ -1134,6 +1185,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       semanticReview.question = question
       unresolved = uniqueFragments([...unresolved, ...reviewMissing])
     }
+    if (observationOnly) return observedResponse()
     const numericIssues = deferredIssues.length && semanticReview.status === 'checked'
       ? turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review: semanticReview }, verified: { ...input.verified,
         verified_numeric_relations: (Array.isArray(semanticReview.factual_values) ? semanticReview.factual_values : [])
@@ -1179,6 +1231,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     }
     return fallback('unavailable', requests)
   } catch (error) {
+    if (observationOnly && observedDraft && !(error instanceof InvalidWriterTransportError)) {
+      semanticReview = { ...semanticReview, status: 'unavailable', error_code: error instanceof Error ? error.message : 'REVIEW_UNAVAILABLE',
+        acceptance: { content_approved: false, follow_up_usable: false }, enforcement: false }
+      return observedResponse('review_unavailable', requests, ['review_unavailable'])
+    }
     // A provider outage has no review verdict. Let the worker's guarded advisor
     // recovery handle it after inference retries, including metadata repair calls.
     if (error instanceof OpenAIRequestError || error instanceof AIRequestGuardError || error instanceof InvalidWriterTransportError) throw error

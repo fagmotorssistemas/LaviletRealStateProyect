@@ -171,8 +171,8 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
               {explanation.units.length > 0 && <div className={styles.units}><table><caption>Unidades según la instantánea de esta ejecución</caption><thead><tr><th>Unidad</th><th>Dormitorios</th><th>Planta</th><th>Interior</th><th>Exterior</th></tr></thead><tbody>
                 {explanation.units.map(unit => <tr key={unit.id}><th scope="row">{unit.category || 'Unidad'} {unit.unit_number}</th><td>{measurement(unit.bedrooms)}</td><td>{measurement(unit.floor_number)}</td><td>{measurement(unit.area_internal_m2, ' m²')}</td><td>{measurement(unit.area_exterior_m2, ' m²')}</td></tr>)}
               </tbody></table></div>}
-              <div className={styles.decision}><h5>{explanation.coverageSections ? '¿Necesita un asesor? Motivo de la decisión' : 'Qué decidió y por qué'}</h5>
-                {explanation.coverageSections && <p>El motivo siguiente explica la derivación a un asesor, no el descarte del borrador. El motivo del descarte se muestra en «Error detectado».</p>}<dl>
+              <div className={styles.decision}><h5>{step.key === 'response_coverage' ? '¿Necesita un asesor? Motivo de la decisión' : 'Qué decidió y por qué'}</h5>
+                {step.key === 'response_coverage' && <p>El motivo siguiente explica la derivación a un asesor, no el descarte del borrador. El motivo del descarte se muestra en «Error detectado».</p>}<dl>
                 <div><dt>Origen</dt><dd>{explanation.origin}</dd></div><div><dt>Motivo registrado</dt><dd>{explanation.reason}</dd></div>
                 <div><dt>Regla registrada</dt><dd>{explanation.rule}</dd></div><div><dt>Resultado</dt><dd>{explanation.outcome}</dd></div>
               </dl></div>

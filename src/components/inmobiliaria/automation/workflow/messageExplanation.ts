@@ -1,7 +1,7 @@
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 import { catalogSearchDiagnostics, catalogSearchExplanation } from './catalogSearchExplanation'
 import { reservationServiceError } from '@/lib/inmobiliaria/automationErrors'
-import { repairBudgetFacts, repairTargetLabel, reviewDecision, reviewOwnerLabel, reviewObligationLabel, reviewIssueLabels } from './reviewDecision'
+import { repairBudgetFacts, repairTargetLabel, isObservedReview, reviewDecision, reviewOwnerLabel, reviewObligationLabel, reviewIssueLabels } from './reviewDecision'
 
 type Row = Record<string, unknown>
 export type ExplanationFact = { label: string; value: string }
@@ -99,7 +99,7 @@ const values: Record<string, string> = {
   largest: 'Mayor superficie', smallest: 'Menor superficie', cheapest: 'Menor precio', most_expensive: 'Mayor precio', first: 'Primera opción', last: 'Última opción',
   high: 'Alta', medium: 'Media', low: 'Baja', affirmative: 'Acepta', negative: 'Rechaza', model: 'Interpretación con IA', literal_greeting: 'Saludo literal', unreadable_input: 'Entrada sin texto interpretable',
   answered: 'Atendida', unanswered: 'No atendida', missing_fact: 'Dato considerado faltante', clarification: 'Se pide aclaración', outside_scope: 'Fuera del alcance',
-  checked: 'Revisión completada', rejected_guard: 'Borrador rechazado por un control', rejected_review: 'Borrador rechazado en revisión', unavailable: 'Revisión no disponible',
+  review_observed: 'Revisión observada sin bloqueo', observed_degraded: 'Interpretación limitada para demostración', checked: 'Revisión completada', rejected_guard: 'Borrador rechazado por un control', rejected_review: 'Borrador rechazado en revisión', unavailable: 'Revisión no disponible',
   rejected_catalog_guard: 'Reescritura rechazada por datos del catálogo', rejected_price_guard: 'Reescritura rechazada por precios',
   explicit_request: 'Petición explícita del cliente', customer_request: 'Petición explícita del cliente', client_request: 'Petición explícita del cliente',
   coverage: 'Revisión de cobertura', response_coverage: 'Revisión de cobertura', coverage_review: 'Revisión de cobertura', operational_failure: 'Problema operativo', operational_recovery: 'Recuperación operativa',
@@ -343,6 +343,31 @@ function turnIntentSections(value: unknown, snapshots: CatalogSnapshot[] = []): 
   }]
 }
 
+function interpretationRecoverySections(value: unknown): ExplanationSection[] {
+  const diagnostic = row(value)
+  const recovery = Object.keys(row(diagnostic.interpretation_recovery)).length ? row(diagnostic.interpretation_recovery) : diagnostic
+  if (recovery.status !== 'observed_degraded' || recovery.observation_only !== true) return []
+  const issues = Array.isArray(recovery.issues) ? recovery.issues.filter((item): item is string => typeof item === 'string') : []
+  const explanation = (issue: string) => issue.startsWith('non_current_evidence:requests.')
+    ? 'El extractor atribuyó al lead una solicitud que no pertenece a su mensaje actual. Por ejemplo, una pregunta anterior del bot pudo convertirse en una nueva petición del cliente.'
+    : issue === 'non_current_evidence:property'
+      ? 'El extractor presentó preferencias o filtros del historial como declaraciones del mensaje actual. Por ejemplo, «¿qué pasó?» no vuelve a declarar tres dormitorios ni una planta.'
+      : issue.startsWith('non_current_evidence:')
+        ? 'La cita de respaldo no pertenece al mensaje actual; una referencia histórica no demuestra una nueva declaración del lead.'
+        : issue.startsWith('missing_current_evidence:')
+          ? 'El extractor afirmó un dato o intención sin conservar una cita del mensaje actual que lo respalde.'
+          : issue === 'invalid_budget_amount' ? 'El presupuesto interpretado no contiene una cantidad válida para aplicar una comparación.'
+            : 'La interpretación no pudo validarse con los datos de esta ejecución; consulte el control registrado.'
+  return [{ title: 'Interpretación limitada · Modo demostración',
+    description: 'El extractor no completó una interpretación válida. Para este contacto de prueba el flujo continuó con contexto de conversación y una interpretación limitada. Esto no convierte el historial en declaraciones actuales ni acredita una acción operativa.',
+    facts: [fact('Resultado', 'Se registró el problema y se permitió preparar una respuesta informativa para la demostración.'),
+      ...issues.map(issue => fact(issue, explanation(issue))),
+      ...(typeof recovery.actions_allowed === 'boolean' ? [fact('Permiso para trámites', recovery.actions_allowed
+        ? 'Consulte el permiso y el resultado de cada operación; esta recuperación no los confirma.'
+        : 'Esta interpretación limitada no autoriza reservas, citas, financiamiento ni otras gestiones.')] : []),
+    ] }]
+}
+
 function interpretationSections(value: unknown): ExplanationSection[] {
   const diagnostic = row(value)
   const interpretation = has(diagnostic, 'extractor_primary_intent') ? diagnostic : row(diagnostic.interpretation)
@@ -510,13 +535,15 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
   const status = str(output.status)
   const invalid = status === 'invalid_coverage'
   const checked = status === 'checked'
+  const observationOnly = isObservedReview(output)
   const reviewDisabled = status === 'review_disabled' || row(output.semantic_review).status === 'disabled'
     || row(output.final_validation).policy === 'transport_only'
   const businessRiskReview = row(output.semantic_review).review_contract === 'business-risk-v2'
   const attempts = rows(output.repair_attempts)
   const requests = rows(output.requests)
   const present = (key: string, label: string): ExplanationFact => ({ label, value: str(output[key]) || 'No se conservó este texto en el registro.' })
-  const selection = reviewDisabled ? 'Se conservó la respuesta del redactor con la revisión final desactivada. Este paso no aprobó su contenido.'
+  const selection = observationOnly ? 'Se conservó el borrador preparado para la demostración. Las observaciones no bloquearon este paso; no equivale a aprobar el contenido ni a confirmar el envío.'
+    : reviewDisabled ? 'Se conservó la respuesta del redactor con la revisión final desactivada. Este paso no aprobó su contenido.'
     : decision.recoveryPending ? 'La propuesta no quedó aprobada. La base no se usó como reemplazo; la consulta permanece pendiente de recuperación.'
     : invalid ? 'Se descartó la propuesta por información interna inválida; no se completó la revisión del contenido.'
     : checked ? 'La propuesta superó la revisión de este paso. Los pasos posteriores aún pueden modificarla.'
@@ -525,6 +552,7 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
   return [
     ...turnIntentSections(output.resolved_turn_intent),
     ...interpretationSections(row(output.resolved_turn_intent).interpretation || output.interpretation),
+    ...interpretationRecoverySections(output.interpretation),
     ...reservationSections(output.reservation, snapshots, output.operational_action_verified),
     ...editorialSections(output),
     ...focusedReviewSections(output),
@@ -547,21 +575,23 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       { label: 'Dato que busca', value: str(question.missing_datum) || 'No registrado; no se deduce del texto.' },
       { label: 'Propósito de la pregunta', value: str(question.next_decision) || 'No registrado; es válido terminar sin pregunta.' },
       { label: 'Objetivo y selección', value: reviewDisabled ? 'No se revisó el objetivo ni la continuidad en este paso.' : checks.operational_goal_preserved === true ? 'El revisor aprobó la continuidad del objetivo y el respeto de la selección.' : checks.operational_goal_preserved === false ? 'El revisor rechazó el objetivo o la continuidad de la selección.' : 'No se completó esta comprobación.' },
-      { label: 'Resultado y motivo', value: reviewDisabled ? 'Revisión final omitida por configuración; se conservó la propuesta del redactor.' : checked ? 'Propuesta aceptada en este paso tras los controles registrados de contenido y continuidad.' : `Propuesta no aceptada. ${reviewDecision(output).causes.join(' ') || humanValue(output.issues) || 'Consulte los controles registrados.'}` },
+      { label: 'Resultado y motivo', value: observationOnly ? 'Monitoreo sin bloqueo del envío. Los resultados de la revisión se conservan para analizarlos después.' : reviewDisabled ? 'Revisión final omitida por configuración; se conservó la propuesta del redactor.' : checked ? 'Propuesta aceptada en este paso tras los controles registrados de contenido y continuidad.' : `Propuesta no aceptada. ${reviewDecision(output).causes.join(' ') || humanValue(output.issues) || 'Consulte los controles registrados.'}` },
     ] }] : []),
-    { title: 'Respuesta elegida en este paso', description: 'El borrador es el texto propuesto por la IA, todavía sujeto a validación. Una propuesta rechazada puede iniciar una recuperación pendiente; la respuesta preparada y su envío se comprueban en los pasos posteriores y en Kommo.', facts: [
+    { title: 'Respuesta elegida en este paso', description: observationOnly ? 'El modo demostración permite el borrador sin exigir aprobación del contenido. Consulte las observaciones y compruebe la aceptación de Kommo en el paso de envío.' : 'El borrador es el texto propuesto por la IA, todavía sujeto a validación. Una propuesta rechazada puede iniciar una recuperación pendiente; la respuesta preparada y su envío se comprueban en los pasos posteriores y en Kommo.', facts: [
       { label: 'Qué ocurrió', value: selection }, present('final_preview', 'Respuesta conservada'), present('proposed_preview', 'Propuesta de la IA (borrador)'), present('base_preview', 'Respuesta base de respaldo'),
     ] },
     { title: 'Controles de validación', description: 'Estos son los controles registrados al terminar este paso. Las referencias internas corregidas se muestran por separado; un error en requests afecta la ficha interna y no demuestra que el texto comercial fuera incorrecto.', facts: [
-      ...(Object.keys(row(output.final_validation)).length ? [{ label: 'Decisión conjunta', value: row(output.final_validation).policy === 'transport_only'
+      ...(Object.keys(row(output.final_validation)).length ? [{ label: 'Decisión conjunta', value: observationOnly ? 'Los controles se registraron como observaciones; su resultado no bloqueó el borrador de la demostración.'
+        : row(output.final_validation).policy === 'transport_only'
         ? 'Solo se comprobó que el texto no estuviera vacío y cumpliera el límite de envío. No se revisaron hechos ni continuidad.'
         : row(output.final_validation).passed === true
         ? 'Catálogo, relaciones numéricas y controles de la ruta aprobados dentro del mismo proceso de reparación.'
         : `Controles finales: ${humanValue(row(output.final_validation).issues)}` }] : []),
       ...rows(row(output.final_validation).details).map(detail => ({ label: 'Dato comprobado', value:
         `Fragmento: ${str(detail.fragment)}. Atributo: ${humanValue(detail.field)}. Relación: ${humanValue(detail.operator)}. Valores del texto: ${humanValue(detail.received)}. Valores verificados: ${humanValue(detail.expected)}.` })),
-      { label: 'Controles registrados', value: Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
-      ...(reviewDisabled || businessRiskReview ? [{ label: 'Alcance de la revisión', value: reviewDisabled
+      { label: 'Controles registrados', value: observationOnly ? reviewDecision(output).causes.join(' ') || 'Consulte la revisión conservada; una lista vacía de incidencias no certifica aprobación del contenido.' : Array.isArray(output.issues) && output.issues.length ? humanValue(output.issues) : checked ? 'No se registraron controles fallidos al terminar este paso.' : 'No se conservó el detalle del control fallido. No se deduce de la redacción.' },
+      ...(observationOnly ? [{ label: 'Resultado de la revisión observada', value: humanValue(row(output.observation).status) || 'El registro no conserva el resultado del revisor.' }] : []),
+      ...(observationOnly || reviewDisabled || businessRiskReview ? [{ label: 'Alcance de la revisión', value: observationOnly ? 'Monitoreo de este contacto de prueba. Las observaciones no se usan para bloquear ni obligar a corregir el borrador.' : reviewDisabled
         ? 'Desactivada. Los controles de transporte no acreditan una revisión del mensaje.'
         : 'Riesgos comerciales, hechos y obligaciones explícitas del turno. No se evaluó estilo editorial.' }] : []),
       ...(rows(row(output.semantic_review).validation_details).length ? reviewDecision(output).causes.map(value => ({ label: 'Causa agrupada', value })) : []),
@@ -589,7 +619,7 @@ function coverageSections(output: Row, snapshots: CatalogSnapshot[]): Explanatio
       ...repairBudgetFacts(output),
     ] },
     { title: 'Solicitudes del cliente atendidas', description: 'La revisión de cobertura comprueba qué pidió el cliente y si la respuesta atiende cada solicitud. Una lista vacía no certifica que todo esté resuelto.', facts: [
-      { label: 'Alcance de la revisión', value: reviewDisabled ? 'Revisión final desactivada; la ficha del redactor no acredita cobertura comprobada.' : invalid ? 'La lista interna no pudo validarse. La revisión de contenido no se completó.' : checked ? 'Revisión completada en este paso.' : 'No hay una revisión aprobada registrada. Las clasificaciones siguientes, si existen, no acreditan cobertura completa.' },
+      { label: 'Alcance de la revisión', value: observationOnly ? 'Revisión para monitoreo; sus resultados no certifican cobertura aprobada ni bloquean el borrador.' : reviewDisabled ? 'Revisión final desactivada; la ficha del redactor no acredita cobertura comprobada.' : invalid ? 'La lista interna no pudo validarse. La revisión de contenido no se completó.' : checked ? 'Revisión completada en este paso.' : 'No hay una revisión aprobada registrada. Las clasificaciones siguientes, si existen, no acreditan cobertura completa.' },
       ...(invalid || !requests.length ? [{ label: 'Solicitudes', value: invalid ? 'Lista rechazada; no hay solicitudes validadas que mostrar.' : 'No se conservó una lista de solicitudes en este registro.' }] : requests.map((request, index) => ({ label: `Solicitud ${index + 1}`, value: `Cliente: ${str(request.fragment) || 'Fragmento no registrado'}. Estado propuesto: ${humanValue(request.status)}. Respaldo indicado: ${str(request.evidence) || 'No registrado'}` }))),
       { label: 'Consultas pendientes registradas', value: Array.isArray(output.unresolved) && output.unresolved.length ? humanValue(output.unresolved) : 'No se registraron consultas pendientes. Esto no equivale a comprobar que se respondió todo.' },
       ...(output.price_evidence ? [{ label: 'Evidencia de precios', value: humanValue(output.price_evidence) }] : []),
@@ -710,12 +740,14 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     : step.key === 'dialogue_decision' && queryText ? `Se eligió responder con esta consulta: ${queryText}.`
     : step.key === 'message_delivery' && output.action === 'accepted' ? 'Kommo aceptó iniciar Salesbot. Esto no confirma entrega ni lectura en WhatsApp.'
       : step.key === 'advisor_handoff' ? 'Este paso registra el intento de derivación y su resultado; el motivo debe estar respaldado por su propio registro.'
+        : ['semantic_extraction', 'interpretation_recovery'].includes(step.key) && interpretationRecoverySections(output).length ? 'La demostración continuó con una interpretación limitada porque el extractor no pudo validar su salida. El problema quedó registrado para análisis.'
         : step.key === 'response_coverage' && output.status === 'invalid_coverage'
           ? `Se descartó el borrador antes de evaluar su contenido porque la ficha interna de la IA no pasó la validación. ${Array.isArray(output.issues) && output.issues.length ? 'Los controles muestran el campo, el valor recibido y lo esperado.' : 'Este registro antiguo no conserva el campo que falló.'} La decisión de derivar a un asesor se registra por separado.`
+        : step.key === 'response_coverage' && isObservedReview(output) ? 'El modo demostración conservó la revisión como monitoreo y permitió el borrador sin exigir aprobación. La aceptación del envío se comprueba por separado.'
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
           : 'Entradas y resultados conservados para este paso de la ejecución.'
   return {
-    coverageSections: step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output, snapshots)] : step.key === 'response_validation' ? transformationSections(output) : null,
+    coverageSections: step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output, snapshots)] : step.key === 'response_validation' ? transformationSections(output) : ['semantic_extraction', 'interpretation_recovery'].includes(step.key) && interpretationRecoverySections(output).length ? interpretationRecoverySections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,
     origin: str(decision.origin) ? decision.origin === 'catalog' ? 'Consulta calculada del catálogo' : humanValue(decision.origin) : 'Origen no registrado en este paso.',
     reason: step.key === 'catalog_embedding_search' ? catalogSearchExplanation(output).reason : reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',

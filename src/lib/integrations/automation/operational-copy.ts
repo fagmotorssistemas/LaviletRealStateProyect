@@ -1,4 +1,4 @@
-import { responseReviewEnabled, responseReviewControl, unreviewedWriterReply } from './response-review-policy'
+import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply } from './response-review-policy'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { CURRENT_TONE } from './conversation-tone'
 import { financingCollectionIssues, FINANCING_COLLECTION_RULE } from './financing-continuation'
@@ -55,8 +55,23 @@ ${CURRENT_TONE.operationalReview}
 Devuelva las cuatro decisiones booleanas del esquema.`
 
 /** Rephrases verified operational copy; never calls scheduling or financing actions. */
-export async function operationalReply(baseReply: string, current: string, history: unknown, context: Row, generate: typeof aiJson = aiJson): Promise<{ reply: string; generated: boolean; review_control?: ReturnType<typeof responseReviewControl> }> {
+export async function operationalReply(baseReply: string, current: string, history: unknown, context: Row, generate: typeof aiJson = aiJson): Promise<{ reply: string; generated: boolean; review_control?: ReturnType<typeof responseReviewControl>; audit?: Row }> {
   const fallback = { reply: baseReply, generated: false }
+  let observedDraft = ''
+  let observedIssues: string[] = []
+  const observed = (review: Row, failure = '') => {
+    const approved = !failure && review.fiel_a_los_hechos === true && review.conserva_estado_y_objetivo === true && review.no_pide_datos_conocidos === true
+    return { reply: writerTransportReply(observedDraft), generated: observedDraft !== baseReply, review_control: responseReviewControl(), audit: {
+      status: 'review_observed', observation: { status: failure ? 'unavailable' : !approved ? 'rejected_review' : observedIssues.length ? 'rejected_guard' : 'checked', enforcement: false },
+      review_control: responseReviewControl(), review_enforcement: { blocking: false, mode: 'observation_only' },
+      independent_review: true, semantic_review: { status: failure ? 'unavailable' : approved ? 'checked' : 'rejected',
+        review, ...(failure ? { error_code: failure } : {}), acceptance: { content_approved: approved } },
+      final_validation: { passed: approved && observedIssues.length === 0, issues: observedIssues, policy: 'observation_only', enforcement: false },
+      transport_validation: { passed: true, policy: 'nonempty_and_length' },
+      follow_up: { usable: false, source: 'operational_writer_without_question_metadata' }, repair_attempts: [],
+      recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
+    } }
+  }
   if (!baseReply.trim() || baseReply.length > MAX_REPLY_CHARACTERS) return fallback
   const recent = (Array.isArray(history) ? history : []).map(object).slice(-8).map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1500) }))
   try {
@@ -65,6 +80,12 @@ export async function operationalReply(baseReply: string, current: string, histo
     const visitRules = (isVisitCopy(context) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + FINANCING_COLLECTION_RULE
     const result = await generate(WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
     const draft = text(result.mensaje).trim()
+    if (responseReviewObservationOnly()) {
+      observedDraft = writerTransportReply(draft)
+      observedIssues = operationalCopyIssues(baseReply, observedDraft, { ...context, current_message: current })
+      const reviewed = await generate(REVIEW_RULES + visitRules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, redaccion_propuesta: observedDraft }, reviewSchema, undefined, undefined, undefined, 'review')
+      return observed(reviewed)
+    }
     if (!responseReviewEnabled()) {
       const reply = unreviewedWriterReply(draft).reply
       if (operationalCopyIssues(baseReply, reply, { ...context, current_message: current }).length) return fallback
@@ -75,7 +96,9 @@ export async function operationalReply(baseReply: string, current: string, histo
     const reviewed = await generate(REVIEW_RULES + visitRules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
     if (reviewed.fiel_a_los_hechos !== true || reviewed.conserva_estado_y_objetivo !== true || reviewed.no_pide_datos_conocidos !== true) return fallback
     return { reply: draft, generated: draft !== baseReply }
-  } catch {
+  } catch (error) {
+    if (responseReviewObservationOnly() && observedDraft)
+      return observed({}, error instanceof Error ? error.message : 'REVIEW_UNAVAILABLE')
     return fallback
   }
 }
