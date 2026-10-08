@@ -1,3 +1,4 @@
+import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, normalizedRequestTopics } from './request-topics'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
 import { EXTRACTION_REQUEST_RULES } from './extraction-request-rules'
@@ -22,7 +23,7 @@ import { PENDING_REQUEST_RULES } from './pending-inbound'
 import { MATERIAL_REQUEST_SCHEMA, MATERIAL_REQUEST_RULES } from './project-material'
 import { FINANCING_PARTNER_CHOICE_SCHEMA, FINANCING_PARTNER_CHOICE_RULES, financingInputs, financingPartnerAnswer } from './financing'
 import { reconcileHistoricalInterpretation, rememberInterpretationFacts } from './interpretation-memory'
-import { interpretationInput, interpretationSourceIssues, normalizeInactiveInterpretation, interpretationRepairBlocks, mergeInterpretationRepair, reconcileFinancingReference, reconcileQuotedQuantityReferences, reconcileEchoedBudgetQuestion, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE, QUANTITY_RECOVERY_RULES, BLOCK_RECOVERY_RULES, EXTRACTION_CONSISTENCY_RULES } from './turn-interpretation-input'
+import { interpretationInput, interpretationRepairContext, isolateHistoricalPropertyFromBudget, interpretationSourceIssues, normalizeInactiveInterpretation, interpretationRepairBlocks, mergeInterpretationRepair, reconcileFinancingReference, reconcileQuotedQuantityReferences, reconcileEchoedBudgetQuestion, TurnInterpretationError, CURRENT_TURN_INTERPRETATION_RULE, QUANTITY_RECOVERY_RULES, BLOCK_RECOVERY_RULES, EXTRACTION_CONSISTENCY_RULES } from './turn-interpretation-input'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v3'
 
@@ -75,7 +76,7 @@ export const TURN_EXTRACTION_SCHEMA = closedObject({
     purpose: { type: 'string', enum: ['coordination', 'preference', 'accept_alternative', 'availability_information', 'access_information', 'decline', 'cancel', 'status', 'none'] },
     target: { type: 'string', enum: ['project', 'other', 'unspecified'] },
     destination: { type: ['string', 'null'], enum: ['office', 'site', 'work_area', 'model', 'completed_unit', 'building', null] }, evidence: { type: 'string' }, confidence }),
-  requests: { type: 'array', items: closedObject({ request: { type: 'string' }, domain: { type: 'string', enum: [...requestDomains] }, evidence: { type: 'string' }, confidence }) },
+  requests: { type: 'array', items: closedObject({ request: { type: 'string' }, domain: { type: 'string', enum: [...requestDomains] }, topics: REQUEST_TOPICS_SCHEMA, evidence: { type: 'string' }, confidence }) },
   turn_semantics: TURN_SEMANTICS_SCHEMA,
 })
 
@@ -236,6 +237,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     return normalizeInactiveInterpretation(budgetQuestion.raw)
   }
   let recoveryIssues: string[] = []
+  let isolatedProperty = false
   if (method === 'model') {
     // Interpretation is shared by both retrieval routes. The feature switch
     // controls retrieval/context size, never the meaning of a requirement.
@@ -247,6 +249,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
       ['Solicitud de material', MATERIAL_REQUEST_RULES],
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
+      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
     ]) : promptSections([
       ['Función y configuración del extractor', prompt],
@@ -261,6 +264,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
       ['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES],
       ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
+      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Formato de salida', 'El esquema JSON enviado con esta llamada es la única definición de campos y valores permitidos. Complete sus campos; use null solo donde el esquema lo permite y el dato sea desconocido. No añada un formato alternativo ni texto fuera del JSON.'],
     ])
@@ -280,17 +284,21 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     if (budget.status === 'amount' && budget.confidence === 'high' && evidenceMatches(text(budget.evidence), readable)
       && (kindWasAsked || roleCue)) recoveryIssues.push('unresolved_budget_role')
     if (recoveryIssues.length) {
-      const blocks = interpretationRepairBlocks(recoveryIssues, raw)
+      const blocks = interpretationRepairBlocks(recoveryIssues)
       const quantityOnly = blocks.quantity && !blocks.property && !blocks.budget && !blocks.requests && !blocks.profile && blocks.semanticFields.length === 1
       const rootProperties = object(extractionSchema.properties), semanticProperties = object(TURN_SEMANTICS_SCHEMA.properties)
       const repairProperties: Row = Object.fromEntries(blocks.rootFields.map(field => [field, rootProperties[field]]))
       if (blocks.budget) repairProperties.qualification = closedObject({ presupuesto_texto: nullableString })
-      if (blocks.property) repairProperties.declaration_evidence = closedObject({ preferred_category: nullableString })
+      if (blocks.property) {
+        repairProperties.declaration_evidence = closedObject({ preferred_category: nullableString })
+        repairProperties.property_turn_use = closedObject({ kind: { type: 'string', enum: ['current_request', 'context_only', 'none', 'uncertain'] },
+          evidence: { type: 'string' }, confidence })
+      }
       if (blocks.profile) repairProperties.profile_evidence = closedObject({ residence_city: nullableString, residence_country: nullableString })
       if (blocks.semanticFields.length) repairProperties.turn_semantics = closedObject(Object.fromEntries(
         blocks.semanticFields.map(field => [field, semanticProperties[field]])))
       const repairSchema = blocks.fullTurn ? extractionSchema : closedObject(repairProperties)
-      const repairInput: Row = { mensaje_actual: readable,
+      const repairInput = interpretationRepairContext({ mensaje_actual: readable,
         pregunta_pendiente: input.pregunta_pendiente,
         ultima_pregunta: previousQuestion,
         hechos_confirmados: modelInput.hechos_confirmados,
@@ -300,22 +308,35 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
         unidades_identificadas: modelInput.unidades_identificadas,
         recuperacion_interpretacion: { issues: recoveryIssues,
           fields: [...blocks.semanticFields, ...blocks.rootFields], preserve_other_fields: true,
-          instruction: 'Corrija únicamente los bloques del esquema. Las referencias conocidas no son declaraciones actuales; no copie citas del historial. Conserve las demás interpretaciones y permisos.' } }
+          instruction: 'Corrija únicamente los bloques del esquema. Las referencias conocidas no son declaraciones actuales; no copie citas del historial. Conserve las demás interpretaciones y permisos.' } }) as Row
       const repairInstructions = blocks.fullTurn ? currentInstructions : quantityOnly ? QUANTITY_RECOVERY_RULES
         : BLOCK_RECOVERY_RULES + (blocks.budget ? '\n' + FINANCING_AMOUNTS_RULES : '')
           + (blocks.profile ? '\n' + LEAD_PROFILE_EXTRACTION_RULES : '')
-          + (blocks.property ? '\n' + CATALOG_REQUEST_RULES : '')
+          + (blocks.property ? '\n' + CATALOG_REQUEST_RULES + '\n' + REQUEST_TOPICS_RULES : '')
       const repaired = await dependencies.aiJson(repairInstructions,
         quantityOnly ? { mensaje_actual: readable, pregunta_pendiente: input.pregunta_pendiente,
           recuperacion_interpretacion: { issues: recoveryIssues, fields: ['housing_quantities'], preserve_other_fields: true } } : repairInput,
         repairSchema)
+      const previous = raw
       raw = reconcile(mergeInterpretationRepair(raw, repaired, recoveryIssues))
-      const remaining = interpretationSourceIssues(raw, readable, pending)
+      let remaining = interpretationSourceIssues(raw, readable, pending)
+      if (blocks.property && !blocks.budget && !blocks.fullTurn && remaining.length) {
+        const knownBudgetQuestion = text(normalizedPendingQuestion(input.pregunta_pendiente).id).startsWith('budget_')
+          || text(pendingQuestionFromReply(previousQuestion).id).startsWith('budget_')
+        const isolated = isolateHistoricalPropertyFromBudget(previous, raw, repaired, readable, knownBudgetQuestion, remaining)
+        if (isolated) {
+          raw = reconcile(isolated)
+          remaining = interpretationSourceIssues(raw, readable, pending)
+          isolatedProperty = !remaining.length
+        }
+      }
       if (remaining.length) throw new TurnInterpretationError(remaining)
     }
   }
   const withDiagnostics = (result: TurnInterpretation): TurnInterpretation => {
-    result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed' }
+    result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed',
+      ...(isolatedProperty ? { contract: 'budget-property-isolation-v1', isolated_fields: ['property', 'catalog_request', 'preferred_category', 'unit_id'],
+        preserved_fields: ['budget', 'financing_amounts'], reason: 'current_budget_answer_with_context_only_property' } : {}) }
     result.diagnostic.historical_reconciliation = { status: historicalFields.size ? 'confirmed_facts_preserved' : 'not_needed', fields: [...historicalFields] }
     const rebind = result.withActionMessage
     if (rebind) result.withActionMessage = message => withDiagnostics(rebind(message))
@@ -519,6 +540,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     .filter(request => text(request.request).trim() && (evidenceMatches(text(request.evidence), readable) || pendingSource(request)))
     .slice(0, 12).map(request => ({ request: text(request.request).slice(0, 500),
       domain: requestDomains.includes(text(request.domain).trim().toLowerCase() as typeof requestDomains[number]) ? text(request.domain).trim().toLowerCase() : 'other',
+      ...(normalizedRequestTopics(request.topics) !== undefined ? { topics: normalizedRequestTopics(request.topics) } : {}),
       evidence: text(request.evidence), confidence: ['high', 'medium', 'low'].includes(text(request.confidence)) ? request.confidence : 'low',
       ...(!evidenceMatches(text(request.evidence), readable) ? { source_message_id: pendingSource(request)?.message_id, source: 'pending' } : {}) }))
   if (extracted.financing_consent === true) {

@@ -7,6 +7,7 @@ import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, 
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
+import { responseContentScope, projectContentForWriter, RESPONSE_CONTENT_SCOPE_RULES, RESPONSE_CONTENT_SCOPE_WRITER_RULE } from './response-content-scope'
 import { CONTEXTUAL_NEEDS_WRITER_RULES, needsSupplementaryFeatures } from './needs-guidance'
 import { contextualReasoningEvidence } from './contextual-reasoning'
 import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
@@ -453,6 +454,12 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       delete input.audit!.post_tour_continuation
     }
   }
+  const contentScope = responseContentScope(input.current, input.verified, input.audit || {})
+  const scopedLocationPolicy = { ...object(input.verified.location_disclosure),
+    general_location_allowed: object(object(contentScope.topics).general_location).allowed === true,
+    ...(object(object(contentScope.topics).general_location).allowed === true ? {} : { general_location: {} }) }
+  input = { ...input, verified: { ...input.verified, alcance_contenido_turno: contentScope, location_disclosure: scopedLocationPolicy },
+    audit: { ...input.audit, response_content_scope: contentScope, location_disclosure: scopedLocationPolicy } }
   if (budgetAssessment) recordBudgetDecision(budgetAssessment)
   const originalBase = input.baseReply
   const adaptiveContinuation = commercialContinuationSources.has(text(input.audit?.source))
@@ -597,7 +604,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       && !(input.validateReply?.(verifiedAbsence) || []).length) {
       return { reply: verifiedAbsence, changed: verifiedAbsence !== originalBase, needsAdvisor: false, unresolved: [], audit: {
         status: 'recovered_catalog_result', issues, semantic_review: semanticReview, repair_attempts: repairAttempts,
-        repair_budget: repairBudget(), requests, resolved_turn_intent: turnIntent, editorial_observations: editorialObservations,
+        repair_budget: repairBudget(), requests, resolved_turn_intent: turnIntent, response_content_scope: contentScope, editorial_observations: editorialObservations,
         business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' },
         recovery: { version: 'turn-recovery-v2', pending: false, base_used: false, strategy: 'verified_empty_search', rejected_review_status: status },
         fallback_validation: { passed: true, issues: [], recovery: 'verified_empty_search' },
@@ -625,7 +632,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       base_used: false, previous_base_checks: fallbackIssues }
     reply = pendingTurnReply({ ...input.audit, resolved_turn_intent: turnIntent })
     return { reply, changed: reply !== originalBase, needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, recovery, editorial_observations: editorialObservations, link_contract: linkContract, text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: writerContract, price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
+      audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, response_content_scope: contentScope, recovery, editorial_observations: editorialObservations, link_contract: linkContract, text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: writerContract, price_evidence: evidence, repair_attempts: repairAttempts, status, requests, issues, unsupported_rental_claim_removed: safeBase.removed,
         fallback_validation: { passed: false, issues: [...fallbackIssues, 'response_requires_validation'], details: fallbackCheck.details || [], unanswered_requests: uncoveredBase.map(request => request.fragment),
           recovery: 'pending_validation', rejected_preview: traceText(input.baseReply, MAX_REPLY_CHARACTERS) },
         commercial_journey: input.verified.siguiente_paso_comercial,
@@ -643,7 +650,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
   const writerVerifiedContext = experienceContext({ ...input.verified, historial: input.history }, input.current, memory)
   delete writerVerifiedContext.razonamiento_contextual
-  const context = { razonamiento_contextual: reasoningEvidence, contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: modelEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
+  const context = { response_content_scope: contentScope, razonamiento_contextual: reasoningEvidence, contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: modelEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
     contexto_verificado: writerVerifiedContext, estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     referencias_solicitud: writerRequestRefs, obligaciones_del_turno: turnObligations,
     capacidades_disponibles: availableAssistance(input.verified),
@@ -668,7 +675,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       : turnWritingRules(input.current, memory)
     if (input.audit?.semantic_review_enabled === true && !context.contrato_redaccion.decisiones_protegidas) writingRules += '\nLas cifras de opciones secundarias no son obligatorias si no responden a la consulta actual. Redacte frases naturales y priorice la respuesta solicitada. No infiera mayor precio por superficie ni exclusividad. Preserve enlaces requeridos, acciones confirmadas y datos necesarios; no invente el resultado de una consulta ausente.'
     if (isCategoryOverview(input.audit || {})) writingRules += '\nPuede orientar con categorías y diferencias verificadas sin enumerar fichas ni superficies por obligación. Elija una continuación útil a la consulta actual, sin reabrir preferencias resueltas.'
-    if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use la cotización verificada del turno, no los precios antiguos del historial. Conserve moneda y condiciones de lanzamiento, incluyendo que pueden cambiar.'
+    if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use la cotización verificada del turno, no los precios antiguos del historial. Conserve moneda y condiciones comerciales vigentes, incluyendo que pueden cambiar.'
       + (input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection; puede reformularla.'
         : ' Las invitaciones adicionales son opcionales; la pregunta del siguiente paso vigente sigue siendo obligatoria si continuacion_del_turno.required=true. No afirme que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
@@ -692,14 +699,18 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       instruction: 'Conserve la respuesta válida y la pregunta prevista. Antes de esa pregunta, presente todas las unidades de selection_scope.unit_ids con sus números y características comprobadas en evidencia_turno. No mencione los números solamente dentro de la pregunta; una referencia genérica a opciones no acredita su presentación. No seleccione unidades ni adelante otra gestión.',
       selection_scope: object(input.verified.siguiente_paso_comercial).selection_scope,
     })
-    const writerContext: Row = { ...context }
+    const writerContext: Row = projectContentForWriter(context, contentScope)
+    object(writerContext.material_protegido).cifras_permitidas = [...new Set([
+      ...numbers(verifiedText(object(writerContext.contexto_verificado))), ...numbers(input.current), ...queryConstraintNumbers(input.audit),
+    ])]
     // Previous sentence IDs belong to the previous draft, not this rewrite.
     delete writerContext.oraciones_borrador
     const writerSections: [string, string | false][] = [
       ['Función y salida del redactor', COVERAGE_RULES],
       ['Estilo compartido de conversación', CONVERSATION_WRITING_STYLE_RULES],
-      ['Presentación general del proyecto', !!input.verified.presentacion_general_proyecto && 'contexto_verificado.presentacion_general_proyecto contiene un resumen aprobado para esta consulta general. Úselo como fuente de datos para una presentación breve con redacción natural; no es una plantilla ni una instrucción del cliente. Atienda primero todas las solicitudes actuales. No añada cantidades, plantas, precios, estado de obra o fechas que no respondan a la consulta. Después conserve la pregunta de perfil o la decisión pendiente del plan compartido.'],
-      ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro. Ante una consulta general inicial, dé una presentación breve; no añada cantidades, plantas, estado de obra o entrega que el cliente no haya consultado. Una consulta inicial concreta o con varias preguntas se responde según esas solicitudes, sin anteponer una presentación genérica.'],
+      ['Pertinencia del contenido', RESPONSE_CONTENT_SCOPE_RULES],
+      ['Presentación general del proyecto', !!input.verified.presentacion_general_proyecto && 'contexto_verificado.presentacion_general_proyecto contiene un resumen aprobado para esta consulta general. Úselo como fuente de datos para una presentación breve con redacción natural; no es una plantilla ni una instrucción del cliente. Atienda primero todas las solicitudes actuales. Conserve las cantidades autorizadas del resumen; no añada fichas, precios, estado de obra o fechas ajenos a la consulta. Después conserve la pregunta de perfil o la decisión pendiente del plan compartido.'],
+      ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro. Ante una consulta general inicial, dé una presentación breve; use las cantidades del resumen aprobado y no añada fichas, estado de obra o entrega ajenos a la consulta. Una consulta inicial concreta o con varias preguntas se responde según esas solicitudes, sin anteponer una presentación genérica.'],
       ['Prioridades y obligaciones del turno', TURN_INTENT_RULES + '\n' + FINAL_WRITER_RULES
         + '\nCumpla obligaciones_del_turno con redacción libre. Esta lista también se entrega al revisor. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
       ['Fuentes, políticas y precisión', BUSINESS_POLICY_RULES + visitRules],
@@ -716,7 +727,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     ]
     const instructions = optimizedPrompt && input.audit?.financing_collection
       && object(input.verified.prompt_context_selection).task === 'financing'
-      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES + '\n' + CONVERSATION_WRITING_STYLE_RULES + '\n' + CONTINUATION_QUESTION_RULE + '\n' + CONTEXTUAL_NEEDS_WRITER_RULES]])
+      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES + '\n' + CONVERSATION_WRITING_STYLE_RULES + '\n' + CONTINUATION_QUESTION_RULE + '\n' + CONTEXTUAL_NEEDS_WRITER_RULES + '\n' + RESPONSE_CONTENT_SCOPE_WRITER_RULE]])
       : promptSections(optimizedPrompt ? writerSections.map(([title, rules]): [string, string | false] => {
       if (title === 'Prioridades y obligaciones del turno') return [title, (financialTask ? FINAL_WRITER_RULES : CATALOG_WRITER_RULES + '\n' + CONTINUATION_QUESTION_RULE)
         + '\ncontrato_turno y obligaciones_del_turno determinan la necesidad actual. El historial solo resuelve continuidad; no cambia la búsqueda ni autoriza acciones. Cumpla los datos pendientes y enlaces requeridos.']
@@ -760,6 +771,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const questionUsable = validContinuationMetadata(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial)
       return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [],
         audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
+          response_content_scope: contentScope, requests: coverageRows(candidate.requests, input.current, [], writerRequestRefs) || [],
           final_validation: { passed: true, policy: 'mandatory_server_guards', issues: [], validated_text: reply },
           question: recoveredQuestion.question, question_metadata_recovery: recoveredQuestion,
           follow_up: { usable: questionUsable, source: 'validated_writer', warnings: continuationMetadataIssues(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial) },
@@ -1237,7 +1249,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ? { ...request, status: 'clarification', evidence: 'Datos personales pendientes de aclaración por el cliente.' } : request)
     for (const repair of repairAttempts) repair.final_status = 'checked'
     return { reply, changed: reply !== originalBase.trim(), needsAdvisor: unresolved.length > 0, unresolved,
-      audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, editorial_observations: editorialObservations, link_contract: linkContract,
+      audit: { business_policy_sources: input.verified.politicas_negocio || [], business_policy_context: input.verified.business_policy_context || { status: 'not_provided' }, resolved_turn_intent: turnIntent, response_content_scope: contentScope, editorial_observations: editorialObservations, link_contract: linkContract,
         commercial_journey: input.verified.siguiente_paso_comercial,
         follow_up: followUp, catalog_context_scope: input.verified.catalog_context_scope || { kind: 'full_turn' },
         ...(input.verified.prompt_context_selection ? { prompt_context_selection: input.verified.prompt_context_selection } : {}),

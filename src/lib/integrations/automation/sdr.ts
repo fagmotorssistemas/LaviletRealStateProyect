@@ -25,6 +25,7 @@ import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sa
 import { passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules } from './response-openings'
 import { MAX_REPLY_CHARACTERS } from './response-plan'
+import { responseContentScope, projectContentForWriter, RESPONSE_CONTENT_SCOPE_RULES } from './response-content-scope'
 import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { TURN_INTENT_RULES } from './turn-intent'
@@ -122,7 +123,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     business_policy_context: { status: 'loaded', available_count: policies.length, mode },
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     entrega_proyecto: deliveryContext(projectData.policies_json),
-    configuracion_presentacion_proyecto: projectIntroductionContext(projectData.policies_json),
+    configuracion_presentacion_proyecto: projectIntroductionContext(projectData.policies_json,text(projectData.name)),
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
@@ -147,6 +148,10 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     name: projectPublicName(project), public_name: projectPublicName(project) } }
   info = projectLocationForPrompt(info, locationDisclosurePolicy({ current, verified: info }))
   info = { ...info, hechos_confirmados: confirmedInterpretationMemory(summary) }
+  const contentScope = responseContentScope(current, info)
+  info = { ...info, alcance_contenido_turno: contentScope, location_disclosure: { ...object(info.location_disclosure),
+    general_location_allowed: object(object(contentScope.topics).general_location).allowed === true,
+    ...(object(object(contentScope.topics).general_location).allowed === true ? {} : { general_location: {} }) } }
   // Explicit project information wins over an inferred or remembered catalogue query.
   const overview = projectInformationReply(info, current, BROCHURE_URL)
   if (overview) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
@@ -307,8 +312,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     info.final_review_follows === true || !responseReviewEnabled() ? Promise.resolve('') : activePrompt('revisor_respuesta')])
   const writerInfo = withProjectIntroductionForTurn(info)
   delete writerInfo.final_review_follows
-  const input = { ...experienceContext(writerInfo, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
-  const rules = NATURAL_CONVERSATION_RULES + '\n' + TURN_INTENT_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
+  const input = { response_content_scope: info.alcance_contenido_turno, ...experienceContext(writerInfo, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
+  const rules = RESPONSE_CONTENT_SCOPE_RULES + '\n' + NATURAL_CONVERSATION_RULES + '\n' + TURN_INTENT_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
     + '\n' + FINANCING_PROCESS_RULES + '\n' + ASSISTANCE_CONTINUATION_RULES
     + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
@@ -320,15 +325,16 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'
     + '\nEl campo modelo_3d indica que el sistema añadirá el enlace al tour en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Procure brevedad sin omitir solicitudes. No ofrezca enviarlo después ni invente otro enlace: el sistema añade texto_de_entrega. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
     + `\nLas indicaciones de tono, longitud sugerida, saludo, cantidad de preguntas y continuación comercial son recomendaciones editoriales: no rechace una respuesta por variar esas formas. El límite técnico de entrega es ${MAX_REPLY_CHARACTERS} caracteres. Compruebe los hechos, las acciones autorizadas, la selección y la cobertura de la solicitud actual. Una pregunta tiene que ser pertinente y útil; no depende de copiar la propuesta del guion.`
+  const writingInput = projectContentForWriter(input, object(info.alcance_contenido_turno))
   // Conversation always runs completeTurnReply after this draft. Its one
   // business-risk review owns approval; this older gate serves direct callers.
   if (info.final_review_follows === true) {
     await guard()
-    return finish(await draftReply(prompt + rules, input), { rewritten: false, review_reasons: [], fallback: false, ai_draft_preserved: true })
+    return finish(await draftReply(prompt + rules, writingInput), { rewritten: false, review_reasons: [], fallback: false, ai_draft_preserved: true })
   }
   const reasons: string[] = []
   const editorialCodes = new Set(['style', 'repeated_greeting', 'repeated_question', 'missing_next_step'])
-  let reply = await draftReply(prompt + rules, input)
+  let reply = await draftReply(prompt + rules, writingInput)
   if (responseReviewObservationOnly()) {
     reply = writerTransportReply(reply)
     await guard()
@@ -378,7 +384,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number]) && !editorialCodes.has(text(v))) as string[] : []))
     if (!attempt) {
       await guard()
-      reply = await draftReply(prompt + rules, { ...input, borrador_rechazado: reply, correcciones_requeridas: reasons,
+      reply = await draftReply(prompt + rules, { ...writingInput, borrador_rechazado: reply, correcciones_requeridas: reasons,
         tarea: 'Corrija los hechos, acciones o solicitudes pendientes indicados y conserve el resto de la redacción. Una pregunta útil es opcional, sin inventar hechos.' })
     }
   }

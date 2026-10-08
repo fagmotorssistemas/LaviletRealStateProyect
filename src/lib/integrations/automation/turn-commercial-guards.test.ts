@@ -187,7 +187,9 @@ test('conditional discount authority and obligation survive composition and revi
       const units = task === 'writing' ? [...rows(authority.catalogo), ...rows(object(context.evidencia_turno).units)] : rows(authority.unidades)
       const quotedUnit = units.find(row => row.unit_number === unit.unit_number)
       assert.ok(quotedUnit, `${task} must receive the individual discount quote in canonical unit evidence`)
-      assert.equal(quotedUnit.published_commercial_price, 270000)
+      // This request asks about eligibility/conditions, not a purchase quote.
+      // Keep its numerical authority for the reviewer and conditions for both.
+      assert.equal(quotedUnit.published_commercial_price, task === 'writing' ? undefined : 270000)
       assert.equal(object(quotedUnit.early_purchase_discount).status, 'conditional')
       assert.equal(object(quotedUnit.early_purchase_discount).condition, 'reservation_confirmed')
       assert.equal(object(quotedUnit.early_purchase_discount).condition_met, false)

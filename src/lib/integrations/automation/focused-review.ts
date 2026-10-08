@@ -28,6 +28,9 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
     instruction: 'Atienda las solicitudes del mensaje actual en su contexto: responda lo verificable, aclare solo lo ambiguo o explique qué dato concreto falta. Reconocer o usar los datos que el cliente entrega puede completar el turno. No añada preguntas ni material por costumbre; las demás obligaciones indican cuándo son necesarios.',
     requests: rows(verified.solicitudes_interpretadas || object(verified.contrato_turno).requests)
       .filter(row => row.domain !== 'courtesy').map(row => ({ request: row.request, evidence: row.evidence, domain: row.domain })) })
+  const contentScope = object(verified.alcance_contenido_turno)
+  if (contentScope.version === 'response-content-scope-v1') obligations.push({ id: 'response_content_scope',
+    ...contentScope, instruction: "Respete alcance_contenido_turno: topics.allowed autoriza pertinencia, no demuestra un hecho ni obliga a añadirlo. Primero atienda la consulta actual y conserve el siguiente paso comercial. No añada por rutina presentación, ciudad, dirección, precios de compra, etapa comercial, estado de construcción, entrega ni advertencias de cabida cuando su topic está allowed=false. Un dato verdadero también puede incumplir esta obligación si no corresponde al turno. Distinga precio de compra de presupuesto, entrada, ingreso o préstamo del cliente: esos importes no son purchase_prices. Si purchase_prices.allowed=true por consulta o comparación actual de presupuesto, comunique solo los valores pertinentes, sin recitar todas las fichas, y conserve las condiciones comerciales vigentes aplicables. No convierta una preferencia de tres dormitorios en obligación de advertir sobre comodidad familiar. Una autorización de contenido no concede selección, financiamiento, reserva ni visita. No bloquee por estilo, longitud, cortesía, orden o repetición sin una infracción concreta de alcance; explique el topic incumplido y el efecto comercial sin exigir frases literales." })
   if (verified.estado_proyecto || rows(verified.contexto_sector).length) obligations.push({
     id: 'project_context_truth', instruction: PROJECT_TRUTH_RULES,
     physical_stage: object(verified.estado_proyecto).stage || null,
@@ -102,7 +105,7 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
       : journey.action ? 'Atienda los hechos del presupuesto y continúe según commercial_next_step: ' + text(journey.instruction)
         : budgetContinuationInstruction(object(verified.presupuesto_del_turno)) })
   if (policy.precios_aproximados === true) obligations.push({ id: 'price_conditions',
-    instruction: 'Si el borrador comunica precios, preserve su carácter referencial de lanzamiento y posibilidad de cambio, con cualquier redacción equivalente. Si no comunica precios, esta obligación está cumplida.' })
+    instruction: 'Si el borrador comunica precios, preserve su carácter referencial vigente y posibilidad de cambio según politica_comercial, con cualquier redacción equivalente. No exija mencionar lanzamiento ni otra etapa para cumplir el aviso; la etapa no decide la condición. Respete las políticas publicadas aplicables. Si no comunica precios, esta obligación está cumplida.' })
   if (contract.decisiones_protegidas === true || audit.action || audit.visit_result || audit.reservation
     || audit.progressive_selection || audit.post_tour_continuation
     || Array.isArray(contract.datos_requeridos) && contract.datos_requeridos.length) obligations.push({ id: 'current_operation',
@@ -209,7 +212,7 @@ export function focusedReviewContext(context: Row, obligations: Row[]): Row {
     .filter(path => path[0] === 'contexto_verificado').map(path => path[1]))
   const operationalKeys = new Set(rows(context.evidencia_afirmaciones).map(row => text(row.path).split('.'))
     .filter(path => path[0] === 'estado_operativo').map(path => path[1]))
-  for (const key of ['perfil_lead', 'politica_comercial', 'catalog_context_scope', 'limite_alcance', 'business_policy_context', 'fecha', 'presupuesto_del_turno', 'entrega_proyecto']) sourceKeys.add(key)
+  for (const key of ['perfil_lead', 'politica_comercial', 'catalog_context_scope', 'limite_alcance', 'business_policy_context', 'fecha', 'presupuesto_del_turno', 'entrega_proyecto', 'alcance_contenido_turno']) sourceKeys.add(key)
   for (const key of ['source', 'action', 'registration_verified', 'profile_introduction']) operationalKeys.add(key)
   return {
     mensaje_actual: context.mensaje_actual, referencias_solicitud: context.referencias_solicitud,

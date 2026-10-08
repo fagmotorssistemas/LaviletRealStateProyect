@@ -23,6 +23,9 @@ for (const quote of [
 })
 
 for (const notice of [
+  'Son los valores referenciales vigentes y pueden variar.',
+  'Son valores referenciales y pueden cambiar.',
+  'Son precios actuales de referencia sujetos a modificaciones.',
   'Son valores referenciales de lanzamiento y pueden variar.',
   'Es un precio referencial de lanzamiento y puede cambiar.',
   'Estos valores de lanzamiento son orientativos y están sujetos a modificaciones.',
@@ -64,7 +67,7 @@ test('partial conditions are completed before the question without inventing fig
 })
 
 for (const policy of [{ precios_aproximados: false }, {}, { precios_aproximados: true, precios_autorizados: false }])
-  test('no unconfigured launch condition for ' + JSON.stringify(policy), () => {
+  test('no unconfigured referential condition for ' + JSON.stringify(policy), () => {
     const reply = 'Los departamentos cuestan $250,000.'
     assert.deepEqual(ensureReferentialPriceConditions(reply, { ...verified, politica_comercial: policy }), { reply, applied: false })
   })
@@ -82,4 +85,23 @@ test('the bridge remains adjacent to its question', () => {
   const result = ensureReferentialPriceConditions(reply, verified)
   assert.ok(result.reply.endsWith(bridge))
   assert.ok(result.reply.indexOf(REFERENTIAL_PRICE_NOTICE) < result.reply.indexOf(bridge))
+})
+
+for (const stage of ['lanzamiento', 'preventa', 'venta']) test('commercial stage does not force a launch price condition: ' + stage, () => {
+  const result = ensureReferentialPriceConditions('El departamento cuesta $250,000.', { ...verified, modo_comercial: stage })
+  assert.equal(result.applied, true)
+  assert.match(result.reply, /referenciales vigentes.*pueden cambiar/)
+  assert.doesNotMatch(result.reply, /lanzamiento/)
+  const exact = ensureReferentialPriceConditions('El departamento cuesta $250,000.', { ...verified, modo_comercial: stage,
+    politica_comercial: { precios_aproximados: false, precios_autorizados: true } })
+  assert.equal(exact.applied, false)
+})
+
+test('existing published commercial conditions remain intact when adding the generic price notice', () => {
+  const reply = 'El departamento cuesta $250,000. El beneficio confirmado solo aplica hasta el 31 de octubre. ¿Desea revisar esta opción?'
+  const result = ensureReferentialPriceConditions(reply, { ...verified,
+    politicas_negocio: [{ policy_content: 'El beneficio confirmado solo aplica hasta el 31 de octubre.', scope: 'Departamento 202.' }] })
+  assert.ok(result.reply.includes('El beneficio confirmado solo aplica hasta el 31 de octubre.'))
+  assert.ok(result.reply.endsWith('¿Desea revisar esta opción?'))
+  assert.ok(result.reply.includes(REFERENTIAL_PRICE_NOTICE))
 })

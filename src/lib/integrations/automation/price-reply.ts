@@ -59,7 +59,7 @@ export function budgetOptionsReply(info:Row,current:string):string {
   const chosen=within.length?within:[...catalog].sort((a,b)=>Number(a.published_commercial_price)-Number(b.published_commercial_price)).slice(0,1)
   const money=(v:unknown)=>'$'+Number(v).toLocaleString('es-EC',{maximumFractionDigits:2})
   const amounts=chosen.map(u=>`${u.unit_number}: ${money(u.published_commercial_price)}`).join('; ')
-  const note=policy.precios_aproximados===true?' Son precios referenciales de lanzamiento y pueden variar.':''
+  const note=policy.precios_aproximados===true?' Son precios referenciales vigentes y pueden variar.':''
   if(within.length)return `Con ese presupuesto podemos concentrarnos en estas opciones: ${amounts}.${note} ¿Cuál le gustaría revisar?`
   const finance = object(info.financiamiento)
   const partners = Array.isArray(finance.partners) ? finance.partners.map(text).filter(Boolean) : []
@@ -220,18 +220,18 @@ function focusedPriceDescription(units: Row[], approximate: boolean, history: un
   const compactNamedSet = units.length <= 3 && numbers.every(Boolean)
   const namedSubject = compactNamedSet ? `${subject} son ${joinOptions(numbers.map(number => `${feminine ? 'la' : 'el'} ${number}`))}` : subject
   const location = floorPhrase ? compactNamedSet ? `, ${units.length === 2 ? feminine ? 'ambas' : 'ambos' : feminine ? 'todas' : 'todos'} ${floorPhrase}` : ` están ${floorPhrase}` : ''
-  const launchQualifier = approximate ? variant([' referencial de lanzamiento', ' aproximado de lanzamiento', ' referencial durante el lanzamiento'], history) : ''
-  const launchNote = approximate ? ' ' + variant(['Son valores referenciales de lanzamiento y pueden cambiar.',
-    'Por ahora son valores aproximados de lanzamiento, sujetos a cambios.',
-    'Estamos en lanzamiento, por lo que estos valores son referenciales y pueden variar.'], history) : ''
+  const referentialQualifier = approximate ? variant([' referencial vigente', ' de referencia vigente', ' orientativo vigente'], history) : ''
+  const priceNotice = approximate ? ' ' + variant(['Son valores referenciales vigentes y pueden cambiar.',
+    'Por ahora son valores referenciales vigentes, sujetos a cambios.',
+    'Estos valores son referenciales vigentes y pueden variar.'], history) : ''
   if (minimum === maximum) {
     const prefix = compactNamedSet || floorPhrase ? `${namedSubject}${location}, con un valor` : `${subject} tienen un valor`
-    return `${prefix}${launchQualifier} de ${money(minimum)} USD cada un${feminine ? 'a' : 'o'}${approximate ? ', sujeto a cambios' : ''}.`
+    return `${prefix}${referentialQualifier} de ${money(minimum)} USD cada un${feminine ? 'a' : 'o'}${approximate ? ', sujeto a cambios' : ''}.`
   }
   const introduction = compactNamedSet || floorPhrase ? `${namedSubject}${location}. ` : ''
   if (compactNamedSet) return introduction + units.map(unit => `El precio ${feminine ? 'de la suite' : `del ${category}`} ${text(unit.unit_number)} es de ${money(moneyValue(unit)!)} USD.`).join(' ')
-    + launchNote
-  return `${introduction}${introduction ? 'Sus valores van' : `${subject} tienen valores que van`} desde ${money(minimum)} hasta ${money(maximum)} USD.${launchNote}`
+    + priceNotice
+  return `${introduction}${introduction ? 'Sus valores van' : `${subject} tienen valores que van`} desde ${money(minimum)} hasta ${money(maximum)} USD.${priceNotice}`
 }
 
 // Price facts always come from this turn's authorized catalog. A media reference or
@@ -315,9 +315,9 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
   }
   if (comparison) reply += comparison.difference === 0 ? ' Ambas opciones tienen el mismo precio.' : ` La diferencia es de ${money(comparison.difference)} USD.`
   if (approximate && !focused) reply += ' ' + variant([
-    'Son valores referenciales de lanzamiento y pueden cambiar.',
-    'Por ahora son valores aproximados de lanzamiento, sujetos a cambios.',
-    'Estamos en lanzamiento, por lo que estos valores son referenciales y pueden variar.',
+    'Son valores referenciales vigentes y pueden cambiar.',
+    'Por ahora son valores referenciales vigentes, sujetos a cambios.',
+    'Estos valores son referenciales vigentes y pueden variar.',
   ], info.historial)
   if (priced.length < selected.length) reply += ' Podemos consultar también el valor de las demás opciones.'
   const budget = statedBudget(current)
@@ -447,8 +447,7 @@ export function verifiedPriceReplyIssues(reply: string, info: Row, current: stri
 
 export const PRICE_REPLY_RULES = `La política comercial de este turno prevalece sobre el historial y cualquier guion anterior.
 Solo informe precios de catálogo autorizados: nunca reutilice un precio recordado si ahora está oculto.
-En Lanzamiento, si precios_aproximados es true, identifique el valor como aproximado y explique brevemente que es referencial de lanzamiento y puede cambiar.
-En Preventa informe el precio sin esa aclaración. No invente descuentos, precios, cuotas ni notificaciones futuras.
+Si precios_aproximados es true, identifique los precios comunicados como referenciales vigentes y explique su posibilidad de cambio, con cualquier formulación equivalente, en la etapa comercial actual. Si es false, no añada una condición no configurada. La etapa por sí sola no decide ese aviso; respete las condiciones comerciales publicadas aplicables. No invente descuentos, precios, cuotas ni notificaciones futuras.
 Si hay respuesta_precio_verificada, incluya esos datos y resuelva también las otras consultas; no vuelva a pedir la unidad ya identificada.
 Si la cotización reúne varias opciones del interés actual, explique qué dormitorios tienen y la planta compartida cuando esté verificada. Conserve la invitación a conocer más detalles de esas opciones. No agregue alternativas más económicas o con menos dormitorios si el cliente no las pidió. La aceptación de esa invitación no selecciona ninguna unidad; espere su elección antes de enviar un recorrido de una unidad específica.
 Un rango general de inmuebles puede reunir categorías distintas: no lo presente como el precio de departamentos, suites u otra categoría específica. Si faltan precios de algunas unidades, conserve la aclaración de que el rango corresponde a las opciones con precio publicado.

@@ -200,12 +200,11 @@ export function interpretationSourceIssues(raw: Row, current: string, pending: R
 
 /** A failed block owns its repair. Profile and unrelated operational permission
  * are never re-extracted just because a catalogue citation was wrong. */
-export function interpretationRepairBlocks(issues: string[], raw: Row = {}) {
+export function interpretationRepairBlocks(issues: string[]) {
   const fields = [...new Set(issues.map(issue => ['invalid_budget_amount', 'unresolved_budget_role', 'inconsistent_budget_role'].includes(issue)
     ? 'budget' : issue.split(':')[1]))]
   const property = fields.includes('property')
-  const budget = fields.includes('budget') || property && object(object(raw.turn_semantics).budget).status !== 'not_discussed'
-    && !!text(object(object(raw.turn_semantics).budget).evidence).trim()
+  const budget = fields.includes('budget')
   const quantity = fields.some(field => /^quantity\.\d+$/.test(field || ''))
   const requests = fields.some(field => /^requests\.\d+$/.test(field || ''))
   const profile = issues.includes('ambiguous_profile_location_source')
@@ -225,7 +224,7 @@ export function interpretationRepairBlocks(issues: string[], raw: Row = {}) {
 }
 
 export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: string[]): Row {
-  const blocks = interpretationRepairBlocks(issues, previous)
+  const blocks = interpretationRepairBlocks(issues)
   if (blocks.fullTurn) return repaired
   const semantics = { ...object(previous.turn_semantics) }, incoming = object(repaired.turn_semantics)
   for (const field of blocks.semanticFields) if (Object.hasOwn(incoming, field)) semantics[field] = incoming[field]
@@ -249,6 +248,78 @@ export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: 
   return result
 }
 
+
+/** Repair-only source projection: preserve canonical values/referents and the
+ * actual pending question, without inviting copies of old evidence excerpts. */
+export function interpretationRepairContext(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(interpretationRepairContext)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !/(?:^|_)evidence$/.test(key)
+    && !['content', 'reply', 'historial', 'historial_reciente'].includes(key))
+    .map(([key, item]) => [key, interpretationRepairContext(item)]))
+}
+
+/** A failed property citation cannot erase an independently valid answer to a
+ * known budget question. Isolation requires an explicit repair certification
+ * and no independently evidenced property/action request. It never selects an
+ * option or changes saved context; it removes only this turn's invalid delta. */
+export function isolateHistoricalPropertyFromBudget(previous: Row, merged: Row, repaired: Row,
+  current: string, knownBudgetQuestion: boolean, remaining: string[]): Row | null {
+  if (!knownBudgetQuestion || !remaining.length || remaining.some(issue => issue !== 'non_current_evidence:property')) return null
+  const certificate = object(repaired.property_turn_use)
+  const grounded = (value: unknown) => !!text(value).trim() && matches(value, current)
+  if (!['context_only', 'none'].includes(text(certificate.kind)) || certificate.confidence !== 'high'
+    || !grounded(certificate.evidence)) return null
+  const independentBudget = (raw: Row) => {
+    const semantics = object(raw.turn_semantics), budget = object(semantics.budget)
+    return semantics.primary_intent === 'discuss_budget' && semantics.confidence === 'high'
+      && grounded(semantics.primary_evidence) && budget.confidence === 'high' && grounded(budget.evidence)
+      && ['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
+      && budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) !== null
+  }
+  const compatibleRequests = (raw: Row, requireFinance: boolean) => {
+    const requests = rows(raw.requests).filter(request => grounded(request.evidence))
+    return (!requireFinance || requests.some(request => request.domain === 'financing' && request.confidence === 'high'))
+      && requests.every(request => ['financing', 'courtesy'].includes(text(request.domain)) && request.confidence === 'high'
+        && (!Array.isArray(request.topics) || request.topics.every(topic => topic === 'financing')))
+  }
+  if (!independentBudget(previous) || !independentBudget(merged)
+    || !compatibleRequests(previous, true) || !compatibleRequests(merged, true) || !compatibleRequests(repaired, false)) return null
+  const hasOtherCurrentClaim = (raw: Row) => {
+    const semantics = object(raw.turn_semantics), property = object(semantics.property), catalog = object(raw.catalog_request)
+    const answer = object(semantics.answer_to_previous), reservation = object(semantics.reservation)
+    return ['requested_advisor', 'opt_out', 'consent_granted', 'financing_consent', 'visit_needs_help'].some(key => raw[key] === true)
+      || !['', 'none'].includes(text(object(raw.visit_intent).kind))
+      || !['', 'none'].includes(text(reservation.kind))
+      || !['', 'none'].includes(text(object(raw.financing_partner_choice).kind))
+      || !['', 'none'].includes(text(object(raw.material_request).kind))
+      || object(raw.financing_quote).requested === true
+      || (answer.kind && answer.kind !== 'none' && !text(answer.question_id).startsWith('budget_'))
+      || rows(semantics.housing_quantities).some(quantity => grounded(quantity.evidence))
+      || grounded(property.evidence) || Object.values(object(property.filter_evidence)).some(grounded)
+      || grounded(object(raw.declaration_evidence).preferred_category) || grounded(catalog.evidence)
+      || rows(catalog.requirements).some(requirement => grounded(requirement.evidence))
+      || rows(catalog.semantic_preferences).some(preference => grounded(preference.evidence))
+      || Object.entries(object(raw.qualification)).some(([key, value]) => key !== 'presupuesto_texto' && hasValue(value))
+  }
+  if (hasOtherCurrentClaim(previous) || hasOtherCurrentClaim(merged)) return null
+  const semantics = object(merged.turn_semantics), property = object(semantics.property)
+  const budget = object(object(previous.turn_semantics).budget)
+  // A property-only recovery must retain the exact validated monetary block.
+  if (JSON.stringify(budget) !== JSON.stringify(semantics.budget)) return null
+  return { ...merged, preferred_category: null, unit_id: null,
+    declaration_evidence: { ...object(merged.declaration_evidence), preferred_category: null },
+    events: (Array.isArray(merged.events) ? merged.events : []).filter(event =>
+      !['declared_unit_type', 'asked_location_features', 'asked_delivery_date', 'asked_price'].includes(text(event))),
+    requests: rows(merged.requests).filter(request => grounded(request.evidence)),
+    catalog_request: { purpose: 'none', metric: null, requirements: [], semantic_preferences: [], evidence: '', confidence: 'low' },
+    turn_semantics: { ...semantics, property: { ...property, group: null, category: null, excluded_categories: [],
+      operation: 'none', reference_kind: 'none', unit_numbers: [], selector: null, query_scope: null,
+      filters: Object.fromEntries(Object.entries(object(property.filters)).map(([key, value]) => [key, Array.isArray(value) ? [] : null])),
+      filter_evidence: Object.fromEntries(Object.keys(object(property.filter_evidence)).map(key => [key, ''])),
+      evidence: '', confidence: 'low' } } }
+}
+
 export class TurnInterpretationError extends Error {
   constructor(public issues: string[]) { super('TURN_INTERPRETATION_INVALID') }
 }
@@ -269,4 +340,5 @@ dimension=people cuenta personas, bedrooms dormitorios, unknown conserva ambigü
 export const EXTRACTION_CONSISTENCY_RULES = `Antes de devolver el JSON, compruebe coherencia entre los bloques: housing_quantities=[] si el turno actual no menciona ni evalúa cantidades; un catálogo o una pregunta previa no son una declaración nueva. Una consulta sobre si un espacio sirve a una familia es evaluation y details, con referencia a las opciones actuales; no es precio salvo que también pregunte importes, ni convierte esa cantidad en un requisito de búsqueda. Una cifra deseada y el operador eq no significan rigidez: bedrooms_required=true necesita una declaración actual inequívoca de que no acepta otra cantidad. Ante flexibilidad expresa no use true; conserve la cantidad deseada sin sustituirla automáticamente. Ninguna respuesta a una alternativa inmobiliaria acepta una visita, entidad o trámite diferente. Las acciones negadas, hipotéticas, condicionadas o citadas como palabras de otra persona no son permisos actuales.`
 
 export const BLOCK_RECOVERY_RULES = `Repare únicamente los bloques y campos que permite el esquema adjunto. mensaje_actual es la única fuente de novedades y de citas. El contexto confirmado solo resuelve referentes: una unidad seleccionada del historial NO es una selección actual ni aporta una cita nueva. Si el cliente únicamente aclara una cantidad, property usa operation=none, reference_kind=none, valores neutros y evidence=""; preserve la unidad conocida fuera de esa salida. No cambie permisos, perfil ni solicitudes de otros dominios.
+Si el esquema incluye property_turn_use, certifique por separado si mensaje_actual solicita una acción o información inmobiliaria (current_request), si el inmueble es únicamente referente conocido de una respuesta monetaria (context_only), si no tiene uso (none), o si no puede decidirlo (uncertain). Cite literalmente el mensaje actual y no el historial; confidence expresa su certeza. Una solicitud inmobiliaria adicional, incluida una preferencia nueva, requiere current_request aunque también haya presupuesto. Este metadato no autoriza selecciones, cambios ni consentimiento.
 Si se solicita el bloque monetario, interprete el papel de cada importe, incluidos negaciones, dudas, autocorrecciones y aclaraciones de una cifra conocida. Devuelva budget y financing_amounts coherentes. Una entrada explícita es initial_capital y down_payment; el presupuesto total explícito es maximum_total y total_budget; un préstamo es loan y no un presupuesto. amount significa que el rol continúa realmente ambiguo. Una cita del mensaje actual puede conservar faltas de escritura, pero no puede sustituirse por una frase histórica o inventada. No complete importes desde una pregunta del bot ni otorgue consentimiento financiero. Devuelva los valores neutros del bloque que no está activo, en vez de fabricar acciones o evidencia.`

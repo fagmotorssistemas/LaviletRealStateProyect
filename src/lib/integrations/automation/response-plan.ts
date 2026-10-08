@@ -214,6 +214,7 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
   const plan = responsePlan(baseReply, audit, context)
   return {
     version: 'final-writer-v3', ruta: plan.source || 'commercial',
+    response_content_scope: context.verified?.alcance_contenido_turno || audit.response_content_scope || null,
     decisiones_protegidas: plan.locked,
     objetivo: 'Atender la solicitud actual con información verificada y el estado operativo real; elegir una explicación y continuación pertinentes al contexto.',
     solicitud_actual: plan.current_request,

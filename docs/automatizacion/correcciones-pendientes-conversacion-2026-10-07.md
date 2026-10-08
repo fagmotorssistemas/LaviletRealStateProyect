@@ -38,16 +38,47 @@ Para ajustar hechos del proyecto, se usan las fuentes de conocimiento y las pol�
 
 `npm run test:contextual-reasoning` agrupa los casos nuevos; también quedan incluidos en `npm run test:conversation-regression`. Las pruebas son locales con respuestas de IA simuladas: validan contratos, comprobaciones y continuidad, no certifican todas las futuras respuestas del modelo ni la entrega en WhatsApp.
 
+## Pertinencia y recuperación del presupuesto del 8 de octubre
+
+Implementadas las correcciones autorizadas tras las capturas de presentación, vivienda, tres dormitorios, penthouses y respuesta de presupuesto de 300 mil dólares. Las reglas no dependen de una lista de frases del lead ni de retirar palabras del texto después de generarlo.
+
+- Cada solicitud del extractor lleva topics estructurados y evidencia actual. Un tema disponible en el historial no se convierte en una nueva petición. Los registros anteriores sin topics conservan compatibilidad limitada y comprobada.
+- response-content-scope.ts construye un contrato común para redactor y revisor: presentación, ubicación general/exacta, precios de compra, etapa comercial, construcción, entrega y advertencias de cabida. allowed permite atender un aspecto pertinente; no obliga a recitarlo ni demuestra su veracidad. Se mantienen las restricciones físicas y las condiciones comerciales como comprobaciones internas.
+- projectContentForWriter selecciona fuentes del redactor sin modificar la evidencia original de revisión ni limpiar cadenas del mensaje saliente. Retira importes de precios y datos de ubicación ajenos a la consulta; conserva medidas, presupuesto, entrada, ingresos, préstamo, porcentajes de políticas y resultados operativos necesarios. Preserva completos los contratos compartidos.
+- La presentación predeterminada aprobada de La Vilet incluye las 49 viviendas y las categorías indicadas por el administrador. Saludo y captura de nombre/residencia son decisiones separadas. No agrega etapa, obra, fechas, precios ni fichas por costumbre. Una configuración personalizada guardada prevalece; también se respetan desactivaciones y configuraciones inválidas. Otros proyectos no reciben este resumen.
+- El ajuste es visible en Conocimiento y reglas → Información del proyecto → Presentación inicial del proyecto, con enlace directo a /inmobiliaria/automatizacion/proyecto#project-introduction. Usar resumen aprobado de La Vilet prepara el formulario; Guardar cambios aplica la edición con los permisos y el control de concurrencia existentes. El resumen predeterminado no requiere una escritura remota ni migración nueva.
+- Una consulta de precios realmente pendiente puede continuar cuando el cliente aclara categoría, unidad o planta. Después de aceptación del envío, validación y cobertura vinculada a la consulta, price_request_status queda answered y se consume su objetivo de continuación. Una aclaración, recuperación o revisión rechazada no certifica que el precio se atendió; la cobertura de otra pregunta tampoco. Las preguntas secundarias de precio no sustituyen una intención principal independiente.
+- Precios de compra solo cuando se solicitan actualmente, continúan una consulta sin atender o resultan indispensables para comparar el presupuesto total actual. Una elección posterior de categoría o dormitorios no hereda una autorización ya consumida. Cuando corresponden, sus condiciones son referenciales vigentes y posibilidad de cambio según la política; no se exige narrar lanzamiento.
+- La ubicación no vuelve a presentarse en cada respuesta. Su detalle y mapa respetan la petición actual, las negativas y una confirmación presencial comprobada. Etapa, avance de obra y entrega se comunican ante su consulta; las excepciones de visita o representación digital explican solamente el límite pertinente.
+- Una selección de tres dormitorios o tipo no exige una advertencia genérica sobre comodidad familiar. Las dudas reales de cabida/accesibilidad conservan el razonamiento condicionado y la orientación opcional, sin prometer medidas, planos, selección ni una acción autorizada.
+- La reparación del extractor deja intacto el bloque monetario válido si solo falló propiedad. Si después del reintento persiste exclusivamente una cita histórica de propiedad, puede aislarse ese delta inválido con una certificación actual de contexto, presupuesto independiente alto e idéntico, pregunta de presupuesto conocida y ausencia de otra petición inmobiliaria, preferencias, filtros o permisos. Se conserva la memoria canónica del inmueble. Cualquier incertidumbre o error adicional mantiene los controles normales. El diagnóstico registra budget-property-isolation-v1.
+- Normal, demostración y revisión desactivada comparten reglas y selección de fuentes, incluida la recopilación financiera compacta. Demostración sigue registrando hallazgos sin bloquear el borrador; no omite el extractor ni concede permisos.
+
+Las nuevas pruebas de temas, alcance, integración, recuperación y continuidad de precios están en npm run test:response-content y en npm run test:conversation-regression. Son pruebas offline con respuestas simuladas, sin consumo de créditos de modelos o embeddings. No certifican todas las futuras salidas de la IA ni la entrega en WhatsApp.
+
+## Verificación de pertinencia y recuperación
+
+| Comprobación | Resultado |
+| --- | --- |
+| Barrido TypeScript (150 archivos) | 1.672 aprobadas, 0 fallidas, 0 omitidas; aproximadamente 37 segundos. |
+| npm run test:conversation-regression | 672 aprobadas, 0 fallidas; aproximadamente 19 segundos con otras suites en paralelo. |
+| Conversación legacy y contexto financiero | 405 aprobadas, 0 fallidas. Se conserva la exclusión documentada del archivo que requiere @electric-sql/pglite ausente. |
+| npm run test:project-introduction | 20 aprobadas, incluidas configuración, permisos, concurrencia y contexto real de prompts. |
+| Interfaz aislada Playwright | 2 comprobaciones aprobadas: escritorio 1366 px y móvil 390 px; edición, guardado, desactivación y estado predeterminado sin desborde ni errores de página. |
+| TypeScript global y ESLint de archivos cambiados | Aprobados, sin errores ni advertencias. |
+
+Las suites se solapan; no se suman como casos únicos. No se consultaron modelos, embeddings, bases remotas ni servicios de mensajería durante estas pruebas. Falta publicar el código y observar la siguiente conversación real.
+
 ## Límites y comprobaciones pendientes en operación
 
-- Publicar estos cambios y configurar el resumen/fuente aprobados en la interfaz. No se activó una presentación ficticia ni se escribió una política en producción.
+- Publicar estos cambios. La Vilet utiliza el resumen aprobado predeterminado si no hay configuración propia; puede editarse desde la interfaz. No se escribió una política en producción.
 - Las medidas de dormitorios y camas siguen sin estar disponibles en este caso; la visita ofrecida es orientación en la oficina, no acceso confirmado a planos ni a obra terminada.
 - Las pruebas de continuidad usan respuestas simuladas y salidas observadas donde están disponibles. La selección relativa de la más grande es una reproducción representativa; la aceptación de 03:48 usa sus campos semánticos conocidos. No sustituyen una comprobación posterior de ejecución real, entrega de WhatsApp o calidad del modelo.
 - Si el extractor confunde una aclaración con información general y faltan metadatos de conversación previa, el selector de presentación no puede reconstruir el significado por su cuenta. Las referencias estructuradas, el brochure ya compartido y preguntas pendientes concretas excluyen el resumen; no se añadieron listas de frases para adivinarlo.
 - Las trazas antiguas no contienen necesariamente campo, número de llamadas o resultado de reparación. La interfaz informa esa ausencia; los nuevos fallos conservan los datos seguros del error de interpretación.
 - Una prueba anterior de fechas de visita no pudo ejecutarse porque falta la dependencia local @electric-sql/pglite. Se reprodujo la misma ausencia en HEAD; las otras pruebas de conversación y las nuevas focales sí se ejecutaron.
 
-## Verificación local del cambio
+## Verificación local del cambio anterior
 
 | Comprobación | Resultado |
 | --- | --- |
@@ -134,7 +165,7 @@ Una unidad elegida debe seguir disponible para el flujo financiero aunque el con
 La regla de uso ocasional del primer nombre ya existe en conversation-style.ts y conversation-tone.ts, pero los bloques que la contienen no llegan de forma uniforme al redactor final. El texto debe poder empezar directamente por la respuesta, sin Carlos y La Vilet en cada turno.
 
 - Evitar repetir rangos, dimensiones, la entrada y la descripción completa cuando el mensaje solo confirma un paso.
-- Mantener una sola advertencia colectiva al comunicar precios referenciales de lanzamiento sujetos a cambio. No repetir el aviso dos veces en la misma respuesta.
+- Mantener una sola condición colectiva al comunicar precios referenciales vigentes sujetos a cambio, según la política aplicable. No repetir el aviso dos veces en la misma respuesta.
 - No volver a cotizar precios en turnos que no lo necesitan. Si se comunica un nuevo precio o rango, conservar sus condiciones; no eliminar la advertencia permanentemente porque se dijo antes.
 - Responder con resumen cuando la consulta sea sencilla y ampliar solo los detalles solicitados.
 - Separar rechazo de contenido, clasificación contradictoria de una pregunta y error interno del revisor. Conservar un borrador válido y reparar sus metadatos con un límite independiente.

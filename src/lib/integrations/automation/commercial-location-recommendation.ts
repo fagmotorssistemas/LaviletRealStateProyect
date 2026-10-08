@@ -84,7 +84,7 @@ export function commercialLocationBudgetRecommendation(info: Row, current: strin
   const comparison = ground.id !== closest.id
     ? `Dentro de La Vilet también podemos comparar la posición de cada local. El ${unitLabel(ground)} está en ${groundFloor || 'el nivel de acceso'} y conviene revisarlo si prioriza una mayor exposición dentro del edificio, mientras que el ${unitLabel(closest)}, ubicado en ${closestFloor || 'otro nivel del edificio'}, representa una inversión considerablemente menor.`
     : `Dentro de La Vilet también podemos revisar la posición de cada local. El ${unitLabel(closest)} está en ${closestFloor || 'el edificio'} y es la alternativa de menor inversión publicada en el catálogo actual.`
-  const priceKind = approximate ? 'precio referencial de lanzamiento' : 'precio publicado'
+  const priceKind = approximate ? 'precio referencial vigente' : 'precio publicado'
   const budgetRole = initialCapital ? 'el capital que tiene disponible inicialmente' : 'su presupuesto disponible'
   const financing = difference > 0 && partners.length
     ? ` Quedaría una diferencia de ${money(difference)} que podemos ayudarle a evaluar mediante financiamiento con ${partners.join(' o ')}.`

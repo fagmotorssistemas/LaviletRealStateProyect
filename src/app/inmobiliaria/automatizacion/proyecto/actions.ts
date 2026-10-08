@@ -17,7 +17,7 @@ export async function loadProjectReadiness(projectId:string) {
   const config=await supabase.from('project_automation_config').select('mode').eq('project_id',project.id).eq('tenant_id',project.tenant_id).maybeSingle()
   if(config.error)throw Error('No se pudo leer la etapa comercial')
   const mode=config.data?.mode||'lanzamiento'
-  return {projectName:project.name,mode,pricesVisible:launchPricesVisible(project.policies_json),updatedAt:project.updated_at as string,...projectReadiness(project.policies_json,mode),delivery:projectDeliverySettings(project.policies_json),introduction:projectIntroductionSettings(project.policies_json)}
+  return {projectName:project.name,mode,pricesVisible:launchPricesVisible(project.policies_json),updatedAt:project.updated_at as string,...projectReadiness(project.policies_json,mode),delivery:projectDeliverySettings(project.policies_json),introduction:projectIntroductionSettings(project.policies_json,project.name)}
 }
 export async function saveProjectIntroduction(projectId:string,value:unknown,expectedUpdatedAt:string) {
   try {

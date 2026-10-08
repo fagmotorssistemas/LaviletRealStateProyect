@@ -1,9 +1,13 @@
 import { object, text, type Row } from './data'
 import { asksUnitPrice } from './price-reply'
+import { normalizedRequestTopics } from './request-topics'
 import { normalizedReservation } from './turn-semantics'
 import { reservationPermission } from './reservation-action'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
+const normalizedLiteral = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
+const currentEvidence = (request: Row, current: string) => !!normalizedLiteral(request.evidence)
+  && normalizedLiteral(current).includes(normalizedLiteral(request.evidence))
 
 /** Resolve duplicate classifiers only when both cite the same current fragment.
  * A neutral scope is not contrary evidence, but mixed/foreign/uncertain scope,
@@ -46,8 +50,17 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
     || requests.some(request => request.domain === 'property' && request.confidence === 'high'))
   const inScope = !input.scope.uncertain && (['property', 'mixed'].includes(text(input.scope.kind))
     || input.scope.kind === 'neutral' && (interpretedProperty || propertyPriceFallback))
-  const explicitPrice = inScope && (input.semantics.primary_intent === 'ask_price' || !confidentIntent && lexicalPrice)
-  const requestsPrice = requests.some(request => request.domain === 'property' && request.confidence === 'high' && asksUnitPrice(text(request.request), true))
+  const currentTyped = requests.filter(request => request.source !== 'pending' && request.confidence === 'high'
+    && request.domain !== 'courtesy' && Array.isArray(request.topics) && currentEvidence(request, input.current))
+  const typedPrice = currentTyped.some(request => normalizedRequestTopics(request.topics)?.includes('purchase_price'))
+  const explicitPrice = inScope && (currentTyped.length ? typedPrice && (!confidentIntent || input.semantics.primary_intent === 'ask_price')
+    : input.semantics.primary_intent === 'ask_price' || !confidentIntent && lexicalPrice)
+  const requestsPrice = requests.some(request => request.domain === 'property' && request.confidence === 'high'
+    && (Array.isArray(request.topics)
+      ? normalizedRequestTopics(request.topics)?.includes('purchase_price')
+        && (request.source === 'pending' ? !!text(request.evidence).trim() : currentEvidence(request, input.current))
+      : !currentTyped.length && (!text(request.evidence).trim() || request.source === 'pending' || currentEvidence(request, input.current))
+        && asksUnitPrice(text(request.request), true)))
   const categoryAnswer = ['select_property', 'answer_previous'].includes(text(input.semantics.primary_intent))
     && property.confidence === 'high' && (text(property.category) || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0)
     && !requests.some(request => request.confidence === 'high' && !['property', 'courtesy'].includes(text(request.domain)))
@@ -56,15 +69,19 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const recentClients = rows(input.history).filter(row => ['cliente', 'user'].includes(text(row.role)) && text(row.content) !== input.current).slice(-2)
   const historicalPrice = requestsPrice && recentClients.some(row => asksUnitPrice(text(row.content)))
   const answersPropertyReference = answer.kind === 'value' && answer.question_id === pending.id
+    && (!currentTyped.length || answer.confidence === 'high' && currentEvidence(answer, input.current))
     && ['property_category', 'unit_choice', 'property_floor', 'property_bedrooms', 'property_area'].includes(text(pending.id))
   const inheritedPrice = inScope && !explicitPrice && categoryAnswer
     && pending.act !== 'explore_quoted_options'
+    && previous.price_request_status !== 'answered'
     && (previous.continuation_goal === 'ask_price' || historicalPrice)
+    && (!currentTyped.length || requestsPrice || previous.price_request_status === 'pending' && answersPropertyReference)
     && (input.semantics.primary_intent === 'select_property' || answersPropertyReference || requestsPrice)
   const objective = !inScope ? input.scope.uncertain ? 'clarify_scope' : text(input.scope.kind)
-    : reservationObjective || (explicitPrice || inheritedPrice ? 'ask_price' : text(input.semantics.primary_intent) || 'other')
+    : reservationObjective || (explicitPrice || inheritedPrice ? 'ask_price'
+      : currentTyped.length && input.semantics.primary_intent === 'ask_price' ? 'answer_previous' : text(input.semantics.primary_intent) || 'other')
   const requiredFacts = inScope && (objective === 'ask_price' || requestsPrice) ? ['price'] : []
-  const preserveDuringProfile = inScope && input.profilePending && !requiredFacts.length
+  const preserveDuringProfile = inScope && previous.price_request_status !== 'answered' && input.profilePending && !requiredFacts.length
     && ['other', 'answer_previous'].includes(objective)
     && !requests.some(request => ['visit', 'financing'].includes(text(request.domain)))
   const interpretationSource = reservationObjective && inScope ? 'current_reservation' : inheritedPrice ? 'clarification_of_price_request'
@@ -86,6 +103,8 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   return {
     version: 'turn-intent-v2', objective, required_facts: requiredFacts,
     current_message: input.current,
+    price_request_status: requiredFacts.length || preserveDuringProfile && previous.continuation_goal === 'ask_price'
+      ? 'pending' : previous.price_request_status === 'answered' ? 'answered' : 'not_requested',
     ...(object(input.semantics.budget).status && object(input.semantics.budget).status !== 'not_discussed' ? { budget: input.semantics.budget } : {}),
     interpretation_source: interpretationSource,
     interpretation: { extractor_primary_intent: object(input.semantics.interpretation).extractor_primary_intent || input.semantics.primary_intent || 'other',
@@ -116,4 +135,31 @@ export function turnIntentIssues(reply: string, contract: unknown, verifiedPrice
   const amount = /(?:\$|USD)\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares)\b/i
   if (!amount.test(price)) return []
   return amount.test(reply) ? [] : ['turn_price_unanswered']
+}
+
+/** Called only after provider acceptance. A delivered clarification or recovery
+ * never closes the unanswered price request; independent content validation
+ * and literal coverage of the price fragment are both required. */
+export function rememberTurnIntentAfterReply(contract: unknown, audit: unknown, delivery: { accepted: boolean; recovery: boolean }): Row {
+  const intent = object(contract), review = object(audit), validation = object(review.final_validation)
+  if (intent.price_request_status !== 'pending' || !delivery.accepted || delivery.recovery
+    || !['checked', 'review_observed', 'review_disabled'].includes(text(review.status))
+    || validation.passed !== true || object(review.recovery).pending === true) return intent
+  const priceRequests = rows(intent.requests).filter(request => request.domain === 'property'
+    && (Array.isArray(request.topics) ? normalizedRequestTopics(request.topics)?.includes('purchase_price')
+      : asksUnitPrice(text(request.request), true)))
+  const fragments = priceRequests.map(request => text(request.evidence).trim()).filter(Boolean)
+  const referenceOnly = !fragments.length
+  if (!fragments.length && Array.isArray(intent.required_facts) && intent.required_facts.includes('price'))
+    fragments.push(text(intent.current_message))
+  const coverage = rows(review.requests)
+  const covered = fragments.length > 0 && fragments.every(fragment => {
+    const matches = coverage.filter(row => normalizedLiteral(row.fragment) && normalizedLiteral(row.fragment).includes(normalizedLiteral(fragment)))
+    const priceBound = (row: Row) => row.fact_key === 'price' || row.intent === 'ask_price'
+      || !referenceOnly && !text(row.fact_key)
+    return matches.some(row => row.status === 'answered' && priceBound(row))
+      && !matches.some(row => ['unanswered', 'clarification', 'missing_fact', 'outside_scope'].includes(text(row.status)))
+  })
+  return covered ? { ...intent, price_request_status: 'answered',
+    continuation_goal: intent.continuation_goal === 'ask_price' ? null : intent.continuation_goal } : intent
 }

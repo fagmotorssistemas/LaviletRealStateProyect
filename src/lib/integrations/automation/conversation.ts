@@ -37,7 +37,7 @@ import { isProfileOnlyTurn, leadIntroductionTurn, leadProfileCollectionDecision,
 import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
-import { resolveTurnIntent } from './turn-intent'
+import { resolveTurnIntent, rememberTurnIntentAfterReply } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { ensureReferentialPriceConditions } from './price-conditions'
 import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
@@ -1818,6 +1818,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   summary._visit_dialogue = rememberVisitDialogue(previousSummary._visit_dialogue, visitDialoguePlan, audit,
     canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
+    _turn_intent: rememberTurnIntentAfterReply(turnIntent, audit.turn_completeness, { accepted: true, recovery: pendingRecovery }),
     _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },
     _pending_requests: pendingRecovery ? pendingRequests : [],
     _response_recovery: pendingRecovery ? { ...object(object(audit.turn_completeness).recovery), source_message_id: activeLast.externalId,

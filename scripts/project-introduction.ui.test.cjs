@@ -1,15 +1,17 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs/promises'), path = require('node:path'), os = require('node:os'), http = require('node:http')
+require('./test-typescript.cjs')
+const { projectIntroductionSettings, LAVILET_APPROVED_INTRODUCTION } = require('../src/lib/inmobiliaria/projectIntroduction.ts')
 const esbuild = require('esbuild'), { chromium } = require('playwright')
 const root = path.join(__dirname, '..'), nativeFs = require('node:fs')
 const installedChrome = [process.env.PLAYWRIGHT_CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(candidate => candidate && nativeFs.existsSync(candidate))
 const initial = { projectName: 'La Vilet', mode: 'lanzamiento', pricesVisible: true, updatedAt: 'initial-version', configured: true,
   value: { stage: 'not_started', progress: '', verifiedOn: '2026-10-08', enabledPlaces: ['office'], primaryPlace: 'office', conditions: '', officeAtProjectSite: true },
-  introduction: { configured: false, value: { enabled: false, summary: '', source: '' } },
+  introduction: projectIntroductionSettings({}, 'La Vilet'),
   delivery: { configured: true, value: { enabled: false, timing: 'unknown', certainty: 'estimated', date: '', year: null, month: null, months: null, reference: 'date', referenceDate: '', conditions: '', source: '' } } }
-async function fixture() {
+async function fixture(initialState = initial) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavilet-project-introduction-'))
-  const entry = "import React from 'react';import {createRoot} from 'react-dom/client';import {ProjectReadinessSettings} from './src/components/inmobiliaria/automation/ProjectReadinessSettings';window.__writes=[];createRoot(document.getElementById('app')).render(<ProjectReadinessSettings projectId='project' initial={" + JSON.stringify(initial) + "}/>);"
+  const entry = "import React from 'react';import {createRoot} from 'react-dom/client';import {ProjectReadinessSettings} from './src/components/inmobiliaria/automation/ProjectReadinessSettings';window.__writes=[];createRoot(document.getElementById('app')).render(<ProjectReadinessSettings projectId='project' initial={" + JSON.stringify(initialState) + "}/>);"
   await esbuild.build({ stdin: { contents: entry, resolveDir: root, loader: 'tsx' }, bundle: true, outfile: path.join(dir, 'app.js'), platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': JSON.stringify('production') }, plugins: [{ name: 'project-settings-fixture', setup(build) {
     build.onResolve({ filter: /automatizacion\/proyecto\/actions$/ }, args => ({ path: args.path, namespace: 'mock-actions' }))
     build.onLoad({ filter: /.*/, namespace: 'mock-actions' }, () => ({ loader: 'js', contents:
@@ -40,15 +42,20 @@ test('desktop and mobile presentation editor help is accessible and harmless; sa
       const page = await context.newPage(), errors = []
       page.on('pageerror', error => errors.push(error.message)); await page.goto(f.url)
       const section = page.locator('#project-introduction'), enabled = section.getByRole('checkbox')
-      assert.equal(await enabled.isChecked(), false)
+      assert.equal(await page.getByRole('link', { name: 'Presentación inicial del proyecto', exact: true }).getAttribute('href'), '/inmobiliaria/automatizacion/proyecto#project-introduction')
+      await section.getByRole('status').getByText('Resumen aprobado de La Vilet activo', { exact: true }).waitFor()
+      assert.equal(await section.getByRole('textbox', { name: 'Resumen autorizado del proyecto', exact: false }).inputValue(), LAVILET_APPROVED_INTRODUCTION.summary)
+      await section.screenshot({ path: path.join(f.dir, mobile ? 'mobile-default.png' : 'desktop-default.png') })
+      assert.equal(await enabled.isChecked(), true)
       const help = section.getByRole('button', { name: 'Ayuda: Utilizar la presentación configurada', exact: true })
       if (mobile) await help.tap(); else await help.click()
       await page.getByRole('dialog').waitFor(); assert.match(await page.getByRole('dialog').innerText(), /consulta general/)
       await page.keyboard.press('Escape'); assert.equal(await help.evaluate(node => node === document.activeElement), true)
-      assert.equal(await enabled.isChecked(), false); assert.equal(await page.evaluate(() => window.__writes.length), 0)
+      assert.equal(await enabled.isChecked(), true); assert.equal(await page.evaluate(() => window.__writes.length), 0)
       await section.getByRole('textbox', { name: 'Resumen autorizado del proyecto', exact: false }).fill('La Vilet combina viviendas y locales comerciales en Cuenca.')
       await section.getByRole('textbox', { name: 'Fuente o responsable del resumen', exact: false }).fill('Responsable comercial')
       await enabled.check()
+      await section.getByRole('status').getByText('Presentación pendiente de guardar', { exact: true }).waitFor()
       assert.equal(await page.evaluate(() => window.__writes.length), 0)
       await section.getByRole('button', { name: 'Guardar presentación', exact: true }).click()
       await section.getByText('Presentación guardada. Se aplicará a las próximas consultas generales del proyecto.', { exact: true }).waitFor()
@@ -69,4 +76,33 @@ test('desktop and mobile presentation editor help is accessible and harmless; sa
     }
     console.log('UI screenshots: ' + f.dir)
   } finally { await browser?.close(); await new Promise(resolve => f.server.close(resolve)) }
+})
+
+
+test('the editor respects saved disabled, customized, invalid and unrelated-project settings', { timeout: 60000 }, async () => {
+  const custom = { enabled: true, summary: 'Resumen personalizado autorizado.', source: 'Responsable comercial' }
+  const scenarios = [
+    { name: 'disabled', projectName: 'La Vilet', policies: { project_introduction: { current: { ...custom, enabled: false } } }, enabled: false, summary: custom.summary },
+    { name: 'custom', projectName: 'La Vilet', policies: { project_introduction: { current: custom } }, enabled: true, summary: custom.summary },
+    { name: 'invalid', projectName: 'La Vilet', policies: { project_introduction: { current: false } }, enabled: false, summary: '' },
+    { name: 'unrelated', projectName: 'La Vilet II', policies: {}, enabled: false, summary: '' },
+  ]
+  const browser = await chromium.launch({ headless: true, ...(installedChrome ? { executablePath: installedChrome } : {}) })
+  try {
+    for (const scenario of scenarios) {
+      const f = await fixture({ ...initial, projectName: scenario.projectName,
+        introduction: projectIntroductionSettings(scenario.policies, scenario.projectName) })
+      const page = await browser.newPage({ viewport: { width: 1366, height: 900 } })
+      try {
+        await page.goto(f.url)
+        const section = page.locator('#project-introduction')
+        assert.equal(await section.getByRole('checkbox').isChecked(), scenario.enabled, scenario.name)
+        assert.equal(await section.getByRole('textbox', { name: 'Resumen autorizado del proyecto', exact: false }).inputValue(), scenario.summary, scenario.name)
+        assert.doesNotMatch(await section.getByRole('status').innerText(), /Resumen aprobado de La Vilet activo/, scenario.name)
+        assert.equal(await page.evaluate(() => window.__writes.length), 0)
+        if (scenario.name === 'invalid') assert.match(await section.getByRole('alert').innerText(), /guardada no es válida/)
+        if (scenario.name === 'unrelated') assert.equal(await section.getByRole('button', { name: 'Usar resumen aprobado de La Vilet', exact: true }).count(), 0)
+      } finally { await page.close(); await new Promise(resolve => f.server.close(resolve)) }
+    }
+  } finally { await browser.close() }
 })

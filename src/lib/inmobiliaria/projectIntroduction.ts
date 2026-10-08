@@ -1,3 +1,16 @@
+export const LAVILET_APPROVED_INTRODUCTION = {
+  enabled: true,
+  summary: 'La Vilet es un proyecto de uso mixto ubicado en Puertas del Sol, Cuenca, que combina áreas comerciales dinámicas con modernas unidades residenciales. Cuenta con 49 unidades de vivienda, incluyendo suites, departamentos de 2 y 3 dormitorios, distribuidas en varios niveles junto a espacios comerciales.',
+  source: 'Resumen aprobado por el administrador del proyecto en la revisión de la conversación.',
+}
+
+/** A dedicated project default, never a fallback for an unrelated project or an invalid saved configuration. */
+export function approvedProjectIntroduction(projectName: string): ProjectIntroduction | null {
+  const name = projectName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, ' ')
+  return ['la vilet', 'lavilet', 'edificio la vilet', 'edificio lavilet'].includes(name)
+    ? { ...LAVILET_APPROVED_INTRODUCTION } : null
+}
+
 export type ProjectIntroduction = { enabled: boolean; summary: string; source: string }
 const row = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 
@@ -17,9 +30,12 @@ export function validateProjectIntroduction(value: unknown): ProjectIntroduction
   return current
 }
 
-export function projectIntroductionSettings(policies: unknown): { configured: boolean; value: ProjectIntroduction; error?: string } {
-  const saved = row(row(policies).project_introduction).current
-  if (!saved) return { configured: false, value: emptyProjectIntroduction() }
+export function projectIntroductionSettings(policies: unknown, projectName = ''): { configured: boolean; value: ProjectIntroduction; defaulted?: boolean; error?: string } {
+  const configuration = row(row(policies).project_introduction), saved = configuration.current
+  if (!Object.hasOwn(configuration, 'current')) {
+    const approved = approvedProjectIntroduction(projectName)
+    return { configured: false, value: approved || emptyProjectIntroduction(), ...(approved ? { defaulted: true } : {}) }
+  }
   try { return { configured: true, value: validateProjectIntroduction(saved) } }
   catch { return { configured: false, value: emptyProjectIntroduction(), error: 'La presentación guardada no es válida. Revise los datos y guarde nuevamente.' } }
 }
@@ -30,9 +46,9 @@ export function changeProjectIntroduction(policies: unknown, value: unknown, act
     history: [{ previous: saved.current || null, current, at: now, by: actor }, ...(Array.isArray(saved.history) ? saved.history : [])].slice(0, 20) } }
 }
 
-export function projectIntroductionContext(policies: unknown) {
-  const settings = projectIntroductionSettings(policies), value = settings.value
-  return settings.configured && value.enabled
-    ? { available: true, summary: value.summary, source: value.source, content_kind: 'approved_business_summary' }
+export function projectIntroductionContext(policies: unknown, projectName = '') {
+  const settings = projectIntroductionSettings(policies, projectName), value = settings.value
+  return (settings.configured || settings.defaulted) && value.enabled
+    ? { available: true, summary: value.summary, source: value.source, content_kind: 'approved_business_summary', ...(settings.defaulted ? { defaulted: true } : {}) }
     : { available: false, status: settings.error ? 'invalid' : !settings.configured ? 'unconfigured' : 'disabled' }
 }

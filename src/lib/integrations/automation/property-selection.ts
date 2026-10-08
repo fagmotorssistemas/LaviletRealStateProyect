@@ -13,6 +13,11 @@ import { commercialJourneyPlan } from './commercial-journey'
 type PropertyCategory = 'suite' | 'departamento' | 'penthouse' | 'local'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
+const pricesAllowedForTurn = (info: Row) => {
+  const scope = object(info.alcance_contenido_turno)
+  return object(info.politica_comercial).precios_autorizados === true
+    && (scope.version !== 'response-content-scope-v1' || object(object(scope.topics).purchase_prices).allowed === true)
+}
 const categoryLabels: Record<PropertyCategory, { singular: string; plural: string }> = {
   suite: { singular: 'suite', plural: 'suites' },
   departamento: { singular: 'departamento', plural: 'departamentos' },
@@ -261,7 +266,7 @@ function categoryReply(info: Row, current: string, category: PropertyCategory) {
 
 function uncertainBudgetReply(info: Row, category: PropertyCategory) {
   const units = availableCatalog(info, category)
-  const pricesAllowed = object(info.politica_comercial).precios_autorizados === true
+  const pricesAllowed = pricesAllowedForTurn(info)
   const floors = floorOptions(units, pricesAllowed)
   const label = categoryLabels[category]
   const options = floors.length ? ` Estas son las plantas disponibles: ${floors.join('; ')}.` : ''
@@ -272,7 +277,7 @@ function uncertainBudgetReply(info: Row, category: PropertyCategory) {
 }
 
 function compareFloorsReply(info: Row, category: PropertyCategory) {
-  const pricesAllowed = object(info.politica_comercial).precios_autorizados === true
+  const pricesAllowed = pricesAllowedForTurn(info)
   const floors = floorOptions(availableCatalog(info, category), pricesAllowed)
   const label = categoryLabels[category]
   if (!floors.length) return ''
@@ -286,11 +291,11 @@ function selectedUnitReply(info: Row, unit: Row, current: string) {
   const category = categoryFrom(unit.category) || 'departamento'
   const label = categoryLabels[category].singular
   const location = floorLabel(unit)
-  const pricesAllowed = object(info.politica_comercial).precios_autorizados === true
+  const pricesAllowed = pricesAllowedForTurn(info)
   const price = pricesAllowed && Number(unit.published_commercial_price) > 0 ? Number(unit.published_commercial_price) : null
   const approximate = object(info.politica_comercial).precios_aproximados === true
   let reply = `Perfecto. ${category === 'suite' ? 'La' : 'El'} ${label} ${text(unit.unit_number)} está ${location ? `en ${location}` : 'disponible'}`
-  if (price) reply += ` y su valor${approximate ? ' referencial de lanzamiento' : ''} es de ${money(price)}.`
+  if (price) reply += ` y su valor${approximate ? ' referencial vigente' : ''} es de ${money(price)}.`
   else reply += '.'
   if (category !== 'local' && /^\d{3,4}$/.test(text(unit.unit_number))) {
     reply += ` Puede explorar${category === 'suite' ? 'la' : 'lo'} en el recorrido virtual: ${unitTourUrl(text(unit.unit_number))}`

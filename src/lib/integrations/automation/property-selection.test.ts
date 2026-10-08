@@ -199,3 +199,13 @@ describe('budget and price timing', () => {
     assert.deepEqual(issues, ['style'])
   })
 })
+
+for (const allowed of [false, true]) it('property base respects structured purchase-price scope: ' + allowed, () => {
+  const scope = { version: 'response-content-scope-v1', topics: { purchase_prices: { allowed, reason: 'current-turn-test' } } }
+  const result = propertySelectionReply(baseInfo({ referencia_unidad: { explicit: true, matches: [apartment202] },
+    alcance_contenido_turno: scope }), 'Prefiero el 202')
+  assert.ok(result)
+  assert.match(result.reply, /202/)
+  assert.equal(/300[.,]000/.test(result.reply), allowed)
+  assert.doesNotMatch(result.reply, /lanzamiento/)
+})

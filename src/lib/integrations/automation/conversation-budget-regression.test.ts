@@ -25,8 +25,9 @@ test('inclusive price endpoints reach the first writer and a real comparison def
     const tasks: string[] = [], failures: string[] = []
     let writers = 0
     const reply = `${correctStatement} ${continuation}`
-    const result = await completeTurnReply({ current: 'Me interesan los departamentos y el financiamiento', baseReply: reply,
-      verified: { catalogo: catalog }, audit: { semantic_review_enabled: true, business_risk_review_enabled: true } },
+    const result = await completeTurnReply({ current: 'Me interesan los departamentos, sus precios y el financiamiento', baseReply: reply,
+      verified: { catalogo: catalog, semantica_turno: { primary_intent: 'ask_price', primary_evidence: 'sus precios', confidence: 'high',
+        requests: [{ domain: 'property', request: 'Precios de los departamentos', evidence: 'sus precios', confidence: 'high', topics: ['purchase_price'] }] } }, audit: { semantic_review_enabled: true, business_risk_review_enabled: true } },
     async (instructions, input, _schema, _image, _file, _tone, task = 'data') => {
       try {
         tasks.push(task)

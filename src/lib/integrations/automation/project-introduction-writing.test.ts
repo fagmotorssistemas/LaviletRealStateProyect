@@ -39,7 +39,7 @@ for (const observation of [false, true]) for (const specific of [false, true]) {
     } else {
       assert.equal(object(selected.presentacion_general_proyecto).summary, summary)
       assert.match(instructions, /Presentación general del proyecto/)
-      assert.match(instructions, /No añada cantidades, plantas, precios/)
+      assert.match(instructions, /Conserve las cantidades autorizadas del resumen; no añada fichas, precios, estado de obra o fechas ajenos/)
       assert.match(instructions, /pregunta de perfil o la decisión pendiente/)
     }
   })

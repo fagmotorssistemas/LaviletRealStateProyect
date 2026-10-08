@@ -6,5 +6,6 @@ export function KnowledgeNavigation({ active }: { active?: string }) {
   return <nav className={styles.navigation} aria-label="Conocimiento y reglas">
     {KNOWLEDGE_SECTIONS.map(section => <Link key={section.id} href={knowledgeHref(section.id)}
       aria-current={section.id === active ? 'page' : undefined}>{section.label}</Link>)}
+    <Link href="/inmobiliaria/automatizacion/proyecto#project-introduction">Presentación inicial del proyecto</Link>
   </nav>
 }

@@ -1,7 +1,7 @@
 import { object, type Row } from './data'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 
-export const REFERENTIAL_PRICE_NOTICE = 'Estos precios son referenciales de lanzamiento y pueden cambiar.'
+export const REFERENTIAL_PRICE_NOTICE = 'Estos son los precios referenciales vigentes y pueden cambiar.'
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 
@@ -33,9 +33,8 @@ function disclosedPurchasePrice(reply: string, verified: Row, audit: Row): boole
 function completeNotice(reply: string): boolean {
   const m = normalized(reply)
   const referential = /\b(?:referencial(?:es)?|aproximad[oa]s?|orientativ[oa]s?|de referencia)\b/.test(m)
-  const launch = /\blanzamiento\b/.test(m)
   const variable = /\b(?:pueden?\s+(?:cambiar|variar)|podrian?\s+(?:cambiar|variar)|podran?\s+(?:cambiar|variar)|sujet[oa]s?\s+a\s+(?:cambios?|variaciones?|actualizaciones?|modificaciones?)|posibilidad\s+de\s+(?:cambio|variacion))\b/.test(m)
-  return referential && launch && variable
+  return referential && variable
 }
 
 /** Prepare a policy-owned qualifier BEFORE reviewing the complete message. */

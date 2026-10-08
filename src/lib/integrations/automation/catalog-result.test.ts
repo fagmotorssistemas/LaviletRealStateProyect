@@ -52,7 +52,8 @@ test('one extractor call preserves typed comparisons with embeddings enabled or 
   ] as [string,string,Row][]) {
     const raw: Row=structuredClone(profileFixture)
     raw.full_name=raw.residence_city=null;raw.profile_evidence={full_name:null,residence_city:null,residence_country:null}
-    raw.requests=[{domain:'property',request:message,evidence:message,confidence:'high'}]
+    raw.requests=[{domain:'property',request:message,evidence:message,confidence:'high',
+      topics:message===exteriorMessage?['property_options','property_features']:['property_options']}]
     const semantics=object(raw.turn_semantics), property=object(semantics.property)
     semantics.primary_intent='project_information';semantics.primary_evidence=message
     semantics.answer_to_previous={question_id:'none',kind:'none',evidence:'',confidence:'high'}

@@ -108,7 +108,7 @@ test('neutral property does not lose an active budget or a current request for a
     semantics.primary_intent = scenario === 'budget' ? 'discuss_budget' : 'other'
     semantics.primary_evidence = message
     semantics.answer_to_previous = { kind: 'none', question_id: 'none', evidence: '', confidence: 'high' }
-    raw.requests = [{ request: message, evidence: message, domain: scenario === 'budget' ? 'financing' : 'advisor', confidence: 'high' }]
+    raw.requests = [{ request: message, evidence: message, domain: scenario === 'budget' ? 'financing' : 'advisor', topics: scenario === 'budget' ? ['financing'] : [], confidence: 'high' }]
     if (scenario === 'budget') semantics.budget = { status: 'initial_capital', amount: 100, evidence: message, confidence: 'high' }
     else { raw.requested_advisor = true; object(raw.action_evidence).requested_advisor = message }
     assertSchema(raw, TURN_EXTRACTION_SCHEMA)

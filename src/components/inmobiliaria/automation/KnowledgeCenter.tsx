@@ -90,8 +90,8 @@ export function KnowledgeCenter({ projectId, initial, section, policyId }: {
     {!showPolicies && !entries.length && <p className={styles.description}>No se encontraron configuraciones.</p>}
     {active.id === 'proyecto' && !search && <ProjectAreaFactsSettings projectId={projectId} initial={saved.areaFacts} loadError={saved.areaError} />}
     {active.id === 'conversacion' && !search && <div className={styles.card}>
-      <h2>Reglas obligatorias del flujo</h2><p>La restricción de presentar tipos de inmuebles antes de recoger los datos sigue en el flujo de apertura. La validación de cifras exactas, identidad confirmada y acciones realizadas sigue a cargo del sistema.</p>
-      <p>Estas reglas requieren cambios de desarrollo; la personalidad y las preguntas editables se administran arriba.</p>
+      <h2>Reglas obligatorias del flujo</h2><p>Una consulta general inicial utiliza el resumen breve aprobado del proyecto. Las consultas concretas se atienden según lo solicitado, sin imponer fichas completas, precios o etapa comercial. La recopilación de nombre y residencia continúa según los datos que falten.</p>
+      <p>La validación de cifras, identidad confirmada y acciones realizadas sigue a cargo del sistema. El resumen aprobado, la personalidad y las preguntas se administran en sus configuraciones.</p>
     </div>}
     {editing && <section className={styles.editor} aria-label="Editor de política comercial">
       <h2>{found ? 'Editar política' : 'Nueva política comercial'}</h2>

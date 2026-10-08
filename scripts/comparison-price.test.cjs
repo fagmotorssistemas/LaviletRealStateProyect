@@ -83,7 +83,8 @@ test('all response modes use the same reference and pricing policy', () => {
     const presale = unitPriceQuote(info({ modo_ia: mode, modo_comercial: 'preventa', politica_comercial: { precios_autorizados: true, precios_aproximados: false } }), '¿Y en precio?', {})
     assert.deepEqual(launch.prices, [250000, 270000])
     assert.deepEqual(presale.prices, launch.prices)
-    assert.match(launch.reply, /referenciales de lanzamiento/)
+    assert.match(launch.reply, /referenciales vigentes/)
+    assert.doesNotMatch(launch.reply, /lanzamiento/)
     assert.doesNotMatch(presale.reply, /aproximad|referencial|lanzamiento/)
   }
 })
@@ -261,7 +262,7 @@ test('a focused price quote explains the bedroom filter and verified common floo
   const input = info({ catalogo: units, historial: [], property_context: { query },
     referencia_unidad: { reason: 'catalog_search', explicit: false, query, matches: units.slice(1) } })
   const quote = unitPriceQuote(input, '¿Y cuál es el precio de los penthouses?', {})
-  assert.equal(quote.reply, 'Los penthouses de 3 dormitorios son el 602 y el 605, ambos ubicados en la sexta planta alta, con un valor referencial de lanzamiento de $550.000 USD cada uno, sujeto a cambios. ¿Le gustaría obtener más detalles de alguna de estas opciones?')
+  assert.equal(quote.reply, 'Los penthouses de 3 dormitorios son el 602 y el 605, ambos ubicados en la sexta planta alta, con un valor referencial vigente de $550.000 USD cada uno, sujeto a cambios. ¿Le gustaría obtener más detalles de alguna de estas opciones?')
   assert.deepEqual(quote.followUp, { question: '¿Le gustaría obtener más detalles de alguna de estas opciones?',
     purpose: 'explore_quoted_options', candidate_ids: ['p602', 'p605'], category: 'penthouse', bedrooms: 3 })
   assert.equal(quote.comparison, undefined)

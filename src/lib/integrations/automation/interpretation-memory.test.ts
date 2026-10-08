@@ -17,7 +17,7 @@ function response(message = current): Row {
   raw.full_name = raw.residence_city = null
   raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
   raw.events = ['asked_financing']
-  raw.requests = [{ domain: 'financing', request: 'Consultar el proceso de financiamiento', evidence: message, confidence: 'high' }]
+  raw.requests = [{ domain: 'financing', topics: ['financing'], request: 'Consultar el proceso de financiamiento', evidence: message, confidence: 'high' }]
   const semantics = object(raw.turn_semantics)
   semantics.primary_intent = 'ask_financing'
   semantics.primary_evidence = message

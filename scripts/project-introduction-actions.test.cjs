@@ -73,3 +73,20 @@ test('loading and disabling preserve the approved text and do not change the tes
   assert.equal(introduction.projectIntroductionContext(h.saved.policies_json).available, false)
   assert.equal(h.saved.policies_json.response_review, undefined); assert.equal(h.saved.policies_json.test_only, undefined)
 })
+
+
+test('loading the approved default is read-only and saving a disabled version prevents its return', async () => {
+  const h = harness(), before = structuredClone(h.saved.policies_json)
+  const loaded = await h.loadProjectReadiness('project')
+  assert.equal(loaded.introduction.defaulted, true)
+  assert.equal(loaded.introduction.value.enabled, true)
+  assert.equal(loaded.introduction.value.summary, introduction.LAVILET_APPROVED_INTRODUCTION.summary)
+  assert.equal(h.writes.length, 0)
+  assert.deepEqual(h.saved.policies_json, before)
+  const result = await h.saveProjectIntroduction('project', { ...loaded.introduction.value, enabled: false }, loaded.updatedAt)
+  assert.equal(result.ok, true)
+  const again = await h.loadProjectReadiness('project')
+  assert.equal(again.introduction.value.enabled, false)
+  assert.equal(again.introduction.defaulted, undefined)
+  assert.equal(again.introduction.value.summary, loaded.introduction.value.summary)
+})
