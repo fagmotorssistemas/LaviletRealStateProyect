@@ -2,8 +2,8 @@
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
-import { Hand, Minus, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { Box, Hand, Minus, Plus, Square } from 'lucide-react'
 import {
   floorPlanLevelLabel,
   floorPlanLevelShort,
@@ -404,6 +404,7 @@ export function TourFloorPlan({
   touchesLocked = false,
   onFloorPresented,
   onEmptyPlanTap,
+  selectedUnitId,
 }: TourFloorPlanProps) {
   const { t, locale } = useTourLanguage()
 
@@ -450,7 +451,6 @@ export function TourFloorPlan({
   /** Área disponible del stage: para encajar el plano sin romper aspect-ratio. */
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
-  const [pinNudge, setPinNudge] = useState<Record<string, '-50%' | '-100%' | '0%'>>({})
   /** Dimensiones naturales medidas del <img> activo (corrige metadata vieja). */
   const [measuredImageSize, setMeasuredImageSize] = useState<
     Partial<Record<string, { width: number; height: number }>>
@@ -519,37 +519,6 @@ export function TourFloorPlan({
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-
-  useLayoutEffect(() => {
-    const stage = stageRef.current
-    if (!stage) return
-    const pins = [...stage.querySelectorAll<HTMLElement>('[data-pin-id]')]
-    const sr = stage.getBoundingClientRect()
-    const next: Record<string, '-50%' | '-100%' | '0%'> = {}
-    for (const pin of pins) {
-      const id = pin.dataset.pinId
-      if (!id) continue
-      const rect = pin.getBoundingClientRect()
-      const applied = pinNudge[id] ?? '-50%'
-      let centeredLeft = rect.left
-      let centeredRight = rect.right
-      if (applied === '-100%') {
-        centeredLeft += rect.width / 2
-        centeredRight += rect.width / 2
-      } else if (applied === '0%') {
-        centeredLeft -= rect.width / 2
-        centeredRight -= rect.width / 2
-      }
-      let x: '-50%' | '-100%' | '0%' = '-50%'
-      if (centeredRight > sr.right - 2) x = '-100%'
-      else if (centeredLeft < sr.left + 2) x = '0%'
-      next[id] = x
-    }
-    const prevKeys = Object.keys(pinNudge)
-    const nextKeys = Object.keys(next)
-    if (prevKeys.length === nextKeys.length && nextKeys.every((key) => pinNudge[key] === next[key])) return
-    setPinNudge(next)
-  })
 
   const upsertLayer = (view: ReadyFloorView) => {
     const layer = toLayer(view)
@@ -1451,12 +1420,16 @@ export function TourFloorPlan({
           {showPlanChrome ? (
             <div
               className={cn(
-                'tour-float-row tour-float-row--left pointer-events-auto z-30 flex gap-[var(--fab-gap)]',
+                'pointer-events-auto absolute z-30 flex rounded-full border border-[#bda27e]/40 bg-[#14110e]/55 p-0.5 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
+                shortScreen
+                  ? 'top-[calc(44px+env(safe-area-inset-top)+0.35rem)] left-1.5'
+                  : 'top-[calc(4rem+env(safe-area-inset-top)+0.75rem)] left-3 sm:left-4',
               )}
             >
               {(['2d', '3d'] as const).map((item) => {
                 const available = item === '2d' ? has2d : has3d
                 const active = planVariant === item
+                const Icon = item === '2d' ? Square : Box
                 return (
                   <button
                     key={item}
@@ -1464,7 +1437,8 @@ export function TourFloorPlan({
                     disabled={!available}
                     onClick={() => switchVariant(item)}
                     className={cn(
-                      'tour-fab tour-plan-variant text-[11px] font-semibold uppercase tracking-wide transition-colors',
+                      'tour-plan-variant inline-flex items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
+                      '[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11',
                       active
                         ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
                         : available
@@ -1478,6 +1452,7 @@ export function TourFloorPlan({
                         : `Todavía no hay plano ${item.toUpperCase()}`)
                     }
                   >
+                    <Icon size={13} strokeWidth={2} aria-hidden />
                     {t(item)}
                   </button>
                 )
@@ -1666,7 +1641,8 @@ export function TourFloorPlan({
               >
               {displaySlots.map((slot) => {
                 const opens = slotOpens(slot)
-                const hovered = hoverSlot === slot.id && opens
+                const marked = opens && (hoverSlot === slot.id || slot.unit?.id === selectedUnitId)
+                const hovered = marked
                 const areaFill = hovered ? 'rgba(189,162,126,0.46)' : 'rgba(189,162,126,0.22)'
                 const areaStroke = hovered ? '#BDA27E' : 'rgba(189,162,126,0.95)'
                 return (
@@ -1721,9 +1697,9 @@ export function TourFloorPlan({
               {displaySlots.map((slot) => {
                 const { cx, cy } = slotCentroid(slot.points)
                 const opens = slotOpens(slot)
-                const hovered = hoverSlot === slot.id && opens
+                const marked = opens && (hoverSlot === slot.id || slot.unit?.id === selectedUnitId)
+                const hovered = marked
                 const label = slot.area ? slot.label : (slot.unit?.unit_number ?? slot.label)
-                const shiftX = pinNudge[slot.id] ?? '-50%'
                 const shiftY = cy > 86 ? '-100%' : cy < 14 ? '0%' : '-50%'
 
                 return (
@@ -1750,7 +1726,7 @@ export function TourFloorPlan({
                       hovered && slot.area && 'ring-2 ring-[#BDA27E]',
                     )}
                     data-pin-id={slot.id}
-                    style={{ left: `${cx}%`, top: `${cy}%`, transform: `translate(${shiftX}, ${shiftY})` }}
+                    style={{ left: `${cx}%`, top: `${cy}%`, transform: `translate(-50%, ${shiftY})` }}
                     aria-label={t(slot.area ? slot.label : slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
                   >
                     <span
@@ -1814,7 +1790,6 @@ export function TourFloorPlan({
             <div className="pointer-events-none absolute inset-0 z-[4]">
               {displaySlots.filter((slot) => slot.area).map((slot) => {
                 const { cx, cy } = slotCentroid(slot.points)
-                const shiftX = pinNudge[slot.id] ?? '-50%'
                 const shiftY = cy > 86 ? '-100%' : cy < 14 ? '0%' : '-50%'
                 return (
                   <button
@@ -1828,7 +1803,7 @@ export function TourFloorPlan({
                     onClick={(event) => onSlotClick(slot, event)}
                     data-pin-id={slot.id}
                     className="tour-unit-pin pointer-events-auto absolute z-[2] flex items-center justify-center gap-1.5 rounded-md border border-[#BDA27E] bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)]"
-                    style={{ left: `${cx}%`, top: `${cy}%`, transform: `translate(${shiftX}, ${shiftY})` }}
+                    style={{ left: `${cx}%`, top: `${cy}%`, transform: `translate(-50%, ${shiftY})` }}
                     aria-label={slot.label}
                   >
                     <span className="h-2 w-2 shrink-0 rounded-full bg-[#BDA27E]" />
@@ -1868,18 +1843,31 @@ export function TourFloorPlan({
       </div>
 
       <div
-        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(clamp(56px,5vw,84px)+2px)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md"
+        className={cn(
+          'tour-floor-rail pointer-events-auto absolute top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(clamp(56px,5vw,84px)+2px)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
+          portraitPan
+            ? 'left-[max(0.5rem,env(safe-area-inset-left))]'
+            : 'right-[max(0.5rem,env(safe-area-inset-right))]',
+        )}
         style={{
           WebkitOverflowScrolling: 'touch',
-          ...(shortScreen
+          ...(portraitPan && showPlanChrome
             ? {
-                top: 'calc(44px + env(safe-area-inset-top) + 0.35rem)',
+                top: 'calc(4rem + env(safe-area-inset-top) + 4.75rem)',
                 bottom: 'max(0.5rem, env(safe-area-inset-bottom))',
                 transform: 'none',
                 translate: 'none',
                 maxHeight: 'none',
               }
-            : null),
+            : {
+                top: shortScreen
+                  ? 'calc(44px + env(safe-area-inset-top) + 0.35rem)'
+                  : 'calc(4rem + env(safe-area-inset-top) + 0.5rem)',
+                bottom: 'calc(var(--edge-bottom) + (var(--fab) * 2) + (var(--fab-gap) * 2))',
+                transform: 'none',
+                translate: 'none',
+                maxHeight: 'none',
+              }),
         }}
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}
@@ -1911,7 +1899,16 @@ export function TourFloorPlan({
         </div>
       </div>
 
-      <div className="tour-floor-side pointer-events-auto absolute z-30 flex w-[var(--fab)] flex-col items-center gap-[var(--fab-gap)]" style={{ right: 'calc(clamp(56px, 5vw, 84px) + var(--fab-gap) + var(--edge-right))', bottom: 'var(--edge-bottom)' }}>
+      <div
+        className={cn(
+          'tour-floor-side pointer-events-auto absolute z-30 flex w-[var(--fab)] flex-col items-center gap-[var(--fab-gap)]',
+        )}
+        style={
+          portraitPan
+            ? { left: 'calc(clamp(56px, 5vw, 84px) + var(--fab-gap) + var(--edge-left))', bottom: 'var(--edge-bottom)' }
+            : { right: 'var(--edge-right)', bottom: 'var(--edge-bottom)' }
+        }
+      >
         {railTrailing}
         {SITE.whatsapp && whatsappHref ? (
           <a

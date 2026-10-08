@@ -52,6 +52,7 @@ import { TourNavModeModal, type TourNavMode } from '@/components/tour/TourNavMod
 import { TourVoiceAssist } from '@/components/tour/TourVoiceAssist'
 import { ShowroomMenu } from '@/components/tour/ShowroomMenu'
 import { TourAmenitiesGallery } from '@/components/tour/TourAmenitiesGallery'
+import { TourLocationView } from '@/components/tour/TourLocationView'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
 import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
@@ -1299,6 +1300,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(false)
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
+  const [locationFromMenu, setLocationFromMenu] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(false)
   const [simulatorOpen, setSimulatorOpen] = useState(false)
@@ -3620,6 +3622,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={(view) => {
           setAmenitiesOpen(false)
+          setLocationFromMenu(false)
           setEntryVideo(false)
           setDroneOn(false)
           setCoverHidden(false)
@@ -3646,7 +3649,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setVoiceAssistOpen(false)
           if (reopen) void coverVideoRef.current?.play().catch(() => undefined)
         }}
-        onAmenities={()=>{setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onAmenities={()=>{setLocationFromMenu(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onLocation={()=>{setAmenitiesOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(true)}}
         onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
           setAmenitiesOpen(false)
@@ -3671,6 +3675,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }}
       />
       <TourAmenitiesGallery open={amenitiesOpen} />
+      <TourLocationView open={locationFromMenu} fromMenu onClose={() => setLocationFromMenu(false)} />
       <div
         className="absolute inset-0 overflow-hidden"
         style={

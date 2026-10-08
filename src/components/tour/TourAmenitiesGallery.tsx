@@ -108,10 +108,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         const b = pts[1]
         if (!a || !b) return
         const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
-        const box = event.currentTarget.getBoundingClientRect()
-        const boxAspect = box.height > 0 ? box.width / box.height : 1
-        const contain = Math.min(boxAspect, aspectRef.current) / Math.max(boxAspect, aspectRef.current)
-        const next = Math.max(contain, Math.min(3, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+        const next = Math.max(1, Math.min(3, pinchRef.current.scale * (dist / pinchRef.current.dist)))
         setZoom(Number(next.toFixed(3)))
       }}
       onPointerUp={(event) => {
@@ -205,8 +202,8 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         <button
           type="button"
           aria-label={t('Alejar')}
-          disabled={zoom <= 0.45}
-          onClick={() => setZoom((value) => Math.max(0.45, Math.round((value - 0.25) * 100) / 100))}
+          disabled={zoom <= 1}
+          onClick={() => setZoom((value) => Math.max(1, Math.round((value - 0.25) * 100) / 100))}
           onPointerDown={(event) => event.stopPropagation()}
           className="tour-zoom-btn disabled:opacity-40"
         >

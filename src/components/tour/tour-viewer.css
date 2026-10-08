@@ -1081,6 +1081,35 @@ html.tour-is-force-landscape body {
   }
 }
 
+/* Escritorio: la ficha corta no estira un hueco blanco encima del botón. */
+@media (min-width: 701px) and (min-height: 501px) {
+  .tour-ficha-sheet--compact.tour-modal-sheet {
+    bottom: auto !important;
+    height: fit-content !important;
+    max-height: calc(100dvh - 5.5rem - env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .tour-ficha-sheet--compact .tour-ficha-shorthead {
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    min-height: 44px;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .tour-ficha-sheet--compact .tour-ficha-media,
+  .tour-ficha-sheet--compact .tour-ficha-identity {
+    display: none !important;
+  }
+
+  .tour-ficha-sheet--compact .tour-ficha-body,
+  .tour-ficha-sheet--compact .tour-ficha-scroll {
+    flex: 0 1 auto !important;
+    min-height: 0 !important;
+  }
+}
+
 /* iPhone vertical: la ficha no tapa el recorrido. Crece con el contenido y se corta al pasar de alto. */
 @media (max-width: 700px) and (min-height: 501px) {
   .tour-ficha-sheet.tour-modal-sheet {

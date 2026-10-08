@@ -2,13 +2,13 @@
 
 import { useEffect } from 'react'
 import Image from 'next/image'
-import { X } from 'lucide-react'
+import { ArrowLeft, X } from 'lucide-react'
 import { SITE } from '@/lib/marketing/site'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 const MAP = 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/ubicacion_lavilet.png'
 
-export function TourLocationView({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function TourLocationView({ open, onClose, fromMenu = false }: { open: boolean; onClose: () => void; fromMenu?: boolean }) {
   const { t } = useTourLanguage()
   useEffect(() => {
     if (!open) return
@@ -36,14 +36,25 @@ export function TourLocationView({ open, onClose }: { open: boolean; onClose: ()
               {t('ABRIR EN\nGOOGLE\nMAPS')}
             </span>
           </a>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex min-h-10 items-center gap-2 text-xs text-[#756044] underline"
-          >
-            <X size={14} aria-hidden="true" />
-            {t('Cerrar')}
-          </button>
+          {fromMenu ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#bda27e]/60 bg-white px-4 text-sm text-[#29251e]"
+            >
+              <ArrowLeft size={16} aria-hidden="true" />
+              {t('Volver')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex min-h-10 items-center gap-2 text-xs text-[#756044] underline"
+            >
+              <X size={14} aria-hidden="true" />
+              {t('Cerrar')}
+            </button>
+          )}
         </div>
         <div className="relative min-h-[70dvh] min-w-0 flex-1 md:h-full md:min-h-0">
           <Image
