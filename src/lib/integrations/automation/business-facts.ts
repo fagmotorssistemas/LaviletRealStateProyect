@@ -2,9 +2,11 @@ import { object, text, type Row } from './data'
 import { CATALOG_NUMBER_FIELDS, requirementMatch } from './catalog-request'
 import { DISCOUNT_NUMBER_FIELDS, DISCOUNT_FACT_UNITS, DISCOUNT_REFERENCE_RULES, discountReferenceEvidence } from './discount-evidence'
 import { claimWithinCatalogScope } from './catalog-fact-scope'
+import { CONTEXTUAL_CALCULATION_SCHEMA, CONTEXTUAL_REASONING_RULES, contextualCalculationCheck, groundedResultQuantityPresent, type ResultUnit, type ContextualReasoningEvidence } from './contextual-reasoning'
 
 const fields = ['published_commercial_price', 'area_internal_m2', 'area_exterior_m2', 'bedrooms', 'bathrooms_full',
   'area_total_m2', 'floor_number', 'category', 'availability_status', 'status', 'unit_number', 'unit_count', 'amount', ...DISCOUNT_NUMBER_FIELDS]
+export const OTHER_FINANCIAL_CALCULATION_FIELDS = ['amount', 'published_commercial_price', ...DISCOUNT_NUMBER_FIELDS]
 const kinds = ['catalog_value', 'catalog_absence', 'lead_budget', 'budget_difference', 'other_calculation']
 const relations = ['eq', 'gt', 'gte', 'lt', 'lte', 'range']
 export const businessFactSchema: Row = {
@@ -46,7 +48,18 @@ unit identifica USD, m2, count o text. Dormitorios, baños, plantas y cantidades
 Para «no disponemos de viviendas de cinco dormitorios» use catalog_absence, field=unit_count, value=0, relation=eq, unit=count y scope con el grupo y las condiciones de esa ausencia; NO bedrooms=5 como atributo positivo ni dormitorios=0. La ausencia requiere un conjunto completo y sin datos desconocidos para esos filtros. Una ausencia con más condiciones no demuestra ausencia fuera de ellas. Respete complete_for_query: una lectura parcial o fichas sin el dato no prueban cero. No suponga que una entrada o cuota es presupuesto total. Otras negaciones y condiciones que no se representan fielmente con estos campos se revisan semánticamente; no las transforme en hechos afirmativos.
 No cree un inventario de cada oración ni referencias E/S/N. Los datos son una extracción del borrador, no nueva evidencia ni permiso para cambiar el catálogo. Un problema de extracción requiere reparar la ficha, no reescribir un borrador correcto.
 question describe la pregunta real del borrador (null si no hay pregunta). offered_action diferencia information, financing_review, internal_advisor, ambiguous y none. Ofrecer dos ayudas distintas produce ambiguous: un sí no autoriza escoger una. No marque none si está ofreciendo una ayuda concreta.
-` + '\n' + DISCOUNT_REFERENCE_RULES
+` + '\n' + DISCOUNT_REFERENCE_RULES + '\n' + CONTEXTUAL_REASONING_RULES
+  + '\nPara aritmética espacial use other_calculation con field=derived_value, subject_id=null, scope=null, relation=eq y calculation con operación, operandos, fuentes y resultado. No la represente como area_total_m2, capacidad ni atributo publicado. El resultado se verifica por código; una aprobación matemática no prueba cabida ni elimina otros hallazgos. Si falta prueba, retire el cálculo o explique qué medidas faltan. Las cantidades de un supuesto deben declararse como ejemplo en el mensaje real y no se guardan como datos.'
+
+/** A calculation has its own provenance; it never becomes a catalogue field. */
+export const derivedBusinessFactSchema: Row = {
+  ...businessFactSchema, properties: { ...object(businessFactSchema.properties),
+    kind: { type: 'string', enum: ['other_calculation'] }, field: { type: 'string', enum: ['derived_value'] },
+    subject_id: { type: 'null' }, scope: { type: 'null' }, value: { type: 'number' },
+    relation: { type: 'string', enum: ['eq'] }, upper_value: { type: 'null' },
+    unit: { type: 'string', enum: ['m', 'm2', 'count', 'ratio'] }, calculation: CONTEXTUAL_CALCULATION_SCHEMA,
+  }, required: [...businessFactSchema.required as string[], 'calculation'],
+}
 
 export type FactCheck = { index: number; fact: Row; status: 'verified' | 'contradiction' | 'unverified';
   expected?: unknown; source?: Row; reason: string; repairable?: boolean }
@@ -56,16 +69,34 @@ const comparable = (value: unknown) => typeof value === 'string' ? value.trim().
 const equal = (left: unknown, right: unknown) => numeric(left) && numeric(right)
   ? Math.abs(left - right) < 1e-8 : comparable(left) === comparable(right)
 
-/** Only structured facts enter this function. It never receives the draft or
- * scans prose, currency symbols, citations or historical messages. */
-export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[], budget: Row): FactCheck[] {
+/** Catalogue checks use structured facts. Arithmetic also checks literal
+ * provenance against this turn and the actual draft, never reviewer prose. */
+export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[], budget: Row,
+  reasoningEvidence?: ContextualReasoningEvidence, draft = ''): FactCheck[] {
   if (!Array.isArray(raw)) return [{ index: -1, fact: {}, status: 'unverified', reason: 'Falta la lista de datos del revisor.', repairable: true }]
   return raw.map((entry, index): FactCheck => {
     const fact = object(entry)
     const unknown = (reason: string, repairable = true): FactCheck => ({ index, fact, status: 'unverified', reason, repairable })
+    if (fact.field === 'derived_value') {
+      if (fact.kind !== 'other_calculation' || fact.subject_id != null || fact.scope != null || fact.relation !== 'eq'
+        || fact.upper_value != null || !numeric(fact.value) || !text(fact.statement).trim() || !draft.includes(text(fact.statement)))
+        return unknown('El cálculo debe describir un resultado del borrador, sin atribuirlo al catálogo.', false)
+      if (!groundedResultQuantityPresent(fact.value, fact.unit as ResultUnit, text(fact.statement)))
+        return unknown('El resultado y su unidad deben estar expresados en la afirmación real del borrador.')
+      const checked = contextualCalculationCheck(fact.calculation, reasoningEvidence!, draft)
+      if (!checked.valid) return unknown('Cálculo sin prueba válida: ' + checked.reason)
+      if (fact.unit !== checked.unit || !equal(fact.value, checked.value)) return { index, fact, status: 'contradiction',
+        expected: { value: checked.value, unit: checked.unit }, reason: 'El resultado o la unidad afirmados no coinciden con la operación verificada.' }
+      return { index, fact, status: 'verified', expected: checked.value, source: { calculation: fact.calculation,
+        scope: checked.scope, not_fit_guarantee: true }, reason: 'Aritmética verificada; no demuestra cabida ni un atributo publicado.' }
+    }
     if (!text(fact.statement).trim() || !kinds.includes(text(fact.kind)) || !fields.includes(text(fact.field))
       || !relations.includes(text(fact.relation))) return unknown('La ficha necesita identificar el dato y su significado.')
-    if (fact.kind === 'other_calculation') return unknown('Operación revisada por IA; sin comprobación matemática de código.', false)
+    if (fact.kind === 'other_calculation') {
+      if (!OTHER_FINANCIAL_CALCULATION_FIELDS.includes(text(fact.field)) || !['USD', 'percent'].includes(text(fact.unit)))
+        return unknown('La aritmética no financiera requiere derived_value y una prueba verificable, sin atribuirla al catálogo.')
+      return unknown('Operación revisada por IA; sin comprobación matemática de código.', false)
+    }
     const catalog = [...units, ...groups]
     const exact = catalog.find(row => row.id === fact.subject_id)
     const numbered = units.filter(row => text(row.unit_number) === text(fact.subject_id))
@@ -213,12 +244,17 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
   })
 }
 
+const isDerivedCalculation = (fact: Row) => fact.field === 'derived_value' || fact.kind === 'other_calculation'
+  && (!OTHER_FINANCIAL_CALCULATION_FIELDS.includes(text(fact.field)) || !['USD', 'percent'].includes(text(fact.unit)))
+
 export function factFindings(checks: FactCheck[]): Row[] {
   return checks.filter(check => check.status === 'contradiction' || check.status === 'unverified'
-    && (check.fact.kind === 'catalog_absence' || check.fact.kind === 'catalog_value' && check.fact.field === 'unit_count')).map(check => ({ category: 'hard_fact',
+    && (isDerivedCalculation(check.fact) || check.fact.kind === 'catalog_absence' || check.fact.kind === 'catalog_value' && check.fact.field === 'unit_count')).map(check => ({ category: 'hard_fact',
     statement: check.fact.statement, reason: check.reason,
     authoritative_fact: JSON.stringify({ expected: check.expected, source: check.source,
-      ...(check.status === 'unverified' ? { count_status: 'unconfirmed', instruction: 'No afirme una cantidad exacta ni ausencia; explique el límite de verificación. No sustituya datos desconocidos por cero.' } : {}) }), owner: 'system' }))
+      ...(check.status === 'unverified' ? isDerivedCalculation(check.fact)
+        ? { calculation_status: 'unconfirmed', instruction: 'Corrija o retire el cálculo; explique las medidas que faltan. No convierta el resultado en un atributo del inmueble ni una garantía física.' }
+        : { count_status: 'unconfirmed', instruction: 'No afirme una cantidad exacta ni ausencia; explique el límite de verificación. No sustituya datos desconocidos por cero.' } : {}) }), owner: 'system' }))
 }
 
 export function availableAssistance(verified: Row): Row {

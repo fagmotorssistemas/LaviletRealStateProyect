@@ -89,7 +89,8 @@ export function remapNumericChecks(checks: unknown, sourceReview: Row, targetRev
   const identity = (row: Row) => JSON.stringify({ fragment: sentenceId(row.fragment),
     field: row.field, dimension: row.dimension, unit_id: row.unit_id, source_id: row.source_id,
     value: row.value, upper_value: row.upper_value ?? null, operator: row.operator || 'eq',
-    measurement_unit: row.measurement_unit, value_scope: row.value_scope })
+    measurement_unit: row.measurement_unit, value_scope: row.value_scope,
+    ...(row.field === 'derived_value' ? { calculation: row.calculation } : {}) })
   return rows(checks).map(check => {
     const result = { ...check }
     for (const [field, key] of [['factual_value_indexes', 'factual_values'], ['project_value_indexes', 'project_values']]) {

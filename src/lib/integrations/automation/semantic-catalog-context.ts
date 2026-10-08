@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { needsSupplementaryFeatures } from './needs-guidance'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -51,7 +52,7 @@ export function semanticCatalogContext(verified: Row, audit: Row, current: strin
   result.politicas_negocio = selectPolicies(verified, queryText, new Set(requests.map(r => text(r.domain))))
   result.business_policy_context = { ...object(verified.business_policy_context),
     selection: 'semantic_property_search', included_count: rows(result.politicas_negocio).length }
-  result.instalaciones = relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/)
+  result.instalaciones = needsSupplementaryFeatures(verified) ? rows(verified.instalaciones) : relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/)
   result.lugares_cercanos = relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
   result.contexto_sector = relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
   // Project identity/location suffice for the opening. Keep a requested

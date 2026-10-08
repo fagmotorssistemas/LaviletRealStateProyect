@@ -7,6 +7,8 @@ import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, 
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
+import { CONTEXTUAL_NEEDS_WRITER_RULES, needsSupplementaryFeatures } from './needs-guidance'
+import { contextualReasoningEvidence } from './contextual-reasoning'
 import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
 import { taskVerifiedContext, taskModelEvidence, addTaskQueryEvidence, TASK_CONTEXT_RULES } from './task-context'
 import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
@@ -473,6 +475,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   // not send a second, unscoped copy as if it were another authority.
   input = { ...input, verified: { ...input.verified } }
   delete input.verified.catalogo_verificacion
+  const reasoningEvidence = contextualReasoningEvidence(input.current, { ...input.verified, catalogo: needsSupplementaryFeatures(input.verified) ? modelEvidence.units : [] })
+  input.verified.razonamiento_contextual = reasoningEvidence
   const claimSources = verifiedClaimSources(input.verified, input.audit || {}, sharedEvidence, input.current)
   const validationCatalog = [...sharedEvidence.units, ...sharedEvidence.groups]
   const safeBase = input.audit?.semantic_review_enabled === true ? { reply: input.baseReply, unresolved: [], removed: false } : safeRentalCreditBase(input.baseReply, input.current, input.verified)
@@ -637,8 +641,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const history = (Array.isArray(input.history) ? input.history : []).map(object).slice(-8)
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
-  const context = { contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: modelEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
-    contexto_verificado: experienceContext({ ...input.verified, historial: input.history }, input.current, memory), estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
+  const writerVerifiedContext = experienceContext({ ...input.verified, historial: input.history }, input.current, memory)
+  delete writerVerifiedContext.razonamiento_contextual
+  const context = { razonamiento_contextual: reasoningEvidence, contrato_turno: turnIntent, property_context: object(input.verified.property_context), objetivo_comercial: continuationAudit().objective, evidencia_turno: modelEvidence, evidencia_afirmaciones: claimSources, apertura_decidida: opening, contrato_redaccion: writerContract, mensaje_actual: input.current, historial_reciente: history,
+    contexto_verificado: writerVerifiedContext, estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     referencias_solicitud: writerRequestRefs, obligaciones_del_turno: turnObligations,
     capacidades_disponibles: availableAssistance(input.verified),
     material_protegido: { cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
@@ -710,7 +716,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     ]
     const instructions = optimizedPrompt && input.audit?.financing_collection
       && object(input.verified.prompt_context_selection).task === 'financing'
-      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES + '\n' + CONVERSATION_WRITING_STYLE_RULES + '\n' + CONTINUATION_QUESTION_RULE]])
+      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES + '\n' + CONVERSATION_WRITING_STYLE_RULES + '\n' + CONTINUATION_QUESTION_RULE + '\n' + CONTEXTUAL_NEEDS_WRITER_RULES]])
       : promptSections(optimizedPrompt ? writerSections.map(([title, rules]): [string, string | false] => {
       if (title === 'Prioridades y obligaciones del turno') return [title, (financialTask ? FINAL_WRITER_RULES : CATALOG_WRITER_RULES + '\n' + CONTINUATION_QUESTION_RULE)
         + '\ncontrato_turno y obligaciones_del_turno determinan la necesidad actual. El historial solo resuelve continuidad; no cambia la búsqueda ni autoriza acciones. Cumpla los datos pendientes y enlaces requeridos.']
@@ -843,7 +849,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       let riskDecision = businessRiskDecision(rawReview)
       const checkFacts = (facts: unknown) => validateBusinessFacts(facts,
         [...new Map([...inventoryValidationUnits, ...sharedEvidence.units].map(unit => [unit.id, unit])).values()],
-        sharedEvidence.groups, effectiveTurnBudget(input.verified))
+        sharedEvidence.groups, effectiveTurnBudget(input.verified), reasoningEvidence, reply)
       let factChecks = checkFacts(rawReview.facts)
       const originalChecks = factChecks
       const writerQuestionValid = validContinuationMetadata(question, reply, input.verified.siguiente_paso_comercial)
@@ -998,7 +1004,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           const fact = object(raw)
           return !subjectIssues.some(issue => issue.fragment === fact.fragment && issue.unit_id === fact.unit_id && issue.field === fact.field)
         }) : review.factual_values
-        const factIssues = semanticEnabled ? [...sharedEvidence.conflicts, ...subjectIssues, ...structuredFactIssues(factsWithValidSubject, validationCatalog),
+        const factIssues = semanticEnabled ? [...sharedEvidence.conflicts, ...subjectIssues, ...structuredFactIssues(factsWithValidSubject, validationCatalog, reasoningEvidence, reply),
           ...(focused ? [...inventory.issues, ...observedNumericIssues(review, sentenceReferences),
             ...focusedValueScopeIssues(factsWithValidSubject, validationCatalog, true),
             ...numericCoverageIssues(review, numericReferences, validationCatalog),

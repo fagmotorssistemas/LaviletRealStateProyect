@@ -9,7 +9,9 @@ export function focusedSubjectSchema(schema: Row, catalog: Row[]): Row {
   const decorate = (item: Row): Row => {
     if (Array.isArray(item.anyOf)) return { ...item, anyOf: item.anyOf.map(raw => decorate(object(raw))) }
     if (!object(item.properties).unit_id) return item
-    const fields = { subject_category: { type: ['string', 'null'], enum: [...categories, null],
+    const derived = Array.isArray(object(object(item.properties).field).enum)
+      && (object(object(item.properties).field).enum as unknown[]).includes('derived_value')
+    const fields = { subject_category: derived ? { type: 'null' } : { type: ['string', 'null'], enum: [...categories, null],
       description: 'Categoría a la que el BORRADOR atribuye ESTE dato, antes de elegir unit_id. Resuelva pronombres en su contexto. null solo si no afirma una categoría única; no copie la categoría de la fuente para justificarla.' },
       ...object(item.properties) }
     return { ...item, properties: fields, required: Object.keys(fields) }
@@ -19,9 +21,14 @@ export function focusedSubjectSchema(schema: Row, catalog: Row[]): Row {
 
 export function numericSubjectIssues(facts: unknown, catalog: Row[]): Row[] {
   if (!Array.isArray(facts)) return []
-  return facts.flatMap(raw => {
+  return facts.flatMap<Row>(raw => {
     const fact = object(raw)
     // Historical records predate this required field. Live schemas require it.
+    if (fact.field === 'derived_value' && fact.subject_category != null) return [{
+      code: 'derived_value_has_project_subject', kind: 'review_metadata', owner: 'system', repair_owner: 'reviewer',
+      fragment: fact.fragment, field: fact.field, unit_id: fact.unit_id, subject_category: fact.subject_category,
+      reason: 'Un resultado aritmético no es una característica publicada de una categoría del proyecto.',
+    }]
     if (!('subject_category' in fact) || fact.subject_category === null) return []
     const category = text(fact.subject_category), source = catalog.find(row => row.id === fact.unit_id)
     if (!source) return [] // Existing source-ID validation owns this error.
@@ -39,4 +46,4 @@ export function numericSubjectIssues(facts: unknown, catalog: Row[]): Row[] {
   })
 }
 
-export const FOCUSED_SUBJECT_RULES = 'REFERENTE DE CADA DATO: extraiga subject_category del significado de cada afirmación antes de elegir unit_id. Una oración puede hablar de departamentos y penthouses: sus cifras tienen referentes distintos aunque compartan S_ID. No asigne un rango de penthouses a todo el catálogo. En frases como «todos disponen», determine el conjunto mencionado en contexto, sin ampliarlo automáticamente a locales u otras categorías. Si el referente no es resoluble, use pending_checks; no invente una universalidad. No use una fuente porque sus valores se parecen: primero sujeto y alcance, después contraste exacto.'
+export const FOCUSED_SUBJECT_RULES = 'REFERENTE DE CADA DATO: extraiga subject_category del significado de cada afirmación antes de elegir unit_id. Una oración puede hablar de departamentos y penthouses: sus cifras tienen referentes distintos aunque compartan S_ID. No asigne un rango de penthouses a todo el catálogo. En frases como «todos disponen», determine el conjunto mencionado en contexto, sin ampliarlo automáticamente a locales u otras categorías. Si el referente no es resoluble, use pending_checks; no invente una universalidad. No use una fuente porque sus valores se parecen: primero sujeto y alcance, después contraste exacto. Un cálculo con field=derived_value usa subject_category=null y unit_id=null; las fuentes de sus operandos se comprueban en calculation, sin atribuir el resultado al catálogo.'

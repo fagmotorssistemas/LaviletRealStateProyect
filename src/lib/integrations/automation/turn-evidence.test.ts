@@ -1,16 +1,30 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import Ajv from 'ajv'
 import { normalizeReviewReferences, replyReferences, sentenceReferenceReviewSchema, verifiedClaimSources, draftNumericCandidates } from './turn-evidence'
 import { claimSchema, factualValuesSchema, factualValueIssues, reviewClaims, reviewRepairCoverageIssues } from './semantic-review'
 import { object, type Row } from './data'
 import { checkReviewDecision, reviewChecks, reviewIssuesSchema } from './turn-review-checks'
 import { validateCatalogReply } from './catalog-dialogue'
 
-test('numeric reviewer schema only admits real unit references, and none for an empty search', () => {
+test('numeric reviewer schema admits only real catalogue references while an empty search retains proven calculations', () => {
   const schema = { properties: { factual_values: factualValuesSchema } }
   const reply = 'No hay viviendas de 5 dormitorios.'
   const empty = sentenceReferenceReviewSchema(schema, reply, '', [])
-  assert.equal(object(object(empty.properties).factual_values).maxItems, 0)
+  const emptyList = object(object(empty.properties).factual_values)
+  const emptyVariants = object(emptyList.items).anyOf as Row[]
+  assert.ok(emptyVariants.length)
+  assert.ok(emptyVariants.every(branch => object(object(branch.properties).field).enum instanceof Array
+    && (object(object(branch.properties).field).enum as unknown[]).includes('derived_value')))
+  const validateEmpty = new Ajv({ allErrors: true }).compile(emptyList)
+  assert.equal(validateEmpty([{ fragment: 'S1', unit_id: 'real-unit', field: 'bedrooms', value: 5, operator: 'eq', upper_value: null }]), false)
+  const calculated = { fragment: 'S1', unit_id: null, field: 'derived_value', value: 5, measurement_unit: 'count', operator: 'eq', upper_value: null,
+    calculation: { operation: 'add', operands: [2, 3].map(value => ({ value, unit: 'count', source: { kind: 'lead_current', reference: '', quote: value + ' objetos' } })),
+      result: { value: 5, unit: 'count' }, scope: 'grounded' } }
+  assert.equal(validateEmpty([calculated]), true, JSON.stringify(validateEmpty.errors))
+  const { calculation: omittedProof, ...unproven } = calculated
+  assert.ok(omittedProof)
+  assert.equal(validateEmpty([unproven]), false, 'The derived variant still requires an arithmetic proof')
   const available = sentenceReferenceReviewSchema(schema, reply, '', [{ id: 'real-unit', unit_number: '202' }])
   const variants = object(object(object(available.properties).factual_values).items).anyOf as Row[]
   assert.deepEqual(object(object(variants[0].properties).unit_id).enum, ['real-unit', '202'])
@@ -127,15 +141,29 @@ test('numeric candidates preserve prose variants and constrain each sentence to 
   ])
   const schema = sentenceReferenceReviewSchema({ properties: { factual_values: factualValuesSchema } }, reply)
   const branches = object(object(object(schema.properties).factual_values).items).anyOf as Row[]
-  for (const [index, branch] of branches.entries()) {
+  const legacySchema = object(object(factualValuesSchema.items).anyOf instanceof Array ? (object(factualValuesSchema.items).anyOf as Row[])[0] : factualValuesSchema.items)
+  const legacyBranches = branches.filter(branch => !(object(object(branch.properties).field).enum as unknown[]).includes('derived_value'))
+  assert.equal(legacyBranches.length, candidates.length * 2)
+  for (const [index, branch] of legacyBranches.entries()) {
     const properties = object(branch.properties)
     assert.deepEqual(properties.fragment, { type: 'string', enum: [candidates[Math.floor(index / 2)].sentence_id] })
     assert.deepEqual(properties.value, { type: 'number', enum: candidates[Math.floor(index / 2)].values })
     assert.deepEqual(properties.operator, { type: 'string', enum: index % 2 ? ['between'] : ['eq', 'gt', 'gte', 'lt', 'lte'] })
     assert.deepEqual(properties.upper_value, index % 2 ? { type: 'number', enum: candidates[Math.floor(index / 2)].values } : { type: 'null' })
     assert.equal(branch.additionalProperties, false)
-    assert.deepEqual(branch.required, factualValuesSchema.items.required)
+    assert.deepEqual(branch.required, legacySchema.required)
   }
+  const derivedBranches = branches.filter(branch => (object(object(branch.properties).field).enum as unknown[]).includes('derived_value'))
+  assert.equal(derivedBranches.length, candidates.length)
+  derivedBranches.forEach((branch, index) => {
+    const properties = object(branch.properties)
+    assert.deepEqual(properties.fragment, { type: 'string', enum: [candidates[index].sentence_id] })
+    assert.deepEqual(properties.value, { type: 'number', enum: candidates[index].values })
+    assert.equal(object(properties.unit_id).type, 'null')
+    assert.deepEqual(object(properties.operator).enum, ['eq'])
+    assert.equal(object(properties.upper_value).type, 'null')
+    assert.ok((branch.required as string[]).includes('calculation'))
+  })
   assert.deepEqual(draftNumericCandidates('Una habitación y un baño. Área: veintisiete coma cero tres metros cuadrados.'), [
     { sentence_id: 'S1', values: [1] }, { sentence_id: 'S2', values: [27.03] },
   ])

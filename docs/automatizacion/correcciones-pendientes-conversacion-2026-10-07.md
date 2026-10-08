@@ -23,6 +23,21 @@ La presentación se guarda en el JSON de políticas existente, con permisos de a
 
 El modo demostración conserva interpretación, catálogo, memoria y permisos. La excepción permanece limitada a la revisión del borrador de contactos de prueba: no convierte una extracción inválida en autorización para actuar.
 
+## Razonamiento contextual del 8 de octubre
+
+El redactor puede relacionar familia, muebles, movilidad y mascotas con características verificadas sin limitarse a repetir una ficha. La instrucción compartida vive en `needs-guidance.ts` y se incorpora tanto a `FINAL_WRITER_RULES` como a la ruta reducida de recopilación financiera. La guía completa se entrega una sola vez en `razonamiento_contextual.guidance`, junto a las fuentes y límites del turno; el prompt fijo ordena cumplirla. Esto conserva la instrucción de recopilación por debajo de 5.000 caracteres sin eliminar reglas. Los modelos se mantienen.
+
+- El extractor separa una situación personal y una consulta de evaluación de un requisito explícito. No convierte edad en movilidad reducida, hijos en dormitorios, mascotas en permisos ni una duda de distribución en cita o consentimiento. Una preferencia explícita posterior sí sigue sus reglas habituales.
+- Las proyecciones de contexto conservan instalaciones y sus restricciones ante detalles, comparaciones, evaluaciones, preferencias cualitativas o consultas iniciales del proyecto interpretadas con confianza alta. Se mantienen las restricciones de acceso; saludos y recopilación financiera pura no amplían ese bloque. No modifican filtros, datos confirmados ni la unidad de interés.
+- `contextual-reasoning.ts` entrega fuentes espaciales del turno y comprueba suma, resta, multiplicación y división: operandos, unidades, procedencia y resultado. Los datos espaciales solo se incluyen para la consulta pertinente; una recopilación financiera no necesita repetir todas las medidas del catálogo.
+- Se distinguen datos de la ficha, medidas declaradas por el cliente, supuestos explícitamente ilustrativos y resultados derivados. Un resultado de cálculo no modifica las áreas oficiales ni se guarda en el perfil. Una hipótesis necesita estar expresada en el mensaje al cliente; no basta una etiqueta interna del revisor.
+- Tener la superficie total, o incluso los m² de una habitación, no acredita largo, ancho, distribución ni espacio de circulación. Sin medidas suficientes se explica qué falta y puede ofrecerse orientación opcional en la oficina habilitada. No se promete disponibilidad de planos, medidas, una cita ni acceso a viviendas terminadas.
+- Las dudas actuales se atienden antes de retomar el paso comercial pendiente. PH602, la entrada de $200.000 y los consentimientos previos se conservan; la consulta no reabre tipo, dormitorios, unidad, presupuesto o entidad ya resueltos.
+
+Para ajustar hechos del proyecto, se usan las fuentes de conocimiento y las políticas existentes. La regla de razonamiento es comportamiento común del sistema, no un dato comercial a añadir en la presentación inicial. Los ejemplos de objetos no son nuevas medidas del proyecto.
+
+`npm run test:contextual-reasoning` agrupa los casos nuevos; también quedan incluidos en `npm run test:conversation-regression`. Las pruebas son locales con respuestas de IA simuladas: validan contratos, comprobaciones y continuidad, no certifican todas las futuras respuestas del modelo ni la entrega en WhatsApp.
+
 ## Límites y comprobaciones pendientes en operación
 
 - Publicar estos cambios y configurar el resumen/fuente aprobados en la interfaz. No se activó una presentación ficticia ni se escribió una política en producción.
@@ -36,9 +51,9 @@ El modo demostración conserva interpretación, catálogo, memoria y permisos. L
 
 | Comprobación | Resultado |
 | --- | --- |
-| Barrido TypeScript de automatización, configuración y diagnóstico (138 archivos) | 1.503 aprobadas, 0 fallidas, 0 omitidas. |
-| npm run test:conversation-regression | 508 aprobadas, 0 fallidas. Aproximadamente 16 segundos. |
-| Conversación legacy, sin el archivo con dependencia ausente, más contexto financiero | 400 aprobadas, 0 fallidas. |
+| Barrido TypeScript de automatización, configuración y diagnóstico (144 archivos) | 1.573 aprobadas, 0 fallidas, 0 omitidas. |
+| npm run test:conversation-regression | 578 aprobadas, 0 fallidas. Aproximadamente 14 segundos. |
+| Conversación legacy, sin el archivo con dependencia ausente, más contexto financiero | 405 aprobadas, 0 fallidas. |
 | npm run test:project-introduction | 16 aprobadas, 0 fallidas: selección, prompts reales normal/demo, validación y guardado con mocks. |
 | TypeScript global | tsc --noEmit aprobado. |
 | ESLint de archivos cambiados | Aprobado, sin advertencias. |

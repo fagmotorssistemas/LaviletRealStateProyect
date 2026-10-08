@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { needsSupplementaryFeatures } from './needs-guidance'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { compactCatalogUnit } from './catalog-result'
 import { relevantFacts, selectPolicies } from './semantic-catalog-context'
@@ -93,7 +94,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const result = withProjectIntroductionForTurn(verified)
   const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
   // Include facts requested by ANY current request, never only the primary intent.
-  result.instalaciones = relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/)
+  result.instalaciones = needsSupplementaryFeatures(verified) ? rows(verified.instalaciones) : relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/)
   result.lugares_cercanos = relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
   result.contexto_sector = relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
   result.politicas_negocio = selectPolicies(verified, queryText, domains)

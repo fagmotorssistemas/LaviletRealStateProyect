@@ -1,74 +1,14 @@
+import { numericMentions } from './numeric-text'
+export { numericMentions } from './numeric-text'
 import { object, text, type Row } from './data'
-import { decimalNumber, endpointBefore, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
+import { CONTEXTUAL_CALCULATION_SCHEMA, CONTEXTUAL_REASONING_RULES, contextualCalculationCheck, groundedResultQuantityPresent, type ResultUnit, type ContextualReasoningEvidence } from './contextual-reasoning'
+import { endpointBefore, numericOperators, relationBefore, satisfiesNumeric } from './numeric-relations'
 import { DISCOUNT_NUMBER_FIELDS, DISCOUNT_REFERENCE_RULES, discountReferenceEvidence } from './discount-evidence'
 
 const factFields = ['bedrooms', 'bathrooms_full', 'area_internal_m2', 'area_exterior_m2', 'published_commercial_price', 'floor_number',
   'discount_reference_price', 'discount_amount_reference', 'discounted_price_reference', 'discount_percent']
 
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-const numberWords: Record<string, number> = {
-  cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9,
-  diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19,
-  veinte: 20, veintiun: 21, veintiuno: 21, veintiuna: 21, veintidos: 22, veintitres: 23, veinticuatro: 24, veinticinco: 25,
-  veintiseis: 26, veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30, cuarenta: 40, cincuenta: 50,
-  sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100, ciento: 100, doscientos: 200, doscientas: 200,
-  trescientos: 300, trescientas: 300, cuatrocientos: 400, cuatrocientas: 400, quinientos: 500, quinientas: 500,
-  seiscientos: 600, seiscientas: 600, setecientos: 700, setecientas: 700, ochocientos: 800, ochocientas: 800,
-  novecientos: 900, novecientas: 900,
-}
-const ordinals: Record<string, number> = { primer: 1, primero: 1, primera: 1, segundo: 2, segunda: 2, tercer: 3, tercero: 3, tercera: 3,
-  cuarto: 4, cuarta: 4, quinto: 5, quinta: 5, sexto: 6, sexta: 6, septimo: 7, septima: 7, octavo: 8, octava: 8,
-  noveno: 9, novena: 9, decimo: 10, decima: 10 }
-
-/** Values actually written, with stable offsets into the original prose. The
- * reviewer may use digits for a value expressed in words, without dictating copy. */
-export function numericMentions(value: string): Array<{ value: number; index: number; end: number; text: string }> {
-  const tokens = [...value.matchAll(/\d[\d.,]*|[a-záéíóúüñ]+/gi)]
-  const result: Array<{ value: number; index: number; end: number; text: string }> = []
-  for (let i = 0; i < tokens.length; i++) {
-    const word = normalized(tokens[i][0]), digit = /^\d/.test(word)
-    if (!digit && numberWords[word] == null && ordinals[word] == null && word !== 'mil') continue
-    const start = tokens[i].index!, ordinal = !digit && ordinals[word] != null && numberWords[word] == null
-    if (ordinal && !/^(?:planta|piso|nivel)$/.test(normalized(tokens[i + 1]?.[0] || ''))
-      && !/^(?:planta|piso|nivel)$/.test(normalized(tokens[i - 1]?.[0] || ''))) continue
-    let end = start + tokens[i][0].length, sum = 0, section = digit ? decimalNumber(word) : (numberWords[word] ?? ordinals[word] ?? 1000)
-    if (!ordinal) for (let j = i + 1; j < tokens.length; j++) {
-      if (/[.,]$/.test(tokens[j - 1][0]) || !/^\s+$/.test(value.slice(end, tokens[j].index))) break
-      const next = normalized(tokens[j][0])
-      if (next === 'coma' || next === 'punto') {
-        let decimals = '', decimalEnd = end, last = j
-        for (let k = j + 1; k < tokens.length; k++) {
-          if (!/^\s+$/.test(value.slice(tokens[k - 1].index! + tokens[k - 1][0].length, tokens[k].index))) break
-          const fractional = normalized(tokens[k][0])
-          if (/^\d+$/.test(fractional)) decimals += fractional
-          else if (numberWords[fractional] != null && numberWords[fractional] < 100) {
-            let part = numberWords[fractional]
-            if (part >= 20 && normalized(tokens[k + 1]?.[0] || '') === 'y'
-              && numberWords[normalized(tokens[k + 2]?.[0] || '')] < 10) {
-              part += numberWords[normalized(tokens[k + 2][0])]; k += 2
-            }
-            decimals += String(part)
-          } else break
-          decimalEnd = tokens[k].index! + tokens[k][0].length; last = k
-        }
-        if (decimals) { section += Number('0.' + decimals); end = decimalEnd; i = last }
-        break
-      }
-      if (next === 'y' && numberWords[normalized(tokens[j + 1]?.[0] || '')] != null && section % 100 >= 20
-        && numberWords[normalized(tokens[j + 1][0])] < 10) {
-        end = tokens[j].index! + tokens[j][0].length; i = j; continue
-      }
-      if (next === 'mil') section = (section || 1) * 1000
-      else if (next === 'millon' || next === 'millones') { sum += (section || 1) * 1_000_000; section = 0 }
-      else if (numberWords[next] != null && !/^\d/.test(tokens[j - 1][0])
-        && (section >= 100 || normalized(tokens[j - 1][0]) === 'y')) section += numberWords[next]
-      else break
-      end = tokens[j].index! + tokens[j][0].length; i = j
-    }
-    result.push({ value: sum + section, index: start, end, text: value.slice(start, end) })
-  }
-  return result
-}
 
 function numericExpressionPresent(fact: Row, fragment: string) {
   const literals = numericMentions(fragment), matching = literals.filter(match => satisfiesNumeric(match.value, Number(fact.value)))
@@ -136,10 +76,48 @@ export function reviewReferenceSnapshot(result: unknown): Row[] {
     .filter(unit => refs.has(text(unit.id)) || refs.has(text(unit.unit_number)))
     .slice(0, 80).map(unit => ({ id: text(unit.id), unit_number: text(unit.unit_number), category: text(unit.category) }))
 }
-export const factualValuesSchema = { type: 'array', maxItems: 80, items: { type: 'object', additionalProperties: false,
+const catalogFactualValueList = { type: 'array', maxItems: 80, items: { type: 'object', additionalProperties: false,
   properties: { fragment: { type: 'string' }, unit_id: { type: 'string' }, field: { type: 'string', enum: factFields }, value: { type: 'number' },
     operator: { type: 'string', enum: [...numericOperators] }, upper_value: { type: ['number', 'null'] } },
   required: ['fragment', 'unit_id', 'field', 'value', 'operator', 'upper_value'] } }
+export const factualValuesSchema: Row = { ...catalogFactualValueList, items: { anyOf: [catalogFactualValueList.items, derivedFactualValueSchema()] } }
+
+/** Derived arithmetic is kept apart from published catalogue fields. */
+export function derivedFactualValueSchema(sentenceIds?: string[], focused = false): Row {
+  const properties: Row = {
+    fragment: sentenceIds ? { type: 'string', enum: sentenceIds.length ? sentenceIds : ['none'] } : { type: 'string' },
+    unit_id: { type: 'null', enum: [null], description: 'Un cálculo no es una nueva unidad ni un atributo publicado.' },
+    field: { type: 'string', enum: ['derived_value'] }, value: { type: 'number' },
+    measurement_unit: { type: 'string', enum: ['m', 'm2', 'count', 'ratio'] },
+    operator: { type: 'string', enum: ['eq'] }, upper_value: { type: 'null' },
+    calculation: CONTEXTUAL_CALCULATION_SCHEMA,
+    ...(focused ? { value_scope: { type: 'string', enum: ['individual'] }, subject_category: { type: 'null' } } : {}),
+  }
+  return { type: 'object', additionalProperties: false, properties, required: Object.keys(properties) }
+}
+
+export const CONTEXTUAL_CALCULATION_REVIEW_RULES = CONTEXTUAL_REASONING_RULES
+  + '\nExtraiga el resultado aritmético en factual_values con field=derived_value, unit_id=null, measurement_unit, operator=eq y calculation. No lo registre como area_internal_m2, area_total_m2, bedrooms ni otra característica publicada. Cada resultado necesita la operación, operandos y procedencias de razonamiento_contextual. Los operandos del cliente solo se respaldan por citas medidas del mensaje ACTUAL; los supuestos necesitan una cita condicional o ilustrativa presente en el borrador real. El resultado es business_quantity enlazado a esa fila; los operandos declarados por el lead o supuestos se clasifican como lead_context/contextual_guidance sin convertirlos en atributos del inmueble. Revise por separado los hechos del inmueble y cualquier garantía de cabida, circulación, capacidad o redistribución: una aritmética correcta no demuestra esas garantías. Una explicación prudente sobre cómo comparar medidas puede aprobarse; no invente medidas típicas.'
+
+/** The proof is checked against actual writer text, not reviewer paraphrases. */
+export function derivedCalculationIssues(fact: Row, reply: string, evidence?: ContextualReasoningEvidence): Row[] {
+  const detail = { fragment: fact.fragment, field: fact.field, unit_id: fact.unit_id, received: fact.value,
+    owner: 'system', repair_owner: 'reviewer' }
+  const fail = (code: string, reason: string) => [{ ...detail, code, kind: 'review_metadata', reason }]
+  if (fact.invalid_sentence_reference === true || !text(fact.fragment).trim() || !reply.includes(text(fact.fragment)))
+    return fail('review_fragment_not_in_reply', 'El resultado debe estar en una oración real del borrador.')
+  if (fact.unit_id != null || fact.operator !== 'eq' || fact.upper_value != null
+    || typeof fact.value !== 'number' || !Number.isFinite(fact.value))
+    return fail('invalid_derived_value_metadata', 'Un cálculo requiere resultado exacto y no es una ficha inmobiliaria.')
+  if (!numericExpressionPresent(fact, text(fact.fragment))
+    || !groundedResultQuantityPresent(fact.value as number, fact.measurement_unit as ResultUnit, text(fact.fragment)))
+    return fail('numeric_relation_not_in_reply', 'El resultado extraído no aparece en el borrador.')
+  const checked = contextualCalculationCheck(fact.calculation, evidence!, reply)
+  if (!checked.valid) return fail('derived_calculation_unverified', checked.reason)
+  if (fact.measurement_unit !== checked.unit || Math.abs(fact.value - checked.value!) > 1e-8 * Math.max(1, Math.abs(checked.value!)))
+    return fail('derived_calculation_metadata_mismatch', 'La cifra o unidad extraída no coincide con la prueba aritmética.')
+  return []
+}
 
 export const FLEXIBLE_FACT_RULES = `La respuesta_base es una propuesta, no evidencia independiente ni un texto obligatorio. Puede omitir cifras y opciones secundarias si responde plenamente al mensaje actual. answered_content_preserved evalúa la información necesaria para esa consulta, no que se repitan todas las cifras de la base. No equipare mayor precio con mayor superficie o exclusividad. Para afirmar un máximo de precio use el ranking calculado sobre el conjunto pertinente; si no existe evidencia, rechace esa afirmación.
 En factual_values extraiga TODAS las relaciones explícitas entre una unidad y sus valores numéricos (dormitorios, baños, áreas, precio publicado, planta). Use el ID del catálogo, field y value numérico. En fragment seleccione obligatoriamente un identificador S1, S2... existente en oraciones_borrador: el sistema lo convierte en la oración exacta. No copie, resuma ni reformule la oración; el esquema solo acepta esos identificadores. Varias relaciones pueden usar el mismo identificador. Para resúmenes de categoría («hasta», «desde»), use el ID group:...:max o group:...:min de evidencia_turno.groups y el valor calculado allí. No atribuya un máximo a todas las unidades ni enumere los valores de cada unidad cuando el texto solo expresa un máximo. No calcule grupos nuevos ni mezcle conjuntos. Desagregue solo afirmaciones explícitas compartidas por unidades concretas. No use números del historial como evidencia. Use [] si no hay relaciones numéricas verificables. Si hay más de 80 relaciones no apruebe la respuesta.`
@@ -148,15 +126,16 @@ export const NUMERIC_RELATION_RULES = 'En factual_values indique operator: eq pa
   + '\nEl sistema obtiene cifras_del_borrador exclusivamente del texto actual y restringe el esquema a esos valores y sus oraciones. Si la lista está vacía, factual_values debe ser []. Los candidatos son menciones, no afirmaciones aprobadas: un número de unidad, una cantidad de familiares o una cifra ajena al inmueble no debe convertirse en área, precio o dormitorios. Incluya solo relaciones realmente expresadas y compárelas con el catálogo; nunca rellene la ficha con medidas del catálogo ausentes del texto. Un valor redondeado no coincide con el valor exacto del catálogo aunque el borrador diga «aproximadamente». Si una cifra correcta se atribuyó en su ficha a otra unidad, corrija la referencia interna; no cambie el texto ni invente respaldo.'
   + '\n' + DISCOUNT_REFERENCE_RULES
 
-export function validateFactualValues(value: unknown, reply: string, catalog: unknown): boolean {
-  return factualValueIssues(value, reply, catalog).length === 0
+export function validateFactualValues(value: unknown, reply: string, catalog: unknown, reasoningEvidence?: ContextualReasoningEvidence): boolean {
+  return factualValueIssues(value, reply, catalog, reasoningEvidence).length === 0
 }
 
-export function factualValueIssues(value: unknown, reply: string, catalog: unknown): Row[] {
+export function factualValueIssues(value: unknown, reply: string, catalog: unknown, reasoningEvidence?: ContextualReasoningEvidence): Row[] {
   if (!Array.isArray(value) || value.length > 80) return [{ code: 'invalid_fact_list', kind: 'review_metadata' }]
   const units = Array.isArray(catalog) ? catalog.map(object) : []
   return value.flatMap((raw, index) => {
     const fact = object(raw), unit = units.find(unit => unit.id === fact.unit_id), field = text(fact.field)
+    if (field === 'derived_value') return derivedCalculationIssues(fact, reply, reasoningEvidence)
     const detail = { index, fragment: text(fact.fragment), unit_id: fact.unit_id, field, received: fact.value }
     const fragment = text(fact.fragment)
     if (fact.invalid_sentence_reference === true || !fragment.trim() || !reply.includes(fragment))

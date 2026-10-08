@@ -59,6 +59,13 @@ test('legacy rows remain readable while focused schema explicitly requires the s
   const schema = focusedValueScopeSchema(old)
   const list = (schema.properties as Record<string, { items: { anyOf: { properties: Record<string, unknown>; required: string[] }[] } }>).factual_values
   for (const item of list.items.anyOf) {
+    const fields = object(item.properties)
+    if ((object(fields.field).enum as unknown[]).includes('derived_value')) {
+      assert.deepEqual(object(fields.value_scope).enum, ['individual'])
+      assert.equal(object(fields.unit_id).type, 'null')
+      assert.ok(item.required.includes('calculation'))
+      continue
+    }
     assert.equal(Object.keys(item.properties)[0], 'value_scope')
     assert.deepEqual(Object.keys(item.properties), ['value_scope', 'fragment', 'field', 'value', 'upper_value', 'measurement_unit', 'operator', 'unit_id'])
     assert.ok(item.required.includes('value_scope'))
@@ -118,14 +125,24 @@ test('schema source kinds come from catalogue rows instead of guessed ID prefixe
   assert.equal(validate([{ ...numeric, unit_id: 'plain-unit-id', value_scope: 'individual' }]), false)
 })
 
-test('empty authoritative catalogue forbids numeric facts while keeping a valid empty-list schema', () => {
+test('empty authoritative catalogue forbids catalogue facts while retaining calculations with proof', () => {
   const old = structuredReviewSchema({ properties: { factual_values: factualValuesSchema }, required: ['factual_values'] }, ['S1'], catalog, [])
   const schema = focusedValueScopeSchema(old, [])
   const list = object(object(schema.properties).factual_values)
-  assert.equal(list.maxItems, 0)
+  assert.equal(list.maxItems, 80)
+  const variants = object(list.items).anyOf as unknown[]
+  assert.ok(variants.every(raw => (object(object(object(raw).properties).field).enum as unknown[]).includes('derived_value')))
   const validate = new Ajv({ allErrors: true }).compile(list)
   assert.equal(validate([]), true)
   assert.equal(validate([{ ...fact, measurement_unit: 'USD' }]), false)
+  const calculated = { fragment: 'S1', unit_id: null, field: 'derived_value', value: 5, measurement_unit: 'count', operator: 'eq', upper_value: null, value_scope: 'individual',
+    calculation: { operation: 'add', operands: [2, 3].map(value => ({ value, unit: 'count', source: { kind: 'lead_current', reference: '', quote: value + ' objetos' } })),
+      result: { value: 5, unit: 'count' }, scope: 'grounded' } }
+  assert.equal(validate([calculated]), true, JSON.stringify(validate.errors))
+  const { calculation: omittedProof, ...unproven } = calculated
+  assert.ok(omittedProof)
+  assert.equal(validate([unproven]), false)
+  assert.equal(validate([{ ...calculated, value_scope: 'group_summary' }]), false)
   const alreadyEmpty = focusedValueScopeSchema({ properties: { factual_values: { ...object(object(old.properties).factual_values), maxItems: 0 } } }, catalog)
   assert.equal(object(object(alreadyEmpty.properties).factual_values).maxItems, 0)
 })

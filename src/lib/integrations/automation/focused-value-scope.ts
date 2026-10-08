@@ -11,7 +11,7 @@ export function focusedValueScopeSchema(schema: Row, catalog?: Row[]): Row {
     if (Array.isArray(item.anyOf)) return { ...item, anyOf: item.anyOf.map(raw => decorate(object(raw))) }
     const fields = { ...object(item.properties) }
     delete fields.value_scope
-    const scoped = { value_scope: { type: 'string', enum: valueScopes,
+    const scoped = { value_scope: { type: 'string', enum: Array.isArray(object(fields.field).enum) && (object(fields.field).enum as unknown[]).includes('derived_value') ? ['individual'] : valueScopes,
       description: 'individual: una unidad; each_member: la relación se afirma para cada miembro del grupo; group_summary: mínimo, máximo o rango del conjunto, sin afirmar igualdad entre miembros.' }, ...fields }
     const extractionOrder = ['value_scope', 'fragment', 'field', 'value', 'upper_value', 'measurement_unit', 'operator']
     const order = [...extractionOrder.filter(key => key in scoped),
@@ -23,7 +23,9 @@ export function focusedValueScopeSchema(schema: Row, catalog?: Row[]): Row {
   if (catalog) {
     const restrict = (item: Row): Row[] => {
       if (Array.isArray(item.anyOf)) return item.anyOf.flatMap(raw => restrict(object(raw)))
-      const fields = object(item.properties), declaredIds = object(fields.unit_id).enum
+      const fields = object(item.properties)
+      if (Array.isArray(object(fields.field).enum) && (object(fields.field).enum as unknown[]).includes('derived_value')) return [decorate(item)]
+      const declaredIds = object(fields.unit_id).enum
       const allowedIds = Array.isArray(declaredIds) ? declaredIds.filter((id): id is string => typeof id === 'string')
         : catalog.map(source => text(source.id))
       const available = catalog.filter(source => allowedIds.includes(text(source.id)))
@@ -48,7 +50,7 @@ export function focusedValueScopeSchema(schema: Row, catalog?: Row[]): Row {
   return { ...schema, properties: { ...properties, factual_values: { ...list, items: decorate(object(list.items)) } } }
 }
 
-export const FOCUSED_VALUE_SCOPE_RULES = `ALCANCE DEL VALOR: indique value_scope en cada factual_values ANTES de elegir la fuente. individual corresponde a un inmueble identificado. each_member significa que cada unidad del grupo cumple la relación afirmada; seleccione el grupo completo de esas unidades. group_summary describe un mínimo, máximo o rango del conjunto, no el valor de cada unidad. Que el mínimo sea $225.000 no permite afirmar que todos cuestan $225.000; un rango de $225.000 a $275.000 tampoco afirma que todas las unidades tengan ambos precios. Si todos comparten realmente el mismo valor, each_member es válido y el sistema contrastará todos los miembros. Preserve el alcance que expresa el borrador al reparar la ficha; no transforme each_member en group_summary para hacer pasar una generalización falsa. Las cantidades escritas con palabras o cifras tienen el mismo alcance.`
+export const FOCUSED_VALUE_SCOPE_RULES = `ALCANCE DEL VALOR: indique value_scope en cada factual_values ANTES de elegir la fuente. individual corresponde a un inmueble identificado. each_member significa que cada unidad del grupo cumple la relación afirmada; seleccione el grupo completo de esas unidades. group_summary describe un mínimo, máximo o rango del conjunto, no el valor de cada unidad. Que el mínimo sea $225.000 no permite afirmar que todos cuestan $225.000; un rango de $225.000 a $275.000 tampoco afirma que todas las unidades tengan ambos precios. Si todos comparten realmente el mismo valor, each_member es válido y el sistema contrastará todos los miembros. Preserve el alcance que expresa el borrador al reparar la ficha; no transforme each_member en group_summary para hacer pasar una generalización falsa. Las cantidades escritas con palabras o cifras tienen el mismo alcance. Un resultado con field=derived_value usa individual y unit_id=null: describe una operación comprobable, no una unidad ni un resumen del catálogo.`
 
 function relation(actual: number, value: number, operator: string, upper: unknown) {
   switch (operator) {
@@ -71,6 +73,8 @@ export function focusedValueScopeIssues(input: unknown, catalog: Row[], requireS
     const base = { fragment: fact.fragment, unit_id: fact.unit_id, field: fact.field, value_scope: fact.value_scope,
       received: fact.value, owner: 'system', repair_owner: 'reviewer' }
     const metadata = (code: string, reason: string): Row[] => [{ ...base, code, kind: 'review_metadata', reason }]
+    if (fact.field === 'derived_value') return scope === 'individual' ? []
+      : metadata('invalid_derived_value_scope', 'Un resultado aritmético necesita alcance individual; no es un resumen ni un atributo de miembros del catálogo.')
     if (!scope && !requireScope) return []
     if (!valueScopes.includes(scope)) return metadata('invalid_numeric_value_scope', 'La ficha debe indicar si el valor describe una unidad, cada miembro o un resumen del grupo.')
     const source = catalog.find(row => row.id === fact.unit_id)

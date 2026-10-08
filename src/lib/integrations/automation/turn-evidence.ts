@@ -202,17 +202,29 @@ export function sentenceReferenceReviewSchema(schema: Row, reply: string, curren
   }
   const factList = object(properties.factual_values)
   if (Object.keys(factList).length && !structuredOnly) {
-    const candidates = draftNumericCandidates(reply), item = object(factList.items)
+    const candidates = draftNumericCandidates(reply)
+    const itemVariants = (item: Row): Row[] => Array.isArray(item.anyOf)
+      ? item.anyOf.flatMap(raw => itemVariants(object(raw))) : [item]
+    const variants = itemVariants(object(factList.items))
+    const derived = (item: Row) => Array.isArray(object(object(item.properties).field).enum)
+      && (object(object(item.properties).field).enum as unknown[]).includes('derived_value')
     const unitIds = catalog?.flatMap(unit => [text(unit.id), ...(text(unit.unit_number) && catalog.filter(other => other.unit_number === unit.unit_number).length === 1 ? [text(unit.unit_number)] : [])]).filter(Boolean)
-    properties.factual_values = candidates.length && (unitIds === undefined || unitIds.length) ? { ...factList, items: { anyOf: candidates.flatMap(candidate => [false, true].map(interval => ({
-      ...item, properties: { ...object(item.properties),
-        ...(unitIds ? { unit_id: { type: 'string', enum: [...new Set(unitIds)] } } : {}),
+    const projected = candidates.flatMap(candidate => variants.flatMap(item => derived(item)
+      ? [{ ...item, properties: { ...object(item.properties),
         fragment: { type: 'string', enum: [candidate.sentence_id] },
         value: { type: 'number', enum: candidate.values },
-        operator: { type: 'string', enum: interval ? ['between'] : ['eq', 'gt', 'gte', 'lt', 'lte'] },
-        upper_value: interval ? { type: 'number', enum: candidate.values } : { type: 'null' },
-      },
-    }))) } } : { ...factList, maxItems: 0 }
+      } }]
+      : unitIds === undefined || unitIds.length ? [false, true].map(interval => ({
+        ...item, properties: { ...object(item.properties),
+          ...(unitIds ? { unit_id: { type: 'string', enum: [...new Set(unitIds)] } } : {}),
+          fragment: { type: 'string', enum: [candidate.sentence_id] },
+          value: { type: 'number', enum: candidate.values },
+          operator: { type: 'string', enum: interval ? ['between'] : ['eq', 'gt', 'gte', 'lt', 'lte'] },
+          upper_value: interval ? { type: 'number', enum: candidate.values } : { type: 'null' },
+        },
+      })) : []))
+    properties.factual_values = projected.length ? { ...factList, items: { anyOf: projected } }
+      : { ...factList, maxItems: 0 }
   }
   const issueList = object(properties.review_issues)
   if (Object.keys(issueList).length) {
@@ -345,7 +357,7 @@ export function normalizeReviewReferences(review: Row, units: Row[], reply: stri
   }
   const facts = Array.isArray(review.factual_values) ? review.factual_values.map(raw => {
     const fact = resolveFragment(object(raw))
-    if (!units.some(unit => unit.id === fact.unit_id)) {
+    if (fact.field !== 'derived_value' && !units.some(unit => unit.id === fact.unit_id)) {
       const matches = units.filter(unit => unit.unit_number != null && text(unit.unit_number) === text(fact.unit_id))
       if (matches.length === 1) {
         corrections.push({ code: 'unit_number_resolved', from: fact.unit_id, to: matches[0].id })

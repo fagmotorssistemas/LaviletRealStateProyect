@@ -1,5 +1,5 @@
 import { object, text, type Row } from './data'
-import { BUSINESS_FACT_RULES, businessFactSchema, availableAssistance, ASSISTANCE_RULES } from './business-facts'
+import { BUSINESS_FACT_RULES, businessFactSchema, derivedBusinessFactSchema, OTHER_FINANCIAL_CALCULATION_FIELDS, availableAssistance, ASSISTANCE_RULES } from './business-facts'
 import { effectiveTurnBudget } from './turn-budget'
 import { FINANCING_PROCESS_RULES } from './financing-guidance'
 import { catalogOverviewSummary } from './task-context'
@@ -17,7 +17,7 @@ export const businessRiskReviewSchema: Row = {
   properties: {
     review_contract: { type: 'string', enum: [BUSINESS_RISK_REVIEW_VERSION] },
     verdict: { type: 'string', enum: ['pass', 'block'] },
-    facts: { type: 'array', items: businessFactSchema },
+    facts: { type: 'array', items: { anyOf: [businessFactSchema, derivedBusinessFactSchema] } },
     question: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false,
       properties: {
         ...continuationQuestionProperties,
@@ -61,6 +61,8 @@ export function businessRiskSchemaForSources(units: Row[], groups: Row[]): Row {
         } : {}),
         ...(kind === 'catalog_absence' ? { field: { type: 'string', enum: ['unit_count'] }, relation: { type: 'string', enum: ['eq'] },
           scope: scopedSchema, value: { type: 'number', enum: [0] }, upper_value: { type: 'null' }, unit: { type: 'string', enum: ['count'] } } : {}),
+        ...(kind === 'other_calculation' ? { field: { type: 'string', enum: OTHER_FINANCIAL_CALCULATION_FIELDS },
+          unit: { type: 'string', enum: ['USD', 'percent'] } } : {}),
         ...(kind === 'lead_budget' ? { field: { type: 'string', enum: ['amount'] }, relation: { type: 'string', enum: ['eq'] },
           subject_id: { type: 'null' }, scope: { type: 'null' }, value: { type: 'number' }, upper_value: { type: 'null' }, unit: { type: 'string', enum: ['USD'] } } : {}),
       },
@@ -74,7 +76,7 @@ export function businessRiskSchemaForSources(units: Row[], groups: Row[]): Row {
       field: { type: 'string', enum: ['unit_count'] }, scope: scopedSchema } }]
   })
   return { ...businessRiskReviewSchema, properties: { ...object(businessRiskReviewSchema.properties),
-    facts: { type: 'array', items: { anyOf: variants } } } }
+    facts: { type: 'array', items: { anyOf: [...variants, derivedBusinessFactSchema] } } } }
 }
 
 export const BUSINESS_RISK_REVIEW_RULES = `# Función del revisor
@@ -173,6 +175,7 @@ export function businessRiskContext(input: {
       otros_hechos_y_politicas: sources, enlaces_permitidos: input.allowedLinks,
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),
+      razonamiento_contextual: input.verified.razonamiento_contextual || null,
       etapa_financiamiento: input.verified.etapa_financiamiento || null,
       entrega_proyecto: input.verified.entrega_proyecto || null,
       siguiente_paso_comercial: input.verified.siguiente_paso_comercial || null,
