@@ -118,7 +118,7 @@ function ExperienceStage({
 }) {
   if (mobile) {
     return (
-      <div className="relative z-10 mx-auto flex min-h-svh w-full max-w-lg flex-col px-5 py-8">
+      <div className="relative z-10 mx-auto flex min-h-svh w-full max-w-lg flex-col px-[clamp(1rem,5vw,3rem)] py-8">
         <div className="relative z-20">
           <h2
             id="experiencia-title"
@@ -160,7 +160,7 @@ function ExperienceStage({
   }
 
   return (
-    <div className="relative z-10 mx-auto min-h-svh w-full max-w-[1680px] px-5 py-6 sm:px-10 lg:px-14 lg:py-8">
+    <div className="relative z-10 mx-auto min-h-svh w-full max-w-[1680px] px-[clamp(1rem,5vw,3rem)] py-6 sm:px-10 lg:px-14 lg:py-8">
       <div className="relative flex min-h-[calc(100svh-3rem)] flex-col lg:min-h-[calc(100svh-4rem)]">
         <div className="flex flex-col lg:grid flex-1 items-start gap-8 lg:gap-10 pb-8 lg:pb-16 lg:grid-cols-[minmax(16rem,0.95fr)_auto_minmax(15rem,0.85fr)] lg:gap-x-6 lg:pt-[5vh] xl:gap-x-10">
           <div className="relative z-20 w-full max-w-[32rem]">

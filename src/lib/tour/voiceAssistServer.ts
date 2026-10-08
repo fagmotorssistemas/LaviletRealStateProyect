@@ -6,7 +6,12 @@ import type { VoiceConversationTurn } from './voiceConversation'
 import { translateTourText, type TourLocale } from './tourMessages'
 import {
   buildSpeakLine,
+  correctSpokenPrices,
   filtersHaveSignal,
+  formatPriceSpoken,
+  isVoiceUiAction,
+  parseVoiceUiAction,
+  voiceUiActionLine,
   findCatalogUnitByCode,
   isLikelyOffTopic,
   isUnclearOrSilentSpeech,
@@ -23,6 +28,7 @@ import {
   suggestNearbyVoiceUnits,
   toVoiceUnitCard,
   wantsFreshSearch,
+  type VoiceUiAction,
   type VoiceAssistCatalogUnit,
   type VoiceAssistFilters,
   type VoiceAssistResult,
@@ -56,8 +62,11 @@ const FILTER_SCHEMA = {
     'sort_pref',
     'category',
     'or_groups',
+    'soft_needs',
     'off_topic',
     'assistant_note',
+    'intent',
+    'ui_action',
   ],
   properties: {
     bedrooms: { type: ['integer', 'null'] },
@@ -85,8 +94,14 @@ const FILTER_SCHEMA = {
         },
       },
     },
+    soft_needs: { type: 'array', items: { type: 'string' } },
     off_topic: { type: 'boolean' },
     assistant_note: { type: 'string' },
+    intent: { type: 'string', enum: ['question', 'search', 'action', 'farewell', 'other'] },
+    ui_action: {
+      type: ['string', 'null'],
+      enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'CLOSE_FICHA', null],
+    },
   },
 } as const
 
@@ -118,7 +133,7 @@ export async function transcribeTourVoice(audio: Blob, fileName: string, locale:
 
 async function extractFilters(
   transcript: string,
-): Promise<VoiceAssistFilters & { assistant_note: string; off_topic: boolean }> {
+): Promise<VoiceAssistFilters & { assistant_note: string; off_topic: boolean; intent: string; ui_action: VoiceUiAction | null }> {
   const key = process.env.OPENAI_API_KEY?.trim()
   const model = process.env.OPENAI_MODEL?.trim()
   if (!key || !model) throw new Error('OPENAI_NOT_CONFIGURED')
@@ -135,7 +150,10 @@ async function extractFilters(
     'Si pide lo más barato, económico o de menor precio: sort_pref="barato". Si pide lo más caro, premium o de lujo: sort_pref="caro".',
     'off_topic=true SOLO si el mensaje NO trata del showroom (chistes, clima, política, deportes, tecnología genérica, etc.).',
     'off_topic=false si pide locales comerciales, departamentos, suites, mezclas, filtros, opciones, precios o cómo usarte.',
-    'Si off_topic=true, deja filtros en null (only_available puede ser true), sort_pref=null, category=null, or_groups=null.',
+    'Si off_topic=true, deja filtros en null (only_available puede ser true), sort_pref=null, category=null, or_groups=null, soft_needs=[].',
+    'soft_needs: necesidades humanas que no son un filtro de base de datos, como vista, mascota, inversión, alquiler, terraza grande. Lista vacía si no hay.',
+    'intent: question si pide consejo, comparación o explicación; search si pide unidades; action si pide abrir galería, foto, 360, plano o cerrar ficha; farewell si se despide; other si no encaja.',
+    'ui_action: OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN o CLOSE_FICHA solo si intent=action; si no, null.',
     'assistant_note: frase corta interna (no para el cliente).',
   ].join(' ')
 
@@ -186,6 +204,8 @@ async function extractFilters(
     ...normalizeFilters(parsed as Partial<VoiceAssistFilters>),
     assistant_note: text(parsed.assistant_note).slice(0, 200),
     off_topic: parsed.off_topic === true,
+    intent: text(parsed.intent),
+    ui_action: isVoiceUiAction(parsed.ui_action) ? parsed.ui_action : null,
   }
 }
 
@@ -222,6 +242,17 @@ export async function runTourVoiceAssist(params: {
 
   const previous = wantsFreshSearch(transcript) ? null : (params.previousFilters ?? null)
   const previousMatches = wantsFreshSearch(transcript) ? [] : (params.previousMatches ?? [])
+  const uiAction = parseVoiceUiAction(transcript)
+  if (uiAction) {
+    return {
+      transcript,
+      speak: voiceUiActionLine(uiAction, params.locale),
+      filters: previous ?? normalizeFilters({ only_available: true }),
+      matches: previousMatches,
+      follow_up: null,
+      ui_action: uiAction,
+    }
+  }
   const comparison=compareVoiceUnits(transcript,params.catalog,previousMatches.map(u=>u.id),params.locale)
   if(comparison)return { ...comparison, filters: previous ?? comparison.filters }
   const localFilters = parseVoiceFiltersLocal(transcript)
@@ -238,15 +269,20 @@ export async function runTourVoiceAssist(params: {
       if (params.signal?.aborted) throw new Error('VOICE_TURN_CANCELLED')
       // No convertir un fallo del servicio en una respuesta inventada o una búsqueda distinta.
     }
+    const prices = [...previousMatches, ...params.catalog].map((unit) => unit.price)
     return {
       transcript,
-      speak: answer?.speak ?? (params.locale === 'en' ? 'I could not look up that answer right now. Please try again or check the unit details.' : 'No pude consultar esa respuesta ahora. Puede intentar de nuevo o revisar los datos de la ficha de la unidad.'),
+      speak: correctSpokenPrices(
+        answer?.speak ?? (params.locale === 'en' ? 'I could not look up that answer right now. Please try again.' : 'No puedo responder en este momento, intenta de nuevo.'),
+        prices,
+      ),
       filters: questionFilters,
       matches: answer?.unitIds.length ? answer.unitIds.flatMap(id => {
         const unit = params.catalog.find(unit => unit.id === id)
         return unit ? [toVoiceUnitCard(unit)] : []
       }) : previousMatches,
       follow_up: null,
+      ui_action: answer?.ui_action ?? null,
     }
   }
 
@@ -307,21 +343,24 @@ export async function runTourVoiceAssist(params: {
   // 1) Parser local (gratis). Cubre “2 dormitorios”, “2 baños”, “piso alto”, etc.
   let extracted = localFilters
   let aiOffTopic = false
+  let aiIntent = ''
+  let aiAction: VoiceUiAction | null = null
 
   // 2) Si no hay señal clara, intentar OpenAI; si falla, seguimos con local/memoria.
   if (!filtersHaveSignal(extracted) && !more) {
     try {
       const fromAi = await extractFilters(transcript)
-      const { assistant_note: _note, off_topic, ...rest } = fromAi
+      const { assistant_note: _note, off_topic, intent, ui_action, ...rest } = fromAi
       aiOffTopic = off_topic
+      aiIntent = intent
+      aiAction = ui_action
       extracted = rest
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       if (message.includes('429') && !previous) {
         return {
           transcript,
-          speak:
-            'Disculpe, ahora no puedo interpretar pedidos muy abiertos. Si me indica algo concreto como “2 dormitorios”, “2 baños” o “hasta 180 mil”, con gusto le ayudo.',
+          speak: 'No puedo responder en este momento, intenta de nuevo.',
           filters: extracted,
           matches: [],
           follow_up: 'Puede escribir dormitorios, baños, piso o presupuesto.',
@@ -331,23 +370,53 @@ export async function runTourVoiceAssist(params: {
     }
   }
 
+  if (aiAction) {
+    return {
+      transcript,
+      speak: voiceUiActionLine(aiAction, params.locale),
+      filters: previous ?? normalizeFilters({ only_available: true }),
+      matches: previousMatches,
+      follow_up: null,
+      ui_action: aiAction,
+    }
+  }
+
   if (aiOffTopic) {
     return offTopicReply()
   }
 
   const filters = mergeVoiceFilters(previous, extracted)
-  if (!filtersHaveSignal(filters)) {
-    if (isLikelyOffTopic(transcript)) {
-      return offTopicReply()
+  const consult = async () => {
+    let answer: Awaited<ReturnType<typeof answerVoiceQuestion>> = null
+    try {
+      answer = await answerVoiceQuestion({ ...params, transcript, previousMatches, previousFilters: filters })
+    } catch {
+      if (params.signal?.aborted) throw new Error('VOICE_TURN_CANCELLED')
     }
+    const prices = [...previousMatches, ...params.catalog].map((unit) => unit.price)
     return {
       transcript,
-      speak:
-        'Con gusto le ayudo. Puede pedirme departamentos, suites, penthouses o locales comerciales; también por dormitorios, baños, piso, presupuesto o lo más económico. ¿Por dónde le gustaría empezar?',
+      speak: correctSpokenPrices(
+        answer?.speak ?? (params.locale === 'en'
+          ? 'I could not look that up right now. Please try again.'
+          : 'No puedo responder en este momento, intenta de nuevo.'),
+        prices,
+      ),
       filters,
-      matches: [],
-      follow_up: 'Por ejemplo: “locales comerciales”, “2 baños” o “el más económico”.',
-    }
+      matches: answer?.unitIds.length
+        ? answer.unitIds.flatMap((id) => {
+            const unit = params.catalog.find((item) => item.id === id)
+            return unit ? [toVoiceUnitCard(unit)] : []
+          })
+        : previousMatches,
+      follow_up: null,
+      ui_action: answer?.ui_action ?? null,
+    } satisfies VoiceAssistResult
+  }
+
+  if (!filtersHaveSignal(filters) || aiIntent === 'question') {
+    if (isLikelyOffTopic(transcript)) return offTopicReply()
+    return consult()
   }
 
   const allMatches = matchVoiceUnits(params.catalog, filters, params.catalog.length)
@@ -355,9 +424,25 @@ export async function runTourVoiceAssist(params: {
   const excludeSeen = more || (repeated && !/barat|cheap|econom|menor precio|lowest|caro|expensive|highest/i.test(transcript))
   const seen = new Set([...(params.seenUnitIds ?? []), ...previousMatches.map(unit => unit.id)])
   const remaining = excludeSeen ? allMatches.filter(unit => !seen.has(unit.id)) : allMatches
-  if (allMatches.length && !remaining.length) return {
-    transcript, filters, matches: [], follow_up: null,
-    speak: params.locale === 'en' ? `We have reviewed all ${allMatches.length} matching units. Would you like to change a filter?` : `Ya revisamos las ${allMatches.length} unidades que cumplen esos filtros. ¿Quiere cambiar alguno para ver más opciones?`,
+  if (allMatches.length && !remaining.length) {
+    const nearby = suggestNearbyVoiceUnits(params.catalog, softenFiltersToSuggestions(filters, allMatches), 3)
+      .filter((unit) => !seen.has(unit.id))
+    if (nearby.length) {
+      const { speak, follow_up } = buildSpeakLine(nearby, filters, { suggested: true })
+      return {
+        transcript,
+        filters: softenFiltersToSuggestions(filters, nearby),
+        matches: nearby,
+        follow_up,
+        speak: params.locale === 'en'
+          ? `Those exact matches are already on screen. A nearby alternative: ${nearby.map((unit) => unit.unit_number).join(', ')}.`
+          : `Ya le mostré las que cumplen exactamente. ${speak}`,
+      }
+    }
+    return {
+      transcript, filters, matches: [], follow_up: null,
+      speak: params.locale === 'en' ? `We have reviewed all ${allMatches.length} matching units. Would you like to change a filter?` : `Ya revisamos las ${allMatches.length} unidades que cumplen esos filtros. ¿Quiere cambiar alguno para ver más opciones?`,
+    }
   }
   const exactMatches = remaining.slice(0, 3)
   let matches = exactMatches
@@ -374,9 +459,38 @@ export async function runTourVoiceAssist(params: {
     }
   }
 
+  if (filters.soft_needs.length) {
+    let answer: Awaited<ReturnType<typeof answerVoiceQuestion>> = null
+    try {
+      answer = await answerVoiceQuestion({
+        ...params,
+        transcript,
+        previousMatches: matches,
+        previousFilters: filters,
+      })
+    } catch {
+      if (params.signal?.aborted) throw new Error('VOICE_TURN_CANCELLED')
+    }
+    if (answer?.speak) {
+      const prices = [...matches, ...params.catalog].map((unit) => unit.price)
+      const picked = answer.unitIds.flatMap((id) => {
+        const unit = params.catalog.find((item) => item.id === id)
+        return unit ? [toVoiceUnitCard(unit)] : []
+      })
+      return {
+        transcript,
+        speak: correctSpokenPrices(answer.speak, prices),
+        filters: replyFilters,
+        matches: picked.length ? picked : matches,
+        follow_up: null,
+        ui_action: answer.ui_action,
+      }
+    }
+  }
+
   const { speak, follow_up } = buildSpeakLine(matches, filters, { suggested })
   if (params.locale === 'en') return { transcript, filters: replyFilters, matches, follow_up: null,
-    speak: matches.length ? `${suggested ? 'These are nearby alternatives, with different features.' : `${allMatches.length} units match your filters.`} ${matches.map((unit, index) => `Option ${index + 1}, unit ${unit.unit_number}: ${[unit.bedrooms != null ? `${unit.bedrooms} bedrooms` : null, unit.area_total_m2 != null ? `${unit.area_total_m2} square meters` : null, unit.price != null ? `${unit.price} dollars` : null].filter(Boolean).join(', ')}.`).join(' ')}` : 'No units match these filters. Would you like to change the budget or bedroom count?' }
+    speak: matches.length ? `${suggested ? 'These are nearby alternatives, with different features.' : `${allMatches.length} units match your filters.`} ${matches.map((unit, index) => `Option ${index + 1}, unit ${unit.unit_number}: ${[unit.bedrooms != null ? `${unit.bedrooms} bedrooms` : null, unit.area_total_m2 != null ? `${unit.area_total_m2} square meters` : null, unit.price != null ? formatPriceSpoken(unit.price) : null].filter(Boolean).join(', ')}.`).join(' ')}` : 'No units match these filters. Would you like to change the budget or bedroom count?' }
   return { transcript, speak, filters: replyFilters, matches, follow_up }
 }
 
@@ -467,7 +581,10 @@ async function synthesizeWithOpenAI(input: string, locale: TourLocale): Promise<
   return response.arrayBuffer()
 }
 
-/** Voces neurales de Edge (gratis): suenan naturales en español EC. */
+/**
+ * Respaldo de voz. @andresaya/edge-tts no es un cliente oficial: scrapea un servicio de Microsoft
+ * y puede dejar de funcionar sin aviso. OpenAI TTS es el camino principal.
+ */
 async function synthesizeWithEdge(input: string, locale: TourLocale): Promise<ArrayBuffer> {
   const { EdgeTTS } = await import('@andresaya/edge-tts')
   const tts = new EdgeTTS()

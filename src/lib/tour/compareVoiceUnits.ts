@@ -1,4 +1,4 @@
-import { normalizeFilters, toVoiceUnitCard, type VoiceAssistCatalogUnit, type VoiceAssistResult } from './voiceAssist'
+import { formatPriceSpoken, normalizeFilters, toVoiceUnitCard, type VoiceAssistCatalogUnit, type VoiceAssistResult } from './voiceAssist'
 import { isVoiceComparison, normalizeVoiceText } from './voiceTurnIntent'
 import { translateTourText, type TourLocale } from './tourMessages'
 export function compareVoiceUnits(transcript:string,catalog:VoiceAssistCatalogUnit[],previousIds:string[]=[],locale:TourLocale='es'):VoiceAssistResult|null{
@@ -26,7 +26,7 @@ export function compareVoiceUnits(transcript:string,catalog:VoiceAssistCatalogUn
      u.bedrooms!=null?`${u.bedrooms} ${en?'bedrooms':'dormitorios'}`:null,
      u.bathrooms!=null?`${u.bathrooms} ${en?'bathrooms':'baños'}`:null,
      u.floor?`${en?'floor':'piso'} ${translateTourText(u.floor,locale)}`:null,
-     u.price!=null?`${u.price} ${en?'dollars':'dólares'}`:null,
+     u.price!=null?(en?`${new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(Math.round(u.price))} dollars`:formatPriceSpoken(u.price)):null,
      u.status?translateTourText(u.status,locale):null].filter(Boolean)
    return `${en?'Unit':'Unidad'} ${u.unit_number}${facts.length?`: ${facts.join(', ')}`:''}.`
  })
@@ -34,7 +34,7 @@ export function compareVoiceUnits(transcript:string,catalog:VoiceAssistCatalogUn
  const a=units[i],b=units[j]
  lines.push(en?`Comparing ${a.unit_number} and ${b.unit_number}:`:`Entre ${a.unit_number} y ${b.unit_number}:`)
  if(a.area_total_m2!=null&&b.area_total_m2!=null){const diff=Number((a.area_total_m2-b.area_total_m2).toFixed(2));lines.push(locale==='en'?(diff===0?'Both have the same recorded area.':`Unit ${diff>0?a.unit_number:b.unit_number} has ${Math.abs(diff)} more square meters.`):(diff===0?'Las dos tienen la misma superficie registrada.':`La unidad ${diff>0?a.unit_number:b.unit_number} tiene ${Math.abs(diff)} metros cuadrados más.`))}
- if(a.price!=null&&b.price!=null){const diff=Number((a.price-b.price).toFixed(2));lines.push(locale==='en'?(diff===0?'Both have the same recorded price.':`Unit ${diff>0?a.unit_number:b.unit_number} costs ${Math.abs(diff)} dollars more.`):(diff===0?'El precio registrado es igual.':`La unidad ${diff>0?a.unit_number:b.unit_number} cuesta ${Math.abs(diff)} dólares más.`))}
+ if(a.price!=null&&b.price!=null){const diff=Number((a.price-b.price).toFixed(2));const spoken=en?`${new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(Math.abs(diff))} dollars`:`${formatPriceSpoken(Math.abs(diff))}`;lines.push(locale==='en'?(diff===0?'Both have the same recorded price.':`Unit ${diff>0?a.unit_number:b.unit_number} costs ${spoken} more.`):(diff===0?'El precio registrado es igual.':`La unidad ${diff>0?a.unit_number:b.unit_number} cuesta ${spoken} más.`))}
  for(const field of ['bedrooms','bathrooms'] as const){
    if(a[field]==null||b[field]==null)continue
    const diff=a[field]!-b[field]!

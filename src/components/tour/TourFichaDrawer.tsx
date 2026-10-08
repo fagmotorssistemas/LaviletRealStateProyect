@@ -565,11 +565,15 @@ export function TourFichaDrawer({
                         type="button"
                         aria-label={t(`Imagen ${index + 1}`)}
                         onClick={() => goSlide(index)}
-                        className={cn(
-                          'tour-ficha-dot h-1.5 w-1.5 min-h-0 min-w-0 shrink-0 rounded-full p-0 transition-all',
-                          index === safeSlide ? 'w-3.5 bg-white' : 'w-1.5 bg-white/55',
-                        )}
-                      />
+                        className="tour-ficha-dot inline-flex shrink-0 items-center justify-center"
+                      >
+                        <span
+                          className={cn(
+                            'block h-1.5 rounded-full transition-all',
+                            index === safeSlide ? 'w-3.5 bg-white' : 'w-1.5 bg-white/55',
+                          )}
+                        />
+                      </button>
                     ))}
                   </div>
                   <button

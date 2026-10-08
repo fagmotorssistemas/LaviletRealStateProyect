@@ -6,6 +6,7 @@ import {
   resolveVoiceCategory,
   speakUnclearSpeechClarification,
   splitSpeakChunks,
+  correctSpokenPrices,
   type VoiceAssistCatalogUnit,
   type VoiceAssistFilters,
   type VoiceAssistUnitCard,
@@ -14,6 +15,7 @@ import { runTourVoiceAssist, synthesizeTourVoice, transcribeTourVoice } from '@/
 import { sanitizeVoiceConversation, type VoiceConversationTurn } from '@/lib/tour/voiceConversation'
 import { isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
+import { allowVoiceRequest, voiceClientIp } from '@/lib/tour/voiceRateLimit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -96,6 +98,13 @@ function asPreviousMatches(raw: unknown): VoiceAssistUnitCard[] {
 
 export async function POST(request: Request) {
   try {
+    if (!allowVoiceRequest(voiceClientIp(request), 'assist')) {
+      return NextResponse.json(
+        { error: 'No puedo responder en este momento, intenta de nuevo.' },
+        { status: 429 },
+      )
+    }
+
     if (!process.env.OPENAI_API_KEY?.trim() || !process.env.OPENAI_MODEL?.trim()) {
       return NextResponse.json(
         { error: 'Falta configurar OPENAI_API_KEY / OPENAI_MODEL en el servidor' },
@@ -219,7 +228,7 @@ export async function POST(request: Request) {
       signal: request.signal,
       locale,
     })
-    result.speak = translateTourText(result.speak, locale)
+    result.speak = correctSpokenPrices(translateTourText(result.speak, locale), [...catalog, ...previousMatches].map((unit) => unit.price))
     result.follow_up = result.follow_up ? translateTourText(result.follow_up, locale) : null
     result.matches = result.matches.map(unit => ({ ...unit, blurb: translateTourText(unit.blurb, locale) }))
 
@@ -251,11 +260,9 @@ export async function POST(request: Request) {
       )
     }
     if (message.includes('429')) {
+      console.error('tour voice-assist quota', message)
       return NextResponse.json(
-        {
-          error:
-            'OpenAI sin cuota o límite alcanzado (429). Recarga crédito en platform.openai.com o usa búsquedas simples por texto (“2 dormitorios”).',
-        },
+        { error: 'No puedo responder en este momento, intenta de nuevo.' },
         { status: 429 },
       )
     }

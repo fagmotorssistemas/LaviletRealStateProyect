@@ -31,7 +31,7 @@ test('compara exactamente las posiciones pedidas, con diferencias reales y sin c
     const result = compareVoiceUnits(text, catalog, ['a', 'b', 'c'])!
     assert.deepEqual(result.matches.map(unit => unit.id), ['b', 'c'])
     assert.match(result.speak, /15 metros cuadrados/)
-    assert.match(result.speak, /25000 dólares/)
+    assert.match(result.speak, /25\.000 dólares/)
   }
   assert.deepEqual(compareVoiceUnits('compara 001 y LC-01', catalog)!.matches.map(unit => unit.id), ['a', 'd'])
   assert.doesNotMatch(compareVoiceUnits('compara 001 y LC-01', catalog)!.speak, /no registrado|sin datos|not recorded/)

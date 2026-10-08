@@ -465,7 +465,7 @@ export function TourFloorPlan({
   const whatsappHref = tourWhatsAppHref(floorPlanWhatsAppMessage(locale))
 
   useEffect(() => {
-    const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
+    const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse) and (max-width: 900px)')
     const sync = () => {
       const on = mq.matches
       setPortraitPan(on)

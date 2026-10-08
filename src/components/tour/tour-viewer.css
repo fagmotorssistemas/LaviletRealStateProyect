@@ -605,10 +605,13 @@ html.tour-is-force-landscape body {
   display: block;
 }
 
+.tour-modal-sheet .tour-ficha-dot,
 .tour-root .tour-ficha-dot {
+  width: auto;
+  height: auto;
   min-width: 0 !important;
   min-height: 0 !important;
-  padding: 0 !important;
+  padding: 0.55rem !important;
 }
 
 .tour-root .tour-ficha-nav {

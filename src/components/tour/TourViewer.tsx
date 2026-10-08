@@ -155,6 +155,32 @@ function buildTourMarkers(
 
 const PHONE_PORTRAIT_FRAME = 0.66
 
+/** Zoom 1 es la foto a pantalla completa. Por debajo, se abre hasta que toca los bordes. */
+function fittedStill(
+  box: { w: number; h: number },
+  aspect: number,
+  zoom: number | undefined,
+  framed: boolean,
+  contain: boolean,
+): { width: number; height: number; left: string; top: string; transform: string; maxWidth: string } | undefined {
+  if (framed || contain || zoom == null || box.w < 8 || box.h < 8 || aspect <= 0) return undefined
+  const boxAspect = box.w / box.h
+  const coverH = boxAspect > aspect ? box.w / aspect : box.h
+  const containH = boxAspect > aspect ? box.h : box.w / aspect
+  const minZoom = coverH > 0 ? containH / coverH : 1
+  const clamped = Math.min(1, Math.max(minZoom, zoom))
+  const span = Math.max(0.0001, 1 - minZoom)
+  const height = clamped >= 1 ? coverH : containH + (coverH - containH) * ((clamped - minZoom) / span)
+  return {
+    width: height * aspect,
+    height,
+    maxWidth: 'none',
+    left: '50%',
+    top: '50%',
+    transform: 'translate(-50%, -50%)',
+  }
+}
+
 function CrossfadeStill({
   url,
   fallbackUrl,
@@ -165,6 +191,7 @@ function CrossfadeStill({
   onStep,
   zoom,
   onZoom,
+  onZoomBounds,
 }: {
   url: string | null
   fallbackUrl?: string | null
@@ -175,6 +202,7 @@ function CrossfadeStill({
   onStep?: (dir: 1 | -1) => void
   zoom?: number
   onZoom?: (value: number) => void
+  onZoomBounds?: (min: number, max: number) => void
 }) {
   const { t } = useTourLanguage()
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
@@ -199,7 +227,13 @@ function CrossfadeStill({
   const frameH = Math.round(box.h * PHONE_PORTRAIT_FRAME)
   const frameW = Math.max(box.w, Math.round(frameH * aspect))
   const zoomCap = frameH > 0 ? box.h / frameH : 1
-  scaleRef.current = framed ? Math.max(1, Math.min(zoomCap, zoom ?? 1)) : 1
+  const framedMin = frameW > box.w + 0.5 ? box.w / frameW : 1
+  const zoomValue = zoom ?? 1
+  scaleRef.current = framed
+    ? Math.max(framedMin, Math.min(zoomCap, zoomCap * zoomValue))
+    : 1
+  const boundsRef = useRef(onZoomBounds)
+  boundsRef.current = onZoomBounds
   const maxPan = framed ? Math.max(0, (frameW * scaleRef.current - box.w) / 2) : 0
 
   const paintFrame = () => {
@@ -249,6 +283,11 @@ function CrossfadeStill({
     paintFrame()
   }, [framed, frameW, frameH, box.w, box.h, zoom, shown, aspect])
 
+  useEffect(() => {
+    const min = Math.min(1, containRatio > 0 ? containRatio : 0.45)
+    boundsRef.current?.(min, 1)
+  }, [framed, framedMin, zoomCap, containRatio])
+
   const onLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     const img = event.currentTarget
     if (img.naturalWidth > 0 && img.naturalHeight > 0) {
@@ -290,10 +329,11 @@ function CrossfadeStill({
       const b = pts[1]
       if (!a || !b) return
       const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
-      const min = framed ? 1 : containRatio
-      const max = framed ? zoomCap : 3
+      const min = framed ? framedMin : containRatio
+      const max = framed ? zoomCap : 1
       const next = Math.max(min, Math.min(max, pinchRef.current.scale * (dist / pinchRef.current.dist)))
-      onZoom?.(Number(next.toFixed(3)))
+      const nextZoom = framed && zoomCap > 0 ? next / zoomCap : next
+      onZoom?.(Number(nextZoom.toFixed(3)))
       return
     }
     const drag = dragRef.current
@@ -324,6 +364,7 @@ function CrossfadeStill({
   const frame = (slot: 'a' | 'b', ref: typeof aRef) => {
     const src = assigned[slot]
     if (!src) return null
+    const fitted = fittedStill(box, aspect, zoom, framed, contain)
     return (
       <div
         className={cn(
@@ -348,16 +389,13 @@ function CrossfadeStill({
             fetchPriority={front === slot ? 'high' : 'low'}
             onLoad={front === slot ? onLoad : undefined}
             onError={front === slot ? onImgError : undefined}
-            style={
-              !framed && zoom != null
-                ? { transform: `scale(${zoom})` }
-                : undefined
-            }
+            style={fitted}
             className={cn(
               contain
                 ? 'h-full w-full object-contain object-center'
-                : 'absolute inset-0 h-full w-full object-cover object-center',
-              !framed && zoom != null && 'origin-center',
+                : fitted
+                  ? 'absolute max-w-none object-cover object-center'
+                  : 'absolute inset-0 h-full w-full object-cover object-center',
             )}
           />
         </div>
@@ -377,7 +415,7 @@ function CrossfadeStill({
       onPointerUp={onUp}
       onPointerCancel={onUp}
     >
-      {framed && shown ? (
+      {(framed || (zoom != null && !contain)) && shown ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={shown}
@@ -385,7 +423,7 @@ function CrossfadeStill({
           aria-hidden
           draggable={false}
           className="pointer-events-none absolute inset-[-12%] h-[124%] w-[124%] max-w-none object-cover"
-          style={{ filter: 'blur(24px) brightness(0.6)' }}
+          style={{ filter: 'blur(28px) brightness(0.72) saturate(1.05)' }}
         />
       ) : null}
       <div
@@ -1543,17 +1581,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [])
   const [galeriaIndex, setGaleriaIndex] = useState(0)
   const [galleryZoom, setGalleryZoom] = useState(1)
-  const [galleryPortrait, setGalleryPortrait] = useState(false)
+  const [galleryZoomMin, setGalleryZoomMin] = useState(0.45)
+  const [galleryZoomMax, setGalleryZoomMax] = useState(1)
   useEffect(() => {
-    setGalleryZoom(1)
-  }, [galeriaIndex])
-  useEffect(() => {
-    const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
-    const sync = () => setGalleryPortrait(mq.matches)
-    sync()
-    mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
-  }, [])
+    if (viewMode === 'galeria') setGalleryZoom(1)
+  }, [viewMode, galeriaIndex])
   /** Semilla estable: cambia al entrar a galería / tipología para re-sortear acabado×luz. */
   const [galeriaSeed, setGaleriaSeed] = useState(() => Math.floor(Math.random() * 1_000_000))
   const [compareGaleriaSeedB, setCompareGaleriaSeedB] = useState(() => Math.floor(Math.random() * 1_000_000))
@@ -3863,6 +3895,14 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           lateralPan={viewMode === 'galeria'}
           zoom={viewMode === 'galeria' ? galleryZoom : undefined}
           onZoom={viewMode === 'galeria' ? setGalleryZoom : undefined}
+          onZoomBounds={
+            viewMode === 'galeria'
+              ? (min, max) => {
+                  setGalleryZoomMin(min)
+                  setGalleryZoomMax(max)
+                }
+              : undefined
+          }
           onStep={stepStill}
         />
         {selectedUnit && showStill && !overlayUrl?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{t('Esta unidad no tiene un recurso disponible para esta vista.')}</p>:null}
@@ -3902,10 +3942,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               aria-label={t('Alejar')}
-              disabled={galleryZoom <= (galleryPortrait ? 1 : 0.45)}
+              disabled={galleryZoom <= galleryZoomMin + 0.01}
               onClick={() =>
                 setGalleryZoom((value) =>
-                  Math.max(galleryPortrait ? 1 : 0.45, Math.round((value - 0.25) * 100) / 100),
+                  Math.max(galleryZoomMin, Math.round((value - 0.25) * 100) / 100),
                 )
               }
               onPointerDown={(event) => event.stopPropagation()}
@@ -3916,10 +3956,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               aria-label={t('Acercar')}
-              disabled={galleryZoom >= (galleryPortrait ? 1 / PHONE_PORTRAIT_FRAME : 3) - 0.01}
+              disabled={galleryZoom >= galleryZoomMax - 0.01}
               onClick={() =>
                 setGalleryZoom((value) =>
-                  Math.min(galleryPortrait ? 1 / PHONE_PORTRAIT_FRAME : 3, Math.round((value + 0.25) * 100) / 100),
+                  Math.min(galleryZoomMax, Math.round((value + 0.25) * 100) / 100),
                 )
               }
               onPointerDown={(event) => event.stopPropagation()}
@@ -4854,6 +4894,40 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             setFichaExpanded(true)
             setFichaOpen(true)
             writeUnitQueryParam(unit.unit_number)
+          }}
+          onVoiceAction={(action) => {
+            if (action === 'OPEN_GALLERY') {
+              setShellMode('unit')
+              setViewMode('galeria')
+              setGaleriaIndex(0)
+              setFichaOpen(false)
+              return
+            }
+            if (action === 'NEXT_PHOTO') {
+              setViewMode('galeria')
+              setGaleriaIndex((i) => (galeriaImages.length ? (i + 1) % galeriaImages.length : i))
+              return
+            }
+            if (action === 'PREV_PHOTO') {
+              setViewMode('galeria')
+              setGaleriaIndex((i) =>
+                galeriaImages.length ? (i - 1 + galeriaImages.length) % galeriaImages.length : i,
+              )
+              return
+            }
+            if (action === 'OPEN_TOUR_360') {
+              setShellMode('unit')
+              setViewMode('tour')
+              setFichaOpen(false)
+              return
+            }
+            if (action === 'OPEN_FLOOR_PLAN') {
+              setShellMode('plan')
+              setViewMode('planos-3d')
+              setFichaOpen(false)
+              return
+            }
+            if (action === 'CLOSE_FICHA') setFichaOpen(false)
           }}
         />
       ) : null}

@@ -95,7 +95,7 @@ function PhotoPanel({ slide }: { slide: PhotoSlide }) {
         priority={slide.kicker === 'Nosotros'}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
-      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-5 sm:p-8 lg:p-10">
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 px-[clamp(1rem,5vw,3rem)] py-5 sm:py-8 lg:py-10">
         <div className="max-w-md text-white">
           <p className="text-[11px] font-medium tracking-[0.32em] uppercase">{slide.kicker}</p>
           <h3 className="mt-2 font-serif text-[clamp(1.7rem,4vw,3.1rem)] leading-[0.95] font-normal tracking-[-0.03em]">
@@ -138,8 +138,8 @@ function CardsPanel({ full = false }: { full?: boolean }) {
   return (
     <article
       className={cn(
-        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-7 py-12 sm:px-12 lg:px-16',
-        full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,42rem)] sm:w-[56vw] lg:w-[48vw]',
+        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-[clamp(1rem,5vw,3rem)] py-12',
+        full ? 'min-h-[32rem] w-full' : 'w-[min(calc(100vw-2rem),42rem)] sm:w-[56vw] lg:w-[48vw]',
       )}
     >
       <div className="relative flex flex-col items-center text-center">
@@ -199,8 +199,8 @@ function CommercePanel({ full = false }: { full?: boolean }) {
   return (
     <article
       className={cn(
-        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-7 py-12 sm:px-12 lg:px-16',
-        full ? 'min-h-[32rem] w-full' : 'w-[min(100vw,42rem)] sm:w-[56vw] lg:w-[48vw]',
+        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-[clamp(1rem,5vw,3rem)] py-12',
+        full ? 'min-h-[32rem] w-full' : 'w-[min(calc(100vw-2rem),42rem)] sm:w-[56vw] lg:w-[48vw]',
       )}
     >
       <div className="relative flex flex-col items-center text-center">
@@ -328,6 +328,7 @@ function StackedGallery({
 export function PlaceGallery() {
   const reduce = useReducedMotion()
   const pinRef = useRef<HTMLElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const [travel, setTravel] = useState(0)
 
@@ -336,7 +337,8 @@ export function PlaceGallery() {
     if (!track) return
 
     const measure = () => {
-      setTravel(Math.max(0, track.scrollWidth - window.innerWidth))
+      const visible = frameRef.current?.clientWidth || window.innerWidth
+      setTravel(Math.max(0, track.scrollWidth - visible))
     }
 
     measure()
@@ -366,7 +368,7 @@ export function PlaceGallery() {
       style={{ height: `calc(100svh + ${travel || 2800}px)` }}
       aria-label="La ciudad alrededor"
     >
-      <div className="sticky top-0 h-svh overflow-hidden bg-[#e4e4de] mkt-dark:bg-[#72735A]">
+      <div ref={frameRef} className="sticky top-0 h-svh overflow-hidden bg-[#e4e4de] px-[clamp(1rem,5vw,3rem)] mkt-dark:bg-[#72735A]">
         <motion.div className="h-full will-change-transform" style={{ x }}>
           <Track trackRef={trackRef} />
         </motion.div>

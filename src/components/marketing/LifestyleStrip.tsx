@@ -87,7 +87,7 @@ function ClipVideo({
         aria-hidden
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/15 to-black/25" />
-      <h3 className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center font-serif text-[clamp(2rem,3.4vw,2.75rem)] leading-none font-normal tracking-[-0.03em] text-white [text-shadow:0_1px_18px_rgba(0,0,0,0.45)]">
+      <h3 className="pointer-events-none absolute inset-0 flex items-center justify-center px-[clamp(1rem,5vw,3rem)] text-center font-serif text-[clamp(2rem,3.4vw,2.75rem)] leading-none font-normal tracking-[-0.03em] text-white [text-shadow:0_1px_18px_rgba(0,0,0,0.45)]">
         {clip.title}
       </h3>
       <button
@@ -442,9 +442,9 @@ export function LifestyleStrip() {
 
         <LaviletLetterParade />
 
-        <div className="-mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-5 pb-3 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-4 lg:gap-4">
+        <div className="-mx-[clamp(1rem,5vw,3rem)] flex snap-x snap-mandatory gap-3 overflow-x-auto px-[clamp(1rem,5vw,3rem)] pb-3 scroll-px-[clamp(1rem,5vw,3rem)] sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-4 lg:gap-4">
           {CLIPS.map((clip) => (
-            <div key={clip.title} className="min-w-[82vw] snap-center sm:min-w-0">
+            <div key={clip.title} className="min-w-[min(82vw,calc(100vw-2*clamp(1rem,5vw,3rem)))] snap-center sm:min-w-0">
               <ClipVideo
                 clip={clip}
                 paused={open !== null}

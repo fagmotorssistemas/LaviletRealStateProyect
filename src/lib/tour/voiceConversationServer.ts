@@ -1,5 +1,5 @@
 import 'server-only'
-import type { VoiceAssistCatalogUnit, VoiceAssistFilters, VoiceAssistUnitCard } from './voiceAssist'
+import { isVoiceUiAction, type VoiceAssistCatalogUnit, type VoiceAssistFilters, type VoiceAssistUnitCard } from './voiceAssist'
 import { sanitizeVoiceConversation, type VoiceConversationTurn } from './voiceConversation'
 import type { TourLocale } from './tourMessages'
 
@@ -11,7 +11,7 @@ export async function answerVoiceQuestion(params: {
   history?: VoiceConversationTurn[]
   signal?: AbortSignal
   locale?: TourLocale
-}): Promise<{ speak: string; unitIds: string[] } | null> {
+}): Promise<{ speak: string; unitIds: string[]; ui_action: import('./voiceAssist').VoiceUiAction | null } | null> {
   const key = process.env.OPENAI_API_KEY?.trim()
   const model = process.env.OPENAI_MODEL?.trim()
   if (!key || !model) return null
@@ -37,7 +37,8 @@ export async function answerVoiceQuestion(params: {
         'Primera, segunda y tercera son las posiciones de opciones_en_pantalla. Si no puedes identificar la unidad con certeza, pide aclaración; no adivines.',
         'unit_ids contiene hasta tres IDs exactos del catálogo si propones nuevas opciones para una búsqueda; si respondes sobre las opciones actuales, deja unit_ids vacío para conservar su orden.',
         'No inventes vistas, distribución, orientación, financiación, descuentos, rentabilidad ni recursos ausentes. Explica qué dato falta solo cuando sea pertinente.',
-        'No afirmes haber abierto fichas, enviado mensajes, guardado datos, reservado ni ejecutado ninguna acción.',
+        'Si pide abrir la galería, la siguiente o anterior foto, el recorrido 360, el plano o cerrar la ficha, responde en una frase y pon ui_action en OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN o CLOSE_FICHA. Si no pide una acción de pantalla, ui_action es null. La frase y la acción van juntas.',
+        'Usa preferencias.soft_needs (vista, mascota, inversión, terraza) para razonar aunque no existan como columna del catálogo.',
         'Si la consulta no trata sobre La Vilet o elegir una unidad, explica brevemente qué puedes ayudar a consultar.',
       ].join(' '),
       input: [{ role: 'user', content: [{ type: 'input_text', text: JSON.stringify({
@@ -48,7 +49,7 @@ export async function answerVoiceQuestion(params: {
         pregunta: params.transcript,
       }) }] }],
       text: { format: { type: 'json_schema', name: 'tour_answer', strict: true,
-        schema: { type: 'object', additionalProperties: false, required: ['speak', 'unit_ids'], properties: { speak: { type: 'string' }, unit_ids: { type: 'array', items: { type: 'string' } } } },
+        schema: { type: 'object', additionalProperties: false, required: ['speak', 'unit_ids', 'ui_action'], properties: { speak: { type: 'string' }, unit_ids: { type: 'array', items: { type: 'string' } }, ui_action: { type: ['string', 'null'], enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'CLOSE_FICHA', null] } } },
       } },
     }),
   })
@@ -62,5 +63,5 @@ export async function answerVoiceQuestion(params: {
   if (typeof parsed.speak !== 'string' || !parsed.speak.trim()) return null
   const ids: string[] = Array.isArray(parsed.unit_ids) ? parsed.unit_ids : []
   if (ids.some(id => !params.catalog.some(unit => unit.id === id))) throw new Error('VOICE_ANSWER_UNKNOWN_UNIT')
-  return { speak: parsed.speak.trim().slice(0, 1600), unitIds: [...new Set(ids)].slice(0, 3) }
+  return { speak: parsed.speak.trim().slice(0, 1600), unitIds: [...new Set(ids)].slice(0, 3), ui_action: isVoiceUiAction(parsed.ui_action) ? parsed.ui_action : null }
 }

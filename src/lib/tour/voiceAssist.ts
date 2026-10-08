@@ -88,6 +88,61 @@ export type VoiceAssistFilters = {
    * Si hay grupos, se hace OR entre ellos; precio/piso/sort siguen siendo comunes.
    */
   or_groups: VoiceAssistOrGroup[] | null
+  /** Necesidades que no son columnas del catálogo: vista, mascota, inversión, terraza. */
+  soft_needs: string[]
+}
+
+export const VOICE_UI_ACTIONS = [
+  'OPEN_GALLERY',
+  'NEXT_PHOTO',
+  'PREV_PHOTO',
+  'OPEN_TOUR_360',
+  'OPEN_FLOOR_PLAN',
+  'CLOSE_FICHA',
+] as const
+
+export type VoiceUiAction = (typeof VOICE_UI_ACTIONS)[number]
+
+export function isVoiceUiAction(value: unknown): value is VoiceUiAction {
+  return typeof value === 'string' && (VOICE_UI_ACTIONS as readonly string[]).includes(value)
+}
+
+/** Órdenes de pantalla. Van antes de “abre la” para no abrir la opción 1 por error. */
+export function parseVoiceUiAction(transcript: string): VoiceUiAction | null {
+  const t = transcript
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!t) return null
+  if (/\b(siguiente|proxima|adelante)\b.*\b(foto|imagen|diapositiva)\b|\b(pasa|avanz\w*)\b.*\b(foto|imagen)\b/.test(t)) return 'NEXT_PHOTO'
+  if (/\b(anterior|atras|previa)\b.*\b(foto|imagen|diapositiva)\b|\b(regres\w*|volv\w*)\b.*\b(foto|imagen)\b/.test(t)) return 'PREV_PHOTO'
+  if (/\b(galeria|fotos de la unidad|ver fotos)\b/.test(t)) return 'OPEN_GALLERY'
+  if (/\b(recorrido|360|tour)\b/.test(t) && /\b(abre|abrir|muestra|ver|quiero|pon)\b/.test(t)) return 'OPEN_TOUR_360'
+  if (/\b(plano|planta del edificio|pisos)\b/.test(t) && /\b(abre|abrir|muestra|ver|quiero|pon)\b/.test(t)) return 'OPEN_FLOOR_PLAN'
+  if (/\b(cierra|cerrar|quita)\b.*\b(ficha)\b/.test(t)) return 'CLOSE_FICHA'
+  return null
+}
+
+export function voiceUiActionLine(action: VoiceUiAction, locale: TourLocale = 'es'): string {
+  const es: Record<VoiceUiAction, string> = {
+    OPEN_GALLERY: 'Listo, aquí tiene la galería.',
+    NEXT_PHOTO: 'Listo, paso a la siguiente imagen.',
+    PREV_PHOTO: 'Listo, vuelvo a la imagen anterior.',
+    OPEN_TOUR_360: 'Listo, le abro el recorrido 360.',
+    OPEN_FLOOR_PLAN: 'Listo, le muestro el plano.',
+    CLOSE_FICHA: 'Listo, cierro la ficha.',
+  }
+  const en: Record<VoiceUiAction, string> = {
+    OPEN_GALLERY: 'Done, here is the gallery.',
+    NEXT_PHOTO: 'Done, next photo.',
+    PREV_PHOTO: 'Done, previous photo.',
+    OPEN_TOUR_360: 'Done, opening the 360 tour.',
+    OPEN_FLOOR_PLAN: 'Done, here is the floor plan.',
+    CLOSE_FICHA: 'Done, closing the unit card.',
+  }
+  return locale === 'en' ? en[action] : es[action]
 }
 
 export type VoiceAssistUnitCard = {
@@ -111,6 +166,7 @@ export type VoiceAssistResult = {
   filters: VoiceAssistFilters
   matches: VoiceAssistUnitCard[]
   follow_up: string | null
+  ui_action?: VoiceUiAction | null
 }
 
 export type VoiceAssistCatalogUnit = {
@@ -141,6 +197,7 @@ export const EMPTY_VOICE_FILTERS: VoiceAssistFilters = {
   sort_pref: null,
   category: null,
   or_groups: null,
+  soft_needs: [],
 }
 
 const OFFERABLE = new Set(['disponible', 'en_preventa'])
@@ -579,14 +636,23 @@ export function softenFiltersToSuggestions(
   return normalizeFilters(next)
 }
 
-function formatPriceSpoken(value: number | null) {
+export function formatPriceSpoken(value: number | null) {
   if (value == null || !Number.isFinite(value)) return null
-  if (value >= 1_000_000) {
-    const n = value / 1_000_000
-    return n % 1 === 0 ? `${n} millones de dólares` : `${n.toFixed(1).replace('.', ',')} millones de dólares`
-  }
-  if (value >= 1000) return `${Math.round(value / 1000)} mil dólares`
-  return `${Math.round(value)} dólares`
+  const grouped = new Intl.NumberFormat('es-EC', { maximumFractionDigits: 0 }).format(Math.round(value))
+  return `${grouped} dólares`
+}
+
+/** Sustituye cifras de dinero que no están en el catálogo antes de hablarlas. */
+export function correctSpokenPrices(speak: string, prices: Array<number | null | undefined>): string {
+  const known = prices.filter((price): price is number => price != null && Number.isFinite(price) && price > 0)
+  if (!known.length) return speak
+  return speak.replace(/\$?\s?\d{1,3}(?:[.\s]\d{3})+|\b\d{5,7}\b/g, (raw) => {
+    const digits = Number(raw.replace(/[^\d]/g, ''))
+    if (!Number.isFinite(digits) || digits < 1000) return raw
+    if (known.some((price) => Math.abs(price - digits) < 1)) return formatPriceSpoken(digits) ?? raw
+    if (known.length === 1) return formatPriceSpoken(known[0]) ?? raw
+    return 'el precio publicado'
+  })
 }
 
 function describeUnitSpoken(u: VoiceAssistUnitCard) {
@@ -638,12 +704,16 @@ function needPhrase(filters: VoiceAssistFilters) {
     if (filters.category === 'suite') bits.push('suites')
     if (filters.category === 'penthouse') bits.push('penthouses')
     if (filters.category === 'departamento') bits.push('departamentos')
+    for (const need of filters.soft_needs) bits.push(need)
     if (filters.bathrooms != null) {
       bits.push(filters.bathrooms === 1 ? '1 baño' : `${filters.bathrooms} baños`)
     }
     if (filters.bedrooms != null) {
       bits.push(filters.bedrooms === 1 ? '1 dormitorio' : `${filters.bedrooms} dormitorios`)
     }
+  }
+  for (const need of filters.soft_needs ?? []) {
+    if (!bits.includes(need)) bits.push(need)
   }
   if (filters.floor_pref) bits.push(`piso ${filters.floor_pref}`)
   if (filters.floor_min != null && filters.floor_max != null && filters.floor_min === filters.floor_max) {
@@ -798,6 +868,7 @@ export function mergeVoiceFilters(
     sort_pref: next.sort_pref ?? previous.sort_pref,
     category: next.or_groups ? null : (next.category ?? previous.category),
     or_groups,
+    soft_needs: next.soft_needs?.length ? next.soft_needs : previous.soft_needs,
   })
 }
 
@@ -1110,20 +1181,75 @@ export function markAskedVoicePhone() {
   }
 }
 
-/** Invitación opcional de contacto una vez por sesión, al elegir una unidad. */
+const PHONE_DECLINED_KEY = 'lv_voice_phone_declined_v5'
+const PHONE_RETRY_KEY = 'lv_voice_phone_retry_v5'
+let phoneDeclined = false
+let phoneRetried = false
+
+function readSessionFlag(key: string) {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.sessionStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function hasDeclinedVoicePhone() {
+  return phoneDeclined || readSessionFlag(PHONE_DECLINED_KEY)
+}
+
+export function markDeclinedVoicePhone() {
+  phoneDeclined = true
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(PHONE_DECLINED_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+function hasRetriedVoicePhone() {
+  return phoneRetried || readSessionFlag(PHONE_RETRY_KEY)
+}
+
+function markRetriedVoicePhone() {
+  phoneRetried = true
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(PHONE_RETRY_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isStrongVoiceInterest(transcript: string) {
+  const t = transcript
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+  return /\b(precio|cuesta|cuanto|compar\w*|fotos?|galeria|360|plano|me interesa|esa unidad|esa opcion)\b/.test(t)
+}
+
+/** Invitación opcional de contacto, una vez por sesión, y una segunda si luego hay más interés. */
 export function withSoftPhoneAsk(
   data: VoiceAssistResult,
   identified: boolean,
-  opts?: { afterOptionPick?: boolean; locale?: TourLocale },
+  opts?: { afterOptionPick?: boolean; conversationEnding?: boolean; strongInterest?: boolean; locale?: TourLocale },
 ): VoiceAssistResult {
-  if (!opts?.afterOptionPick || identified || hasAskedVoicePhone()) return data
-  if (data.matches.length === 0) return data
-
-  // Invitación opcional, una sola vez; cambiar de unidad no vuelve a solicitarlo.
-  markAskedVoicePhone()
+  const moment = Boolean(opts?.afterOptionPick || opts?.conversationEnding || opts?.strongInterest)
+  if (!moment || identified) return data
+  if (opts?.afterOptionPick && data.matches.length === 0) return data
+  if (opts?.conversationEnding && !isConversationEnd(data.transcript)) return data
+  if (hasAskedVoicePhone()) {
+    if (!(opts?.strongInterest && hasDeclinedVoicePhone() && !hasRetriedVoicePhone())) return data
+    markRetriedVoicePhone()
+  } else {
+    markAskedVoicePhone()
+  }
   return {
     ...data,
-    speak: `${data.speak.trim()}${voiceSoftPhoneAskLine(opts.locale)}`,
+    speak: `${data.speak.trim()}${voiceSoftPhoneAskLine(opts?.locale)}`,
   }
 }
 
@@ -1312,6 +1438,9 @@ export function normalizeFilters(raw: Partial<VoiceAssistFilters> | null | undef
     sort_pref: sort === 'barato' || sort === 'caro' ? sort : null,
     category: groups ? null : category,
     or_groups: groups,
+    soft_needs: Array.isArray(raw?.soft_needs)
+      ? raw.soft_needs.map((item) => String(item).trim()).filter(Boolean).slice(0, 6)
+      : [],
   }
 }
 

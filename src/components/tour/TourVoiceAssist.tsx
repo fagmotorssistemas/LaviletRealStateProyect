@@ -16,7 +16,9 @@ import {
   isConversationEnd,
   isShortAffirmative,
   isShortDecline,
+  isStrongVoiceInterest,
   markAskedVoicePhone,
+  markDeclinedVoicePhone,
   parseListedOptionChoice,
   parsePhoneFromTranscript,
   splitSpeakChunks,
@@ -27,6 +29,7 @@ import {
   type VoiceAssistFilters,
   type VoiceAssistResult,
   type VoiceAssistUnitCard,
+  type VoiceUiAction,
 } from '@/lib/tour/voiceAssist'
 import { buildGaleriaStills } from '@/lib/tour/galeriaStills'
 import { isShowroomIdentified } from '@/lib/tour/showroomIdentity'
@@ -39,6 +42,7 @@ type TourVoiceAssistProps = {
   onPickUnit: (unit: TourUnitSummary) => void
   /** Adelanto visual de una opción sin abrir ficha ni pedir WhatsApp. */
   onPreviewUnit?: (unit: TourUnitSummary) => void
+  onVoiceAction?: (action: VoiceUiAction) => void
   /** Catálogo público para miniaturas de tipología. */
   publicCatalog?: TourPublicCatalog | null
   /** Cambia al navegar (vista/ambiente) para disparar tips aleatorios. */
@@ -291,6 +295,8 @@ function stopSpokenAudio() {
   settleSpeakWaiters()
 }
 
+let playbackBlockedHandler: ((blob: Blob) => void) | null = null
+
 function playAudioBlob(blob: Blob, seq: number): Promise<void> {
   return new Promise((resolve) => {
     if (seq !== speakSeq) {
@@ -327,7 +333,10 @@ function playAudioBlob(blob: Blob, seq: number): Promise<void> {
     speakWaiters.push(done)
     audio.onended = done
     audio.onerror = done
-    void audio.play().catch(done)
+    void audio.play().catch(() => {
+      playbackBlockedHandler?.(blob)
+      done()
+    })
   })
 }
 
@@ -436,6 +445,7 @@ export function TourVoiceAssist({
   units,
   onPickUnit,
   onPreviewUnit,
+  onVoiceAction,
   publicCatalog = null,
   sceneKey = '',
   hideTrigger = false,
@@ -472,6 +482,15 @@ export function TourVoiceAssist({
   unitsRef.current = units
   const onPreviewUnitRef = useRef(onPreviewUnit)
   onPreviewUnitRef.current = onPreviewUnit
+  const onVoiceActionRef = useRef(onVoiceAction)
+  onVoiceActionRef.current = onVoiceAction
+  const [blockedAudio, setBlockedAudio] = useState<Blob | null>(null)
+  useEffect(() => {
+    playbackBlockedHandler = (blob) => setBlockedAudio(blob)
+    return () => {
+      playbackBlockedHandler = null
+    }
+  }, [])
   const memoryFiltersRef = useRef<VoiceAssistFilters | null>(null)
   const memoryMatchesRef = useRef<VoiceAssistUnitCard[]>([])
   const seenUnitIdsRef = useRef(new Set<string>())
@@ -714,8 +733,11 @@ export function TourVoiceAssist({
     // WhatsApp solo cuando el visitante eligió una unidad.
     const enriched = withSoftPhoneAsk(data, isShowroomIdentified(), {
       afterOptionPick: isUnitReveal,
+      conversationEnding: isConversationEnd(data.transcript),
+      strongInterest: isStrongVoiceInterest(data.transcript),
       locale,
     })
+    if (data.ui_action) onVoiceActionRef.current?.(data.ui_action)
     phoneInvitationPendingRef.current = enriched !== data
     if (data.transcript && !parsePhoneFromTranscript(data.transcript)) {
       historyRef.current = sanitizeVoiceConversation([
@@ -900,6 +922,7 @@ export function TourVoiceAssist({
     }
 
     if (!isShowroomIdentified() && invitationPending && isShortDecline(text)) {
+      markDeclinedVoicePhone()
       setPhase('thinking')
       setError(null)
       await finishAssistantTurn(
@@ -1575,6 +1598,19 @@ export function TourVoiceAssist({
             {phase === 'speaking' ? (
               <p className="flex items-center justify-center gap-2 text-[13px] text-white/70">
                 <Loader2 size={14} className="animate-spin" /> {t(" Respondiendo… ")}</p>
+            ) : null}
+            {blockedAudio ? (
+              <button
+                type="button"
+                className="mx-auto block min-h-11 rounded-full bg-[#bda27e] px-4 text-[12px] font-semibold text-[#14110e]"
+                onClick={() => {
+                  const blob = blockedAudio
+                  setBlockedAudio(null)
+                  void playAudioBlob(blob, speakSeq)
+                }}
+              >
+                {t('Toca para escuchar')}
+              </button>
             ) : null}
             {error ? <p className="text-[12px] text-[#f0d5c8]">{t(error)}</p> : null}
 
