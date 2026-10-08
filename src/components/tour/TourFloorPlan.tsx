@@ -1864,7 +1864,7 @@ export function TourFloorPlan({
 
       <div
         className="tour-floor-side pointer-events-auto absolute z-30 flex w-[var(--fab)] flex-col items-center gap-[var(--fab-gap)]"
-        style={{ right: 'calc(clamp(56px, 5vw, 84px) + var(--fab-gap) + var(--edge-right))', bottom: 'var(--edge-bottom)' }}
+        style={{ right: 'var(--edge-right)', bottom: 'var(--edge-bottom)' }}
       >
         {railTrailing}
         {SITE.whatsapp && whatsappHref ? (
