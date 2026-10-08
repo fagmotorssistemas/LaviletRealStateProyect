@@ -244,15 +244,14 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
     var view = document.querySelector(".lv-view");
     if (!a || !view || view.getAttribute("data-lv-click") === "1") return;
     view.setAttribute("data-lv-click", "1");
-    var openFromPoint = function (clientX, clientY) {
+    var lastTouchAt = 0;
+    var openFromPoint = function (clientX, clientY, fromTouch) {
       try {
         var local = toLocal(a, view, clientX, clientY);
         if (!local) return;
         if (local.xPct < -2 || local.xPct > 102 || local.yPct < -2 || local.yPct > 102) return;
-        var id =
-          window.__lvLastHoverId ||
-          identifyAt(a, local.x, local.y) ||
-          null;
+        var identified = identifyAt(a, local.x, local.y) || null;
+        var id = fromTouch ? identified : window.__lvLastHoverId || identified;
         if (id) elevate(a, id);
         post("ficha", {
           departamento: id ? String(id) : null,
@@ -263,14 +262,16 @@ svg.lv-labels,.unit-label{pointer-events:none!important}
     };
     var target = hitTarget(view);
     target.addEventListener("click", function (e) {
-      openFromPoint(e.clientX, e.clientY);
+      if (Date.now() - lastTouchAt < 700) return;
+      openFromPoint(e.clientX, e.clientY, false);
     });
     // Móvil: el elevate a veces mueve la malla y el click pierde el hit.
     target.addEventListener(
       "pointerup",
       function (e) {
         if (e.pointerType !== "touch") return;
-        openFromPoint(e.clientX, e.clientY);
+        lastTouchAt = Date.now();
+        openFromPoint(e.clientX, e.clientY, true);
       },
       { passive: true }
     );

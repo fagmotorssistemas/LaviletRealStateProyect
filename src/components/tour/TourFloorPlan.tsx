@@ -64,6 +64,8 @@ type TourFloorPlanProps = {
   touchesLocked?: boolean
   /** El piso visible ya tiene imagen decodificada o el primer frame del 3D. */
   onFloorPresented?: (floor: number) => void
+  /** Toque en el plano fuera de una unidad o área (cierra la ficha). */
+  onEmptyPlanTap?: () => void
 }
 
 type DisplaySlot = {
@@ -310,13 +312,53 @@ function pointInPolygonPercent(x: number, y: number, points: string) {
   return inside
 }
 
-function findSlotAtPercent(slots: DisplaySlot[], xPercent: number, yPercent: number) {
+function distanceToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const dx = bx - ax
+  const dy = by - ay
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return Math.hypot(px - ax, py - ay)
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2))
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+}
+
+function distanceToPolygonPercent(x: number, y: number, points: string) {
+  if (pointInPolygonPercent(x, y, points)) return 0
+  const pairs = parsePercentPoints(points)
+  if (pairs.length === 0) return Infinity
+  let best = Infinity
+  for (let i = 0; i < pairs.length; i += 1) {
+    const [ax, ay] = pairs[i]!
+    const [bx, by] = pairs[(i + 1) % pairs.length]!
+    best = Math.min(best, distanceToSegment(x, y, ax, ay, bx, by))
+  }
+  return best
+}
+
+/** Hit exacto. Con `snapPercent` (toque), la zona más cercana si el dedo cayó al lado. */
+function findSlotAtPercent(
+  slots: DisplaySlot[],
+  xPercent: number,
+  yPercent: number,
+  snapPercent = 0,
+) {
   for (let i = slots.length - 1; i >= 0; i -= 1) {
     const slot = slots[i]!
     if (!slot.unit && !slot.area) continue
     if (pointInPolygonPercent(xPercent, yPercent, slot.points)) return slot
   }
-  return null
+  if (snapPercent <= 0) return null
+  let best: DisplaySlot | null = null
+  let bestDistance = snapPercent
+  for (let i = slots.length - 1; i >= 0; i -= 1) {
+    const slot = slots[i]!
+    if (!slot.unit && !slot.area) continue
+    const distance = distanceToPolygonPercent(xPercent, yPercent, slot.points)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = slot
+    }
+  }
+  return best
 }
 
 function toLayer(view: ReadyFloorView): FloorLayer | null {
@@ -361,6 +403,7 @@ export function TourFloorPlan({
   onPreferredVariantChange,
   touchesLocked = false,
   onFloorPresented,
+  onEmptyPlanTap,
 }: TourFloorPlanProps) {
   const { t, locale } = useTourLanguage()
 
@@ -419,6 +462,8 @@ export function TourFloorPlan({
   onSelectAreaRef.current = onSelectArea
   const onPrefetchUnitRef = useRef(onPrefetchUnit)
   onPrefetchUnitRef.current = onPrefetchUnit
+  const onEmptyPlanTapRef = useRef(onEmptyPlanTap)
+  onEmptyPlanTapRef.current = onEmptyPlanTap
   const prefetchedUnitRef = useRef<string | null>(null)
   const floorRef = useRef(floor)
   floorRef.current = floor
@@ -858,20 +903,20 @@ export function TourFloorPlan({
         return
       }
       if (data.type !== 'ficha') return
+      const coarse = window.matchMedia('(pointer: coarse)').matches
       const plantaId = String(data.departamento || '').trim()
       const xPercent = Number(data.xPercent)
       const yPercent = Number(data.yPercent)
-      const fromPoint =
-        Number.isFinite(xPercent) && Number.isFinite(yPercent)
-          ? findSlotAtPercent(displaySlotsRef.current, xPercent, yPercent)
-          : null
-      const areaSlot =
-        fromPoint?.area
-          ? fromPoint
-          : displaySlotsRef.current.find(
-              (slot) => slot.area && (slot.id === plantaId || slot.label === plantaId),
-            ) ?? null
-      if (areaSlot?.area) {
+      const hasPoint = Number.isFinite(xPercent) && Number.isFinite(yPercent)
+      const fromPoint = hasPoint
+        ? findSlotAtPercent(displaySlotsRef.current, xPercent, yPercent, coarse ? 8 : 0)
+        : null
+      const areaFromId =
+        displaySlotsRef.current.find(
+          (slot) => slot.area && (slot.id === plantaId || slot.label === plantaId),
+        ) ?? null
+      const areaSlot = fromPoint?.area ? fromPoint : areaFromId
+      if (areaSlot?.area && !fromPoint?.unit) {
         const now = Date.now()
         if (areaSlot.id === lastHtmlOpenKeyRef.current && now - lastHtmlOpenAtRef.current < 350) return
         lastHtmlOpenAtRef.current = now
@@ -879,11 +924,20 @@ export function TourFloorPlan({
         onSelectAreaRef.current?.(areaSlot.area.code)
         return
       }
-      const unit =
-        (plantaId ? resolveUnit(plantaId) : null) ??
-        fromPoint?.unit ??
-        htmlHoverUnitRef.current
-      if (!unit) return
+      const resolvedFromId = plantaId ? resolveUnit(plantaId) : null
+      const unit = coarse
+        ? (fromPoint?.unit ?? resolvedFromId)
+        : (resolvedFromId ?? fromPoint?.unit ?? htmlHoverUnitRef.current)
+      if (!unit) {
+        if (!coarse || (!hasPoint && !plantaId)) return
+        const now = Date.now()
+        if (now - lastHtmlOpenAtRef.current < 450) return
+        lastHtmlOpenAtRef.current = now
+        lastHtmlOpenKeyRef.current = ''
+        htmlHoverUnitRef.current = null
+        onEmptyPlanTapRef.current?.()
+        return
+      }
       const slotId = fromPoint?.id ?? plantaId ?? unit.unit_number
       const now = Date.now()
       const openKey = unit.id
@@ -1029,6 +1083,25 @@ export function TourFloorPlan({
     event.preventDefault()
     event.stopPropagation()
     handleSelectSlot(slot)
+  }
+
+  const onPlanBackgroundTap = (event: PointerEvent<SVGSVGElement>) => {
+    if (event.target !== event.currentTarget) return
+    if (panMovedRef.current) {
+      panMovedRef.current = false
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const xPercent = ((event.clientX - rect.left) / rect.width) * 100
+    const yPercent = ((event.clientY - rect.top) / rect.height) * 100
+    const coarse = window.matchMedia('(pointer: coarse)').matches
+    const slot = findSlotAtPercent(displaySlotsRef.current, xPercent, yPercent, coarse ? 8 : 0)
+    if (slot && slotOpens(slot)) {
+      handleSelectSlot(slot)
+      return
+    }
+    onEmptyPlanTapRef.current?.()
   }
 
   const onSlotClick = (slot: DisplaySlot, event: MouseEvent) => {
@@ -1579,6 +1652,7 @@ export function TourFloorPlan({
                 role="img"
                 aria-label={t("Departamentos del piso")}
                 onMouseLeave={() => setHoverSlot(null)}
+                onPointerUp={onPlanBackgroundTap}
               >
               {displaySlots.map((slot) => {
                 const opens = slotOpens(slot)

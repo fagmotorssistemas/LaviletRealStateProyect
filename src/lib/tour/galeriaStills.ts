@@ -49,11 +49,17 @@ function lightLabel(light: string | null | undefined) {
 }
 
 function stillLabelFromFile(fileName: string) {
-  return fileName
+  const cleaned = fileName
+    .replace(/\?.*$/, '')
     .replace(/\.[^.]+$/, '')
+    .replace(/[-_]r\d+$/i, '')
     .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\b(con|sin)\s+personas?\b/gi, ' ')
+    .replace(/\bfinal\b/gi, ' ')
+    .replace(/\s+\d+$/g, '')
+    .replace(/\s+/g, ' ')
     .trim()
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function mulberry32(seed: number) {

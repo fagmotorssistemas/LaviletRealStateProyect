@@ -135,25 +135,35 @@ function findSimilarUnits(base: TourUnitSummary, pool: TourUnitSummary[], limit 
   return list.map((row) => row.item)
 }
 
+const COMPACT_SHORT_LABEL: Record<string, { es: string; en: string }> = {
+  'Superficie total': { es: 'Área', en: 'Area' },
+  Dormitorios: { es: 'Dorm.', en: 'Beds' },
+  Baños: { es: 'Baños', en: 'Baths' },
+  Piso: { es: 'Piso', en: 'Floor' },
+}
+
 function SpecRow({
   icon,
   label,
   value,
   tile = false,
+  shortLabel,
 }: {
   icon?: ReactNode
   label: string
   value: string
   tile?: boolean
+  shortLabel?: string
 }) {
   const { t } = useTourLanguage()
 
   if (tile) {
     return (
-      <div className="tour-ficha-tile flex min-h-0 flex-col justify-between rounded-2xl bg-[#f6f3ee] px-3 py-2.5 sm:px-3.5 sm:py-3.5">
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold leading-none tracking-normal text-[#8a7760] uppercase">
+      <div className="tour-ficha-tile flex min-h-0 flex-col justify-between rounded-2xl bg-[#f6f3ee] px-2.5 py-2.5 sm:px-3.5 sm:py-3.5">
+        <span className="tour-ficha-spec-label flex min-w-0 items-center gap-1.5 text-[11px] font-semibold leading-tight tracking-normal text-[#8a7760] uppercase">
           {icon ? <span className="shrink-0 text-[#8e7654]">{t(icon)}</span> : null}
-          {t(label)}
+          <span className="tour-ficha-spec-full min-w-0">{t(label)}</span>
+          {shortLabel ? <span className="tour-ficha-spec-short min-w-0">{shortLabel}</span> : null}
         </span>
         <p className="mt-1.5 text-base leading-tight font-semibold text-[#1a2744] sm:mt-2 sm:text-xl">{t(value)}</p>
       </div>
@@ -224,6 +234,7 @@ export function TourFichaDrawer({
   useShowroomSheet(open, sheetRef)
 
   const reduceMotion = useReducedMotion()
+  const swipeRef = useRef<{ y: number; id: number } | null>(null)
   const [unitId, setUnitId] = useState<string | null>(null)
   const [pdfBusy, setPdfBusy] = useState(false)
   const [slide, setSlide] = useState(0)
@@ -266,6 +277,7 @@ export function TourFichaDrawer({
       return sorted[0]?.id ?? null
     })
     slideTouchedRef.current = false
+    lastUrlRef.current = null
     setSlide(leadSlide(images))
     setShowSuggestions(false)
   }, [open, sorted, initialUnitId])
@@ -426,6 +438,30 @@ export function TourFichaDrawer({
             exit={reduceMotion ? undefined : { opacity: 0 }}
             transition={{ type: 'spring', stiffness: 420, damping: 36 }}
             onWheel={(event) => event.stopPropagation()}
+            onPointerDown={(event) => {
+              if (event.pointerType === 'mouse' && event.button !== 0) return
+              const scroll = sheetRef.current?.querySelector('.tour-ficha-scroll')
+              if (
+                scroll instanceof HTMLElement &&
+                scroll.contains(event.target as Node) &&
+                scroll.scrollTop > 0
+              ) {
+                return
+              }
+              swipeRef.current = { y: event.clientY, id: event.pointerId }
+            }}
+            onPointerUp={(event) => {
+              const start = swipeRef.current
+              swipeRef.current = null
+              if (!start || start.id !== event.pointerId) return
+              const dy = event.clientY - start.y
+              const target = event.target
+              if (target instanceof Element && target.closest('button, a')) return
+              if (dy > 64) onClose()
+            }}
+            onPointerCancel={() => {
+              swipeRef.current = null
+            }}
           >
             <div className="tour-ficha-shorthead relative z-10 shrink-0 items-center gap-2 border-b border-[#eceff3] bg-white px-3">
               <p className="min-w-0 flex-1 truncate text-[13px] leading-none font-bold text-[#1a2744]">
@@ -436,7 +472,7 @@ export function TourFichaDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f3f4f6] text-[#1a2744]"
+                className="tour-ficha-close flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f3f4f6] text-[#1a2744]"
                 aria-label={t('Cerrar')}
               >
                 <X size={16} strokeWidth={2.25} />
@@ -495,7 +531,7 @@ export function TourFichaDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="absolute top-2.5 right-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white text-[#1a2744] shadow-md"
+                className="tour-ficha-media-close absolute top-2.5 right-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white text-[#1a2744] shadow-md"
                 aria-label={t("Cerrar")}
               >
                 <X size={16} strokeWidth={2.25} />
@@ -675,7 +711,12 @@ export function TourFichaDrawer({
                         key={row.label}
                         tile={!expanded}
                         icon={specIcon(row.label)}
-                        label={t(row.label)}
+                        label={row.label}
+                        shortLabel={
+                          COMPACT_SHORT_LABEL[row.label]
+                            ? COMPACT_SHORT_LABEL[row.label][locale === 'en' ? 'en' : 'es']
+                            : undefined
+                        }
                         value={row.value}
                       />
                     ))}

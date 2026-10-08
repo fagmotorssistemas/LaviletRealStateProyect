@@ -10,8 +10,9 @@ const CAPTION_ORDER = ['Exterior', 'Planta baja', 'Planta alta', 'Piscina', 'Jac
 /** Título visible a partir del nombre del archivo, sin notas de producción. */
 export function amenityCaptionFromFile(file: string): { title: string; titleEn: string } {
   const base = file
+    .replace(/\?.*$/, '')
     .replace(/\.[^.]+$/, '')
-    .replace(/-r\d+$/i, '')
+    .replace(/[-_]r\d+$/i, '')
     .replace(/[_-]+/g, ' ')
     .replace(/\b(con|sin)\s+personas?\b/gi, ' ')
     .replace(/\bfinal\b/gi, ' ')

@@ -596,9 +596,12 @@ type StillItem = { id: string; label: string; url: string; fallbackUrl?: string;
 
 function stillLabelFromFile(fileName: string) {
   return fileName
+    .replace(/\?.*$/, '')
     .replace(/\.[^.]+$/, '')
+    .replace(/[-_]r\d+$/i, '')
     .replace(/^(2d|3d)[-_]/i, '')
     .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
 }
 
@@ -3628,7 +3631,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     >
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
-        hidden={fichaOpen}
         hideWebReturn={planEntryOpen}
         place={amenitiesOpen ? 'amenities' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
@@ -3661,7 +3663,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           if (reopen) void coverVideoRef.current?.play().catch(() => undefined)
         }}
         onAmenities={()=>{setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
-        onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
+        onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
           setAmenitiesOpen(false)
           setSelectedUnitId(unit.id)
@@ -4058,10 +4060,18 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           selectedUnitId={selectedUnitId}
           onPrefetchUnit={warmTypologyStills}
           onSelectArea={openCommonArea}
+          onEmptyPlanTap={() => {
+            if (!fichaOpen) return
+            setFichaOpen(false)
+            setFichaExpanded(false)
+            setSelectedUnitId(null)
+            writeUnitQueryParam(null)
+          }}
           onSelectUnit={(unit) => {
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
             writeUnitQueryParam(unit.unit_number)
+            setGaleriaIndex(0)
             // Si el simulador o financiamiento está abierto, actualiza la unidad ahí; si no, abre la ficha.
             if (simulatorOpen) {
               setFichaOpen(false)
@@ -4663,6 +4673,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             if (floor != null) setPlanFloor(floor)
             setShellMode('unit')
             setViewMode('galeria')
+            setGaleriaIndex(0)
             setFichaExpanded(true)
             setFichaOpen(true)
             writeUnitQueryParam(match.unit_number)
