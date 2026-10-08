@@ -316,3 +316,33 @@ test('actual prompt hashes and failures retain composed instructions', async () 
   assert.match(JSON.stringify(stored), /private instructions one/)
   assert.match(JSON.stringify(stored), /private instructions two/)
 })
+
+test('invalid interpretation trace preserves machine controls and counts only its own extractor calls', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return {} } })
+  const semantic = trace.start('semantic_extraction', 'Interpretar', 'ai', 'fixture')
+  trace.add('model_request', 'Extraer', 'ai', 'fixture', 'succeeded', { ai_role: 'extractor', caused_by_step: semantic }, {})
+  trace.add('model_request', 'Reparar perfil', 'ai', 'fixture', 'succeeded', { ai_role: 'interpretation', caused_by_step: semantic }, {})
+  trace.add('model_request', 'Otra llamada', 'ai', 'fixture', 'succeeded', { ai_role: 'writer', caused_by_step: semantic }, {})
+  const error = Object.assign(new Error('TURN_INTERPRETATION_INVALID'), { issues: ['non_current_evidence:requests.0', 'missing_current_evidence:quantity.1', 'private@email.com', 'Bearer secret customer prose'] })
+  trace.failOpenSteps(error)
+  await trace.flush()
+  const output = stored.find(item => item.step_key === 'semantic_extraction')!.output_summary as Record<string, unknown>
+  assert.deepEqual(output.interpretation_validation, { version: 'interpretation-validation-v1', status: 'invalid',
+    issues: ['non_current_evidence:requests.0', 'missing_current_evidence:quantity.1'], extractor_calls: 2, attempted_repair: true, events_accepted: false })
+  assert.deepEqual((stored.find(item => item.step_key === 'execution_failed')!.output_summary as Record<string, unknown>).interpretation_validation, output.interpretation_validation)
+  assert.doesNotMatch(JSON.stringify(stored), /private@email|secret customer/)
+})
+
+test('a missing extractor trace never invents whether interpretation was retried', async () => {
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return {} } })
+  trace.start('semantic_extraction', 'Interpretar', 'ai', 'fixture')
+  trace.failOpenSteps('TURN_INTERPRETATION_INVALID')
+  await trace.flush()
+  const output = stored.find(item => item.step_key === 'semantic_extraction')!.output_summary as Record<string, unknown>
+  const validation = output.interpretation_validation as Record<string, unknown>
+  assert.deepEqual(validation.issues, [])
+  assert.equal(validation.attempted_repair, undefined)
+  assert.equal(validation.extractor_calls, undefined)
+})

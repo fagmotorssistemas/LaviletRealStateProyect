@@ -5,6 +5,7 @@ import { acceptsUnitOptions } from './sales-policy'
 import { LATER_ROUTES } from '@/lib/inmobiliaria/nutritionLater'
 import { hasFinancingRequest } from './financing-guidance'
 import { financingQuoteInquiry } from './financing-quote'
+import { replyQuestions } from './reply-question'
 
 export const FINANCING_PARTNER_CHOICE_SCHEMA = { type: 'object', additionalProperties: false,
   properties: { kind: { type: 'string', enum: ['select', 'decline', 'none'] }, name: { type: ['string', 'null'] },
@@ -46,13 +47,19 @@ function asksFinancingConsent(lastReply: string, lastStep: Row) {
     const [before, after] = LATER_ROUTES[week].body.split('{{1}}')
     return lastReply.trim().startsWith(before) && lastReply.trim().endsWith(after)
   })) return false
-  if (lastStep.kind === 'financing_consent' && lastStep.reply === lastReply && /\?/.test(lastReply)) return true
+  // A remembered financial tag cannot turn an offer to explain options into
+  // permission to collect data. Revalidate the emitted question's own action.
   const previous = normalized(lastReply)
-  const question = normalized(lastReply.match(/(?:¿|\.)[^?¿.]*\?\s*$/)?.[0] || lastReply)
+  const question = normalized(replyQuestions(lastReply).at(-1) || '')
   const financialContext = /financ|credito|revision|revisar esa opcion|banco|cooperativa|pichincha|\bjep\b/.test(previous)
-  return /\?/.test(lastReply) && financialContext
-    && /(?:iniciar|iniciemos|revisemos|revisar|revision|evaluar|evaluacion|precalificar|precalificacion)|desea continuar/.test(question)
-    && /le gustaria|desea|quiere|podemos|iniciemos|revisemos/.test(question)
+  const operationalInvitation = /\b(?:iniciar|iniciemos|iniciamos|empezar|empecemos|empezamos|continuar|continuemos|continuamos|revisar|revisemos|revisamos|evaluar|evaluemos|evaluamos|realizar|hacer|precalificar|recopilar|recopilemos|recopilamos|recoger|recojamos)\b/.test(question)
+    && /\b(?:le gustaria|desea|quiere|podemos|iniciemos|iniciamos|empecemos|empezamos|continuemos|continuamos|revisemos|revisamos|evaluemos|evaluamos|recopilemos|recopilamos|recojamos)\b/.test(question)
+  const explicitProcess = /\b(?:iniciar|iniciemos|iniciamos|empezar|empecemos|empezamos|continuar|continuemos|continuamos)\b[^.!?]*\b(?:revision|evaluacion|solicitud|tramite|precalificacion|proceso)\b/.test(question)
+  const informationalInvitation = /\b(?:expli[qc]\w*|inform\w*|orient\w*|conocer|saber|entender)\b/.test(question)
+    || /\b(?:detalles|opciones|alternativas|requisitos|tasas|cuotas)\b/.test(question) && !explicitProcess
+  const otherOperation = /visita|cita|reserva|(?:esta|esa|la|el) (?:unidad|opcion|penthouse|departamento|suite|local)\b/.test(question)
+    && !/financ|credito|revision financiera|evaluacion financiera|precalific/.test(question)
+  return !!question && financialContext && operationalInvitation && !informationalInvitation && !otherOperation
 }
 
 export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>, lastStep: Row = {}) {
@@ -209,7 +216,13 @@ export function isFinancingTurn(extracted: Row, current: string, lastReply: stri
 export function financingQuestionReply(current: string, partners: string[], lastReply = '', extracted: Row = {}) {
   const m = normalized(current)
   if (financingQuoteInquiry(extracted, current).requested) return 'Con mucho gusto le orientamos sobre la entrada y las cuotas. La entrada del proyecto y la aportación propia para el crédito se revisan por separado; las cifras disponibles se basan en las condiciones vigentes de cada entidad y la unidad de interés. Una orientación no inicia una solicitud ni confirma la aprobación.'
-  void lastReply // Previous answers explain references; they never create a new credit question.
+  // Previous answers may resolve a reference to the set of lenders, never turn
+  // unrelated words such as «solo» and a household count into a credit query.
+  const financialSubject = /financ|credito|prestamo|entidad|banco|cooperativa|pichincha|\bjep\b|jardin azuayo/.test(m)
+    || hasFinancingRequest(extracted)
+  const referenceClause = m.split(/[,.?!¿]/).map(clause => clause.trim()).filter(Boolean).at(-1) || m
+  const lenderReference = /^(?:(?:y|pero|entonces)\s+)?(?:solo|solamente|unicamente)\s+(?:con\s+)?(?:esas|estas|las)\s+(?:dos\s*)?(?:entidades|bancos|cooperativas)?$/.test(referenceClause)
+    && /financ|credito|prestamo|entidad|banco|cooperativa|pichincha|\bjep\b/.test(normalized(lastReply))
   if (/aprob|garanti|asegur/.test(m) && /credito|financ|prestamo/.test(m)) {
     return 'Le acompañamos en el proceso, pero no podemos asegurar la aprobación del crédito. La entidad necesita revisar su caso para confirmarla.'
   }
@@ -219,7 +232,8 @@ export function financingQuestionReply(current: string, partners: string[], last
   if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)) {
     return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${asksReviewDetails ? ' ' + reviewDetails : ''}`
   }
-  if (/solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(normalized(current)) && !/jardin|pichincha|\bjep\b/.test(normalized(current))) {
+  if ((financialSubject || lenderReference) && /solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(m)
+    && !/jardin|pichincha|\bjep\b/.test(m)) {
     return partners.length ? `Trabajamos con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
       : 'El equipo puede ayudarle a comprobar las opciones vigentes. ¿Con qué entidad le gustaría financiarse?'
   }

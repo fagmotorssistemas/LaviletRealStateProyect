@@ -1,3 +1,4 @@
+import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { object, text, type Row } from './data'
 import { bedroomComparison, type BedroomComparison } from './bedroom-comparison'
 import { normalized } from './sdr-rules'
@@ -43,7 +44,7 @@ const budgetStatuses = new Set([
   'not_discussed', 'unknown', 'amount', 'maximum_total', 'initial_capital',
   'sufficient_for_selected_unit', 'insufficient_for_selected_unit', 'declines_to_disclose',
 ])
-const propertyCategories = new Set(['suite', 'departamento', 'penthouse', 'local'])
+const propertyCategories = new Set<string>(PROPERTY_CATEGORIES)
 const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'followup'])
 const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'none'])
@@ -316,6 +317,10 @@ export function pendingQuestionFromReply(reply: string): Row {
     id = 'property_bedrooms'; act = 'explore_alternatives'
   }
   else if (/que (?:area|superficie|tamano)|cuantos metros/.test(value)) id = 'property_area'
+  else if (unitReferent && /(?:\b(?:desea|quiere|gustaria|confirmar)\b[^.!?]*(?:continuar|seguir)|\b(?:continuamos|seguimos)|\ble parece(?: bien)? (?:continuar|seguir))\s+con\s+(?:(?:el|la|este|esta|ese|esa)\s+)?(?:unidad|opcion|departamento|suite|penthouse|local)\b/.test(value)
+    && !/financi|credito|banco|reserva|visita|cita|pago/.test(value)) {
+    id = 'unit_choice'; act = 'confirm_unit'
+  }
   else if (unitReferent && /cual.*(?:revisar|explorar|conocer|prefiere|interesa)|que opcion|(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer)/.test(value)) {
     id = 'unit_choice'
     if (/(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer)/.test(value)) act = 'show_unit_details'
@@ -468,6 +473,17 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const selector = propertyConfident && unitSelectors.has(text(property.selector)) ? text(property.selector) : null
   const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(value)
   const asksDetails = /\b(?:detalles|distribucion|que (?:tiene|incluye|ofrece))\b/.test(value)
+  // Answering a previous question does not restate a historical category as a
+  // new catalogue request. Keep genuine current constraints and explicit acts;
+  // an answer with operation=none cannot erase an already confirmed selection.
+  const passivePropertyAnswer = primaryIntent === 'answer_previous' && property.operation === 'none'
+    && !hasFilters && !genericResidential && !mentionedCategories.length && !asksRanking && !asksDetails && !structuredCatalog
+    && !selector && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)
+    && !['explicit', 'relative', 'comparison', 'followup'].includes(text(property.reference_kind))
+  if (passivePropertyAnswer) {
+    category = null; group = null; excluded.length = 0
+    normalizationIssues.push('previous_answer_does_not_restart_property_search')
+  }
   let operation = propertyConfident && operations.has(text(property.operation)) ? text(property.operation) : 'none'
   const explicitOperation = propertyConfident && operations.has(text(property.operation)) && property.operation !== 'none'
   if (explicitOperation) {
@@ -491,7 +507,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
     operation = 'search'; normalizationIssues.push('property_filter_does_not_select_unit')
   }
-  const queryScope = propertyConfident && queryScopes.has(text(property.query_scope)) ? text(property.query_scope)
+  const queryScope = !passivePropertyAnswer && propertyConfident && queryScopes.has(text(property.query_scope)) ? text(property.query_scope)
     : operation === 'rank' && /\b(?:de es[at]as|entre es[at]as|de las (?:que|opciones))\b/.test(value) ? 'offered'
       : operation === 'rank' || operation === 'search' ? 'catalog' : null
 

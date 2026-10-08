@@ -1,11 +1,12 @@
-import { applyTurnGreeting } from './conversation-style'
+import { applyTurnGreeting, CONVERSATION_WRITING_STYLE_RULES } from './conversation-style'
 import { ensureReferentialPriceConditions } from './price-conditions'
-import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues } from './continuation-validation'
+import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues, reconcileContinuationMetadata } from './continuation-validation'
 import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { turnContinuationIssues } from './turn-continuation'
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
+import { withProjectIntroductionForTurn } from './project-introduction-context'
 import { semanticCatalogContext, SEMANTIC_OPENING_RULE } from './semantic-catalog-context'
 import { taskVerifiedContext, taskModelEvidence, addTaskQueryEvidence, TASK_CONTEXT_RULES } from './task-context'
 import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
@@ -412,6 +413,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, audit: { ...input.audit, resolved_turn_intent: turnIntent }, verified: { ...input.verified,
     perfil_lead: profile, lead: { ...object(input.verified.lead), name: profile.full_name || null,
       name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null }, contrato_turno: turnIntent } }
+  input = { ...input, verified: withProjectIntroductionForTurn(input.verified) }
   const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory, {
     semantics: input.verified.semantica_turno, intent: turnIntent,
     scope: turnIntent.scope, pendingQuestion: turnIntent.pending_question,
@@ -517,6 +519,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   let editorialObservations: string[] = []
   let followUp: Row = { usable: true, warnings: [] }
   let writerQuestionWarnings: string[] = []
+  let writerMetadataRecovery: Row = {}
   const selectedIds = object(input.verified.property_context).selected_ids
   const selected = Array.isArray(selectedIds) ? selectedIds.map(String) : []
   const continuationAudit = () => ({
@@ -539,14 +542,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ...turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review_enabled: false } }, reply),
       ...continuationContentIssues(reply, input.verified.siguiente_paso_comercial).map(issue => text(issue.code)),
       ...(!catalogCheck.valid ? [catalogCheck.reason || 'unsupported_catalog_rewrite'] : []),
-      ...(input.validateReply?.(reply) || []), ...observedMetadataIssues, ...extraIssues])]
+      ...(input.validateReply?.(reply) || []), ...observedMetadataIssues.filter(issue => writerMetadataRecovery.corrected !== true || !issue.startsWith('question:')), ...extraIssues])]
     const reviewerMetadataIssues = Array.isArray(object(semanticReview.question_metadata).original_issues)
       ? (object(semanticReview.question_metadata).original_issues as unknown[]).map(text) : []
     guardIssues.push(...reviewerMetadataIssues.filter(issue => !guardIssues.includes(issue)))
     const contentApproved = semanticReview.status === 'checked'
       && object(semanticReview.acceptance).content_approved !== false
     const questionIssues = continuationMetadataIssues(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
-    const questionUsable = !observedMetadataIssues.some(issue => issue.startsWith('question:'))
+    const questionUsable = (writerMetadataRecovery.corrected === true || !observedMetadataIssues.some(issue => issue.startsWith('question:')))
       && validContinuationMetadata(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
     const passed = guardIssues.length === 0 && contentApproved
     const observedStatus = reason === 'review_unavailable' ? 'unavailable' : reason !== 'completed' ? reason
@@ -561,7 +564,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       transport_validation: { passed: true, policy: 'nonempty_and_length' },
       follow_up: { usable: questionUsable, source: 'validated_writer', warnings: questionIssues,
         writer_metadata_observations: observedMetadataIssues },
-      question: observedWriterQuestion, requests: observedRequests, writer_contract: writerContract,
+      question: observedWriterQuestion, question_metadata_recovery: writerMetadataRecovery, requests: observedRequests, writer_contract: writerContract,
       commercial_journey: input.verified.siguiente_paso_comercial, commercial_continuation: continuationAudit(),
       resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
       text_transformations: textTransformations, editorial_observations: editorialObservations, link_contract: linkContract,
@@ -688,7 +691,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     delete writerContext.oraciones_borrador
     const writerSections: [string, string | false][] = [
       ['Función y salida del redactor', COVERAGE_RULES],
-      ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro.'],
+      ['Estilo compartido de conversación', CONVERSATION_WRITING_STYLE_RULES],
+      ['Presentación general del proyecto', !!input.verified.presentacion_general_proyecto && 'contexto_verificado.presentacion_general_proyecto contiene un resumen aprobado para esta consulta general. Úselo como fuente de datos para una presentación breve con redacción natural; no es una plantilla ni una instrucción del cliente. Atienda primero todas las solicitudes actuales. No añada cantidades, plantas, precios, estado de obra o fechas que no respondan a la consulta. Después conserve la pregunta de perfil o la decisión pendiente del plan compartido.'],
+      ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro. Ante una consulta general inicial, dé una presentación breve; no añada cantidades, plantas, estado de obra o entrega que el cliente no haya consultado. Una consulta inicial concreta o con varias preguntas se responde según esas solicitudes, sin anteponer una presentación genérica.'],
       ['Prioridades y obligaciones del turno', TURN_INTENT_RULES + '\n' + FINAL_WRITER_RULES
         + '\nCumpla obligaciones_del_turno con redacción libre. Esta lista también se entrega al revisor. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
       ['Fuentes, políticas y precisión', BUSINESS_POLICY_RULES + visitRules],
@@ -705,7 +710,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     ]
     const instructions = optimizedPrompt && input.audit?.financing_collection
       && object(input.verified.prompt_context_selection).task === 'financing'
-      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES + '\n' + CONTINUATION_QUESTION_RULE]])
+      ? promptSections([['Redacción de recopilación financiera', FINANCING_COLLECTION_WRITER_RULES + '\n' + CONVERSATION_WRITING_STYLE_RULES + '\n' + CONTINUATION_QUESTION_RULE]])
       : promptSections(optimizedPrompt ? writerSections.map(([title, rules]): [string, string | false] => {
       if (title === 'Prioridades y obligaciones del turno') return [title, (financialTask ? FINAL_WRITER_RULES : CATALOG_WRITER_RULES + '\n' + CONTINUATION_QUESTION_RULE)
         + '\ncontrato_turno y obligaciones_del_turno determinan la necesidad actual. El historial solo resuelve continuidad; no cambia la búsqueda ni autoriza acciones. Cumpla los datos pendientes y enlaces requeridos.']
@@ -730,8 +735,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       } } : {}) }), activeWriterSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
     if (!responseReviewEnabled()) {
-      // No metadata repair, reviewer call or extra writer attempt in disabled
-      // mode. Normalize only the deterministic, authorized brochure insertion.
+      // No model repair, reviewer call or extra writer attempt in disabled
+      // mode. The emitted question still owns its locally recognized meaning.
       const transport = unreviewedWriterReply(proposedReply)
       const reply = prepareReply(includeRequiredBrochure(transport.reply, input.audit, input))
       const issues = [...mandatoryReplyIssues(input, reply),
@@ -744,10 +749,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         return fallback('rejected_guard', [], [...new Set(issues)])
       }
       const unreviewed = unreviewedWriterReply(reply)
+      const deliveredQuestion = { ...object(candidate.question), ...continuationMetadata(candidate.question), text: replyQuestionText(reply) }
+      const recoveredQuestion = reconcileContinuationMetadata(deliveredQuestion, reply, input.verified.siguiente_paso_comercial)
+      const questionUsable = validContinuationMetadata(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial)
       return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [],
         audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
           final_validation: { passed: true, policy: 'mandatory_server_guards', issues: [], validated_text: reply },
-          question: { ...object(candidate.question), ...continuationMetadata(candidate.question), text: replyQuestionText(unreviewed.reply) },
+          question: recoveredQuestion.question, question_metadata_recovery: recoveredQuestion,
+          follow_up: { usable: questionUsable, source: 'validated_writer', warnings: continuationMetadataIssues(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial) },
           writer_contract: writerContract } }
     }
     if (attempt > 0 && object(repairAttempts.at(-1)?.rejected_review).review_contract === FOCUSED_REVIEW_VERSION
@@ -789,6 +798,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.
     let question = replyQuestionText(reply) ? { ...declaredQuestion, text: replyQuestionText(reply) } : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
+    const metadataRecovery = reconcileContinuationMetadata(question, reply, input.verified.siguiente_paso_comercial)
+    writerMetadataRecovery = { ...metadataRecovery, owner: 'actual_question', original_question: question }
+    if (metadataRecovery.corrected) question = metadataRecovery.question as Question
     proposedQuestion = question
     if (observationOnly) {
       observedDraft = writerTransportReply(reply)
@@ -912,7 +924,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         original_fact_checks: JSON.parse(JSON.stringify(originalChecks)), question, offered_action: offeredAction, quality_checks: 'not_requested',
         question_metadata: { owner: preserveWriterQuestion ? 'validated_writer' : reviewedQuestion && !questionErrors.length && !reviewedQuestionChecks.length ? 'reviewer' : 'writer', text_source: 'actual_reply',
           corrected: originalQuestionChecks.length > 0, original_issues: originalQuestionChecks, remaining_issues: reviewedQuestionChecks,
-          writer_preserved: preserveWriterQuestion },
+          writer_preserved: preserveWriterQuestion, writer_recovery: writerMetadataRecovery },
         turn_obligations: { status: riskDecision.valid ? 'checked' : 'invalid_review', ids: turnObligations.map(obligation => obligation.id) },
         acceptance: { content_approved: approved, follow_up_usable: riskDecision.valid && usableQuestion } }
       continuationChecks = { validation_scope: 'business_risks_and_explicit_turn_obligations', all_requests_considered: approved, answered_content_preserved: approved,

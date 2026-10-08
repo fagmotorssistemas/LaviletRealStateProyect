@@ -99,7 +99,7 @@ test('commercial guard findings are monitored but still reach the reviewer and d
   })
 })
 
-test('invalid writer metadata is observed without retrying the writer, and cannot become a tracked question', async () => {
+test('recognized writer question recovers its meaning locally while other malformed metadata stays observed', async () => {
   const reply = '¿En qué planta le gustaría revisar opciones?'
   const wrong = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Planta', next_decision: 'Mostrar opciones',
     continuation_id: 'unit_choice', continuation_act: 'choose_unit' }
@@ -108,7 +108,22 @@ test('invalid writer metadata is observed without retrying the writer, and canno
     const result = await completeTurnReply(input, mock.generate)
     assertObservation(result, false)
     assert.equal(result.reply, reply)
+    assert.equal(object(result.audit.follow_up).usable, true)
+    assert.equal(object(result.audit.question).continuation_id, 'property_floor')
+    assert.equal(object(result.audit.question_metadata_recovery).corrected, true)
+    assert.deepEqual(mock.calls, ['writing', 'review'])
+  })
+})
+
+test('unknown writer questions retain their warning without borrowing an action', async () => {
+  const reply = '¿Qué le parece?'
+  const wrong = { ...noQuestion, purpose: 'none', continuation_id: 'unit_choice', continuation_act: 'confirm_unit' }
+  const mock = harness(reply, pass, wrong)
+  await run(async () => {
+    const result = await completeTurnReply(input, mock.generate)
+    assert.equal(result.reply, reply)
     assert.equal(object(result.audit.follow_up).usable, false)
+    assert.equal(object(result.audit.question_metadata_recovery).corrected, false)
     assert.deepEqual(mock.calls, ['writing', 'review'])
   })
 })

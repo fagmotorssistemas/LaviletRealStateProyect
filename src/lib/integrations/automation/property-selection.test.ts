@@ -105,7 +105,8 @@ describe('property selection journey', () => {
     const reference = resolveCatalogReference([suite001, suite210], 'Me interesa la 210')
     assert.equal(reference.matches[0]?.id, suite210.id)
     const info = baseInfo({
-      lead: { preferred_category: 'suite', behavior_signals: { sdr: { presupuesto_texto: 'Tengo un presupuesto de 100 mil dólares' } } },
+      lead: { preferred_category: 'suite' },
+      hechos_confirmados: { budget: { status: 'maximum_total', amount: 100000, confidence: 'high', evidence: 'Mi presupuesto total es 100 mil dólares' } },
       referencia_unidad: reference,
     })
     const result = propertySelectionReply(info, 'Me interesa la 210')

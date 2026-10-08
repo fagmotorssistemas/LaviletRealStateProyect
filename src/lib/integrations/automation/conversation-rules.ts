@@ -1,8 +1,9 @@
+import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { financingDocument } from './financing-identity'
-const events = new Set(['declared_unit_type', 'declared_purchase_purpose', 'asked_location_features', 'asked_delivery_date',
-  'asked_price', 'asked_financing', 'requested_visit', 'asked_reservation', 'nutrition_response'])
+import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
+const events = new Set<string>(EXTRACTED_CONVERSATION_EVENTS)
 
 export const VISIT_PREFERENCE_EXTRACTION_RULES = `
 Cuando el mensaje contenga una preferencia de fecha u hora para una visita, devuelva además:
@@ -82,7 +83,7 @@ export function normalizeEvents(raw: unknown, message: string, awaitingDocument 
     const quote = normalized(text(evidence[key]))
     return quote.length > 0 && quote.length <= 180 && normalized(message).includes(quote)
   }
-  const category = supported('preferred_category') && ['departamento', 'suite', 'local'].includes(text(data.preferred_category)) ? data.preferred_category : null
+  const category = supported('preferred_category') && (PROPERTY_CATEGORIES as readonly string[]).includes(text(data.preferred_category)) ? data.preferred_category : null
   const purpose = supported('purchase_purpose') && ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(data.purchase_purpose)) ? data.purchase_purpose : null
   return {
     events: chosenEvents.filter(e => (e !== 'declared_unit_type' || category) && (e !== 'declared_purchase_purpose' || purpose)),

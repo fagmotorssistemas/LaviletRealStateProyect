@@ -1,3 +1,5 @@
+import { CONVERSATION_EVENT_DETAILS, type ConversationEvent } from '@/lib/integrations/automation/event-contract'
+import { interpretationIssueDetail } from './interpretationDiagnostics'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
 import { catalogSearchDiagnostics, catalogSearchExplanation } from './catalogSearchExplanation'
 import { reservationServiceError } from '@/lib/inmobiliaria/automationErrors'
@@ -368,6 +370,21 @@ function interpretationRecoverySections(value: unknown): ExplanationSection[] {
     ] }]
 }
 
+function interpretationValidationSections(value: unknown): ExplanationSection[] {
+  const validation = row(row(value).interpretation_validation)
+  if (validation.status !== 'invalid') return []
+  const issues = Array.isArray(validation.issues) ? validation.issues.filter((issue): issue is string => typeof issue === 'string') : []
+  return [{ title: 'Interpretación no validada',
+    description: 'El servidor interrumpió la interpretación porque uno o más controles siguieron sin resolver. Esto no significa que la consulta requiriera un asesor ni demuestra un problema de saldo; cada operación y error de proveedor se registra por separado.',
+    facts: [fact('Resultado', 'La interpretación no fue aceptada. Los eventos candidatos de la IA no se presentan como eventos autorizados.'),
+      ...issues.map(issue => { const detail = interpretationIssueDetail(issue); return fact(detail.field, detail.message) }),
+      fact('Reintento de interpretación', validation.attempted_repair === true
+        ? `Registrado: ${validation.extractor_calls} llamadas de interpretación; el control continuó sin resolver.`
+        : validation.attempted_repair === false ? 'No consta un reintento: se registró una llamada de interpretación.'
+          : 'No se conserva este dato en la traza.'),
+    ] }]
+}
+
 function interpretationSections(value: unknown): ExplanationSection[] {
   const diagnostic = row(value)
   const interpretation = has(diagnostic, 'extractor_primary_intent') ? diagnostic : row(diagnostic.interpretation)
@@ -678,7 +695,27 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
     found.push(fact('Resultado de la comparación', statuses[str(output.status)] || 'Resultado no reconocido; revisar el registro técnico.'))
     found.push(fact('Evidencia de precios completa', output.price_evidence_complete === true ? 'Sí' : 'No'))
   }
-  if (step.key === 'semantic_extraction') found.push(...interpretationSections(output).flatMap(section => section.facts))
+  if (step.key === 'semantic_extraction') {
+    found.push(...interpretationSections(output).flatMap(section => section.facts))
+    if (step.status === 'succeeded' && Array.isArray(output.events)) found.push(fact('Eventos aceptados del turno', output.events.length
+      ? output.events.map(event => CONVERSATION_EVENT_DETAILS[event as ConversationEvent]?.title || String(event)).join('; ')
+      : 'No se aceptaron eventos en este turno.'))
+  }
+  const interpretationFailure = interpretationValidationSections(output)
+  if (interpretationFailure.length) {
+    found.push(...interpretationFailure.flatMap(section => section.facts))
+    const semanticOrder = step.key === 'semantic_extraction' ? step.order : execution.steps.find(item => item.key === 'semantic_extraction' && item.errorCode === 'TURN_INTERPRETATION_INVALID')?.order
+    const calls = execution.steps.filter(item => item.key === 'model_request' && item.input.caused_by_step === semanticOrder
+      && ['extractor', 'interpretation'].includes(str(item.input.ai_role)))
+    const original = row(row(calls.at(-1)?.output.output_snapshot).data)
+    const issues = row(output.interpretation_validation).issues
+    if (Array.isArray(issues)) for (const issue of issues) {
+      if (typeof issue !== 'string') continue
+      const detail = interpretationIssueDetail(issue)
+      const recorded = detail.field.replace(/\[(\d+)\]/g, '.$1').split('.').reduce<unknown>((value, key) => Array.isArray(value) ? value[Number(key)] : row(value)[key], original)
+      if (recorded !== undefined) found.push(fact(`Valor conservado · ${detail.field}`, humanValue(recorded)))
+    }
+  }
   if (step.key === 'advisor_handoff' && (output.requested_action === 'reservation_handoff' || output.request_status === 'requested')) {
     found.push(...reservationSections({ ...input, ...output }, snapshots).flatMap(section => section.facts))
   }
@@ -731,7 +768,9 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const reason = str(decision.reason) || str(input.reason) || str(output.reason)
     || (step.key === 'turn_intent' ? str(row(output.scope).reason) : '')
   const linkedActions = execution.steps.filter(item => item.key === 'advisor_handoff' && Number(decisionRecord(item).caused_by_step) === step.order)
-  const summary = step.key === 'turn_intent' && ['turn-intent-v1', 'turn-intent-v2'].includes(str(output.version))
+  const summary = step.errorCode === 'TURN_INTERPRETATION_INVALID'
+    ? 'El extractor no logró una interpretación válida del mensaje. Consulte los campos y la evidencia registrados; la interrupción no demuestra que el lead necesitara un asesor.'
+    : step.key === 'turn_intent' && ['turn-intent-v1', 'turn-intent-v2'].includes(str(output.version))
     ? `Objetivo registrado: ${humanValue(output.objective)}. ${humanValue(output.interpretation_source)}.`
     : step.key === 'interest_evaluation' ? 'El motor de puntaje registró una recomendación comercial. Este paso no acredita la asignación de un asesor ni la reserva del inmueble.'
     : step.key === 'lead_profile_resolution' ? 'Se conservaron los datos declarados y se resolvió si la residencia está confirmada o necesita una aclaración. Este paso no acredita el envío de la pregunta.'
@@ -747,7 +786,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
           : 'Entradas y resultados conservados para este paso de la ejecución.'
   return {
-    coverageSections: step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output, snapshots)] : step.key === 'response_validation' ? transformationSections(output) : ['semantic_extraction', 'interpretation_recovery'].includes(step.key) && interpretationRecoverySections(output).length ? interpretationRecoverySections(output) : null,
+    coverageSections: interpretationFailure.length ? interpretationFailure : step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output, snapshots)] : step.key === 'response_validation' ? transformationSections(output) : ['semantic_extraction', 'interpretation_recovery'].includes(step.key) && interpretationRecoverySections(output).length ? interpretationRecoverySections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,
     origin: str(decision.origin) ? decision.origin === 'catalog' ? 'Consulta calculada del catálogo' : humanValue(decision.origin) : 'Origen no registrado en este paso.',
     reason: step.key === 'catalog_embedding_search' ? catalogSearchExplanation(output).reason : reason ? humanValue(reason) : 'No se guardó un motivo específico. No se deduce de los pasos cercanos.',

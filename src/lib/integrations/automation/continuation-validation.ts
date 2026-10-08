@@ -50,6 +50,9 @@ export function continuationMetadataIssues(raw: unknown, reply: string, plan: un
   if (semantic.continuation_id !== row.continuation_id || semantic.continuation_id === 'none') issues.push('question_metadata_act_mismatch')
   if (row.continuation_id !== 'none' && !purposeMatches(text(row.continuation_id), text(row.purpose))) issues.push('question_metadata_purpose_mismatch')
   const actual = actualContinuation(reply), expected = object(plan)
+  // A tag alone must not turn vague feedback into choosing a known unit.
+  if (semantic.continuation_id === 'unit_choice' && semantic.continuation_act === 'confirm_unit'
+    && (actual.id !== 'unit_choice' || actual.act !== 'confirm_unit')) issues.push('question_metadata_confirmation_not_in_text')
   // A legal financing-name collection is not the introductory profile exchange.
   const financingCollection = row.continuation_id === 'financing_data' && (expected.action === 'current_operation' || expected.action === 'continue_financing')
   if (actual.id && !financingCollection && !matchingMeaning(actual, { id: semantic.continuation_id, act: semantic.continuation_act }))
@@ -61,6 +64,31 @@ export function validContinuationMetadata(raw: unknown, reply: string, plan: unk
   return !!replyQuestionText(reply) && !!row.continuation_id && row.continuation_id !== 'none'
     && continuationMetadataIssues(row, reply, plan).length === 0
 }
+/** Repair only a meaning recognized in the emitted text. Never copy a planned ID
+ * onto an unknown question, and never let this classifier execute an action. */
+export function reconcileContinuationMetadata(raw: unknown, reply: string, planRaw: unknown = {}): { question: Row; corrected: boolean; original_issues: string[] } {
+  const row = object(raw), plan = object(planRaw)
+  const original = continuationMetadataIssues(row, reply, plan)
+  if (validContinuationMetadata(row, reply, plan)) return { question: row, corrected: false, original_issues: original }
+  const actual = actualContinuation(reply), id = text(actual.id)
+  if (!id || !text(actual.act)) return { question: row, corrected: false, original_issues: original }
+  const purpose = id.startsWith('lead_') ? 'collect_lead_profile'
+    : id === 'financing_partner' ? 'choose_financing_partner'
+    : id === 'financing_data' ? 'collect_financing_required'
+    : id === 'brochure_offer' ? 'offer_verified_material'
+    : id.startsWith('visit_') ? 'coordinate_visit'
+    : ['financing_invitation', 'reservation_invitation'].includes(id) ? 'permission_to_continue'
+    : id === 'budget_kind' ? 'clarify_request' : 'choose_property'
+  const role = id.startsWith('lead_') || id === 'financing_data' ? 'required_collection'
+    : id === 'budget_kind' ? 'necessary_clarification' : 'optional_continuation'
+  const question = { ...row, text: text(actual.question), purpose, role,
+    missing_datum: role === 'optional_continuation' ? '' : id,
+    next_decision: 'Continuar según la respuesta a la pregunta realmente enviada.',
+    continuation_id: id, continuation_act: actual.act }
+  if (!validContinuationMetadata(question, reply, plan)) return { question: row, corrected: false, original_issues: original }
+  return { question, corrected: true, original_issues: original }
+}
+
 /** Validate content against the shared next step even when the reviewer passes.
  * Do not infer a decision from the tag attached to a different actual question. */
 export function continuationContentIssues(reply: string, planRaw: unknown): Row[] {

@@ -54,20 +54,26 @@ function Toggle({
   checked,
   onChange,
   label,
+  helpTitle,
+  ariaLabel = helpTitle,
 }: {
   checked: boolean
   onChange: (value: boolean) => void
   label: string
+  helpTitle: string
+  ariaLabel?: string
 }) {
   return (
     <label className="flex cursor-pointer items-center gap-2 text-sm text-[#3a3d36]">
       <input
         type="checkbox"
+        aria-label={ariaLabel}
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
         className="h-4 w-4 rounded border-gray-300"
       />
       {label}
+      <SettingsFieldHelp title={helpTitle} section="reglas" />
     </label>
   )
 }
@@ -372,6 +378,7 @@ export function AutomationRulesView() {
                   checked={config.is_active}
                   onChange={(value) => patchConfig('is_active', value)}
                   label="Configuración habilitada"
+                  helpTitle="Configuración habilitada"
                 />
               </div>
             </div>
@@ -512,6 +519,8 @@ export function AutomationRulesView() {
                               )
                             }
                             label={row.receives_leads ? 'Sí' : 'No'}
+                            helpTitle="Recibe leads"
+                            ariaLabel={`${row.full_name || 'Asesor'}: recibe leads`}
                           />
                         </td>
                         <td className="px-4 py-2">
@@ -525,6 +534,8 @@ export function AutomationRulesView() {
                               )
                             }
                             label={row.receives_bot_appointments ? 'Sí' : 'No'}
+                            helpTitle="Recibe citas del bot"
+                            ariaLabel={`${row.full_name || 'Asesor'}: recibe citas del bot`}
                           />
                         </td>
                         <td className="px-4 py-2 text-[#7a7e70]">
@@ -637,6 +648,8 @@ export function AutomationRulesView() {
                             )
                           }
                           label=""
+                          helpTitle="Evento repetible"
+                          ariaLabel={`${row.reason || row.event_type}: evento repetible`}
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -650,6 +663,8 @@ export function AutomationRulesView() {
                             )
                           }
                           label=""
+                          helpTitle="Evento activo"
+                          ariaLabel={`${row.reason || row.event_type}: evento activo`}
                         />
                       </td>
                       <td className="px-4 py-2 text-right">

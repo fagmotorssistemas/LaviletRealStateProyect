@@ -6,6 +6,7 @@ import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget } from './budget-state'
 import { turnEvidence } from './turn-evidence'
 import { proposalInformationContext } from './commercial-journey'
+import { withProjectIntroductionForTurn } from './project-introduction-context'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const hasValues = (value: unknown): boolean => value != null && value !== false && value !== ''
@@ -89,7 +90,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     : financeOnly ? 'financing' : source === 'financing_selection_required' ? 'property_selection'
       : generalPrice ? 'price_summary' : overview ? 'project_overview' : categoryOverview ? 'category_overview' : broadInformation ? 'catalog_overview'
         : domains.size > 1 || requests.length > 1 ? 'multiple_requests' : 'property'
-  const result = { ...verified }
+  const result = withProjectIntroductionForTurn(verified)
   const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
   // Include facts requested by ANY current request, never only the primary intent.
   result.instalaciones = relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/)

@@ -62,17 +62,25 @@ export function visitCoordinationReply(slot: Row, counterproposal = false) {
     ? 'No se preocupe, buscamos otra opción. ¿Qué día y hora le vendrían mejor?'
     : 'Con gusto coordinamos su visita. ¿Qué día y a qué hora le gustaría venir?'
 }
+export const CONVERSATION_WRITING_STYLE_RULES = [
+  'Use solo el primer nombre del cliente de forma ocasional; no lo repita al inicio de respuestas consecutivas.',
+  CURRENT_TONE.address,
+  CURRENT_TONE.vocabulary,
+  CURRENT_TONE.courtesy,
+  CURRENT_TONE.commercialLength,
+  'Una aceptación o confirmación se reconoce brevemente y continúa con la decisión pendiente. No repita la ficha, rangos de precios ni datos del cliente ya atendidos, salvo que la consulta actual los necesite.',
+  'Cuando comunique precios, conserve una sola aclaración colectiva de sus condiciones aplicables; no añada varias advertencias equivalentes en el mismo mensaje.',
+].join('\n')
+
 export const NATURAL_CONVERSATION_RULES = [
   'Conversación natural:',
-  'Use solo el primer nombre del cliente, de forma ocasional; nunca nombre completo.',
+  CONVERSATION_WRITING_STYLE_RULES,
   'Un agradecimiento sin consulta merece un cierre breve; no repita resumen, horario, registro ni otra pregunta de venta.',
   'Responda al saludo al retomar la conversación en un nuevo día o después de una pausa. No vuelva a presentarse en mensajes consecutivos.',
   'Para agendar, conserve el día y la hora que el cliente ya dio dentro de la misma coordinación. Pregunte únicamente el dato que falta.',
   'Si rechaza un horario, muestre comprensión y pregunte su alternativa. Si ya la dijo, reconózcala sin pedirla de nuevo.',
   'No afirme reserva, confirmación ni cancelación salvo que el resultado del sistema las respalde. Puede explicar que el asesor revisará la agenda y enviará opciones cuando la solicitud haya quedado en su bandeja; eso todavía no confirma una cita.',
-  'Sin emojis, sin fingir identidad humana. ' + CURRENT_TONE.address,
-  CURRENT_TONE.vocabulary,
-  CURRENT_TONE.courtesy,
+  'Sin emojis, sin fingir identidad humana.',
   'Un saludo o puntuación aislada solo merece saludo y ofrecer ayuda; no asuma intención de compra ni presente el catálogo.',
   CURRENT_TONE.neutralGreeting,
   CURRENT_TONE.completeGreeting,

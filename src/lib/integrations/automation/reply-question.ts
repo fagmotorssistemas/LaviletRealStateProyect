@@ -11,6 +11,7 @@ export function replyQuestions(reply: string): string[] {
     const value = fragment.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es')
     const request = value.match(/\b(?:indique(?:me|nos)?|diga(?:me|nos)?|cuente(?:me|nos)?|confirme(?:me|nos)?|elija|seleccione|especifique|senale|comparta(?:me|nos)?)\b/)
       || value.match(/\b(?:puede|podria|podrias|puedes)\s+(?:usted\s+)?(?:indicar(?:me|nos)|decir(?:me|nos)|contar(?:me|nos)|confirmar(?:me|nos)|compartir(?:me|nos))\b/)
+      || fragment.toLocaleLowerCase('es').match(/\b(?:quisiera|querría|me gustaría|necesito)\s+(?:saber|confirmar)\s+(?:si|cu[aá]l(?:es)?|cu[aá]nt[oa]s?|d[oó]nde|c[oó]mo|cu[aá]ndo|qué)\b/)
     const prefix = request ? value.slice(0, request.index).trim() : ''
     const directedNow = !prefix || /^por favor[,\s]*$/.test(prefix)
       || prefix.endsWith(',') && !/\b(?:cuando|en cuanto|una vez|no es necesario|no hace falta|no necesita|no debe)\b/.test(prefix)

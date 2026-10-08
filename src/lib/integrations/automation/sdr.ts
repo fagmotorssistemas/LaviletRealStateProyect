@@ -6,6 +6,8 @@ import { activePrompt, aiJson, draftReply } from './ai'
 import { projectPublicName, PROJECT_NAME_WRITING_RULES } from './conversation-tone'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
 import { deliveryContext, PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
+import { projectIntroductionContext } from '@/lib/inmobiliaria/projectIntroduction'
+import { withProjectIntroductionForTurn } from './project-introduction-context'
 import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
 import { earlyPurchaseDiscountSettings } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
 import { earlyPurchaseDiscountContext } from './early-purchase-discount-context'
@@ -120,6 +122,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     business_policy_context: { status: 'loaded', available_count: policies.length, mode },
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     entrega_proyecto: deliveryContext(projectData.policies_json),
+    configuracion_presentacion_proyecto: projectIntroductionContext(projectData.policies_json),
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
@@ -302,7 +305,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
       drafting_deferred_to_final_writer: true, sales_action: plan.action, sales_topics: plan.topics } }
   const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'),
     info.final_review_follows === true || !responseReviewEnabled() ? Promise.resolve('') : activePrompt('revisor_respuesta')])
-  const writerInfo = { ...info }
+  const writerInfo = withProjectIntroductionForTurn(info)
   delete writerInfo.final_review_follows
   const input = { ...experienceContext(writerInfo, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
   const rules = NATURAL_CONVERSATION_RULES + '\n' + TURN_INTENT_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES

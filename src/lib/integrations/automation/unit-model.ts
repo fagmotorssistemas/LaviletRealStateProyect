@@ -101,9 +101,12 @@ export function unitModelRequestReply(matches: Row[], current: string, willSend:
   if (willSend && matches.length === 1 && /^(?:me interesa|quisiera (?:ver|conocer)|quiero (?:ver|conocer))\b/.test(m)
     && !/[?¿\n]|\b(?:precio|cuanto|financiamiento|ofrece|incluye|cita|familia|pero)\b/.test(current.toLocaleLowerCase('es'))) {
     const unit = matches[0], rooms = Number(unit.bedrooms)
-    const label = unit.category === 'suite' ? 'una suite' : 'un departamento'
+    const category = text(unit.category)
+    const labels: Record<string, string> = { suite: 'una suite', departamento: 'un departamento', penthouse: 'un penthouse', local: 'un local comercial' }
+    const label = labels[category] || 'una unidad'
+    const residential = ['suite', 'departamento', 'penthouse'].includes(category)
     const area = Number(unit.area_internal_m2)
-    return `Le comparto más sobre la unidad ${text(unit.unit_number)}: es ${label}${rooms > 0 ? ` de ${rooms === 1 ? 'un dormitorio' : rooms + ' dormitorios'}` : ''}${area > 0 ? `, con ${area.toLocaleString('es-EC', { maximumFractionDigits: 2 })} m² interiores` : ''}.`
+    return `Le comparto más sobre la unidad ${text(unit.unit_number)}: es ${label}${residential && rooms > 0 ? ` de ${rooms === 1 ? 'un dormitorio' : rooms + ' dormitorios'}` : ''}${area > 0 ? `, con ${area.toLocaleString('es-EC', { maximumFractionDigits: 2 })} m² interiores` : ''}.`
   }
   if (!isUnitVisualRequest(current)
     || /\bno\b|precio|cuanto cuesta|ofrece|incluye|financ|metros|medida|dormitorio|ubicacion|visita|cita/.test(m)) return ''

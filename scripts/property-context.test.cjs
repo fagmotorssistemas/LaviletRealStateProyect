@@ -487,11 +487,13 @@ test('negations and incidental comparisons cannot override an explicit category 
   }
 })
 
-test('actual new suggestions supersede an old comparison even when a writer generated them',()=>{
+test('new suggestions replace a comparison but cannot revoke the client selection',()=>{
   const stored=rememberPropertyReply(catalog,{comparison_ids:['u202','u302'],selected_ids:['u202']},penthouses[0].content,{})
   assert.deepEqual(stored.comparison_ids,[])
-  assert.deepEqual(stored.selected_ids,[])
-  assert.equal(resolvePropertyTurn(catalog,'y en precio?',{_property_context:stored},penthouses,{}).needsClarification,true)
+  assert.deepEqual(stored.selected_ids,['u202'])
+  const followup=resolvePropertyTurn(catalog,'y en precio?',{_property_context:stored},penthouses,{})
+  assert.equal(followup.needsClarification,false)
+  assert.deepEqual(followup.matches.map(unit=>unit.id),['u202'])
 })
 
 test('semantic explicit numbers work outside legacy patterns and residential naming follows catalog',()=>{

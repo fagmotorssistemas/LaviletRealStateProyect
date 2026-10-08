@@ -341,7 +341,7 @@ test('explicit current residence wins while an independently declared origin is 
 test('one place can be both origin and current residence without a system reinterpretation', async () => {
   const current = 'Soy de Cuenca y sigo viviendo allí'
   const result = await profileTurn(current, { residence_city: 'Cuenca', profile_evidence: { residence_city: current },
-    declared_location: { city: 'Cuenca', kind: 'origin', evidence: current } })
+    declared_location: { city: 'Cuenca', kind: 'origin', evidence: 'Soy de Cuenca' } })
   assert.equal(result.extracted.residence_city, 'Cuenca')
   assert.equal(result.extracted.lead_profile.residence_status, 'confirmed')
 })

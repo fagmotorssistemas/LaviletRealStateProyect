@@ -12,7 +12,12 @@ export function selectedFinancingUnit(info: Row): Row | null {
   const ids = Array.isArray(context.selected_ids) ? context.selected_ids.map(text) : []
   const id = ids.length === 1 ? ids[0] : !Object.hasOwn(context, 'selected_ids') ? text(object(info.lead).unit_id) : ''
   if (!id) return null
-  return [...rows(info.catalogo), ...rows(reference.matches)].find(unit => text(unit.id) === id
+  // The response catalogue may be reduced to this turn's information. When a
+  // full verification catalogue is supplied it is authoritative, including an
+  // empty list or a withdrawn unit; do not fall back to stale displayed offers.
+  const catalog = Array.isArray(info.catalogo_verificacion) ? rows(info.catalogo_verificacion)
+    : [...rows(info.catalogo), ...rows(reference.matches)]
+  return catalog.find(unit => text(unit.id) === id
     && unit.is_published !== false && (!unit.status || unit.status === 'disponible')) || null
 }
 

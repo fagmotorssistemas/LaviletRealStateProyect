@@ -26,6 +26,16 @@ export function confirmedLeadName(profileInput: unknown): string {
   return text(confirmedLeadProfile(profileInput).full_name)
 }
 
+/** A shared citation can contain either one ambiguous place declaration or
+ * several compatible assertions. Only semantic recovery decides which; the
+ * provenance check does not inspect residence verbs or guess current residence. */
+export function leadProfileSourceIssues(raw: Row, current: string): string[] {
+  const normalized = normalizeLeadProfile(raw, current, {})
+  return (Array.isArray(normalized.diagnostics) ? normalized.diagnostics : []).some(value =>
+    typeof value === 'string' && value.endsWith('_noncurrent_location_source_conflict'))
+    ? ['ambiguous_profile_location_source'] : []
+}
+
 /** The extractor owns meaning; this boundary checks structure and provenance only.
  * Evidence is an audit citation, never a second natural-language classifier. */
 export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row {
@@ -46,6 +56,16 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
     const location: Row = { city: null, country: null, kind, evidence: quote }
     for (const field of ['city', 'country']) if (validValue(proposed[field], quote)) location[field] = label(proposed[field])
     if (location.city || location.country) declared = location
+  }
+  // One citation classified as a non-current location cannot simultaneously
+  // certify current residence. A separate current assertion can refer to the
+  // same city (including an anaphoric "allí") with its own contextual citation.
+  if (declared) for (const [key, field] of [['residence_city', 'city'], ['residence_country', 'country']]) {
+    const sharedCitation = fold(text(accepted[key])).replace(/\s+/g, ' ').trim() === fold(quote).replace(/\s+/g, ' ').trim()
+    if (values[key] && words(text(values[key])) === words(text(declared[field])) && sharedCitation) {
+      values[key] = null; accepted[key] = null
+      diagnostics.push(key + '_noncurrent_location_source_conflict')
+    }
   }
   let confirmation: Row | null = null
   const candidate = object(profile.residence_candidate), target = object(pending.residence_candidate)
@@ -95,6 +115,15 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
 export function mergeLeadProfile(previousInput: unknown, incomingInput: unknown, metadata: { message_id?: unknown; declared_at?: unknown } = {}): Row {
   const previous = object(previousInput), incoming = object(incomingInput)
   const result: Row = { ...previous }, sources = { ...object(previous.sources) }
+  // Repair only a saved confirmation backed by the same conflicting citation.
+  // A previously established residence with independent evidence remains valid.
+  const conflicts = Array.isArray(incoming.diagnostics) ? incoming.diagnostics : []
+  for (const key of ['residence_city', 'residence_country']) if (conflicts.includes(key + '_noncurrent_location_source_conflict')) {
+    const oldSource = object(sources[key]), declaration = object(incoming.declared_location)
+    if (words(text(oldSource.evidence)) === words(text(declaration.evidence)) && text(oldSource.evidence)) {
+      delete result[key]; delete sources[key]
+    }
+  }
   const source = (evidence: unknown, kind = 'lead_declaration') => ({ source: kind, evidence: text(evidence), ...metadata })
   const fieldSource = (key: string, evidence: unknown, kind = 'lead_declaration') => !Object.keys(metadata).length
     && Object.keys(object(sources[key])).length > 0 && text(object(sources[key]).evidence) === text(evidence) ? sources[key] : source(evidence, kind)
@@ -140,7 +169,7 @@ export function mergeLeadProfile(previousInput: unknown, incomingInput: unknown,
 export const LEAD_PROFILE_EXTRACTION_RULES = `
 Usted es responsable de interpretar semánticamente el perfil: identidad, residencia actual, negaciones, correcciones, temporalidad y respuestas a preguntas pendientes. El sistema NO vuelve a interpretar verbos ni mantiene una lista de expresiones permitidas. Use el significado y el contexto, incluso con errores ortográficos y formulaciones nuevas; no limite la residencia a las palabras vivo/resido. Una mudanza ya realizada que indica dónde vive ahora acredita residencia; una mudanza planeada no. No convierta nombres de terceros o del contacto de WhatsApp en el nombre declarado del lead.
 residence_city/residence_country contienen solamente residencia ACTUAL inequívoca. Si es ambiguo, devuelva null y declared_location.kind=unspecified. Para residencia anterior use kind=former, para un destino futuro kind=future; ninguno es candidato actual. residence_response={status:declined,evidence:cita literal} solo si el lead rehúsa proporcionar su residencia; en otro caso null. Interprete afirmaciones y negaciones de confirmación antes de emitir residence_confirmation, sin limitarse a sí/no. Separe lugar declarado y residencia ACTUAL. declared_location conserva ciudad/pais y evidence literal: kind=origin para "soy de", nacimiento u origen; temporary para "escribo desde", viaje o vacaciones; unspecified solo para un lugar cuyo papel es ambiguo. Nunca borre un origen por no ser residencia.
-"Soy de Cuenca" conserva Cuenca como origen y candidato por confirmar; NO llena residence_city ni residence_country, ni siquiera después de preguntar residencia. "Soy de Cuenca pero vivo en Guayaquil" conserva Cuenca en declared_location y Guayaquil como residence_city con evidencia "vivo en Guayaquil". Si nombra explícitamente la residencia no necesita confirmar el origen.
+"Soy de Cuenca" conserva Cuenca como origen y candidato por confirmar; NO llena residence_city ni residence_country, ni siquiera después de preguntar residencia. "Soy de Cuenca pero vivo en Guayaquil" conserva Cuenca en declared_location y Guayaquil como residence_city con evidencia "vivo en Guayaquil". Si nombra explícitamente la residencia no necesita confirmar el origen. La misma cita clasificada como origen, residencia antigua, temporal, futura o ambigua no puede acreditar simultáneamente residencia actual: cada afirmación debe tener su evidencia propia. Con origen y residencia actual en la misma ciudad, conserve ambos cuando el lead realmente afirma ambos: "Soy de Cuenca y sigo viviendo allí" usa declared_location.evidence="Soy de Cuenca" y profile_evidence.residence_city="Soy de Cuenca y sigo viviendo allí", porque esa cita contiene el lugar y su relación actual; no confunda repetir el origen con afirmar residencia.
 Un país o una ciudad debe aparecer literalmente en su evidencia actual. No infiera país de ciudad, teléfono, nombre, proyecto ni historia. Lugares temporales, deseados, futuros, antiguos o negados no acreditan residencia. Nombre y perfil no eligen un inmueble ni autorizan una cita.
 residence_confirmation solo puede responder pregunta_pendiente.id=lead_residence_confirmation y su residence_candidate, coincidente con perfil_inicial.residence_candidate. Para "sí" o "no" devuelva confirm/deny con evidence actual y confidence; no copie el lugar histórico como una declaración literal nueva. Una corrección explícita de residencia prevalece. Una aceptación de brochure, precio o cita no confirma residencia. Si no es una respuesta inequívoca a esa pregunta, devuelva null.
 full_name es el nombre declarado con que desea ser llamado, no requiere apellidos. profile_evidence contiene evidencia literal actual para cada valor propuesto; no complete valores desde el historial ni invente un nombre del contacto de WhatsApp.

@@ -5,12 +5,28 @@ import { confirmedInterpretationMemory } from './interpretation-memory'
  * budget whose amount is still missing are different conversation states. */
 export function leadBudget(info: Row): Row {
   const current = object(object(info.semantica_turno).budget || object(info.contrato_turno).budget)
-  const saved = object(confirmedInterpretationMemory({ _interpretation_memory: info.hechos_confirmados }).budget)
+  const confirmed = confirmedInterpretationMemory({ _interpretation_memory: info.hechos_confirmados })
+  const saved = object(confirmed.budget)
   const isCurrent = current.confidence === 'high' && current.status && current.status !== 'not_discussed'
   const declared = isCurrent ? current : saved
+  const currentAmounts = Array.isArray(object(info.semantica_turno).financing_amounts)
+    ? object(info.semantica_turno).financing_amounts as Row[]
+    : Array.isArray(object(info.contrato_turno).financing_amounts) ? object(info.contrato_turno).financing_amounts as Row[] : []
+  const explicitFunds = currentAmounts.filter(amount => ['total_budget', 'down_payment'].includes(text(amount.role))
+    && typeof amount.amount === 'number' && Number.isFinite(amount.amount) && amount.amount > 0 && !!text(amount.evidence).trim())
+  // Typed current role declarations may recover the consumer's budget view.
+  // Loan requests never establish available money. Conflicting/multiple roles
+  // remain with the canonical budget block instead of guessing which one wins.
+  if (!isCurrent && explicitFunds.length === 1) return {
+    status: explicitFunds[0].role === 'down_payment' ? 'initial_capital' : 'maximum_total',
+    amount: explicitFunds[0].amount, evidence: explicitFunds[0].evidence, confidence: 'high',
+    source: 'current_lead_statement', answered: true,
+  }
   if (Object.keys(declared).length) return { ...declared,
     source: isCurrent ? 'current_lead_statement' : 'confirmed_lead_memory',
     answered: !['not_discussed', 'amount_pending', 'unknown'].includes(text(declared.status)) }
+  if (Object.keys(object(confirmed.budget_revocation)).length) return { status: 'not_discussed', amount: null, answered: false,
+    source: 'withdrawn_lead_statement' }
   const lead = object(info.lead)
   const amount = Number(lead.budget_max || lead.budget)
   return amount > 0 && Number.isFinite(amount)

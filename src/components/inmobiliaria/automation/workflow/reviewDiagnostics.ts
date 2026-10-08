@@ -1,3 +1,4 @@
+import { interpretationIssueDetail } from './interpretationDiagnostics'
 import type { WorkflowExecutionStep } from './executionWorkflow'
 
 type Row = Record<string, unknown>
@@ -19,6 +20,18 @@ export function reviewStepRejected(step: WorkflowExecutionStep) {
  * judge commercial prose, consult today's catalog, or change acceptance. */
 export function reviewDiagnostics(step: WorkflowExecutionStep): ReviewDiagnostic[] {
   const result: ReviewDiagnostic[] = []
+  const interpretation = row(step.output.interpretation_validation)
+  if (interpretation.status === 'invalid' && Array.isArray(interpretation.issues)) {
+    for (const issue of interpretation.issues) {
+      if (typeof issue !== 'string') continue
+      const detail = interpretationIssueDetail(issue)
+      result.push({ ...detail, owner: 'Extractor IA · interpretación; sistema · comprobación de evidencia', repairOwner: 'Extractor IA',
+        message: `${detail.message} ${interpretation.attempted_repair === true
+          ? `Se registraron ${interpretation.extractor_calls} llamadas de interpretación y el reintento no resolvió este control.`
+          : interpretation.attempted_repair === false ? 'Se registró una llamada de interpretación; no consta un reintento.'
+            : 'Este registro no conserva si hubo un reintento.'} La interrupción no demuestra que la consulta necesitara un asesor.` })
+    }
+  }
   const provider = row(step.output.provider_diagnostics)
   if (provider.incomplete_reason === 'max_output_tokens' || provider.output_budget_exhausted === true) result.push({
     code: 'max_output_tokens', field: 'provider_diagnostics.incomplete_reason', owner: 'Sistema · límite de salida configurado para la IA',
@@ -64,7 +77,9 @@ export function reviewDiagnostics(step: WorkflowExecutionStep): ReviewDiagnostic
     })
   }
   if (step.status === 'failed' && !result.length) result.push({ code: step.errorCode || 'step_failed', field: 'errorCode', owner: 'Sistema · ejecución',
-    message: 'Este paso terminó con el error registrado. Revise los pasos anteriores para identificar su causa; este código no acredita que el borrador fuera incorrecto.', received: step.errorCode })
+    message: step.errorCode === 'TURN_INTERPRETATION_INVALID'
+      ? 'La interpretación del mensaje no pasó los controles del servidor. Este registro no conserva el campo que falló; consulte las salidas del extractor. No se deduce que el lead pidiera un asesor ni que faltara saldo de API.'
+      : 'Este paso terminó con el error registrado. Revise los pasos anteriores para identificar su causa; este código no acredita que el borrador fuera incorrecto.', received: step.errorCode })
   return [...new Map(result.map(item => [`${item.code}:${item.field}:${item.sentenceId || ''}`, item])).values()]
 }
 

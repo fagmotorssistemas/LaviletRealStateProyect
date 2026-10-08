@@ -85,6 +85,10 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
       ? { ...matchingQuestion, question } : inferred)
   }
   if (!pending.id || !purposeSupports(pending.id, metadata.purpose)) return {}
+  // Confirmation selects a known target: vague feedback cannot obtain this
+  // effect solely from a label or a planned scope.
+  if (pending.id === 'unit_choice' && pending.act === 'confirm_unit'
+    && pendingQuestionFromReply(reply).act !== 'confirm_unit') return {}
   const matching = matchingReceiptScope(matchingQuestions.filter(candidate => candidate.id === pending.id && candidate.act === pending.act))
   const planMatches = plan.question_id === pending.id && (!plan.question_act || plan.question_act === pending.act)
   const scope = object(plan.selection_scope)

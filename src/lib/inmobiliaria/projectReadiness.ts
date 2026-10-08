@@ -22,7 +22,7 @@ export function readinessRules(v: ProjectReadiness): string {
   return `ESTADO FÍSICO VERIFICADO: ${BUILD_STAGES[v.stage]}. Actualizado: ${v.verifiedOn}. ${v.progress}\nLa etapa comercial no determina el avance físico. No deduzca avances por el tiempo transcurrido. Lugares autorizados: ${v.enabledPlaces.map(p=>VISIT_PLACES[p]).join(', ')||'ninguno'}. Lugar principal: ${v.primaryPlace==='none'?'ninguno':VISIT_PLACES[v.primaryPlace]}. ${v.officeAtProjectSite===true?'La oficina está en el mismo sitio donde se desarrolla el proyecto; atender allí no habilita recorrer la obra ni las unidades.':'No se ha indicado que la oficina esté en el mismo sitio del proyecto.'} Condiciones: ${v.conditions||'coordinar disponibilidad antes de confirmar'}. No prometa acceso a otros lugares ni unidades. Departamento modelo no equivale a todas las unidades terminadas. Una oferta de visita debe terminar con UNA pregunta clara de aceptación, sin ofrecer simultáneamente otra acción.`
 }
 export function readinessPlacePhrase(v: ProjectReadiness, place: VisitPlace, destination = false) {
-  if (place === 'office' && v.officeAtProjectSite === true) return `${destination?'en ':''}nuestra oficina, ubicada en el sitio del proyecto, para revisar los planos y la información disponible`
+  if (place === 'office' && v.officeAtProjectSite === true) return `${destination?'en ':''}nuestra oficina, ubicada en el sitio del proyecto, para recibir orientación sobre el proyecto`
   return destination ? PLACE_DESTINATIONS[place] : PLACE_PHRASES[place]
 }
 const PLACE_PHRASES: Record<VisitPlace,string> = {

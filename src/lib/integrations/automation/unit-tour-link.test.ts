@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { unitTourUrl } from '@/lib/tour/unitModels'
-import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from './unit-model'
+import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery, unitModelRequestReply } from './unit-model'
 import { replyLinkContract, replyLinkIssues } from './response-plan'
 import { resolvePropertyTurn } from './property-context'
 import { completeTurnReply } from './turn-completeness'
@@ -291,7 +291,7 @@ describe('tour links in the conversation automation', () => {
   it('clarifies an existing amount without asking for the amount again or offering other units', () => {
     const result = continueUnitAlternative({
       catalogo: [apartment202, penthouse602],
-      conversacion: { datos_conocidos: { presupuesto: 180000 } },
+      hechos_confirmados: { budget: { status: 'amount', amount: 180000, confidence: 'high', evidence: 'Cuento con 180 mil dólares' } },
       historial: [{
         role: 'bot',
         content: 'Perfecto. En esta categoría tenemos el penthouse 602. ¿Le gustaría conocer esta opción?',
@@ -325,5 +325,33 @@ describe('tour links in the conversation automation', () => {
     )
     const reply = appendUnitModel(accepted?.reply ?? '', delivery)
     assert.match(reply, /https:\/\/www\.lavilett\.com\/tour\?unidad=602/)
+  })
+})
+
+
+describe('unit model reply preserves the catalogue category without choosing an option', () => {
+  it('names penthouse, department, suite and commercial units accurately', () => {
+    const labels = { penthouse: 'un penthouse', departamento: 'un departamento', suite: 'una suite', local: 'un local comercial' }
+    for (const [category, label] of Object.entries(labels)) {
+      const item = { id: 'unit-602', unit_number: '602', category, bedrooms: category === 'suite' ? 1 : 3, area_internal_m2: 142.09 }
+      const reply = unitModelRequestReply([item], 'Me interesa el 602', true)
+      assert.ok(reply.includes('unidad 602: es ' + label), category)
+      assert.match(reply, /142,09 m² interiores/)
+      assert.doesNotMatch(reply, /elegida|seleccionada|reservada|confirmad|cita/i)
+      if (category === 'local') assert.doesNotMatch(reply, /dormitorio/i)
+      else assert.match(reply, category === 'suite' ? /un dormitorio/ : /3 dormitorios/)
+    }
+  })
+
+  it('does not invent a category, selection or choice from an ambiguous or compound request', () => {
+    const penthouse = { id: 'unit-602', unit_number: '602', category: 'penthouse', bedrooms: 3 }
+    assert.equal(unitModelRequestReply([], 'Me interesa el 602', true), '')
+    assert.equal(unitModelRequestReply([penthouse, { ...penthouse, id: 'other', unit_number: '603' }], 'Me interesa el 602', true), '')
+    assert.equal(unitModelRequestReply([penthouse], 'Me interesa el 602', false), '')
+    assert.equal(unitModelRequestReply([penthouse], 'Me interesa el 602, pero quiero saber el precio', true), '')
+    assert.equal(unitModelRequestReply([penthouse], 'Me interesa el 602 pero no quiero el recorrido', true), '')
+    const unknown = unitModelRequestReply([{ ...penthouse, category: null }], 'Me interesa el 602', true)
+    assert.match(unknown, /es una unidad/)
+    assert.doesNotMatch(unknown, /penthouse|departamento|suite|local comercial|dormitorio/)
   })
 })

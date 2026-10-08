@@ -3,6 +3,7 @@ import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { projectReadiness, validateReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 import { changeProjectDelivery, projectDeliverySettings, validateProjectDelivery } from '@/lib/inmobiliaria/projectDelivery'
+import { changeProjectIntroduction, projectIntroductionSettings, validateProjectIntroduction } from '@/lib/inmobiliaria/projectIntroduction'
 async function access(projectId: string) {
   await assertAdmin()
   const {supabase,user}=await getSessionUser()
@@ -16,7 +17,20 @@ export async function loadProjectReadiness(projectId:string) {
   const config=await supabase.from('project_automation_config').select('mode').eq('project_id',project.id).eq('tenant_id',project.tenant_id).maybeSingle()
   if(config.error)throw Error('No se pudo leer la etapa comercial')
   const mode=config.data?.mode||'lanzamiento'
-  return {projectName:project.name,mode,pricesVisible:launchPricesVisible(project.policies_json),updatedAt:project.updated_at as string,...projectReadiness(project.policies_json,mode),delivery:projectDeliverySettings(project.policies_json)}
+  return {projectName:project.name,mode,pricesVisible:launchPricesVisible(project.policies_json),updatedAt:project.updated_at as string,...projectReadiness(project.policies_json,mode),delivery:projectDeliverySettings(project.policies_json),introduction:projectIntroductionSettings(project.policies_json)}
+}
+export async function saveProjectIntroduction(projectId:string,value:unknown,expectedUpdatedAt:string) {
+  try {
+    const {supabase,user,project}=await access(projectId)
+    let current
+    try {current=validateProjectIntroduction(value)} catch(e) {return {ok:false as const,error:e instanceof Error?e.message:'Revise los datos de la presentación.'}}
+    if(project.updated_at!==expectedUpdatedAt)return {ok:false as const,error:'La configuración cambió. Recargue antes de guardar para conservar los cambios de otros controles.'}
+    const now=new Date().toISOString(), policies=changeProjectIntroduction(project.policies_json,current,user.id,now)
+    const result=await supabase.from('projects').update({policies_json:policies,updated_at:now}).eq('id',project.id).eq('tenant_id',project.tenant_id).eq('updated_at',expectedUpdatedAt).select('id,updated_at')
+    if(result.error)return {ok:false as const,error:'No se pudo guardar la presentación. Intente nuevamente.'}
+    if(result.data?.length!==1)return {ok:false as const,error:'La configuración cambió. Recargue e intente de nuevo.'}
+    return {ok:true as const,introduction:{configured:true,value:current},updatedAt:result.data[0].updated_at as string}
+  } catch {return {ok:false as const,error:'No se pudo guardar. Compruebe su sesión y el acceso al proyecto e intente nuevamente.'}}
 }
 export async function saveProjectDelivery(projectId:string,value:unknown,expectedUpdatedAt:string) {
   try {

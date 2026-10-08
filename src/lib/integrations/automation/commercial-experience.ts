@@ -4,6 +4,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { commercialTurnTopics } from './multi-topic-turn'
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
+import { projectIntroductionForTurn } from './project-introduction-context'
 
 const benefitTerms: Record<string, RegExp> = {
   piscina: /piscina|nadar|natacion/, gimnasio: /gimnasio|entrenar|ejercicio/, seguridad: /seguridad|vigilancia|monitoreo/,
@@ -274,7 +275,9 @@ export function projectOverviewReply(info: Row, current: string) {
   const message = normalized(current)
   const subject = informationSubject(current, info)
   // This paragraph is also used as one component of a mixed visit response.
-  if (!(subject === 'project' || (subject === null && isProjectInformationRequest(current))) || !info.posicionamiento_proyecto) return ''
+  if (!(subject === 'project' || (subject === null && isProjectInformationRequest(current)))) return ''
+  const introduction = projectIntroductionForTurn(info)
+  if (!introduction && !info.posicionamiento_proyecto) return ''
   const history = (Array.isArray(info.historial) ? info.historial : []).map(object)
   const firstReply = !history.some(row => ['bot', 'asesor'].includes(text(row.role)))
   const includesGreeting = /^(?:hola|buenos dias|buen dia|buenas tardes|buenas noches|buenas|saludos|que tal)\b/.test(message)
@@ -288,9 +291,9 @@ export function projectOverviewReply(info: Row, current: string) {
   ].filter((value): value is string => !!value).slice(0, 4)
   const list = highlights.length > 1 ? `${highlights.slice(0, -1).join(', ')} y ${highlights.at(-1)}` : highlights[0] || ''
   const opening = firstReply && !includesGreeting ? 'Hola. Claro que sí, con mucho gusto. ' : 'Claro que sí, con mucho gusto. '
+  if (introduction) return opening + text(introduction.summary)
   return opening + 'La Vilet es un proyecto inmobiliario en Puertas del Sol, Cuenca, que reúne opciones para vivienda, como suites y departamentos, además de locales comerciales para negocio o inversión. La propuesta combina privacidad, comodidad y espacios pensados para residentes y actividades comerciales.'
     + (list ? ` Entre sus instalaciones se encuentran ${list}.` : '')
-    + (!info.estado_proyecto && info.modo_comercial === 'lanzamiento' ? ' Actualmente está en lanzamiento; las imágenes muestran el diseño previsto y la construcción aún no ha comenzado.' : '')
 }
 
 export function projectInformationReply(info: Row, current: string, brochureUrl: string) {

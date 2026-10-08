@@ -219,6 +219,7 @@ test('credit collection alone is not approval; a recorded review is bound to uni
 test('a visit can help an undecided comparison but price alone no longer triggers it', () => {
   const data = info(money(350000), false)
   assert.equal(commercialJourneyPlan(data).visit_offer_allowed, false)
+  data.catalogo = [unit, { ...unit, id: 'u602', unit_number: '602', category: 'penthouse' }]
   data.property_context = { query: { operation: 'compare' }, comparison_ids: ['u502', 'u602'], selected_ids: [] }
   data.semantica_turno = { answer_to_previous: { kind: 'uncertain', confidence: 'high' } }
   assert.equal(commercialJourneyPlan(data).action, 'offer_visit')
@@ -351,4 +352,48 @@ test('a clarification preserves the actual prior category, floor or unit decisio
     assert.equal(plan.visit_offer_allowed, false)
     assert.equal(journeyPendingQuestion(question, plan, true).act, act)
   }
+})
+
+test('indecision requires identified compatible options rather than missing choice or informational questions', () => {
+  const data = info(money(350000), false)
+  data.catalogo = [unit, { ...unit, id: 'u602', unit_number: '602', category: 'penthouse' },
+    { ...unit, id: 'suite', category: 'suite', bedrooms: 1 }]
+  data.property_context = { query: { operation: 'compare', filters: { bedrooms: 3 } }, comparison_ids: ['u502', 'u602'], selected_ids: [] }
+  data.semantica_turno = { primary_intent: 'answer_previous', answer_to_previous: { kind: 'uncertain', confidence: 'high' } }
+  const next = commercialJourneyPlan(data)
+  assert.equal(next.action, 'offer_visit')
+  assert.deepEqual(next.comparison_unit_ids, ['u502', 'u602'])
+  assert.match(String(next.instruction), /orientación|orientarle/)
+  assert.match(String(next.instruction), /No prometa planos|No prometa revisar planos/)
+  assert.match(String(next.instruction), /no confirme|no registra/)
+  for (const primary_intent of ['ask_price', 'project_information', 'ask_financing']) {
+    const other = { ...data, semantica_turno: { primary_intent,
+      answer_to_previous: { kind: 'uncertain', confidence: 'high' } } }
+    assert.notEqual(commercialJourneyPlan(other).action, 'offer_visit', primary_intent)
+  }
+  assert.notEqual(commercialJourneyPlan({ ...data, semantica_turno: {} }).action, 'offer_visit')
+  for (const comparison_ids of [['u502', 'missing'], ['u502', 'suite'], []]) {
+    const other = { ...data, property_context: { ...object(data.property_context), comparison_ids } }
+    assert.notEqual(commercialJourneyPlan(other).action, 'offer_visit', JSON.stringify(comparison_ids))
+  }
+  const declined = { ...data, recorrido_comercial: { visit_declined: true } }
+  assert.notEqual(commercialJourneyPlan(declined).action, 'offer_visit')
+})
+
+test('on-site office invitation preserves authorized destination without promising plans or completed units', () => {
+  const data = info(money(350000), false)
+  data.catalogo = [unit, { ...unit, id: 'u602', unit_number: '602', category: 'penthouse' }]
+  data.property_context = { query: { operation: 'compare' }, comparison_ids: ['u502', 'u602'], selected_ids: [] }
+  data.semantica_turno = { primary_intent: 'answer_previous', answer_to_previous: { kind: 'uncertain', confidence: 'high' } }
+  data.politica_visitas = { allowSuggestions: true, launchDestination: 'office', readiness: {
+    stage: 'not_started', progress: 'La obra aún no ha iniciado', verifiedOn: '2026-10-01',
+    enabledPlaces: ['office'], primaryPlace: 'office', conditions: '', officeAtProjectSite: true } }
+  const next = commercialJourneyPlan(data)
+  assert.equal(next.action, 'offer_visit')
+  assert.match(String(next.question), /oficina.*sitio del proyecto/)
+  assert.match(String(next.question), /orientación/)
+  assert.doesNotMatch(String(next.question), /planos|unidades terminadas|conocer.*departamento/)
+  assert.equal(next.question_id, 'visit_invitation')
+  assert.equal(String(next.question).match(/\?/g)?.length, 1)
+  assert.equal(next.action === 'current_operation', false)
 })

@@ -50,7 +50,7 @@ export function visitTruthReply(reply: string, info: Row, audit: Row, proposals:
     if (sentenceVisit && /en el transcurso de hoy|pronto recibira.*confirmacion|(?:confirm|comunicaremos|respuesta).*antes del (?:sabado|lunes|martes|miercoles|jueves|viernes|domingo)/.test(v)) { deadlineRemoved = true; return false }
     return true
   })
-  if (destinationRemoved) kept.unshift(readiness ? readinessInvitation(readiness)||'Por el momento no hay visitas presenciales habilitadas.' : office ? 'Podemos recibirle en nuestra oficina para revisar los planos y el material del proyecto; todavía no hay departamentos terminados para recorrer.' : 'Podemos coordinar una visita al terreno donde se construirá el proyecto; todavía no hay departamentos terminados para recorrer.')
+  if (destinationRemoved) kept.unshift(readiness ? readinessInvitation(readiness)||'Por el momento no hay visitas presenciales habilitadas.' : office ? 'Podemos recibirle en nuestra oficina para orientarle sobre el proyecto; todavía no hay departamentos terminados para recorrer.' : 'Podemos coordinar una visita al terreno donde se construirá el proyecto; todavía no hay departamentos terminados para recorrer.')
   if (claimRemoved) kept.push('Todavía no puedo confirmar que su solicitud de visita haya quedado registrada.')
   if (deadlineRemoved) kept.push(registered ? 'Aún no tengo una hora de confirmación; le avisaremos cuando el equipo verifique la disponibilidad.' : 'Aún no hay una hora de confirmación disponible.')
   return destinationRemoved || claimRemoved || deadlineRemoved ? kept.join(' ') : reply

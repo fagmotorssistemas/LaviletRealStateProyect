@@ -204,15 +204,15 @@ test('a long literal compound declaration keeps its current intent, filters and 
   assert.equal((result.semantics.housing_quantities as Row[]).length, 1)
 })
 
-for (const [evidence, amount] of [
+for (const [evidence, amount, status = 'amount'] of [
   ['Mi presupuesto es de cuatrocientos mil dólares', 400000],
   ['Tengo un millón doscientos treinta mil quinientos para la compra', 1230500],
-  ['Para la entrada dispongo de treinta y cinco mil', 35000],
+  ['Para la entrada dispongo de treinta y cinco mil', 35000, 'initial_capital'],
   ['Estimo unos cuatrocientos dólares para esta compra, aún no estoy seguro', 400],
   ['Tengo $400.000 en total', 400000],
 ] as const) test(`budget numeric equivalence preserves ${amount} from its current declaration`, async () => {
   const raw: Row = { turn_semantics: { primary_intent: 'discuss_budget', primary_evidence: evidence, confidence: 'high',
-    budget: { status: 'amount', amount, evidence, confidence: 'high' } } }
+    budget: { status, amount, evidence, confidence: 'high' } } }
   let calls = 0
   const result = await interpretConversationTurn({ mensaje_actual: evidence }, { activePrompt: async () => 'Extract', aiJson: async () => { calls++; return raw } })
   assert.equal(calls, 1)

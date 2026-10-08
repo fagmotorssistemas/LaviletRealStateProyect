@@ -1,3 +1,5 @@
+import { CONVERSATION_EVENTS, CONVERSATION_EVENT_DETAILS, type ConversationEvent } from '@/lib/integrations/automation/event-contract'
+import { acceptedEventSteps, eventSelectionState } from './eventEvidence'
 import type { WorkflowExecutionStep } from './executionWorkflow'
 import { WORKFLOWS } from './workflowDefinitions'
 import { reviewStepRejected, reviewDiagnostics } from './reviewDiagnostics'
@@ -7,9 +9,9 @@ import { isObservedReview } from './reviewDecision'
 type Step = WorkflowExecutionStep
 export type ArchitectureNode = {
   id: string; title: string; description: string; owner: string; source: string
-  kind: 'agent' | 'decision' | 'operation' | 'route'; column: number; row: number
+  kind: 'agent' | 'decision' | 'operation' | 'route' | 'event'; column: number; row: number
   key?: string; branch?: { key: string; field: string; value: string | boolean }
-  role?: string[]
+  role?: string[]; event?: ConversationEvent
 }
 export type ArchitectureLink = { from: string; to: string; label?: string }
 const n = (id: string, title: string, description: string, column: number, row: number, key?: string,
@@ -70,6 +72,12 @@ export const ARCHITECTURE_NODES: ArchitectureNode[] = [
   branch('scope_uncertain', 'Alcance incierto', 'No tratar una interpretación incierta como decisión definitiva.', 5, 5, 'scope_classification', 'uncertain', true),
   n('data', 'Cargar datos comerciales', 'Recuperar catálogo y contexto financiero necesarios.', 6, 3, 'decision_context'),
   agent('extractor', 'Extractor de intención y datos', 'Interpretar solicitudes, presupuesto, preferencias y datos declarados.', 7, 3, ['extractor']),
+  n('events_validated', 'Validar interpretación y eventos', 'Normalizar la interpretación, comprobar su evidencia y aplicar los controles del turno. Varios eventos pueden coexistir; no representan pasos sucesivos ni permisos operativos.', 8, 3, 'semantic_extraction', 'decision', 'turn-interpretation.ts · conversation-rules.ts'),
+  ...CONVERSATION_EVENTS.map((event, index) => ({
+    ...n(`event_${event}`, CONVERSATION_EVENT_DETAILS[event].title, CONVERSATION_EVENT_DETAILS[event].description,
+      9, index, undefined, 'event', 'event-contract.ts · conversation-rules.ts'), event,
+  })),
+  n('interest', 'Aplicar señales al interés comercial', 'Recibir los eventos aceptados y registrar la recomendación de interés. La recomendación no ejecuta una derivación, reserva ni cita.', 10, 3, 'interest_evaluation', 'decision', 'lv_evaluate_message_interest_v2'),
   n('reconcile', '¿Coinciden alcance e intención?', 'Conciliar cuando corresponde; no todos los mensajes necesitan arbitraje.', 8, 3, 'scope_reconciliation', 'decision', 'business-scope.ts'),
   n('intent', 'Resolver objetivo del turno', 'Combinar la interpretación actual con el objetivo pendiente. Puede haber varias solicitudes.', 9, 3, 'turn_intent', 'decision', 'turn-intent.ts'),
   ...INTENT_ROUTES.map(([value, title, description], i) => branch(`intent_${value}`, title, description, 10, i, 'turn_intent', 'objective', value)),
@@ -122,14 +130,16 @@ export const ARCHITECTURE_NODES: ArchitectureNode[] = [
   n('memory', 'Guardar memoria', 'Conservar el estado y los seguimientos, registrando cualquier fallo.', 21, 3, 'state_persisted'),
   n('exit', 'Resultado de ejecución', 'Consultar el resultado registrado: envío, pausa, omisión o error.', 22, 3, 'execution_exit'),
   ...subflowNodes,
-]
+].map(node => node.event || ['events_validated', 'interest'].includes(node.id) ? node : { ...node, column: node.column >= 8 ? node.column + 3 : node.column })
 const link = (from: string, to: string, label?: string): ArchitectureLink => ({ from, to, label })
 export const ARCHITECTURE_LINKS: ArchitectureLink[] = [
   link('message', 'permission'), link('permission', 'context', 'Continuar'), link('permission', 'exit', 'Detener / omitir'),
   ...['BOT_CAN_RESPOND', 'MANUAL_STOP', 'OPT_OUT', 'NOT_PERMITTED', 'ADVISOR_OWNS_CONVERSATION'].map(value => link('permission', `permission_${value}`)),
   link('context', 'scope_ai', 'Requiere IA'), link('scope_ai', 'scope'), link('context', 'scope', 'Resolución directa'),
   ...['property', 'mixed', 'out_of_scope', 'neutral', 'uncertain'].flatMap(value => [link('scope', `scope_${value}`), link(`scope_${value}`, 'data', 'Según contexto')]),
-  link('data', 'extractor'), link('extractor', 'reconcile', 'Si requiere conciliación'), link('extractor', 'intent'), link('reconcile', 'intent'),
+  link('data', 'extractor'), link('extractor', 'events_validated'),
+  ...CONVERSATION_EVENTS.flatMap(event => [link('events_validated', `event_${event}`, 'Evento aceptado'), link(`event_${event}`, 'interest', 'Señal comercial')]),
+  link('events_validated', 'reconcile', 'Si requiere conciliación'), link('events_validated', 'intent'), link('interest', 'intent'), link('reconcile', 'intent'),
   ...INTENT_ROUTES.flatMap(([value, title]) => [link('intent', `intent_${value}`, title), link(`intent_${value}`, 'catalog', 'Preparar hechos')]),
   link('catalog', 'profile'), link('catalog', 'route_guard'), link('profile', 'introduction'), link('route_guard', 'dialogue'), link('introduction', 'dialogue'),
   link('catalog', 'embedding_search'), link('embedding_search', 'embedding_applied', 'Similitud aplicada'), link('embedding_search', 'embedding_bypassed', 'Catálogo disponible'),
@@ -159,6 +169,7 @@ const field = (value: unknown, path: string): unknown => path.split('.').reduce<
 const decided = (s: Step) => ['succeeded', 'paused', 'skipped'].includes(s.status)
   && !(s.key === 'response_coverage' && s.output.status === 'review_observed' && !isObservedReview(s.output))
 export function nodeEvidence(node: ArchitectureNode, steps: Step[]): Step[] {
+  if (node.event) return acceptedEventSteps(node.event, steps)
   if (node.id === 'embedding_bypassed') return steps.filter(s => s.key === 'catalog_embedding_search' && decided(s) && s.output.applied === false && s.output.optimized !== true)
   if (node.id === 'catalog_summary') return steps.filter(hasCatalogSummary)
   if (node.id === 'review_observed') return steps.filter(s => s.key === 'response_coverage' && decided(s) && isObservedReview(s.output))
@@ -171,6 +182,7 @@ export function nodeEvidence(node: ArchitectureNode, steps: Step[]): Step[] {
 }
 
 export function nodeState(node: ArchitectureNode, steps: Step[]) {
+  if (node.event) return eventSelectionState(node.event, steps)
   const evidence = nodeEvidence(node, steps)
   // This view proves that input was saved, not that the writer succeeded or failed.
   if (node.id === 'catalog_summary') return evidence.length ? 'observed' : 'unknown'
@@ -194,9 +206,22 @@ export function linkObserved(link: ArchitectureLink, steps: Step[]) {
   const from = ARCHITECTURE_NODES.find(n => n.id === link.from)!
   const to = ARCHITECTURE_NODES.find(n => n.id === link.to)!
   const parents = nodeEvidence(from, steps), children = nodeEvidence(to, steps)
+  if (to.event && from.key === 'semantic_extraction') return children.length > 0
   if (to.branch && from.key === to.branch.key) return children.length > 0
   return parents.length > 0 && children.some(s => {
     const cause = s.input.caused_by_step ?? record(s.output.decision).caused_by_step
     return parents.some(p => p.order === cause)
   })
+}
+
+/** Focus the selected turn's events without removing the other possible nodes. */
+export function architectureEventFocus(steps: Step[]) {
+  const eventNodes = ARCHITECTURE_NODES.filter(node => node.event)
+  const accepted = eventNodes.filter(node => nodeState(node, steps) === 'observed')
+  const candidates = eventNodes.filter(node => nodeState(node, steps) === 'candidate')
+  const active = [...accepted, ...candidates]
+  const context = ARCHITECTURE_NODES.filter(node => ['events_validated', 'interest'].includes(node.id)
+    && (!active.length || nodeEvidence(node, steps).length > 0))
+  return { ids: [...context, ...(active.length ? active : eventNodes)].map(node => node.id),
+    accepted: accepted.length, candidates: candidates.length, isGeneral: !active.length }
 }

@@ -1,6 +1,7 @@
 export const KNOWLEDGE_SECTIONS = [
   { id: 'proyecto', label: 'Información del proyecto', description: 'Datos confirmados sobre el proyecto y su ubicación.', entries: [
     { title: 'Descripción y materiales', description: 'Ficha del proyecto, descripción y documentos en su fuente original.', href: '/inmobiliaria/proyectos/{projectId}', owner: 'Datos del proyecto' },
+    { title: 'Presentación inicial', description: 'Resumen autorizado para consultas generales, con opción de activarlo o desactivarlo.', href: 'proyecto#project-introduction', owner: 'Administrador' },
     { title: 'Estado del proyecto', description: 'Avance de obra, condiciones y lugares habilitados para visitas.', href: 'proyecto', owner: 'Datos del proyecto' },
     { title: 'Plazo de entrega', description: 'Fecha confirmada o estimada, mes y año, solo año, plazo en meses o fecha aún sin definir.', href: 'proyecto#project-delivery', owner: 'Administrador' },
     { title: 'Entorno y seguridad del sector', description: 'Hechos del barrio, fuente, verificación y autorización explícita para que el bot los comunique.', href: 'conocimiento?seccion=proyecto#entorno', owner: 'Administrador y hechos verificados' },

@@ -792,7 +792,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       const scoreDecision = await evaluateInterestDecision(rpc, { p_lead_id: lead.id, p_events: extracted.events, p_source_message_id: activeLast.externalId })
       interestDecision = scoreDecision
       trace.add('interest_evaluation', 'Registrar interés y decisión comercial', 'decision', 'lv_evaluate_message_interest_v2', 'succeeded',
-        { events: extracted.events }, { ...scoreDecision, action_executed: false })
+        { events: extracted.events, caused_by_step: semanticStep }, { ...scoreDecision, action_executed: false })
     }
     // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
     const unitId = !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null

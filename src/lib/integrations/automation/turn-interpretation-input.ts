@@ -1,6 +1,8 @@
 import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { focusedNumericMentions } from './focused-numeric-syntax'
+import { monetaryInterpretationIssues } from './financing-amounts'
+import { leadProfileSourceIssues } from './lead-profile'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -191,29 +193,60 @@ export function interpretationSourceIssues(raw: Row, current: string, pending: R
     : !matches(value, current) ? [`non_current_evidence:${key}`] : [])
   if (['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
     && budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) === null) issues.push('invalid_budget_amount')
+  issues.push(...monetaryInterpretationIssues(raw, current))
+  issues.push(...leadProfileSourceIssues(raw, current))
   return issues
 }
 
-/** A budget-only repair cannot erase unrelated interpretation fields. */
-export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: string[]): Row {
-  const fields = [...new Set(issues.map(issue => issue === 'invalid_budget_amount' ? 'budget' : issue.split(':')[1]))]
-  if (fields.length && fields.every(field => /^quantity\.\d+$/.test(field || ''))) {
-    const quantities = object(repaired.turn_semantics).housing_quantities
-    // The focused repair owns this array only. A missing field keeps the
-    // original assertion invalid; [] explicitly means no current quantities.
-    return Array.isArray(quantities) ? { ...previous,
-      turn_semantics: { ...object(previous.turn_semantics), housing_quantities: quantities } } : previous
+/** A failed block owns its repair. Profile and unrelated operational permission
+ * are never re-extracted just because a catalogue citation was wrong. */
+export function interpretationRepairBlocks(issues: string[], raw: Row = {}) {
+  const fields = [...new Set(issues.map(issue => ['invalid_budget_amount', 'unresolved_budget_role', 'inconsistent_budget_role'].includes(issue)
+    ? 'budget' : issue.split(':')[1]))]
+  const property = fields.includes('property')
+  const budget = fields.includes('budget') || property && object(object(raw.turn_semantics).budget).status !== 'not_discussed'
+    && !!text(object(object(raw.turn_semantics).budget).evidence).trim()
+  const quantity = fields.some(field => /^quantity\.\d+$/.test(field || ''))
+  const requests = fields.some(field => /^requests\.\d+$/.test(field || ''))
+  const profile = issues.includes('ambiguous_profile_location_source')
+  // No current request and an unsupported primary interpretation means the
+  // entire turn was read from another source. This is different from one bad
+  // property citation alongside a valid current budget/profile.
+  const fullTurn = fields.includes('primary_intent') && requests
+  return { property, budget, quantity, requests, profile, fullTurn,
+    semanticFields: [...new Set([
+      ...(property || fields.includes('primary_intent') ? ['primary_intent', 'primary_evidence', 'confidence'] : []),
+      ...(property ? ['property'] : []), ...(budget ? ['budget'] : []), ...(quantity ? ['housing_quantities'] : []),
+    ])],
+    rootFields: [...new Set([...(property ? ['preferred_category', 'declaration_evidence', 'unit_id', 'catalog_request', 'requests'] : []),
+      ...(budget ? ['financing_amounts', 'qualification'] : []), ...(requests ? ['requests'] : []),
+      ...(profile ? ['residence_city', 'residence_country', 'declared_location', 'profile_evidence'] : [])])],
   }
-  // Other domains have coupled intents, requests, declarations and quantities;
-  // keep their existing complete repair instead of merging inconsistent meanings.
-  if (fields.length !== 1 || fields[0] !== 'budget') return repaired
-  const budget = object(object(repaired.turn_semantics).budget)
-  // Missing repair data is not permission to silently discard the original assertion.
-  if (!Object.keys(budget).length) return previous
-  return { ...previous, turn_semantics: { ...object(previous.turn_semantics), budget },
-    qualification: { ...object(previous.qualification),
-      ...(Object.hasOwn(object(repaired.qualification), 'presupuesto_texto')
-        ? { presupuesto_texto: object(repaired.qualification).presupuesto_texto } : {}) } }
+}
+
+export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: string[]): Row {
+  const blocks = interpretationRepairBlocks(issues, previous)
+  if (blocks.fullTurn) return repaired
+  const semantics = { ...object(previous.turn_semantics) }, incoming = object(repaired.turn_semantics)
+  for (const field of blocks.semanticFields) if (Object.hasOwn(incoming, field)) semantics[field] = incoming[field]
+  const result: Row = { ...previous, turn_semantics: semantics }
+  for (const field of blocks.rootFields) {
+    if (!Object.hasOwn(repaired, field)) continue
+    if (field === 'qualification') {
+      if (Object.hasOwn(object(repaired.qualification), 'presupuesto_texto')) result.qualification = {
+        ...object(previous.qualification), presupuesto_texto: object(repaired.qualification).presupuesto_texto }
+    } else if (field === 'declaration_evidence') result.declaration_evidence = { ...object(previous.declaration_evidence),
+      preferred_category: object(repaired.declaration_evidence).preferred_category }
+    else if (field === 'profile_evidence') result.profile_evidence = { ...object(previous.profile_evidence),
+      residence_city: object(repaired.profile_evidence).residence_city,
+      residence_country: object(repaired.profile_evidence).residence_country }
+    else if (field === 'requests' && blocks.property && !blocks.requests) result.requests = [
+      ...rows(previous.requests).filter(request => request.domain !== 'property'),
+      ...rows(repaired.requests).filter(request => request.domain === 'property'),
+    ]
+    else result[field] = repaired[field]
+  }
+  return result
 }
 
 export class TurnInterpretationError extends Error {
@@ -233,3 +266,6 @@ Si el mensaje actual no declara ni evalúa personas/dormitorios, devuelva housin
 dimension=people cuenta personas, bedrooms dormitorios, unknown conserva ambigüedad. role=requirement solicita una cantidad o restricción; evaluation pregunta si las opciones sirven o cómo funcionan; context describe la familia. Evaluar cuántos ocupantes caben no solicita otra búsqueda ni impone dormitorios. count_basis=total solo si incluye al hablante, excluding_speaker si explícitamente lo excluye, unspecified si no se sabe. Separe varias dimensiones sin convertir personas en dormitorios, sumar cifras que se solapen o inventar valores. Un sí a explorar opciones no declara de nuevo sus cantidades. Devuelva solo los campos solicitados, sin modificar otros datos o permisos.`
 
 export const EXTRACTION_CONSISTENCY_RULES = `Antes de devolver el JSON, compruebe coherencia entre los bloques: housing_quantities=[] si el turno actual no menciona ni evalúa cantidades; un catálogo o una pregunta previa no son una declaración nueva. Una consulta sobre si un espacio sirve a una familia es evaluation y details, con referencia a las opciones actuales; no es precio salvo que también pregunte importes, ni convierte esa cantidad en un requisito de búsqueda. Una cifra deseada y el operador eq no significan rigidez: bedrooms_required=true necesita una declaración actual inequívoca de que no acepta otra cantidad. Ante flexibilidad expresa no use true; conserve la cantidad deseada sin sustituirla automáticamente. Ninguna respuesta a una alternativa inmobiliaria acepta una visita, entidad o trámite diferente. Las acciones negadas, hipotéticas, condicionadas o citadas como palabras de otra persona no son permisos actuales.`
+
+export const BLOCK_RECOVERY_RULES = `Repare únicamente los bloques y campos que permite el esquema adjunto. mensaje_actual es la única fuente de novedades y de citas. El contexto confirmado solo resuelve referentes: una unidad seleccionada del historial NO es una selección actual ni aporta una cita nueva. Si el cliente únicamente aclara una cantidad, property usa operation=none, reference_kind=none, valores neutros y evidence=""; preserve la unidad conocida fuera de esa salida. No cambie permisos, perfil ni solicitudes de otros dominios.
+Si se solicita el bloque monetario, interprete el papel de cada importe, incluidos negaciones, dudas, autocorrecciones y aclaraciones de una cifra conocida. Devuelva budget y financing_amounts coherentes. Una entrada explícita es initial_capital y down_payment; el presupuesto total explícito es maximum_total y total_budget; un préstamo es loan y no un presupuesto. amount significa que el rol continúa realmente ambiguo. Una cita del mensaje actual puede conservar faltas de escritura, pero no puede sustituirse por una frase histórica o inventada. No complete importes desde una pregunta del bot ni otorgue consentimiento financiero. Devuelva los valores neutros del bloque que no está activo, en vez de fabricar acciones o evidencia.`

@@ -33,7 +33,7 @@ test('the reported natural acceptance grants review consent and preserves the ch
 test('a contextual GEP typo resolves only to the publicly available JEP option already discussed', () => {
   const message = 'Quiero hacer la prueba con la gep'
   const input = financingInputs({}, message, offer, context)
-  assert.deepEqual(input, { consent: true, partner: 'Cooperativa JEP', unsupported: '' })
+  assert.deepEqual(input, { consent: true, partner: 'Cooperativa JEP', unsupported: '', partner_evidence: message, cleared_partner: null })
   assert.equal(financingInputs({}, message, '¿Qué vivienda busca?', context).partner, null)
   assert.equal(financingInputs({}, message, offer, { partners: ['Banco Pichincha'], current: {} }).partner, null)
 })
@@ -54,9 +54,11 @@ test('lender choice, uncertainty, conditions and questions alone never authorize
 })
 
 test('a verified natural finance step accepts yes while a later visit question does not inherit that consent', () => {
-  const last = 'Podemos acompañarle con Cooperativa JEP. ¿Desea avanzar?'
+  const last = 'Podemos acompañarle con Cooperativa JEP. ¿Desea iniciar la revisión financiera?'
   const step = { kind: 'financing_consent', reply: last }
   assert.equal(financingInputs({}, 'Sí, por supuesto', last, context, step).consent, true)
+  const vague = 'Podemos acompañarle con Cooperativa JEP. ¿Desea avanzar?'
+  assert.equal(financingInputs({}, 'Sí, por supuesto', vague, context, { kind: 'financing_consent', reply: vague }).consent, null)
   assert.equal(financingInputs({}, 'Sí, por supuesto', '¿Le gustaría visitar nuestra oficina?', context, step).consent, null)
 })
 
@@ -141,4 +143,24 @@ test('low budget and compound questions do not fabricate authorization or inheri
   for (const message of ['¿Qué opciones tengo?', 'Pero ¿cuántos pisos es la casa?', 'Quiero revisar departamentos']) {
     assert.equal(financingQuestionReply(message,context.partners,previous),'',message)
   }
+})
+
+test('room distribution and counts never activate lender clarification, even after an earlier financing offer', () => {
+  for (const message of [
+    'Tengo cinco hijos y sólo quisiera saber si caben dos camas en una habitación',
+    'Sólo tenemos dos vehículos, ¿incluyen estacionamiento?',
+    'Sólo necesito dos dormitorios, ¿cuáles tienen?',
+    'Sí está bien, pero solo si caben dos camas',
+  ]) {
+    assert.equal(financingQuestionReply(message, context.partners, offer), '', message)
+    assert.equal(financingQuestionReply(message, context.partners, '¿Qué vivienda busca?'), '', message)
+  }
+})
+
+test('lender references need a financial subject or a bounded contextual reference', () => {
+  for (const message of ['¿Sólo con esas dos?', 'Sí está bien, pero sólo con esas entidades?']) {
+    assert.match(financingQuestionReply(message, context.partners, offer), /Banco Pichincha.*Cooperativa JEP/, message)
+  }
+  assert.equal(financingQuestionReply('¿Sólo con esas dos?', context.partners, '¿Prefiere departamento o penthouse?'), '')
+  assert.match(financingQuestionReply('¿Trabajan sólo con esas dos entidades de crédito?', context.partners), /Banco Pichincha.*Cooperativa JEP/)
 })

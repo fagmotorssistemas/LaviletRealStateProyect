@@ -64,9 +64,10 @@ export function propertyContext(catalog: Row[], previous: unknown, history: unkn
     if (mentioned.length) {
       current.offered_ids = unitIds(mentioned)
       current.comparison_ids = mentioned.length > 1 && /diferencia|compar|ambos|ambas|mismo precio/.test(m) ? unitIds(mentioned) : []
-      current.selected_ids = [] // Showing one unit is not evidence of client selection.
+      // A delivered offer changes the reference set, not the client's decision.
+      // New selections and rejections are applied from inbound evidence below.
     } else if (/no (?:gestionamos|vendemos)|que tipo de espacio|departamentos.*penthouses|penthouses.*departamentos/.test(m)) {
-      current.offered_ids = []; current.comparison_ids = []; current.selected_ids = []; current.phase = null
+      current.offered_ids = []; current.comparison_ids = []; current.phase = null
     }
     const pending = pendingQuestionFromReply(reply)
     const targets = unitsInPropertyReply(catalog, text(pending.question))
@@ -504,7 +505,8 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.pending_question = {}
     context.focused_ids = matches.length === 1 && !incomplete ? unitIds(matches) : []
     context.comparison_ids = matches.length > 1 ? unitIds(matches) : []
-    context.selected_ids = matches.length === 1 && !incomplete && query.operation === 'select' ? unitIds(matches) : []
+    context.selected_ids = matches.length === 1 && !incomplete && query.operation === 'select' ? unitIds(matches)
+      : ['details', 'compare'].includes(text(query.operation)) ? previousSelectedIds.filter(id => !rejected.some(unit => text(unit.id) === id)) : []
     if (matches.length === 1 && !incomplete) context.preference_transition = {}
     context.offered_ids = matches.length && !incomplete ? unitIds(matches) : []
     return result(matches, incomplete ? 'ambiguous' : pending.act === 'choose_unit' && matches.length === 1 && !/precio|cuesta|cuanto|compar|\bno\b/.test(m) ? 'explicit_pending_choice' : literalUnits.length ? 'semantic_explicit' : 'explicit', !incomplete, incomplete)
@@ -655,6 +657,15 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   }
   const declinesPending = answersPendingQuestion(semantics, pending.id as Parameters<typeof answersPendingQuestion>[1], 'negative')
     || /^(?:no|no gracias)$/.test(m)
+  if (pending.id === 'unit_choice' && pending.act === 'confirm_unit' && declinesPending) {
+    const rejectedTargets = ids(pending.target_ids)
+    if (rejectedTargets.length === 1 && previousSelectedIds.includes(rejectedTargets[0])) {
+      context.selected_ids = previousSelectedIds.filter(id => !rejectedTargets.includes(id))
+      context.pending_question = {}; context.focused_ids = []; context.comparison_ids = []
+      query.operation = 'none'; query.scope = null; query.selector = null
+      return result([], 'confirmed_unit_declined')
+    }
+  }
   if (pending.id === 'property_requirements' && declinesPending) {
     context.requirements_declined = { original_query: normalizedPropertyQuery(query),
       ...(Object.keys(proposal).length ? { proposed_query: proposal } : {}), evidence: current }
@@ -816,6 +827,20 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []; context.phase = null
     return result([], 'category_change')
   }
+  const neutralAnswer = object(semantics).primary_intent === 'answer_previous' && object(semantics).confidence === 'high'
+    && !semanticOperation && !category && !excluded.length && !hasCurrentFilters && !currentRequirements.length
+    && !groupChanged && !selector && !ids(semantic.unit_numbers).length
+  if (neutralAnswer && previousSelectedIds.length) {
+    // An acknowledgement can refer to an existing choice without choosing a
+    // new unit or authorizing the pending financial/visit operation. Keep the
+    // verified subject so later projection cannot reopen the whole category.
+    const selected = fromIds(previousSelectedIds)
+    query.operation = 'none'; query.scope = 'selected'; query.selector = null
+    context.selected_ids = previousSelectedIds
+    return { ...result(selected, 'remembered', false, selected.length !== previousSelectedIds.length),
+      ...(selected.length !== previousSelectedIds.length ? { clarification:
+        'La unidad elegida ya no aparece disponible. ¿Le gustaría revisar las opciones actuales?' } : {}) }
+  }
   const followup = continuesInformation || (semanticValid && ['comparison', 'followup'].includes(text(semantic.reference_kind)))
     || !semanticOperation && /^(?:y\s+)?(?:en\s+)?(?:el\s+)?(?:precio|valor)\b|\b(?:y (?:el|en) precio|que (?:precio|valor)|cuanto (?:cuesta|vale|cuestan|valen)|diferencia|ambos|ambas|entre ellos)\b/.test(m)
   if (followup && (semanticOperation || !/\b(?:edificio|proyecto|sector|alimentos|papas|vehiculos?|motos?)\b/.test(m))) {
@@ -850,10 +875,10 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
   const allowed = new Set(unitIds(available(catalog)))
   const actual = structured ? [...new Set([...explicitOffers, ...selected, ...compared, ...focused])].filter(id => allowed.has(id)) : unitIds(unitsInPropertyReply(catalog, reply))
   if (actual.length) {
-    // New suggestions supersede old references; a quote about the same chosen
-    // unit/pair keeps it, while a different delivered set cannot retain stale IDs.
+    // New suggestions supersede offered/comparison references. A bot proposal
+    // cannot revoke a confirmed client choice; the inbound resolver owns that
+    // transition and revalidates availability before an operational step.
     if (ids(context.comparison_ids).some(id => !actual.includes(id))) context.comparison_ids = []
-    if (object(context.preference_transition).active !== true && ids(context.selected_ids).some(id => !actual.includes(id))) context.selected_ids = []
     context.offered_ids = actual
   }
   if (explicitOffers.length) context.offered_ids = explicitOffers.filter(id => actual.includes(id))
@@ -884,7 +909,7 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
   else if (selected.length) context.phase = 'review_unit'
   if (['unit_alternative', 'unit_alternative_journey'].includes(text(audit.source))) context.journey = 'residential_alternatives'
   if (['compare_categories', 'choose_category', 'choose_floor'].includes(text(context.phase)) && audit.alternative_phase) {
-    if (object(context.preference_transition).active !== true) { context.offered_ids = []; context.selected_ids = [] }
+    if (object(context.preference_transition).active !== true) context.offered_ids = []
     context.comparison_ids = []
   }
   return { ...context, last_reply: reply }

@@ -103,7 +103,7 @@ test('reported financing correction does not require re-declaring a selected uni
 
 test('loan self-correction does not overwrite budget, while explicit total or initial capital stays available', async () => {
   for (const [status, amountRole, expected] of [
-    ['amount', 'loan', 'not_discussed'], ['amount', 'total_budget', 'amount'], ['initial_capital', 'down_payment', 'initial_capital'],
+    ['amount', 'loan', 'not_discussed'], ['amount', 'total_budget', 'maximum_total'], ['initial_capital', 'down_payment', 'initial_capital'],
   ]) {
     const current = 'ahora prefiero 100 mil'
     const raw = financingEcho(current)

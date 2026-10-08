@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { financingAmountStatements } from './financing-amounts'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.map(key => [key, row[key] ?? null]))
@@ -32,8 +33,26 @@ export function confirmedInterpretationMemory(summary: Row): Row {
 export function rememberInterpretationFacts(summary: Row, current: string, extracted: Row, semantics: Row): Row {
   const memory = { ...confirmedInterpretationMemory(summary) }
   const budget = object(semantics.budget), property = object(semantics.property)
+  const statements = financingAmountStatements(semantics.financing_amounts || extracted.financing_amounts, current)
+  const previousBudget = object(memory.budget)
+  const previousRole = previousBudget.status === 'initial_capital' ? 'down_payment'
+    : previousBudget.status === 'maximum_total' ? 'total_budget' : ''
+  const revoked = statements.find(statement => statement.replaces_role === previousRole)
+  if (previousRole && revoked) {
+    // A current semantic correction invalidates only the corresponding saved
+    // declaration. The marker also prevents an old CRM amount resurrecting it.
+    memory.budget = {}
+    memory.budget_revocation = { role: previousRole, evidence: revoked.evidence }
+    const qualified = { ...object(memory.qualification) }
+    if (literal(qualified.presupuesto_texto, previousBudget.evidence) || literal(previousBudget.evidence, qualified.presupuesto_texto)) {
+      delete qualified.presupuesto_texto
+      if (Object.keys(qualified).length) memory.qualification = qualified
+      else delete memory.qualification
+    }
+  }
   if (validBudget(budget) && literal(budget.evidence, current)) {
     memory.budget = { ...pick(budget, ['status', 'amount', 'evidence']), confidence: 'high' }
+    delete memory.budget_revocation
   }
   const propertyHasValues = property.group || property.category || (Array.isArray(property.excluded_categories) && property.excluded_categories.length)
     || Object.keys(object(propertyValue(property).filters)).length

@@ -8,18 +8,21 @@ import { AutomationSettingsHeader,automationSettingsStyles as shared } from './A
 import styles from './ProjectReadinessSettings.module.css'
 import { ProjectDeliverySettings } from './ProjectDeliverySettings'
 import type { projectDeliverySettings } from '@/lib/inmobiliaria/projectDelivery'
-type Initial={projectName:string;mode:string;pricesVisible:boolean;updatedAt:string;configured:boolean;value:ProjectReadiness;delivery:ReturnType<typeof projectDeliverySettings>}
+import { ProjectIntroductionSettings } from './ProjectIntroductionSettings'
+import type { projectIntroductionSettings } from '@/lib/inmobiliaria/projectIntroduction'
+type Initial={projectName:string;mode:string;pricesVisible:boolean;updatedAt:string;configured:boolean;value:ProjectReadiness;delivery:ReturnType<typeof projectDeliverySettings>;introduction:ReturnType<typeof projectIntroductionSettings>}
 export function ProjectReadinessSettings({projectId,initial}:{projectId:string;initial:Initial}) {
   const [saved,setSaved]=useState(initial),[draft,setDraft]=useState(initial.value),[busy,setBusy]=useState(false),[notice,setNotice]=useState('')
   const update=(value:Partial<ProjectReadiness>)=>setDraft(p=>({...p,...value}))
   const dirty=JSON.stringify(saved.value)!==JSON.stringify(draft)||!saved.configured
   async function save(){setBusy(true);setNotice('');try{const result=await saveProjectReadiness(projectId,draft,saved.updatedAt);if(!result.ok){setNotice(result.error);return}setSaved(previous=>({...previous,...result}));setDraft(result.value);setNotice('Guardado. Se aplicará a las próximas respuestas.')}catch{setNotice('No se pudo completar el guardado. Compruebe la conexión y vuelva a intentarlo.')}finally{setBusy(false)}}
   return <div className={shared.shell}>
-    <AutomationSettingsHeader active="proyecto" title="Estado del proyecto, entrega y visitas" description="El avance de obra, el plazo de entrega y los permisos de visita se configuran de forma independiente." project={initial.projectName}/>
+    <AutomationSettingsHeader active="proyecto" title="Información del proyecto" description="Configure la presentación inicial, el avance de obra, el plazo de entrega y los lugares habilitados para visitas." project={initial.projectName}/>
     <div className={styles.grid}>
       <section className={styles.card}><h2>Configuraciones independientes</h2><p>Etapa comercial actual: <strong>{initial.mode}</strong>.</p><p>Lanzamiento presenta el proyecto; preventa comercializa unidades antes de su entrega. Ninguna determina por sí sola el avance de obra.</p><p>Precios en lanzamiento: <strong>{initial.pricesVisible?'permitidos como referenciales':'ocultos'}</strong>. Guardar esta página no cambia ese permiso.</p><Link href="/inmobiliaria/automatizacion/precios">Administrar precios</Link> · <Link href="/inmobiliaria/automatizacion/reglas">Etapa comercial y reglas</Link> · <Link href="/inmobiliaria/automatizacion/estilo">Personalidad</Link></section>
       <section className={styles.card}><h2>Qué puede ofrecer el bot</h2><p>{readinessInvitation(draft)||'No hay un lugar habilitado para proponer visitas.'}</p><p>Esta vista previa describe los lugares autorizados. El permiso existente para sugerir visitas sigue aplicando; una visita siempre requiere coordinar y confirmar disponibilidad.</p>{!saved.configured&&<p role="status">Aún se utiliza la configuración anterior. Verifique los datos y guarde para separar el estado de obra de la etapa comercial.</p>}<p>{saved.configured ? `Última verificación: ${saved.value.verifiedOn}. Revise periódicamente si sigue vigente.` : 'Pendiente de verificación.'}</p></section>
     </div>
+    <ProjectIntroductionSettings projectId={projectId} initial={saved.introduction} updatedAt={saved.updatedAt} busy={busy} onBusy={setBusy} onSaved={(introduction,updatedAt)=>setSaved(previous=>({...previous,introduction,updatedAt}))}/>
     <fieldset disabled={busy} className={styles.card}><legend>Estado físico y avance verificado</legend>
       <label><span>Estado de obra<SettingsFieldHelp title="Estado de obra" section="proyecto" /></span><select value={draft.stage} onChange={e=>update({stage:e.target.value as ProjectReadiness['stage']})}>{Object.entries(BUILD_STAGES).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
       <label><span>Fecha de verificación<SettingsFieldHelp title="Fecha de verificación" section="proyecto" /></span><input type="date" value={draft.verifiedOn} onChange={e=>update({verifiedOn:e.target.value})}/></label>

@@ -1,5 +1,7 @@
 # Automatización de La Vilet: referencia canónica
 
+**Informe para presentación del 07/10/2026:** [Automatización y cambios realizados](informe-cambios-presentacion-2026-10-07.md). Describe las funciones del código versionado, la cronología, las pruebas repetidas y un guion de exposición. Los estados locales o productivos descritos más abajo corresponden a sus fechas históricas; el informe nuevo distingue código versionado y despliegue verificado.
+
 **Cambio local del 29/09/2026:** [Interpretación compartida, solicitud de reserva y libertad de redacción](interpretacion-reserva-y-redaccion-20260929.md). Requiere las dos migraciones indicadas antes del despliegue del ejecutor.
 
 **Actualización del 26/09/2026:** [Validación con evidencia compartida](validacion-evidencia-compartida-20260925.md), incorporada en `22ad84f`, y [auditoría de casos pendientes, visibilidad de mensajes y caché](auditoria-visibilidad-cache-20260926.md).

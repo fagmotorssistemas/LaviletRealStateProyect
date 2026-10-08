@@ -750,3 +750,23 @@ test('provider acceptance is never presented as delivery confirmation', () => {
   const delivery = step(6, 'message_delivery', { action: 'accepted', delivery_confirmed: false })
   assert.match(explainStep(execution([delivery]), delivery).summary, /no confirma entrega ni lectura/)
 })
+
+test('invalid extraction explains fields and the actually saved quote without turning interruption into human-contact intent', () => {
+  const failed = { ...step(4, 'semantic_extraction', { interpretation_validation: {
+    status: 'invalid', issues: ['non_current_evidence:requests.0'], extractor_calls: 2, attempted_repair: true, events_accepted: false } }),
+    status: 'failed', errorCode: 'TURN_INTERPRETATION_INVALID' }
+  const call = step(6, 'model_request', { output_snapshot: { data: { requests: [{ evidence: '¿Cuál es su presupuesto?' }] } } }, { ai_role: 'extractor', caused_by_step: 4 })
+  const result = explainStep(execution([failed, call]), failed)
+  assert.match(result.summary, /interpretación válida.*no demuestra.*asesor/)
+  assert.match(result.coverageSections?.[0].title || '', /Interpretación no validada/)
+  assert.ok(result.found.some(fact => fact.label === 'requests[0].evidence' && /no pertenece al mensaje actual/.test(fact.value)))
+  assert.ok(result.found.some(fact => fact.label === 'Valor conservado · requests[0].evidence' && fact.value.includes('¿Cuál es su presupuesto?')))
+  assert.ok(result.found.some(fact => fact.label === 'Reintento de interpretación' && /2 llamadas/.test(fact.value)))
+  assert.equal(result.linkedActions.length, 0)
+})
+
+test('successful extraction displays simultaneous accepted events independently from operational receipts', () => {
+  const result = explainStep(execution([]), step(4, 'semantic_extraction', { events: ['asked_price', 'asked_financing'] }))
+  assert.ok(result.found.some(fact => fact.label === 'Eventos aceptados del turno' && /Consulta de precios.*Consulta de financiamiento/.test(fact.value)))
+  assert.equal(result.linkedActions.length, 0)
+})

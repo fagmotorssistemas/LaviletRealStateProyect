@@ -109,8 +109,24 @@ export class AutomationExecutionTrace {
   }
 
   failOpenSteps(error: unknown) {
-    for (const step of this.steps.filter(item => !item.status)) this.finish(step.order, 'failed', {}, error)
-    this.add('execution_failed', 'Ejecución interrumpida', 'output', 'worker.ts', 'failed', {}, {}, error)
+    const interpretationFailure = traceErrorCode(error) === 'TURN_INTERPRETATION_INVALID'
+    const pendingInterpretation = this.steps.find(step => step.key === 'semantic_extraction' && !step.status)
+    const calls = pendingInterpretation ? this.steps.filter(step => step.key === 'model_request'
+      && step.input.caused_by_step === pendingInterpretation.order
+      && ['extractor', 'interpretation'].includes(text(step.input.ai_role))).length : 0
+    // Only machine control identifiers are retained. Never serialize an error,
+    // a provider body, the customer's quotation or arbitrary issue prose.
+    const rawIssues = error && typeof error === 'object' ? (error as { issues?: unknown }).issues : null
+    const issues = Array.isArray(rawIssues) ? rawIssues.filter((issue): issue is string => typeof issue === 'string'
+      && /^[a-z][a-z0-9_.:-]{0,119}$/.test(issue)).slice(0, 40) : []
+    const diagnostic = interpretationFailure ? { interpretation_validation: {
+      version: 'interpretation-validation-v1', status: 'invalid', issues,
+      ...(calls ? { extractor_calls: calls, attempted_repair: calls > 1 } : {}),
+      events_accepted: false,
+    } } : {}
+    for (const step of this.steps.filter(item => !item.status)) this.finish(step.order, 'failed',
+      step.key === 'semantic_extraction' ? diagnostic : {}, error)
+    this.add('execution_failed', 'Ejecución interrumpida', 'output', 'worker.ts', 'failed', {}, diagnostic, error)
   }
 
   async flush(final = true): Promise<TracePersistence> {

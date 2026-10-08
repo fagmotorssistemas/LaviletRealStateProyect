@@ -51,3 +51,25 @@ test('reference legend resolves only the evidence saved for this call, retaining
   assert.match(String(refs.evidence[1].value), /no se conservó/)
   assert.equal(refs.numbers[0].sentenceId, 'S3')
 })
+
+test('invalid interpretation names the source field and recorded retry without inventing an advisor request', () => {
+  const item = { ...step({ interpretation_validation: { status: 'invalid', issues: ['non_current_evidence:requests.0', 'missing_current_evidence:quantity.1', 'invalid_budget_amount'],
+    extractor_calls: 2, attempted_repair: true } }, {}, 'semantic_extraction'), status: 'failed', errorCode: 'TURN_INTERPRETATION_INVALID' }
+  const issues = reviewDiagnostics(item)
+  assert.deepEqual(issues.map(issue => issue.field), ['requests[0].evidence', 'turn_semantics.housing_quantities[1].evidence', 'turn_semantics.budget.amount'])
+  assert.match(issues[0].message, /cita.*no pertenece al mensaje actual/)
+  assert.match(issues[0].message, /2 llamadas.*reintento no resolvió/)
+  assert.match(issues[1].message, /sin conservar la cita literal/)
+  assert.match(issues[2].message, /importe.*no es válido|cantidad respaldada/)
+  assert.match(issues[0].message, /no demuestra.*asesor/)
+  assert.equal(issues[0].received, undefined)
+})
+
+test('historical invalid interpretation without details stays explicit about missing fields and unknown retry', () => {
+  const item = { ...step({}, {}, 'semantic_extraction'), status: 'failed', errorCode: 'TURN_INTERPRETATION_INVALID' }
+  const issue = reviewDiagnostics(item)[0]
+  assert.equal(issue.field, 'errorCode')
+  assert.match(issue.message, /no conserva el campo/)
+  assert.match(issue.message, /No se deduce.*asesor.*saldo/)
+  assert.doesNotMatch(issue.message, /se registraron 2|reintento no resolvió/)
+})

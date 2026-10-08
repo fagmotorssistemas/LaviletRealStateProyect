@@ -7,22 +7,23 @@ import { Maximize2, Minimize2 } from 'lucide-react'
 import { Background, Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, type Node, type NodeProps, type Edge, type ReactFlowInstance } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
-import { ARCHITECTURE_LINKS, ARCHITECTURE_NODES, linkObserved, nodeEvidence, nodeState, type ArchitectureNode } from './architectureGraph'
+import { ARCHITECTURE_LINKS, ARCHITECTURE_NODES, architectureEventFocus, linkObserved, nodeEvidence, nodeState, type ArchitectureNode } from './architectureGraph'
 import { executionCost } from './executionCost'
 import { statusLabel, stepTitle } from './messageExplanation'
 import styles from './ArchitectureMap.module.css'
 import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './ReviewDiagnosticsPanel'
 import { reviewDiagnostics } from './reviewDiagnostics'
 import { CatalogSummaryPanel } from './CatalogSummaryPanel'
+import { candidateEventSteps } from './eventEvidence'
 
 type MapNode = Node<{ spec: ArchitectureNode; state: string; count: number }, 'architecture'>
-const stateLabels: Record<string, string> = { observed: 'Con registro', failed: 'Error registrado', rejected: 'Revisión con errores', paused: 'Detenido', skipped: 'Omitido explícitamente', not_selected: 'Alternativa no elegida', unknown: 'Sin registro' }
+const stateLabels: Record<string, string> = { observed: 'Con registro', failed: 'Error registrado', rejected: 'Revisión con errores', paused: 'Detenido', skipped: 'Omitido explícitamente', not_selected: 'Alternativa no elegida', unknown: 'Sin registro', candidate: 'Candidato IA · sin validación', not_detected: 'No detectado en los eventos aceptados' }
 function DecisionNode({ data, selected }: NodeProps<MapNode>) {
   return <div className={styles.node} data-state={data.state} data-kind={data.spec.kind} data-selected={selected}>
     <Handle type="target" position={Position.Left} />
-    <small>{data.spec.owner} · {data.spec.kind === 'decision' ? 'Decisión' : data.spec.kind === 'route' ? 'Ruta' : data.spec.kind === 'agent' ? 'Agente' : 'Operación'}</small>
+    <small>{data.spec.owner} · {data.spec.kind === 'decision' ? 'Decisión' : data.spec.kind === 'route' ? 'Ruta' : data.spec.kind === 'agent' ? 'Agente' : data.spec.kind === 'event' ? 'Evento' : 'Operación'}</small>
     <strong>{data.spec.title}</strong><p>{data.spec.description}</p>
-    <span>{stateLabels[data.state]}{data.count > 1 ? ` · ${data.count} registros` : ''}</span>
+    <span>{data.spec.event && data.state === 'observed' ? 'Evento aceptado por los controles' : stateLabels[data.state]}{data.count > 1 ? ` · ${data.count} registros` : ''}</span>
     <Handle type="source" position={Position.Right} />
   </div>
 }
@@ -51,11 +52,13 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     }
   }
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
+  const eventFocus = useMemo(() => architectureEventFocus(steps), [steps])
   const selected = ARCHITECTURE_NODES.find(n => n.id === selectedId) || ARCHITECTURE_NODES[0]
-  const evidence = nodeEvidence(selected, steps)
+  const evidence = selected.event && nodeState(selected, steps) === 'candidate'
+    ? candidateEventSteps(selected.event, steps) : nodeEvidence(selected, steps)
   const nodes = useMemo<MapNode[]>(() => ARCHITECTURE_NODES.map(spec => ({ id: spec.id, type: 'architecture',
     position: { x: spec.column * 350, y: spec.row * 225 }, selected: spec.id === selectedId, zIndex: 3,
-    data: { spec, state: nodeState(spec, steps), count: nodeEvidence(spec, steps).length } })), [steps, selectedId])
+    data: { spec, state: nodeState(spec, steps), count: spec.event && nodeState(spec, steps) === 'candidate' ? candidateEventSteps(spec.event, steps).length : nodeEvidence(spec, steps).length } })), [steps, selectedId])
   const edges = useMemo<Edge[]>(() => {
     const result: Edge[] = ARCHITECTURE_LINKS.map((link, i) => {
       const observed = linkObserved(link, steps)
@@ -66,7 +69,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     })
     if (showSequence) {
       // This is temporal order only, not inferred causation or a selected branch.
-      const ordered = steps.map(step => ({ step, node: ARCHITECTURE_NODES.find(n => !n.branch && !['repair_metadata', 'repair_draft', 'catalog_summary'].includes(n.id) && nodeEvidence(n, [step]).length) }))
+      const ordered = steps.map(step => ({ step, node: ARCHITECTURE_NODES.find(n => !n.branch && !n.event && !['repair_metadata', 'repair_draft', 'catalog_summary'].includes(n.id) && nodeEvidence(n, [step]).length) }))
         .filter((v): v is { step: WorkflowExecutionStep; node: ArchitectureNode } => !!v.node)
       for (let i = 1; i < ordered.length; i++) {
         const previous = ordered[i - 1], current = ordered[i]
@@ -81,7 +84,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     <header><div><h2>Mapa de decisiones y rutas</h2><p>Todos los caminos permanecen visibles. Las conexiones punteadas describen posibilidades; no prueban que se ejecutaron.</p></div>
       <label><input type="checkbox" checked={showSequence} onChange={e => setShowSequence(e.target.checked)} disabled={!steps.length} /> Mostrar orden registrado</label></header>
     <p className={styles.notice}>{execution ? `Mensaje seleccionado: ${execution.message || execution.id}` : 'Vista general: seleccione un mensaje para superponer sus registros.'}</p>
-    <div className={styles.legend}><span>Verde: registro observado, no aprobación automática</span><span>Rojo: error de ejecución o revisión</span><span>Gris: sin registro o alternativa no elegida</span><span>Azul: orden temporal, no causalidad</span></div>
+    <div className={styles.legend}><span>Verde: registro observado, no aprobación automática</span><span>Rojo: error de ejecución o revisión</span><span>Gris: sin registro o alternativa no elegida</span><span>Ámbar: evento candidato de la IA sin validación</span><span>Azul: orden temporal, no causalidad</span></div>
     <nav className={styles.navigation} aria-label="Acercar a una parte del mapa">
       <button type="button" onClick={() => void flow?.fitView({ padding: 0.08, duration: 300 })}>Ver todo</button>
       <button type="button" onClick={() => {
@@ -93,6 +96,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
       }}>Ir al primer error</button>}
       {[
         ['Inicio', ['message', 'permission', 'context']], ['Alcance', ['scope_ai', 'scope', 'scope_property', 'scope_uncertain']],
+        ['Eventos simultáneos', eventFocus.ids],
         ['Objetivos', ['intent', ...ARCHITECTURE_NODES.filter(n => n.id.startsWith('intent_')).map(n => n.id)]],
         ['Catálogo y perfil', ['catalog', 'profile', 'introduction', 'catalog_clarify', 'embedding_search', 'embedding_applied', 'embedding_bypassed', 'catalog_exact']],
         ['Presupuesto', ['budget', ...ARCHITECTURE_NODES.filter(n => n.id.startsWith('budget_')).map(n => n.id)]],
@@ -101,6 +105,9 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
         ...(['pauses', 'visits', 'financing', 'nutrition'] as const).map((key, i) => [ ['Permisos', 'Visitas', 'Financiamiento', 'Seguimientos'][i], ARCHITECTURE_NODES.filter(n => n.id.startsWith(`${key}:`)).map(n => n.id)]),
       ].map(([label, ids]) => <button type="button" key={String(label)} onClick={() => void flow?.fitView({ nodes: (ids as string[]).map(id => ({ id })), padding: 0.15, duration: 300, maxZoom: 0.9 })}>{label}</button>)}
     </nav>
+    <p className={styles.notice}>{eventFocus.isGeneral
+      ? 'Eventos simultáneos: el atajo muestra los diez eventos posibles porque este mensaje no tiene eventos aceptados ni candidatos registrados.'
+      : `Eventos del mensaje: ${eventFocus.accepted} aceptados y ${eventFocus.candidates} candidatos sin validación. El atajo los acerca; todos los eventos posibles permanecen en el mapa.`}</p>
     <div className={styles.workspace}>
       <div className={styles.canvas}>
         <div className={styles.fullscreenControl}>
@@ -113,13 +120,16 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
         <div className={styles.flowSurface}>
           <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onInit={setFlow} defaultViewport={{ x: 20, y: -380, zoom: 0.65 }} minZoom={0.02} maxZoom={1.5}
             nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => setSelectedId(node.id)}>
-            <Background gap={24} /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={n => n.data.state === 'observed' ? '#43845d' : ['failed', 'rejected'].includes(String(n.data.state)) ? '#ba4141' : '#bec5c2'} />
+            <Background gap={24} /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={n => n.data.state === 'observed' ? '#43845d' : n.data.state === 'candidate' ? '#ba8736' : ['failed', 'rejected'].includes(String(n.data.state)) ? '#ba4141' : '#bec5c2'} />
           </ReactFlow>
         </div>
       </div>
       <aside className={styles.inspector} aria-live="polite">
         <small>{selected.owner} · {stateLabels[nodeState(selected, steps)]}</small><h3>{selected.title}</h3><p>{selected.description}</p>
         <dl><dt>Ubicación</dt><dd>{selected.source}</dd><dt>Identificador</dt><dd><code>{selected.branch ? `${selected.branch.field} = ${selected.branch.value}` : selected.key || selected.id}</code></dd></dl>
+        {selected.event && <p>{nodeState(selected, steps) === 'candidate'
+          ? 'Este evento aparece en una salida de la IA, pero no hay un registro de interpretación válida que lo acepte. Se muestra como candidato; no acredita permiso ni ejecución de una operación.'
+          : 'Varios eventos pueden estar presentes en el mismo turno. No se recorren en orden y no equivalen a consentimiento, envío, reserva ni cita confirmada.'}</p>}
         {selected.branch && <p>Este nodo muestra un objetivo o resultado interpretado. No acredita por sí solo que se ejecutó una acción comercial.</p>}
         {selected.id === 'catalog_summary' && <CatalogSummaryPanel steps={steps} onStep={onStep} />}
         {selected.id !== 'catalog_summary' && !evidence.length && <p>{nodeState(selected, steps) === 'not_selected' ? 'Se registró otro valor para esta decisión.' : 'No hay evidencia suficiente para afirmar que este paso se ejecutó o se omitió.'}</p>}
@@ -131,7 +141,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
           {step.key === 'model_request' && <PromptCopyButton step={step} />}
           <ReviewDiagnostics step={step} /><ReviewReferenceLegend step={step} />
           <h4>Entrada registrada</h4><pre>{JSON.stringify(step.input, null, 2)}</pre>
-          <h4>Salida registrada</h4><DiagnosticJson value={step.output} paths={reviewDiagnostics(step).flatMap(issue => (issue.outputPaths || []).map(path => path.startsWith('provider_diagnostics.') ? path : `output_snapshot.data.${path}`))} />
+          <h4>{selected.event && nodeState(selected, steps) === 'candidate' ? 'Salida candidata de la IA · no aceptada' : 'Salida registrada'}</h4><DiagnosticJson value={step.output} paths={reviewDiagnostics(step).flatMap(issue => (issue.outputPaths || []).map(path => path.startsWith('provider_diagnostics.') ? path : `output_snapshot.data.${path}`))} />
           {onStep && <button type="button" onClick={() => onStep(step.order)}>Ver explicación y borrador de este paso</button>}
         </details>)}
       </aside>
@@ -142,7 +152,7 @@ export function ArchitectureMap({ execution, onStep }: { execution?: WorkflowExe
     {unmatched.length > 0 && <details className={styles.accessible}><summary>Otros pasos registrados ({unmatched.length})</summary><p>Se conservan aunque no tengan un nodo dedicado en este mapa; no se les asigna una ruta inferida.</p>
       {unmatched.map(s => <button type="button" key={s.order} onClick={() => onStep?.(s.order)}>Paso {s.order}: {stepTitle(s)}</button>)}
     </details>}
-    <p className={styles.notice}>El mapa describe la versión actual. En registros antiguos pueden faltar decisiones. Los objetivos pueden coexistir con otras solicitudes del mismo mensaje. Las reparaciones se detallan por intento, sin sustituir el primer borrador.</p>
+    <p className={styles.notice}>El mapa describe la versión actual. En registros antiguos pueden faltar decisiones. Los eventos forman un grupo simultáneo después de validar la interpretación; solo los aceptados se resaltan en verde. Los objetivos pueden coexistir con otras solicitudes del mismo mensaje. Las reparaciones se detallan por intento, sin sustituir el primer borrador.</p>
   </section>
 }
 
