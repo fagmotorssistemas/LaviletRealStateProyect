@@ -426,14 +426,6 @@ export function TourFloorPlan({
     return ready?.url ? { [floor]: true } : {}
   })
   const [holdFloor, setHoldFloor] = useState(floor)
-  const [shortScreen, setShortScreen] = useState(false)
-  useEffect(() => {
-    const mq = window.matchMedia('(max-height: 500px)')
-    const sync = () => setShortScreen(mq.matches)
-    sync()
-    mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
-  }, [])
   const [decodedUrl, setDecodedUrl] = useState<Record<string, boolean>>({})
   const [htmlFramed, setHtmlFramed] = useState<Partial<Record<number, string>>>({})
   const htmlIframeRefs = useRef<Partial<Record<number, HTMLIFrameElement | null>>>({})
@@ -1419,12 +1411,7 @@ export function TourFloorPlan({
           ) : null}
           {showPlanChrome ? (
             <div
-              className={cn(
-                'pointer-events-auto absolute z-30 flex rounded-full border border-[#bda27e]/40 bg-[#14110e]/55 p-0.5 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
-                shortScreen
-                  ? 'top-[calc(44px+env(safe-area-inset-top)+0.35rem)] left-1.5'
-                  : 'top-[calc(4rem+env(safe-area-inset-top)+0.75rem)] left-3 sm:left-4',
-              )}
+              className="tour-plan-switch pointer-events-auto absolute z-30 flex rounded-full border border-[#bda27e]/40 bg-[#14110e]/55 p-0.5 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md"
             >
               {(['2d', '3d'] as const).map((item) => {
                 const available = item === '2d' ? has2d : has3d
@@ -1843,32 +1830,8 @@ export function TourFloorPlan({
       </div>
 
       <div
-        className={cn(
-          'tour-floor-rail pointer-events-auto absolute top-1/2 z-30 h-auto max-h-[calc(100dvh-6rem)] w-[calc(clamp(56px,5vw,84px)+2px)] -translate-y-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
-          portraitPan
-            ? 'left-[max(0.5rem,env(safe-area-inset-left))]'
-            : 'right-[max(0.5rem,env(safe-area-inset-right))]',
-        )}
-        style={{
-          WebkitOverflowScrolling: 'touch',
-          ...(portraitPan && showPlanChrome
-            ? {
-                top: 'calc(4rem + env(safe-area-inset-top) + 4.75rem)',
-                bottom: 'max(0.5rem, env(safe-area-inset-bottom))',
-                transform: 'none',
-                translate: 'none',
-                maxHeight: 'none',
-              }
-            : {
-                top: shortScreen
-                  ? 'calc(44px + env(safe-area-inset-top) + 0.35rem)'
-                  : 'calc(4rem + env(safe-area-inset-top) + 0.5rem)',
-                bottom: 'calc(var(--edge-bottom) + (var(--fab) * 2) + (var(--fab-gap) * 2))',
-                transform: 'none',
-                translate: 'none',
-                maxHeight: 'none',
-              }),
-        }}
+        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] z-30 h-auto w-[calc(clamp(56px,5vw,84px)+2px)] overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md"
+        style={{ WebkitOverflowScrolling: 'touch' }}
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}
       >
@@ -1900,14 +1863,8 @@ export function TourFloorPlan({
       </div>
 
       <div
-        className={cn(
-          'tour-floor-side pointer-events-auto absolute z-30 flex w-[var(--fab)] flex-col items-center gap-[var(--fab-gap)]',
-        )}
-        style={
-          portraitPan
-            ? { left: 'calc(clamp(56px, 5vw, 84px) + var(--fab-gap) + var(--edge-left))', bottom: 'var(--edge-bottom)' }
-            : { right: 'var(--edge-right)', bottom: 'var(--edge-bottom)' }
-        }
+        className="tour-floor-side pointer-events-auto absolute z-30 flex w-[var(--fab)] flex-col items-center gap-[var(--fab-gap)]"
+        style={{ right: 'calc(clamp(56px, 5vw, 84px) + var(--fab-gap) + var(--edge-right))', bottom: 'var(--edge-bottom)' }}
       >
         {railTrailing}
         {SITE.whatsapp && whatsappHref ? (
