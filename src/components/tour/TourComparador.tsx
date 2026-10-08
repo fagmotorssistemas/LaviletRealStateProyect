@@ -325,7 +325,7 @@ export function TourComparador({
                   className="pointer-events-none absolute bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[4] flex justify-center px-2"
                   style={{ left: `${splitClamped}%`, right: 0 }}
                 >
-                  <div className="max-w-[min(100%,14rem)] truncate rounded-full bg-black/45 px-3 py-1.5 text-center text-[10px] font-semibold tracking-[0.12em] text-white uppercase shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[11px]">
+                  <div className="max-w-[min(100%,14rem)] truncate rounded-full bg-black/45 px-3 py-1.5 text-center text-[10px] font-semibold tracking-[0.12em] text-white shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[11px]">
                     {t(activePreview.label)}
                   </div>
                 </div>
@@ -347,20 +347,18 @@ export function TourComparador({
                     onClick={() =>
                       onPreviewIndexB((previewIndexB - 1 + previewsB.length) % previewsB.length)
                     }
-                    className="absolute top-1/2 left-[max(0.35rem,env(safe-area-inset-left))] z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:left-2 sm:h-10 sm:w-10"
+                    className="tour-gallery-arrow tour-gallery-arrow--prev z-[3]"
                     aria-label={t("Imagen anterior")}
                   >
-                    <ChevronLeft size={18} strokeWidth={2} className="sm:hidden" />
-                    <ChevronLeft size={20} strokeWidth={2} className="hidden sm:block" />
+                    <ChevronLeft size={18} strokeWidth={2} />
                   </button>
                   <button
                     type="button"
                     onClick={() => onPreviewIndexB((previewIndexB + 1) % previewsB.length)}
-                    className="absolute top-1/2 right-[max(0.35rem,env(safe-area-inset-right))] z-[3] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:right-2 sm:h-10 sm:w-10"
+                    className="tour-gallery-arrow tour-gallery-arrow--next z-[3]"
                     aria-label={t("Imagen siguiente")}
                   >
-                    <ChevronRight size={18} strokeWidth={2} className="sm:hidden" />
-                    <ChevronRight size={20} strokeWidth={2} className="hidden sm:block" />
+                    <ChevronRight size={18} strokeWidth={2} />
                   </button>
                 </>
               ) : null}
@@ -409,7 +407,7 @@ export function TourComparador({
       <button
         type="button"
         onClick={onClose}
-        className="pointer-events-auto absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.5rem,env(safe-area-inset-left))] z-[34] inline-flex h-10 items-center gap-1.5 rounded-full bg-[#14110e] px-3 text-white shadow-[0_4px_16px_rgba(0,0,0,0.4)] ring-1 ring-white/15 transition-transform hover:scale-[1.03] sm:bottom-[max(1rem,env(safe-area-inset-bottom))] sm:left-[max(0.75rem,env(safe-area-inset-left))] sm:h-11 sm:gap-2 sm:px-3.5"
+        className="tour-fab pointer-events-auto absolute bottom-[var(--edge-bottom)] left-[var(--edge-left)] z-[34]"
         aria-label={
           t(unitA
             ? `Volver a la unidad ${unitA.unit_number}`
@@ -421,11 +419,7 @@ export function TourComparador({
             : 'Volver')
         }
       >
-        <Reply size={16} strokeWidth={2} className="-scale-x-100 shrink-0 sm:hidden" />
-        <Reply size={18} strokeWidth={2} className="-scale-x-100 hidden shrink-0 sm:block" />
-        <span className="pr-0.5 text-[10px] font-semibold tracking-wide uppercase sm:text-[11px]">
-          {t(unitA ? `Volver · ${unitA.unit_number}` : 'Volver')}
-        </span>
+        <Reply size={18} strokeWidth={2} className="-scale-x-100" />
       </button>
 
       {!waitingForB && !drawerOpen ? (

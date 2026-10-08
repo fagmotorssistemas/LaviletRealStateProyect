@@ -159,13 +159,13 @@ function SpecRow({
 
   if (tile) {
     return (
-      <div className="tour-ficha-tile flex min-h-0 flex-col justify-between rounded-2xl bg-[#f6f3ee] px-2.5 py-2.5 sm:px-3.5 sm:py-3.5">
-        <span className="tour-ficha-spec-label flex min-w-0 items-center gap-1.5 text-[11px] font-semibold leading-tight tracking-normal text-[#8a7760] uppercase">
+      <div className="tour-ficha-tile flex h-full min-h-0 flex-col items-start justify-start gap-1 rounded-2xl bg-[#f6f3ee] px-2.5 py-2.5 sm:px-3.5 sm:py-3.5">
+        <span className="tour-ficha-spec-label flex min-w-0 items-center gap-1 text-[11px] font-semibold leading-none tracking-normal text-[#8a7760] uppercase">
           {icon ? <span className="shrink-0 text-[#8e7654]">{t(icon)}</span> : null}
           <span className="tour-ficha-spec-full min-w-0">{t(label)}</span>
-          {shortLabel ? <span className="tour-ficha-spec-short min-w-0">{shortLabel}</span> : null}
+          {shortLabel ? <span className="tour-ficha-spec-short min-w-0 whitespace-nowrap">{shortLabel}</span> : null}
         </span>
-        <p className="mt-1.5 text-base leading-tight font-semibold text-[#1a2744] sm:mt-2 sm:text-xl">{t(value)}</p>
+        <p className="text-base leading-tight font-semibold text-[#1a2744] sm:text-xl">{t(value)}</p>
       </div>
     )
   }

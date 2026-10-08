@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import type { TourLocale } from '@/lib/tour/tourMessages'
-import { Menu, X, Maximize, Minimize, ArrowLeft, Home, Search, Store, Scan, Trees, HardHat, MapPin, ChevronRight, ChevronDown, Mail, Ruler, BedDouble, Images, Box } from 'lucide-react'
+import { Menu, X, Maximize, Minimize, ArrowLeft, Home, Search, Heart, Store, Scan, Trees, HardHat, MapPin, ChevronRight, ChevronDown, Mail, Ruler, BedDouble, Images, Box } from 'lucide-react'
 import { FocusScope } from 'react-aria'
 import type { TourPublicCatalog, TourUnitSummary } from '@/types/tour'
 import { UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
@@ -14,10 +14,10 @@ import { constructionProgress } from '@/lib/tour/constructionProgress'
 import { emptyUnitFilters, filterShowroomUnits } from '@/lib/tour/showroomMenu'
 import { QrShareButton } from '@/components/tour/QrShareButton'
 import { parseFloorNumber } from '@/lib/tour/floorPlanHotspots'
-type Section='home'|'units'|'shops'|'tour'|'amenities'|'progress'|'contact'
-const names={es:['Inicio / edificio','Buscar departamentos','Locales comerciales','Amenidades','Avance de obra','Ubicación'],en:['Home / building','Find an apartment','Commercial units','Amenities','Construction progress','Location']}
-const icons=[Home,Search,Store,Trees,HardHat,MapPin]
-const sections:Section[]=['home','units','shops','amenities','progress','contact']
+type Section='home'|'units'|'favorites'|'shops'|'tour'|'amenities'|'progress'|'contact'
+const names={es:['Inicio / edificio','Buscar departamentos','Favoritos','Locales comerciales','Amenidades','Avance de obra','Ubicación'],en:['Home / building','Find an apartment','Favorites','Commercial units','Amenities','Construction progress','Location']}
+const icons=[Home,Search,Heart,Store,Trees,HardHat,MapPin]
+const sections:Section[]=['home','units','favorites','shops','amenities','progress','contact']
 const menuSelectClass='appearance-none rounded-xl border border-[#bda27e]/50 bg-white py-2 pr-8 pl-3 text-sm text-[#29251e] focus-visible:outline-2 focus-visible:outline-[#8e7654]'
 const languageOptions: { value: TourLocale; label: string }[] = [{ value: 'es', label: 'Español' }, { value: 'en', label: 'English' }]
 function MenuSelect({ label, value, options, disabled, onChange, placement = 'below', align = 'stretch' }: { label: string; value: string; options: { value: string; label: string }[]; disabled?: boolean; onChange: (value: string) => void; placement?: 'below' | 'above'; align?: 'stretch' | 'end' }) {
@@ -102,7 +102,7 @@ function isInstalledShowroom() {
   return window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches
 }
 const HOME_HINT_KEY = 'lavilet-tour-a2hs'
-export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onPick,onTour,onAmenities,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
+export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onPick,onTour,onAmenities,onFavorites,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onFavorites?:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section>('home')
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
@@ -120,16 +120,16 @@ export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onP
  const filtered=filterShowroomUnits(units,filters,section==='shops')
  const floorGroups=[...filtered.reduce((groups,unit)=>{const floor=unit.floor||'';const list=groups.get(floor)??[];list.push(unit);groups.set(floor,list);return groups},new Map<string,TourUnitSummary[]>())].sort(([a],[b])=>(section==='shops'?shopFloorRank(a)-shopFloorRank(b):floorRank(a)-floorRank(b))||a.localeCompare(b,'es'))
  const close=()=>{setOpen(false);button.current?.focus()}
- const go=(next:Section)=>{setNotice('');if(next==='amenities'){onAmenities();close();return}if(next==='contact'){router.push('/ubicanos');close();return}setContent(true);setSection(next);if(next==='units'||next==='shops'||next==='tour')setFilters(emptyUnitFilters);if(next==='home'){onHome();close()}else onClosePanels()}
+ const go=(next:Section)=>{setNotice('');if(next==='amenities'){onAmenities();close();return}if(next==='favorites'){onFavorites?.();close();return}if(next==='contact'){router.push('/ubicanos');close();return}setContent(true);setSection(next);if(next==='units'||next==='shops'||next==='tour')setFilters(emptyUnitFilters);if(next==='home'){onHome();close()}else onClosePanels()}
  async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else if(root.current?.requestFullscreen)await root.current.requestFullscreen();else setNotice(t('Este navegador no permite pantalla completa.','Fullscreen is unavailable in this browser.'))}catch{setNotice(t('No se pudo cambiar a pantalla completa.','Fullscreen could not be changed.'))}}
  const fields=[['floor',t('Piso','Floor')],['bedrooms',t('Dormitorios','Bedrooms')],['category',t('Tipo','Type')],['status',t('Disponibilidad','Availability')]] as const
  if (hidden) return null
  return <>
   <div role="toolbar" aria-label="Controles del showroom" data-showroom-toolbar className="absolute inset-x-0 top-0 z-[90] flex h-[calc(4rem+env(safe-area-inset-top))] items-center gap-2 bg-transparent px-3 pt-[env(safe-area-inset-top)] text-[#f7f3ee] [text-shadow:0_1px_3px_rgba(20,17,14,0.85)] sm:px-5">
-   <button ref={button} type="button" data-showroom-menu aria-label={t('Abrir menú del showroom','Open showroom menu')} aria-expanded={open} onClick={()=>{onClosePanels();setContent(false);setSection(place);setNotice('');setOpen(true)}} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]"><Menu size={20}/></button>
-   {ios?null:<button type="button" aria-label={full?t('Salir de pantalla completa','Exit fullscreen'):t('Pantalla completa','Fullscreen')} onClick={()=>void fullscreen()} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 p-0 text-[#f7f3ee]">{full?<Minimize size={20}/>:<Maximize size={20}/>}</button>}
+   <button ref={button} type="button" data-showroom-menu aria-label={t('Abrir menú del showroom','Open showroom menu')} aria-expanded={open} onClick={()=>{onClosePanels();setContent(false);setSection(place);setNotice('');setOpen(true)}} className="tour-fab shrink-0"><Menu size={18}/></button>
+   {ios?null:<button type="button" aria-label={full?t('Salir de pantalla completa','Exit fullscreen'):t('Pantalla completa','Fullscreen')} onClick={()=>void fullscreen()} className="tour-fab shrink-0">{full?<Minimize size={18}/>:<Maximize size={18}/>}</button>}
    {open ? null : <span className="ml-2 min-w-0 truncate font-serif text-sm tracking-[.22em] sm:text-lg">LA VILET</span>}
-   {hideWebReturn ? null : <a href="/inicio" aria-label={t('Volver a la página web','Back to website')} title={t('Volver a la página web','Back to website')} className="ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#bda27e]/50 bg-[#29251e]/90 text-[#f7f3ee] transition-colors hover:bg-[#3a342b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bda27e]">
+   {hideWebReturn ? null : <a href="/inicio" aria-label={t('Volver a la página web','Back to website')} title={t('Volver a la página web','Back to website')} className="tour-fab ml-auto shrink-0 text-[#f7f3ee] transition-colors hover:bg-[#3a342b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bda27e]">
     <Home size={18} strokeWidth={2.25} aria-hidden="true" />
    </a>}
   </div>

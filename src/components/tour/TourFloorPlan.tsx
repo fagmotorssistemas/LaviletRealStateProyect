@@ -2,8 +2,8 @@
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
-import { Box, Hand, Minus, Plus, Square } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { Hand, Minus, Plus } from 'lucide-react'
 import {
   floorPlanLevelLabel,
   floorPlanLevelShort,
@@ -444,14 +444,13 @@ export function TourFloorPlan({
   const htmlLoadAtRef = useRef<Partial<Record<number, number>>>({})
   /** URL del HTML cuyo iframe ya disparó onLoad (por piso). */
   const [htmlLoadedUrl, setHtmlLoadedUrl] = useState<Partial<Record<number, string>>>({})
-  /** iOS/Safari: padding más chico en landscape bajo. */
-  const [landscapeFill, setLandscapeFill] = useState(false)
   const [portraitPan, setPortraitPan] = useState(false)
   const [panX, setPanX] = useState(0)
   const [panHint, setPanHint] = useState(false)
   /** Área disponible del stage: para encajar el plano sin romper aspect-ratio. */
   const stageRef = useRef<HTMLDivElement>(null)
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
+  const [pinNudge, setPinNudge] = useState<Record<string, '-50%' | '-100%' | '0%'>>({})
   /** Dimensiones naturales medidas del <img> activo (corrige metadata vieja). */
   const [measuredImageSize, setMeasuredImageSize] = useState<
     Partial<Record<string, { width: number; height: number }>>
@@ -472,20 +471,6 @@ export function TourFloorPlan({
   const lastHtmlOpenAtRef = useRef(0)
   const lastHtmlOpenKeyRef = useRef('')
   const whatsappHref = tourWhatsAppHref(floorPlanWhatsAppMessage(locale))
-
-  useEffect(() => {
-    const mq = window.matchMedia('(orientation: landscape) and (max-height: 560px)')
-    const sync = () => setLandscapeFill(mq.matches)
-    sync()
-    mq.addEventListener('change', sync)
-    window.addEventListener('orientationchange', sync)
-    window.addEventListener('resize', sync)
-    return () => {
-      mq.removeEventListener('change', sync)
-      window.removeEventListener('orientationchange', sync)
-      window.removeEventListener('resize', sync)
-    }
-  }, [])
 
   useEffect(() => {
     const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
@@ -534,6 +519,37 @@ export function TourFloorPlan({
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const pins = [...stage.querySelectorAll<HTMLElement>('[data-pin-id]')]
+    const sr = stage.getBoundingClientRect()
+    const next: Record<string, '-50%' | '-100%' | '0%'> = {}
+    for (const pin of pins) {
+      const id = pin.dataset.pinId
+      if (!id) continue
+      const rect = pin.getBoundingClientRect()
+      const applied = pinNudge[id] ?? '-50%'
+      let centeredLeft = rect.left
+      let centeredRight = rect.right
+      if (applied === '-100%') {
+        centeredLeft += rect.width / 2
+        centeredRight += rect.width / 2
+      } else if (applied === '0%') {
+        centeredLeft -= rect.width / 2
+        centeredRight -= rect.width / 2
+      }
+      let x: '-50%' | '-100%' | '0%' = '-50%'
+      if (centeredRight > sr.right - 2) x = '-100%'
+      else if (centeredLeft < sr.left + 2) x = '0%'
+      next[id] = x
+    }
+    const prevKeys = Object.keys(pinNudge)
+    const nextKeys = Object.keys(next)
+    if (prevKeys.length === nextKeys.length && nextKeys.every((key) => pinNudge[key] === next[key])) return
+    setPinNudge(next)
+  })
 
   const upsertLayer = (view: ReadyFloorView) => {
     const layer = toLayer(view)
@@ -1389,7 +1405,7 @@ export function TourFloorPlan({
       <div
         ref={stageRef}
         className={cn(
-          'absolute inset-0 flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-0',
+          'absolute flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-0',
           portraitPan && 'touch-none',
         )}
         data-plan-stage
@@ -1435,16 +1451,12 @@ export function TourFloorPlan({
           {showPlanChrome ? (
             <div
               className={cn(
-                'pointer-events-auto absolute z-30 flex rounded-full border border-[#bda27e]/40 bg-[#14110e]/55 p-0.5 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md',
-                landscapeFill
-                  ? 'top-[calc(4rem+env(safe-area-inset-top)+0.25rem)] left-1.5'
-                  : 'top-[calc(4rem+env(safe-area-inset-top)+0.75rem)] left-3 sm:left-4',
+                'pointer-events-auto absolute top-2 left-0 z-30 flex gap-[var(--fab-gap)]',
               )}
             >
               {(['2d', '3d'] as const).map((item) => {
                 const available = item === '2d' ? has2d : has3d
                 const active = planVariant === item
-                const Icon = item === '2d' ? Square : Box
                 return (
                   <button
                     key={item}
@@ -1452,8 +1464,7 @@ export function TourFloorPlan({
                     disabled={!available}
                     onClick={() => switchVariant(item)}
                     className={cn(
-                      'tour-plan-variant inline-flex items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors sm:px-3 sm:text-[12px]',
-                      '[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11',
+                      'tour-fab tour-plan-variant text-[11px] font-semibold uppercase tracking-wide transition-colors',
                       active
                         ? 'bg-[#bda27e] text-[#14110e] shadow-sm'
                         : available
@@ -1467,7 +1478,6 @@ export function TourFloorPlan({
                         : `Todavía no hay plano ${item.toUpperCase()}`)
                     }
                   >
-                    <Icon size={13} strokeWidth={2} aria-hidden />
                     {t(item)}
                   </button>
                 )
@@ -1713,6 +1723,8 @@ export function TourFloorPlan({
                 const opens = slotOpens(slot)
                 const hovered = hoverSlot === slot.id && opens
                 const label = slot.area ? slot.label : (slot.unit?.unit_number ?? slot.label)
+                const shiftX = pinNudge[slot.id] ?? '-50%'
+                const shiftY = cy > 86 ? '-100%' : cy < 14 ? '0%' : '-50%'
 
                 return (
                   <button
@@ -1728,7 +1740,7 @@ export function TourFloorPlan({
                     }}
                     onClick={(event) => onSlotClick(slot, event)}
                     className={cn(
-                      'pointer-events-auto absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)] transition-[transform,box-shadow] duration-100',
+                      'tour-unit-pin pointer-events-auto absolute z-[2] flex touch-manipulation items-center justify-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)]',
                       'sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1.5',
                       opens
                         ? 'cursor-pointer hover:shadow-[0_4px_14px_rgba(15,23,42,0.28)]'
@@ -1737,7 +1749,8 @@ export function TourFloorPlan({
                       hovered && !slot.area && 'ring-2 ring-[#3d9b4a]/80',
                       hovered && slot.area && 'ring-2 ring-[#BDA27E]',
                     )}
-                    style={{ left: `${cx}%`, top: `${cy}%` }}
+                    data-pin-id={slot.id}
+                    style={{ left: `${cx}%`, top: `${cy}%`, transform: `translate(${shiftX}, ${shiftY})` }}
                     aria-label={t(slot.area ? slot.label : slot.unit ? `Departamento ${label}` : `Zona ${label}`)}
                   >
                     <span
@@ -1801,6 +1814,8 @@ export function TourFloorPlan({
             <div className="pointer-events-none absolute inset-0 z-[4]">
               {displaySlots.filter((slot) => slot.area).map((slot) => {
                 const { cx, cy } = slotCentroid(slot.points)
+                const shiftX = pinNudge[slot.id] ?? '-50%'
+                const shiftY = cy > 86 ? '-100%' : cy < 14 ? '0%' : '-50%'
                 return (
                   <button
                     key={`html-area-${slot.id}`}
@@ -1811,8 +1826,9 @@ export function TourFloorPlan({
                       slotPointerRef.current = null
                     }}
                     onClick={(event) => onSlotClick(slot, event)}
-                    className="pointer-events-auto absolute z-[2] flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md border border-[#BDA27E] bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)]"
-                    style={{ left: `${cx}%`, top: `${cy}%` }}
+                    data-pin-id={slot.id}
+                    className="tour-unit-pin pointer-events-auto absolute z-[2] flex items-center justify-center gap-1.5 rounded-md border border-[#BDA27E] bg-white px-2 py-1.5 text-left shadow-[0_2px_8px_rgba(15,23,42,0.22)]"
+                    style={{ left: `${cx}%`, top: `${cy}%`, transform: `translate(${shiftX}, ${shiftY})` }}
                     aria-label={slot.label}
                   >
                     <span className="h-2 w-2 shrink-0 rounded-full bg-[#BDA27E]" />
@@ -1827,36 +1843,27 @@ export function TourFloorPlan({
 
           </div>
 
-        <div
-          className={cn(
-            'pointer-events-auto absolute z-30 flex items-end gap-2',
-            landscapeFill
-              ? 'bottom-[max(0.35rem,env(safe-area-inset-bottom))] left-[max(0.35rem,env(safe-area-inset-left))]'
-              : 'bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))]',
-          )}
-        >
-          <div className="flex flex-col gap-1.5">
-          <button
-            type="button"
-            onClick={zoomIn}
-            disabled={scale >= zoomMax - 0.001}
-            className="tour-zoom-btn inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-            aria-label={t("Acercar plano")}
-            title={t("Acercar")}
-          >
-            <Plus size={18} strokeWidth={2.25} />
-          </button>
+        <div className="tour-zoom-row pointer-events-auto z-30">
           <button
             type="button"
             onClick={zoomOut}
             disabled={scale <= ZOOM_MIN}
-            className="tour-zoom-btn inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+            className="tour-zoom-btn disabled:opacity-40"
             aria-label={t("Alejar plano")}
             title={t("Alejar")}
           >
             <Minus size={18} strokeWidth={2.25} />
           </button>
-          </div>
+          <button
+            type="button"
+            onClick={zoomIn}
+            disabled={scale >= zoomMax - 0.001}
+            className="tour-zoom-btn disabled:opacity-40"
+            aria-label={t("Acercar plano")}
+            title={t("Acercar")}
+          >
+            <Plus size={18} strokeWidth={2.25} />
+          </button>
         </div>
       </div>
 
@@ -1904,7 +1911,7 @@ export function TourFloorPlan({
         </div>
       </div>
 
-      <div className="tour-floor-side pointer-events-auto absolute right-[max(6.5rem,calc(env(safe-area-inset-right)+6rem))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-2">
+      <div className="tour-floor-side pointer-events-auto absolute z-30 flex w-[var(--fab)] flex-col items-center gap-[var(--fab-gap)]" style={{ right: 'calc(clamp(56px, 5vw, 84px) + var(--fab-gap) + var(--edge-right))', bottom: 'var(--edge-bottom)' }}>
         {railTrailing}
         {SITE.whatsapp && whatsappHref ? (
           <a

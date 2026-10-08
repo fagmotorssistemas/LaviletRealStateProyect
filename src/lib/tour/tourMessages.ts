@@ -98,7 +98,7 @@ export const tourEnglish: Record<string, string> = {
   'Solo para enviarle esta cotización y seguir su visita en el showroom.': 'Only to send you this quote and continue your showroom visit.',
   'Un momento…': 'One moment…', 'Tipología': 'Layout',
   'No se pudo cargar el showroom 360°. Recarga la página para intentarlo de nuevo.': 'Could not load the 360° showroom. Reload the page to try again.',
-  'Guardamos su selección': 'Your selection has been saved', 'No se pudo guardar': 'Could not save', 'Guardar favorito': 'Save favorite',
+  'Guardamos su selección': 'Your selection has been saved', 'No se pudo guardar': 'Could not save', 'Guardar favorito': 'Save favorite', 'Quitar favorito': 'Remove favorite',
   'Con su número guarda favoritos y abre el simulador cuando lo necesite.': 'Use your mobile number to save favorites and open the calculator whenever you need it.',
   'Acepto el uso de mi celular para guardar mi selección y contactarme por este departamento.': 'I agree to the use of my mobile number to save my selection and contact me about this apartment.',
   'Abrir simulador de inversión →': 'Open investment calculator →', 'Guardar': 'Save', 'Guardar con mi celular': 'Save with my mobile number',

@@ -48,6 +48,12 @@ export const metadata: Metadata = {
   icons: {
     apple: '/icons/icon-180.png',
   },
+  formatDetection: {
+    telephone: false,
+    address: false,
+    email: false,
+    date: false,
+  },
 }
 
 const supabaseOrigin = (() => {

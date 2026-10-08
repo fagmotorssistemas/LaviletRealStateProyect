@@ -25,11 +25,9 @@ import {
   Heart,
   Landmark,
   Menu,
-  Bookmark,
   Mic,
   Plus,
   Minus,
-  MoreHorizontal,
   Rotate3d,
   SwatchBook,
 } from 'lucide-react'
@@ -45,7 +43,7 @@ import { TourFloorPlan } from '@/components/tour/TourFloorPlan'
 import { TourComparador } from '@/components/tour/TourComparador'
 import { TourFinishCompareOverlay } from '@/components/tour/TourFinishCompareOverlay'
 import type { ComparePanoPose } from '@/components/tour/CompareSidePano'
-import { TourSaveUnitModal } from '@/components/tour/TourSaveUnitModal'
+import { saveTourUnit, TourSaveUnitModal } from '@/components/tour/TourSaveUnitModal'
 import { TourTerminacionesPanel } from '@/components/tour/TourTerminacionesPanel'
 import { TourInfoRequestModal } from '@/components/tour/TourInfoRequestModal'
 import { TourFloorLocationPeek } from '@/components/tour/TourFloorLocationPeek'
@@ -89,8 +87,10 @@ import { TourLeadGate } from '@/components/tour/TourLeadGate'
 import { logTourEvent } from '@/lib/tour/visitorTracking'
 import {
   canAccessShowroomTools,
+  getShowroomPhone,
   SHOWROOM_IDENTITY_EVENT,
 } from '@/lib/tour/showroomIdentity'
+import { isTourFavorite, removeTourFavorite } from '@/lib/tour/tourFavorites'
 import {
   findUnitByNumber,
   readUnitQueryParam,
@@ -190,6 +190,11 @@ function CrossfadeStill({
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
   const framed = lateralPan && portrait && !contain && box.h > 32
+  const landscapeCover = lateralPan && !portrait && !contain && box.w > 32
+  const containRatio =
+    aspect > 0 && box.h > 0
+      ? Math.min(box.w / box.h, aspect) / Math.max(box.w / box.h, aspect)
+      : 0.5
   const frameH = Math.round(box.h * PHONE_PORTRAIT_FRAME)
   const frameW = Math.max(box.w, Math.round(frameH * aspect))
   const zoomCap = frameH > 0 ? box.h / frameH : 1
@@ -255,7 +260,7 @@ function CrossfadeStill({
   }
 
   const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!framed) return
+    if (!framed && !landscapeCover) return
     event.stopPropagation()
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (pointersRef.current.size >= 2) {
@@ -271,6 +276,7 @@ function CrossfadeStill({
       dragRef.current = null
       return
     }
+    if (!framed) return
     dragRef.current = { x: event.clientX, pan: panRef.current, moved: false, over: 0 }
   }
 
@@ -283,7 +289,9 @@ function CrossfadeStill({
       const b = pts[1]
       if (!a || !b) return
       const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
-      const next = Math.max(1, Math.min(zoomCap, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      const min = framed ? 1 : containRatio
+      const max = framed ? zoomCap : 3
+      const next = Math.max(min, Math.min(max, pinchRef.current.scale * (dist / pinchRef.current.dist)))
       onZoom?.(Number(next.toFixed(3)))
       return
     }
@@ -345,9 +353,9 @@ function CrossfadeStill({
                 : undefined
             }
             className={cn(
-              !framed && (zoom != null || contain)
+              contain
                 ? 'h-full w-full object-contain object-center'
-                : 'absolute inset-0 h-full w-full object-cover',
+                : 'absolute inset-0 h-full w-full object-cover object-center',
               !framed && zoom != null && 'origin-center',
             )}
           />
@@ -601,6 +609,7 @@ function stillLabelFromFile(fileName: string) {
     .replace(/[-_]r\d+$/i, '')
     .replace(/^(2d|3d)[-_]/i, '')
     .replace(/[-_]/g, ' ')
+    .replace(/\s+\d+$/u, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -832,15 +841,12 @@ function typologyHasGallery(typ: TourTypologyOption | null | undefined) {
   )
 }
 
-/** Qué modos tiene sentido mostrar según la vista actual. */
+/** Modos con contenido. Con uno solo no se muestra el selector. */
 function modeButtonsForView(input: {
   shellMode: 'plan' | 'unit'
-  viewMode: TourViewMode
-  terminacionesFocus: boolean
-  galleryOnly?: boolean
-  showTerminaciones?: boolean
-  commonArea?: boolean
-  commonAreaTour?: boolean
+  hasPanorama?: boolean
+  hasGallery?: boolean
+  terminacionesReady?: boolean
 }): {
   galeria: boolean
   planos: boolean
@@ -851,32 +857,21 @@ function modeButtonsForView(input: {
   if (input.shellMode === 'plan') {
     return { galeria: false, planos: false, tour: false, terminaciones: false, comparador: false }
   }
-  if (input.commonArea) {
-    return {
-      galeria: true,
-      planos: false,
-      tour: Boolean(input.commonAreaTour),
-      terminaciones: false,
-      comparador: false,
-    }
-  }
-  if (input.galleryOnly) {
-    return { galeria: true, planos: false, tour: false, terminaciones: false, comparador: false }
-  }
-  // Panel de terminaciones: volver al tour o seguir en terminaciones.
-  if (input.terminacionesFocus) {
-    return { galeria: false, planos: false, tour: true, terminaciones: true, comparador: false }
-  }
-  // Galería: terminaciones solo si los dos acabados tienen imagen.
-  if (input.viewMode === 'galeria') {
-    return { galeria: true, planos: false, tour: true, terminaciones: true, comparador: true }
-  }
-  // Planos tipología (stills): no mezclar con menú de modos del edificio.
-  if (isPlanosMode(input.viewMode)) {
-    return { galeria: true, planos: false, tour: true, terminaciones: false, comparador: false }
-  }
-  // Tour 360°: el botón de terminaciones queda visible y se deshabilita si este ambiente no tiene las dos.
-  return { galeria: true, planos: false, tour: true, terminaciones: true, comparador: true }
+  const tour = Boolean(input.hasPanorama)
+  const galeria = Boolean(input.hasGallery)
+  const terminaciones = Boolean(input.terminacionesReady)
+  const comparador = tour || terminaciones
+  return { galeria, planos: false, tour, terminaciones, comparador }
+}
+
+function modeSwitcherVisible(show: {
+  galeria: boolean
+  planos: boolean
+  tour: boolean
+  terminaciones: boolean
+  comparador: boolean
+}) {
+  return [show.galeria, show.planos, show.tour, show.terminaciones, show.comparador].filter(Boolean).length > 1
 }
 
 
@@ -1318,6 +1313,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [showroomIdentified, setShowroomIdentified] = useState(false)
   const [saveUnitOpen, setSaveUnitOpen] = useState(false)
   const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const [unitSaved, setUnitSaved] = useState(false)
+  const heartPressRef = useRef<{ timer: number; long: boolean } | null>(null)
   const [mobilePanel, setMobilePanel] = useState<'nav' | 'modes' | null>(null)
   const [infoRequestOpen, setInfoRequestOpen] = useState(false)
   const [tourNavMode, setTourNavMode] = useState<TourNavMode | null>(null)
@@ -1566,7 +1563,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const lastStillRef = useRef<string | null>(null)
   const stillScopeRef = useRef('')
   const viewModeRef = useRef(viewMode)
-  const moreActionsRef = useRef<HTMLDetailsElement>(null)
   const desiredPanoRef = useRef<string | null>(null)
   const shownPanoRef = useRef('')
   const steppedPanoRef = useRef<{ requested: string; shown: string } | null>(null)
@@ -1583,22 +1579,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const lookPromiseRef = useRef<PromiseLike<boolean> | null>(null)
 
   useEffect(() => {
-    if (moreActionsRef.current?.open) moreActionsRef.current.open = false
-  }, [viewMode, selectedUnitId, room])
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const root = moreActionsRef.current
-      if (!root?.open) return
-      const target = event.target
-      if (!(target instanceof Node) || root.contains(target)) return
-      const secondary = root.parentElement?.querySelector('.tour-actions-secondary')
-      if (secondary?.contains(target)) return
-      root.open = false
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [])
+    const sync = () => setUnitSaved(selectedUnitId ? isTourFavorite(selectedUnitId) : false)
+    sync()
+    window.addEventListener('lv-tour-favorites-changed', sync)
+    return () => window.removeEventListener('lv-tour-favorites-changed', sync)
+  }, [selectedUnitId])
 
   const preloadUrls = useCallback((viewer: Viewer, urls: string[]) => {
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return
@@ -2730,13 +2715,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const terminacionesReady = hasBothFinishesForRoom(finishRoom, catalogFinishes, light)
   const modeButtons = modeButtonsForView({
     shellMode,
-    viewMode,
-    terminacionesFocus,
-    galleryOnly,
-    showTerminaciones: terminacionesReady,
-    commonArea: viewingCommonArea,
-    commonAreaTour: typologyHasPanorama(currentTypology),
+    hasPanorama: typologyHasPanorama(currentTypology),
+    hasGallery: typologyHasGallery(currentTypology) || galeriaImages.length > 0,
+    terminacionesReady,
   })
+  const showModeSwitcher = modeSwitcherVisible(modeButtons)
 
   useEffect(() => {
     if (terminacionesReady) return
@@ -3632,6 +3615,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         hideWebReturn={planEntryOpen}
+        onFavorites={() => setFavoritesOpen(true)}
         place={amenitiesOpen ? 'amenities' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={(view) => {
@@ -3886,11 +3870,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 stepStill(-1)
               }}
               onPointerDown={(event) => event.stopPropagation()}
-              className="pointer-events-auto absolute top-1/2 left-[max(0.4rem,env(safe-area-inset-left))] z-[2] flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:left-[max(0.5rem,env(safe-area-inset-left))] sm:h-11 sm:w-11"
+              className="tour-gallery-arrow tour-gallery-arrow--prev pointer-events-auto"
               aria-label={t("Imagen anterior")}
             >
-              <ChevronLeft size={20} strokeWidth={2} className="sm:hidden" />
-              <ChevronLeft size={22} strokeWidth={2} className="hidden sm:block" />
+              <ChevronLeft size={18} strokeWidth={2} />
             </button>
             <button
               type="button"
@@ -3900,27 +3883,28 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               }}
               onPointerDown={(event) => event.stopPropagation()}
               className={cn(
-                'pointer-events-auto absolute top-1/2 z-[2] flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 sm:h-11 sm:w-11',
-                terminacionesUiOpen
-                  ? 'right-[min(21rem,calc(100%-2.75rem))]'
-                  : 'right-[max(0.4rem,env(safe-area-inset-right))] sm:right-[max(0.5rem,env(safe-area-inset-right))]',
+                'tour-gallery-arrow tour-gallery-arrow--next pointer-events-auto',
+                terminacionesUiOpen && '!right-[min(21rem,calc(100%-2.75rem))]',
               )}
               aria-label={t("Imagen siguiente")}
             >
-              <ChevronRight size={20} strokeWidth={2} className="sm:hidden" />
-              <ChevronRight size={22} strokeWidth={2} className="hidden sm:block" />
+              <ChevronRight size={18} strokeWidth={2} />
             </button>
           </>
         ) : null}
         {viewMode === 'galeria' && showStill && !fichaOpen ? (
-          <div className="pointer-events-auto absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+4rem))] left-[max(0.5rem,env(safe-area-inset-left))] z-[4] flex gap-2">
+          <div className="tour-zoom-row pointer-events-auto">
             <button
               type="button"
               aria-label={t('Alejar')}
-              disabled={galleryZoom <= 1}
-              onClick={() => setGalleryZoom((value) => Math.max(1, Math.round((value - 0.5) * 10) / 10))}
+              disabled={galleryZoom <= (galleryPortrait ? 1 : 0.45)}
+              onClick={() =>
+                setGalleryZoom((value) =>
+                  Math.max(galleryPortrait ? 1 : 0.45, Math.round((value - 0.25) * 100) / 100),
+                )
+              }
               onPointerDown={(event) => event.stopPropagation()}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 disabled:opacity-40"
+              className="tour-zoom-btn disabled:opacity-40"
             >
               <Minus size={18} strokeWidth={2.25} />
             </button>
@@ -3930,11 +3914,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               disabled={galleryZoom >= (galleryPortrait ? 1 / PHONE_PORTRAIT_FRAME : 3) - 0.01}
               onClick={() =>
                 setGalleryZoom((value) =>
-                  Math.min(galleryPortrait ? 1 / PHONE_PORTRAIT_FRAME : 3, Math.round((value + 0.5) * 10) / 10),
+                  Math.min(galleryPortrait ? 1 / PHONE_PORTRAIT_FRAME : 3, Math.round((value + 0.25) * 100) / 100),
                 )
               }
               onPointerDown={(event) => event.stopPropagation()}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 disabled:opacity-40"
+              className="tour-zoom-btn disabled:opacity-40"
             >
               <Plus size={18} strokeWidth={2.25} />
             </button>
@@ -3955,8 +3939,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 : undefined
             }
           >
-            <div className="max-w-[min(100%,18rem)] truncate rounded-full bg-black/45 px-3.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.12em] text-white uppercase shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[12px]">
-              {t(stillItems[stillIndex]?.label)}
+            <div className="max-w-[min(100%,18rem)] truncate rounded-full bg-black/45 px-3.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.04em] text-white shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[12px]">
+              {t(stillItems[stillIndex]?.label.replace(/\s+\d+$/u, '').trim())}
             </div>
           </div>
         ) : null}
@@ -4088,7 +4072,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 type="button"
                 data-tour-voice
                 onClick={() => setVoiceAssistOpen(true)}
-                className="tour-glass group inline-flex h-11 w-11 shrink-0 items-center justify-center border border-[#BDA27E]/40 text-[#f7f3ee] transition hover:border-[#BDA27E]/65 hover:bg-white/10"
+                className="tour-fab"
                 aria-label={t("Abrir asistente de voz")}
                 title={t("Asistente de voz")}
               >
@@ -4115,7 +4099,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       ) : null}
 
       {/* Modos PC / móvil: no en el plano del edificio (ahí solo 2D/3D). */}
-      {!booting && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen ? (
+      {!booting && showModeSwitcher && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen ? (
         <div
           className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]"
         >
@@ -4180,7 +4164,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   // Mantener galería o 360 según el modo actual (pares homogéneos).
                   if (viewMode !== 'galeria') setViewMode('tour')
                 }}
-                terminacionesDisabled={!terminacionesReady}
+                terminacionesDisabled={false}
           />
         </div>
 
@@ -4188,7 +4172,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               onClick={() => setMobilePanel((value) => (value === 'modes' ? null : 'modes'))}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.28)]"
+              className="tour-fab"
               aria-expanded={mobilePanel === 'modes'}
               aria-haspopup="menu"
               aria-label={t("Abrir modos de vista")}
@@ -4273,8 +4257,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 {modeButtons.terminaciones ? (
                 <ModeButton
                   active={terminacionesFocus || isFinishCompare}
-                  disabled={!terminacionesReady}
-                  title={terminacionesReady ? undefined : t('Este ambiente no tiene otra terminación')}
                   icon={<SwatchBook size={14} strokeWidth={1.75} />}
                   onClick={() => {
                     setShellMode('unit')
@@ -4401,7 +4383,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   onClick={() =>
                     setMobilePanel((value) => (value === 'nav' ? null : 'nav'))
                   }
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.28)]"
+                  className="tour-fab"
                   aria-expanded={mobilePanel === 'nav'}
                   aria-label={t('Pisos')}
                 >
@@ -4512,52 +4494,90 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         ) : null}
       </div>
 
+      {showUnitChrome && !fichaOpen && !navChooserOpen && viewMode === 'tour' ? (
+        <button
+          type="button"
+          onClick={() => setNavChooserOpen(true)}
+          className="tour-nav-pill tour-glass pointer-events-auto text-[#f7f3ee]"
+          aria-label={t("Cambiar control del tour")}
+          title={t("Cambiar entre giroscopio y dedo")}
+        >
+          {tourNavMode === 'gyro' ? (
+            <Compass size={18} strokeWidth={1.75} />
+          ) : (
+            <Hand size={18} strokeWidth={1.75} />
+          )}
+          <span className="text-[11px] font-semibold tracking-[0.08em] uppercase">
+            {t(tourNavMode === 'gyro' ? 'Giroscopio' : 'Dedo')}
+          </span>
+        </button>
+      ) : null}
+
       {showUnitChrome && !fichaOpen && !navChooserOpen ? (
-        <div className="tour-unit-actions absolute right-[max(0.5rem,env(safe-area-inset-right))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex flex-col items-end gap-1.5 sm:right-[max(0.75rem,env(safe-area-inset-right))] sm:gap-2">
-          <div
-            className="tour-actions-secondary"
-            onClick={() => {
-              if (moreActionsRef.current?.open) moreActionsRef.current.open = false
-            }}
-          >
+        <div className="tour-unit-dock">
+          {selectedUnit ? <TourFloorLocationPeek unit={selectedUnit} units={allUnits} /> : null}
+          <div className="tour-unit-actions">
+          <div className="tour-actions-secondary">
           {!isComparador && !isFinishCompare && !voiceAssistOpen ? (
                   <button
                     type="button"
               data-tour-voice
               onClick={() => setVoiceAssistOpen(true)}
-              className="tour-glass group inline-flex h-11 w-11 shrink-0 items-center justify-center border border-[#BDA27E]/40 text-[#f7f3ee] transition hover:border-[#BDA27E]/65 hover:bg-white/10"
+              className="tour-fab"
               aria-label={t("Abrir asistente de voz")}
               title={t("Asistente de voz")}
             >
-              <Mic
-                size={16}
-                strokeWidth={1.75}
-                className="text-[#E8D9C0] transition group-hover:scale-105"
-              />
+              <Mic size={18} strokeWidth={1.75} />
                   </button>
                 ) : null}
+          {selectedUnit ? (
                   <button
                     type="button"
-            onClick={() => setFavoritesOpen(true)}
-            className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
-            aria-label={t("Ver favoritos")}
-            title={t("Favoritos")}
-          >
-            <Heart size={15} strokeWidth={2} className="sm:hidden" />
-            <Heart size={16} strokeWidth={2} className="hidden sm:block" />
-                  </button>
-                  <button
-                    type="button"
-            onClick={() => {
-              setSaveUnitOpen(true)
+            className="tour-fab"
+            aria-pressed={unitSaved}
+            aria-label={t(unitSaved ? "Quitar favorito" : "Guardar favorito")}
+            title={t(unitSaved ? "Quitar favorito" : "Guardar favorito")}
+            onPointerDown={() => {
+              const timer = window.setTimeout(() => {
+                if (heartPressRef.current) heartPressRef.current.long = true
+                setFavoritesOpen(true)
+              }, 500)
+              heartPressRef.current = { timer, long: false }
             }}
-            className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
-            aria-label={t("Guardar favorito")}
-            title={t("Guardar favorito")}
+            onPointerUp={() => {
+              const press = heartPressRef.current
+              heartPressRef.current = null
+              if (!press) return
+              window.clearTimeout(press.timer)
+              if (press.long || !selectedUnit) return
+              if (isTourFavorite(selectedUnit.id)) {
+                removeTourFavorite(selectedUnit.id)
+                return
+              }
+              if (!getShowroomPhone()) {
+                setSaveUnitOpen(true)
+                return
+              }
+              void saveTourUnit({
+                typologyCode: selectedTypology,
+                unitTypeId: currentTypology?.id,
+                unitId: selectedUnit.id,
+                unitNumber: selectedUnit.unit_number,
+                roomLabel: roomName,
+                floor: selectedUnit.floor,
+                finish,
+                light,
+              })
+            }}
+            onPointerCancel={() => {
+              if (heartPressRef.current) window.clearTimeout(heartPressRef.current.timer)
+              heartPressRef.current = null
+            }}
+            onContextMenu={(event) => event.preventDefault()}
           >
-            <Bookmark size={15} strokeWidth={2} className="sm:hidden" />
-            <Bookmark size={16} strokeWidth={2} className="hidden sm:block" />
+            <Heart size={18} strokeWidth={2} fill={unitSaved ? 'currentColor' : 'none'} />
                   </button>
+          ) : null}
           {SITE.whatsapp ? (
             <a
               href={tourWhatsAppHref(
@@ -4575,7 +4595,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               )!}
               target="_blank"
               rel="noopener noreferrer"
-              className="tour-glass inline-flex h-11 w-11 shrink-0 items-center justify-center text-[#f7f3ee]"
+              className="tour-fab tour-whatsapp-btn"
               aria-label={t("Consultar por WhatsApp")}
               title={t("Consultar por WhatsApp")}
               onClick={() => {
@@ -4591,38 +4611,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 })
               }}
             >
-              <WhatsAppIcon size={15} />
+              <WhatsAppIcon size={18} />
             </a>
           ) : null}
           </div>
-          <details ref={moreActionsRef} className="tour-actions-more">
-            <summary className="tour-glass inline-flex h-11 items-center gap-1 px-2.5 text-[10px] font-semibold tracking-[0.12em] text-[#f7f3ee] uppercase">
-              <MoreHorizontal size={16} strokeWidth={1.75} />
-              {t('Más')}
-            </summary>
-          </details>
-          {viewMode === 'tour' && showUnitChrome ? (
-                  <button
-                    type="button"
-              onClick={() => setNavChooserOpen(true)}
-              className="tour-glass pointer-events-auto inline-flex h-11 min-h-11 items-center gap-1.5 px-2.5 text-[#f7f3ee] sm:gap-2 sm:px-3"
-              aria-label={t("Cambiar control del tour")}
-              title={t("Cambiar entre giroscopio y dedo")}
-            >
-              {tourNavMode === 'gyro' ? (
-                <Compass size={15} strokeWidth={1.75} />
-              ) : (
-                <Hand size={15} strokeWidth={1.75} />
-              )}
-              <span className="text-[10px] font-semibold tracking-[0.12em] uppercase">
-                {t(tourNavMode === 'gyro' ? 'Giroscopio' : 'Dedo')}
-              </span>
-              </button>
-          ) : null}
-          {selectedUnit && !fichaOpen ? (
-            <TourFloorLocationPeek unit={selectedUnit} units={allUnits} />
-          ) : null}
-            </div>
+          </div>
+        </div>
       ) : null}
 
       {embedded || showUnitChrome ? (
@@ -4644,7 +4638,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         />
       ) : null}
 
-      {showUnitChrome || showPlanShell ? (
+      {showUnitChrome || showPlanShell || favoritesOpen ? (
         <TourFavoritesPanel
           open={favoritesOpen}
           contained={embedded && !immersive}
@@ -4925,7 +4919,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planTouchLock ? <div className="absolute inset-0 z-[35]" aria-hidden="true" /> : null}
 
-      <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} />
+      <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} hidden={amenitiesOpen || viewingCommonArea} />
 
       {shellMode === 'plan' ? (
         <div

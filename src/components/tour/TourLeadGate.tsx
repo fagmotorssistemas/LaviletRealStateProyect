@@ -94,7 +94,7 @@ export function TourLeadGate({
   }
 
   const field =
-    'h-9 w-full border border-[#2B1A18]/12 bg-[#f7f3ee]/70 px-3 text-[13px] text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 focus:border-[#BDA27E]'
+    'min-h-11 w-full border border-[#2B1A18]/12 bg-[#f7f3ee]/70 px-3 text-base text-[#2B1A18] outline-none placeholder:text-[#2B1A18]/35 focus:border-[#BDA27E]'
 
   return (
     <div className="absolute inset-x-0 bottom-0 z-30 flex justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4">

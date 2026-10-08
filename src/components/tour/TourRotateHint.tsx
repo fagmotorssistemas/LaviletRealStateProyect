@@ -65,10 +65,12 @@ export function TourRotateHint({
   contained = false,
   target,
   inTour = false,
+  hidden = false,
 }: {
   contained?: boolean
   target?: RefObject<HTMLElement | null>
   inTour?: boolean
+  hidden?: boolean
 }) {
   const { t } = useTourLanguage()
   const [phonePortrait, setPhonePortrait] = useState(false)
@@ -118,7 +120,7 @@ export function TourRotateHint({
       setOpen(false)
       return
     }
-    if (blocked || readKey(storageKey)) {
+    if (hidden || blocked || readKey(storageKey)) {
       setOpen(false)
       return
     }
@@ -126,9 +128,9 @@ export function TourRotateHint({
     const timer = window.setTimeout(() => {
       writeKey(storageKey)
       setOpen(false)
-    }, 6000)
+    }, 4000)
     return () => window.clearTimeout(timer)
-  }, [blocked, phonePortrait, storageKey])
+  }, [blocked, hidden, phonePortrait, storageKey])
 
   const dismiss = () => {
     writeKey(storageKey)
@@ -153,41 +155,39 @@ export function TourRotateHint({
     })()
   }
 
-  if (!open) return null
+  if (!open || hidden) return null
 
   return (
     <div
       data-rotate-toast
       className={
         contained
-          ? 'pointer-events-none absolute inset-0 z-[180] flex items-center justify-center p-5'
-          : 'pointer-events-none fixed inset-0 z-[180] flex items-center justify-center p-5'
+          ? 'pointer-events-none absolute inset-x-0 top-[calc(4rem+env(safe-area-inset-top))] z-[80] flex justify-center px-3'
+          : 'pointer-events-none fixed inset-x-0 top-[calc(4rem+env(safe-area-inset-top))] z-[80] flex justify-center px-3'
       }
     >
-      <div className="pointer-events-auto relative w-[min(19rem,calc(100%-1.5rem))] rounded-3xl border border-[#bda27e]/55 bg-[#f7f3ee] px-5 pt-5 pb-5 text-center text-[#29251e] shadow-[0_24px_60px_rgba(20,17,14,0.38)]">
-        <button
-          type="button"
-          onClick={dismiss}
-          className="absolute top-2 right-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-[#756044]"
-          aria-label={t('Cerrar aviso')}
-        >
-          <X size={16} strokeWidth={2.25} />
-        </button>
-        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#29251e] text-[#bda27e]">
-          <Smartphone size={26} strokeWidth={1.75} className="tour-phone-rock" aria-hidden />
-        </span>
-        <p className="mt-3 text-[15px] leading-snug">
+      <div className="pointer-events-auto flex max-w-[min(22rem,calc(100%-1.5rem))] items-center gap-2 rounded-full border border-[#bda27e]/55 bg-[#f7f3ee] py-1 pr-1 pl-3 text-[12px] leading-snug text-[#29251e] shadow-md">
+        <Smartphone size={16} strokeWidth={1.75} className="shrink-0 text-[#8e7654]" aria-hidden />
+        <p className="min-w-0 flex-1">
           {t('Te recomendamos poner el celular en horizontal para una mejor experiencia')}
         </p>
         {landscapeOffer ? (
           <button
             type="button"
             onClick={viewLandscape}
-            className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-[#BDA27E] px-4 text-[11px] font-semibold tracking-[0.08em] text-[#2B1A18] uppercase"
+            className="inline-flex h-8 shrink-0 items-center rounded-full bg-[#BDA27E] px-2 text-[10px] font-semibold tracking-[0.06em] text-[#2B1A18] uppercase"
           >
             {t('Ver en horizontal')}
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={dismiss}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#756044]"
+          aria-label={t('Cerrar aviso')}
+        >
+          <X size={14} strokeWidth={2.25} />
+        </button>
       </div>
     </div>
   )
