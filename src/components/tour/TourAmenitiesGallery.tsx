@@ -224,13 +224,6 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         </button>
       </div>
 
-      {caption ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[3] flex justify-center px-3">
-          <div className="max-w-[min(100%,18rem)] truncate rounded-full bg-black/45 px-3.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.04em] text-white shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[12px]">
-            {caption}
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }

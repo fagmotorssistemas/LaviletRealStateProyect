@@ -1405,7 +1405,7 @@ export function TourFloorPlan({
       <div
         ref={stageRef}
         className={cn(
-          'absolute flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-0',
+          'absolute inset-0 flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-0',
           portraitPan && 'touch-none',
         )}
         data-plan-stage
@@ -1451,7 +1451,7 @@ export function TourFloorPlan({
           {showPlanChrome ? (
             <div
               className={cn(
-                'pointer-events-auto absolute top-2 left-0 z-30 flex gap-[var(--fab-gap)]',
+                'tour-float-row tour-float-row--left pointer-events-auto z-30 flex gap-[var(--fab-gap)]',
               )}
             >
               {(['2d', '3d'] as const).map((item) => {

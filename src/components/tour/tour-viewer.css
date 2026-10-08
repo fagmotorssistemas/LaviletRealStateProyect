@@ -172,16 +172,6 @@ a[x-apple-data-detectors] {
   min-height: var(--fab);
 }
 
-[data-plan-stage] {
-  top: calc(4rem + env(safe-area-inset-top, 0px)) !important;
-  right: calc(clamp(56px, 5vw, 84px) + var(--fab-gap) + var(--edge-right)) !important;
-  bottom: 0 !important;
-  left: var(--edge-left) !important;
-}
-
-[data-plan-stage] .tour-zoom-row {
-  left: 0;
-}
 
 .tour-still-fit {
   display: flex;
@@ -615,6 +605,19 @@ html.tour-is-force-landscape body {
   display: block;
 }
 
+.tour-root .tour-ficha-dot {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+}
+
+.tour-root .tour-ficha-nav {
+  width: 2rem !important;
+  height: 2rem !important;
+  min-width: 2rem !important;
+  min-height: 2rem !important;
+}
+
 .tour-ficha-chrome-mobile {
   display: none;
 }
@@ -894,8 +897,6 @@ html.tour-is-force-landscape body {
 
   .tour-modal-sheet button[aria-label='Cerrar'],
   .tour-modal-sheet button[aria-label='Cerrar ficha técnica'],
-  .tour-modal-sheet button[aria-label='Anterior'],
-  .tour-modal-sheet button[aria-label='Siguiente'],
   button[aria-label='Cerrar menú'] {
     width: 44px;
     height: 44px;
@@ -961,6 +962,20 @@ html.tour-is-force-landscape body {
   padding-right: var(--edge-right);
 }
 
+/* Pisos (izquierda) y modos (derecha) en la misma línea, bajo la barra. */
+.tour-float-row {
+  position: absolute;
+  top: calc(4rem + env(safe-area-inset-top, 0px) + var(--fab-gap));
+}
+
+.tour-float-row--left {
+  left: var(--edge-left);
+}
+
+.tour-float-row--right {
+  right: var(--edge-right);
+}
+
 [data-showroom-toolbar] > button,
 [data-showroom-toolbar] > a {
   box-sizing: border-box;
@@ -986,6 +1001,10 @@ html.tour-is-force-landscape body {
     align-items: center;
     padding-top: var(--edge-top);
     padding-bottom: 0;
+  }
+
+  .tour-float-row {
+    top: calc(var(--fab) + var(--edge-top) + var(--fab-gap));
   }
 }
 
@@ -1137,8 +1156,8 @@ html.tour-is-force-landscape body {
 
   .tour-ficha-media {
     aspect-ratio: auto !important;
-    height: 8.5rem !important;
-    max-height: 8.5rem !important;
+    height: 13rem !important;
+    max-height: 13rem !important;
     min-height: 0 !important;
   }
 
@@ -1189,8 +1208,8 @@ html.tour-is-force-landscape body {
   }
 
   .tour-ficha-sheet--expanded .tour-ficha-media {
-    height: 6rem !important;
-    max-height: 6rem !important;
+    height: 8.5rem !important;
+    max-height: 8.5rem !important;
   }
 
   .tour-ficha-tile {
@@ -1305,7 +1324,7 @@ html.tour-is-force-landscape body {
 @media (pointer: coarse) {
   [aria-label='Menú La Vilet'] button,
   [aria-label='Menú La Vilet'] a,
-  .tour-modal-sheet button,
+  .tour-modal-sheet button:not(.tour-ficha-dot):not(.tour-ficha-nav),
   .tour-modal-sheet a {
     min-width: 44px;
     min-height: 44px;
@@ -1414,8 +1433,8 @@ html.tour-phone-preview .tour-ficha-sheet--expanded .tour-ficha-scroll {
 
 html.tour-phone-preview .tour-ficha-media {
   aspect-ratio: auto !important;
-  height: 8.5rem !important;
-  max-height: 8.5rem !important;
+  height: 13rem !important;
+  max-height: 13rem !important;
   min-height: 0 !important;
 }
 

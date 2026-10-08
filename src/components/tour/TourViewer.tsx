@@ -3924,7 +3924,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             </button>
           </div>
         ) : null}
-        {viewMode === 'galeria' && stillItems[stillIndex]?.label ? (
+        {viewMode === 'galeria' && !viewingCommonArea && stillItems[stillIndex]?.label ? (
           <div
             className={cn(
               'pointer-events-none absolute bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[3] flex justify-center px-3',
@@ -4101,7 +4101,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {/* Modos PC / móvil: no en el plano del edificio (ahí solo 2D/3D). */}
       {!booting && showModeSwitcher && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen ? (
         <div
-          className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] right-0 z-[130] p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))]"
+          className="tour-float-row tour-float-row--right pointer-events-auto z-[130]"
         >
           <div className="tour-modes-desktop">
               <DesktopModesList
@@ -4307,7 +4307,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       >
         <div
           className={cn(
-            'pointer-events-none absolute top-[calc(4rem+env(safe-area-inset-top))] left-0 z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.5rem,env(safe-area-inset-left))] sm:w-[12.5rem] sm:p-3.5',
+            'tour-float-row tour-float-row--left pointer-events-none z-[80] flex w-[min(12rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2 sm:w-[12.5rem]',
             showPlanShell && 'hidden',
           )}
         >

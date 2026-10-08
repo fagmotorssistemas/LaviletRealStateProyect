@@ -554,7 +554,7 @@ export function TourFichaDrawer({
                     type="button"
                     aria-label={t("Anterior")}
                     onClick={() => goSlide(safeSlide - 1)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
+                    className="tour-ficha-nav flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
                   >
                     <ChevronLeft size={18} />
                   </button>
@@ -566,7 +566,7 @@ export function TourFichaDrawer({
                         aria-label={t(`Imagen ${index + 1}`)}
                         onClick={() => goSlide(index)}
                         className={cn(
-                          'h-1.5 shrink-0 rounded-full transition-all',
+                          'tour-ficha-dot h-1.5 w-1.5 min-h-0 min-w-0 shrink-0 rounded-full p-0 transition-all',
                           index === safeSlide ? 'w-3.5 bg-white' : 'w-1.5 bg-white/55',
                         )}
                       />
@@ -576,7 +576,7 @@ export function TourFichaDrawer({
                     type="button"
                     aria-label={t("Siguiente")}
                     onClick={() => goSlide(safeSlide + 1)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
+                    className="tour-ficha-nav flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow"
                   >
                     <ChevronRight size={18} />
                   </button>
