@@ -67,6 +67,11 @@ function mulberry32(seed: number) {
   }
 }
 
+function sceneMobileUrl(scene: TourRoomScene | null | undefined) {
+  const url = scene?.widths?.['2048']
+  return url || undefined
+}
+
 function pickRandomScene(scenes: TourRoomScene[], rand: () => number): TourRoomScene | undefined {
   if (scenes.length === 0) return undefined
   const index = Math.min(scenes.length - 1, Math.floor(rand() * scenes.length))
@@ -175,6 +180,7 @@ export function buildGaleriaStills(
         roomSlug: room.slug,
         finish: scene?.finish ?? null,
         light: scene?.light ?? null,
+        url2048: sceneMobileUrl(scene),
       })
       continue
     }
@@ -206,6 +212,7 @@ export function buildGaleriaStills(
         roomSlug: room.slug,
         finish: scene?.finish ?? filterFinish,
         light: scene?.light ?? filterLight,
+        url2048: sceneMobileUrl(scene),
       })
       continue
     }
@@ -229,7 +236,7 @@ export function buildGaleriaStills(
         `${room.slug}:${scene.key || scene.file_name || url}`,
         parts.join(' · ') || room.label,
         url,
-        { roomSlug: room.slug, finish: scene.finish, light: scene.light },
+        { roomSlug: room.slug, finish: scene.finish, light: scene.light, url2048: sceneMobileUrl(scene) },
       )
     }
 

@@ -165,6 +165,13 @@ export function CmafVideo({
       document.removeEventListener('visibilitychange', onVisible)
       video.removeEventListener('error', onVideoError)
       detach()
+      try {
+        video.pause()
+        video.removeAttribute('src')
+        video.load()
+      } catch {
+        /* ignore */
+      }
     }
   }, [hls, mp4, defer])
 

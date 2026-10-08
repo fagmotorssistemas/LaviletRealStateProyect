@@ -433,6 +433,30 @@ export function CompareSidePano({
       const v = viewerRef.current
       viewerRef.current = null
       urlRef.current = null
+      const root = containerRef.current
+      const three = (v as unknown as { renderer?: { renderer?: { domElement?: unknown; forceContextLoss?: () => void } } } | null)
+        ?.renderer?.renderer
+      if (typeof three?.forceContextLoss === 'function') {
+        try {
+          three.forceContextLoss()
+        } catch {
+          /* ignore */
+        }
+      }
+      const canvases: HTMLCanvasElement[] = []
+      if (three?.domElement instanceof HTMLCanvasElement) canvases.push(three.domElement)
+      root?.querySelectorAll('canvas').forEach((canvas) => {
+        if (canvas instanceof HTMLCanvasElement) canvases.push(canvas)
+      })
+      for (const canvas of canvases) {
+        try {
+          const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+          const lose = (gl as WebGLRenderingContext | null)?.getExtension?.('WEBGL_lose_context')
+          lose?.loseContext()
+        } catch {
+          /* ignore */
+        }
+      }
       if (v) {
         try {
           v.destroy()
@@ -440,14 +464,8 @@ export function CompareSidePano({
           /* ignore */
         }
       }
-      const root = containerRef.current
-      if (!root) return
-      root.querySelectorAll('canvas').forEach((canvas) => {
+      canvases.forEach((canvas) => {
         try {
-          const el = canvas as HTMLCanvasElement
-          const gl = el.getContext('webgl2') || el.getContext('webgl')
-          const lose = (gl as WebGLRenderingContext | null)?.getExtension?.('WEBGL_lose_context')
-          lose?.loseContext()
           canvas.remove()
         } catch {
           /* ignore */

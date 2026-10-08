@@ -152,40 +152,71 @@ function buildTourMarkers(
   return placed.filter((item) => item.from === room).map((item) => roomMarkerPin(item, locale))
 }
 
+const PHONE_PORTRAIT_FRAME = 0.66
+
 function CrossfadeStill({
   url,
+  fallbackUrl,
   alt,
   contain = false,
   fit = 'vistas',
   lateralPan = false,
   onStep,
   zoom,
+  onZoom,
 }: {
   url: string | null
+  fallbackUrl?: string | null
   alt: string
   contain?: boolean
   fit?: 'vistas' | 'planos'
   lateralPan?: boolean
   onStep?: (dir: 1 | -1) => void
   zoom?: number
+  onZoom?: (value: number) => void
 }) {
   const { t } = useTourLanguage()
-  const { aRef, bRef, front, assigned } = useDualBuffer(url)
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  const shown = url && failedUrl === url && fallbackUrl ? fallbackUrl : url
+  const { aRef, bRef, front, assigned } = useDualBuffer(shown)
   const rootRef = useRef<HTMLDivElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
   const [portrait, setPortrait] = useState(false)
   const [aspect, setAspect] = useState(1.6)
   const [box, setBox] = useState({ w: 0, h: 0 })
-  const [pan, setPan] = useState(0)
   const panRef = useRef(0)
-  panRef.current = pan
+  const scaleRef = useRef(1)
   const dragRef = useRef<{ x: number; pan: number; moved: boolean; over: number } | null>(null)
-  const active = lateralPan && portrait && !contain && zoom == null
-  const maxPan = active ? Math.max(0, (box.h * aspect - box.w) / 2) : 0
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
+  const framed = lateralPan && portrait && !contain && box.h > 32
+  const frameH = Math.round(box.h * PHONE_PORTRAIT_FRAME)
+  const frameW = Math.max(box.w, Math.round(frameH * aspect))
+  const zoomCap = frameH > 0 ? box.h / frameH : 1
+  scaleRef.current = framed ? Math.max(1, Math.min(zoomCap, zoom ?? 1)) : 1
+  const maxPan = framed ? Math.max(0, (frameW * scaleRef.current - box.w) / 2) : 0
+
+  const paintFrame = () => {
+    const el = frameRef.current
+    const root = rootRef.current
+    if (!el || !framed) return
+    const limit = Math.max(0, (frameW * scaleRef.current - box.w) / 2)
+    panRef.current = Math.max(-limit, Math.min(limit, panRef.current))
+    el.style.transform = `translate(calc(-50% + ${panRef.current}px), -50%) scale(${scaleRef.current})`
+    if (root) {
+      root.dataset.stillPan = panRef.current.toFixed(1)
+      root.dataset.stillPanMax = limit.toFixed(1)
+    }
+  }
 
   useEffect(() => {
-    void preloadStill(url)
-    setPan(0)
+    setFailedUrl(null)
   }, [url])
+
+  useEffect(() => {
+    void preloadStill(shown)
+    panRef.current = 0
+  }, [shown])
 
   useEffect(() => {
     const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
@@ -208,6 +239,10 @@ function CrossfadeStill({
     return () => obs.disconnect()
   }, [assigned.a, assigned.b])
 
+  useLayoutEffect(() => {
+    paintFrame()
+  }, [framed, frameW, frameH, box.w, box.h, zoom, shown, aspect])
+
   const onLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     const img = event.currentTarget
     if (img.naturalWidth > 0 && img.naturalHeight > 0) {
@@ -215,15 +250,43 @@ function CrossfadeStill({
     }
   }
 
-  const position = maxPan > 0 ? `${50 - (pan / maxPan) * 50}% center` : 'center'
+  const onImgError = () => {
+    if (url && fallbackUrl && failedUrl !== url) setFailedUrl(url)
+  }
 
   const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!active) return
+    if (!framed) return
     event.stopPropagation()
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size >= 2) {
+      const pts = [...pointersRef.current.values()]
+      const a = pts[0]
+      const b = pts[1]
+      if (a && b) {
+        pinchRef.current = {
+          dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+          scale: scaleRef.current,
+        }
+      }
+      dragRef.current = null
+      return
+    }
     dragRef.current = { x: event.clientX, pan: panRef.current, moved: false, over: 0 }
   }
 
   const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointersRef.current.has(event.pointerId)) return
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const pts = [...pointersRef.current.values()]
+      const a = pts[0]
+      const b = pts[1]
+      if (!a || !b) return
+      const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
+      const next = Math.max(1, Math.min(zoomCap, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      onZoom?.(Number(next.toFixed(3)))
+      return
+    }
     const drag = dragRef.current
     if (!drag) return
     const dx = event.clientX - drag.x
@@ -234,10 +297,12 @@ function CrossfadeStill({
     const next = Math.max(-limit, Math.min(limit, raw))
     drag.over = raw - next
     panRef.current = next
-    setPan(next)
+    paintFrame()
   }
 
-  const onUp = () => {
+  const onUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointersRef.current.delete(event.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
     const drag = dragRef.current
     dragRef.current = null
     if (!drag?.moved) return
@@ -273,18 +338,17 @@ function CrossfadeStill({
             decoding="async"
             fetchPriority={front === slot ? 'high' : 'low'}
             onLoad={front === slot ? onLoad : undefined}
+            onError={front === slot ? onImgError : undefined}
             style={
-              zoom != null
+              !framed && zoom != null
                 ? { transform: `scale(${zoom})` }
-                : active
-                  ? { objectPosition: position }
-                  : undefined
+                : undefined
             }
             className={cn(
-              zoom != null || contain
+              !framed && (zoom != null || contain)
                 ? 'h-full w-full object-contain object-center'
                 : 'absolute inset-0 h-full w-full object-cover',
-              zoom != null && 'origin-center',
+              !framed && zoom != null && 'origin-center',
             )}
           />
         </div>
@@ -295,33 +359,84 @@ function CrossfadeStill({
   return (
     <div
       ref={rootRef}
-      data-still-pan={active ? pan.toFixed(1) : undefined}
-      data-still-pan-max={active ? maxPan.toFixed(1) : undefined}
-      className={cn('absolute inset-0 overflow-hidden bg-[#111]', active && 'touch-none')}
-      style={active ? { touchAction: 'none' } : undefined}
+      data-still-pan={framed ? panRef.current.toFixed(1) : undefined}
+      data-still-pan-max={framed ? maxPan.toFixed(1) : undefined}
+      className={cn('absolute inset-0 overflow-hidden bg-[#14110e]', framed && 'touch-none')}
+      style={framed ? { touchAction: 'none' } : undefined}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
     >
-      {frame('a', aRef)}
-      {frame('b', bRef)}
+      {framed && shown ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={shown}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="pointer-events-none absolute inset-[-12%] h-[124%] w-[124%] max-w-none object-cover"
+          style={{ filter: 'blur(24px) brightness(0.6)' }}
+        />
+      ) : null}
+      <div
+        ref={frameRef}
+        className={framed ? 'absolute left-1/2 top-1/2 overflow-hidden' : 'absolute inset-0'}
+        style={
+          framed
+            ? {
+                width: frameW,
+                height: frameH,
+                transform: `translate(calc(-50% + ${panRef.current}px), -50%) scale(${scaleRef.current})`,
+              }
+            : undefined
+        }
+      >
+        {frame('a', aRef)}
+        {frame('b', bRef)}
+      </div>
     </div>
   )
 }
 
 const ENTRY_VIDEO_ASPECT = 1280 / 610
 
-function EntryLateral({ active, children }: { active: boolean; children: ReactNode }) {
+function EntryLateral({
+  active,
+  aspect = ENTRY_VIDEO_ASPECT,
+  children,
+}: {
+  active: boolean
+  aspect?: number
+  children: ReactNode
+}) {
   const stageRef = useRef<HTMLDivElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
+  const blurRef = useRef<HTMLCanvasElement>(null)
   const [portrait, setPortrait] = useState(false)
-  const [size, setSize] = useState({ w: 0, h: 0 })
-  const [pan, setPan] = useState(0)
+  const [frozen, setFrozen] = useState({ w: 0, h: 0 })
   const panRef = useRef(0)
-  const draggedRef = useRef(false)
+  const scaleRef = useRef(1)
   const dragRef = useRef<{ x: number; pan: number; moved: boolean } | null>(null)
-  const max = Math.max(0, (size.h * ENTRY_VIDEO_ASPECT - size.w) / 2)
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
   const live = active && portrait
+  const frameH = Math.round(frozen.h * PHONE_PORTRAIT_FRAME)
+  const frameW = Math.max(frozen.w, Math.round(frameH * aspect))
+  const zoomCap = frameH > 0 ? frozen.h / frameH : 1
+
+  const paint = () => {
+    const frame = frameRef.current
+    const stage = stageRef.current
+    if (!frame || !live || frozen.w < 8) return
+    const limit = Math.max(0, (frameW * scaleRef.current - frozen.w) / 2)
+    panRef.current = Math.max(-limit, Math.min(limit, panRef.current))
+    frame.style.transform = `translate(calc(-50% + ${panRef.current}px), -50%) scale(${scaleRef.current})`
+    if (stage) {
+      stage.dataset.entryPan = panRef.current.toFixed(1)
+      stage.dataset.entryPanMax = limit.toFixed(1)
+    }
+  }
 
   useEffect(() => {
     const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
@@ -331,79 +446,143 @@ function EntryLateral({ active, children }: { active: boolean; children: ReactNo
     return () => mq.removeEventListener('change', sync)
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!live) {
+      panRef.current = 0
+      scaleRef.current = 1
+      return
+    }
     const el = stageRef.current
     if (!el) return
-    const sync = () => {
+    let frames = 0
+    let raf = 0
+    const measure = () => {
       const rect = el.getBoundingClientRect()
-      setSize({ w: rect.width, h: rect.height })
+      frames += 1
+      if ((rect.width < 8 || rect.height < 8) && frames < 3) {
+        raf = requestAnimationFrame(measure)
+        return
+      }
+      if (rect.width < 8 || rect.height < 8) return
+      panRef.current = 0
+      scaleRef.current = 1
+      setFrozen((prev) =>
+        prev.w === rect.width && prev.h === rect.height ? prev : { w: rect.width, h: rect.height },
+      )
     }
-    sync()
-    const obs = new ResizeObserver(sync)
-    obs.observe(el)
-    return () => obs.disconnect()
+    measure()
+    return () => cancelAnimationFrame(raf)
   }, [live])
 
+  useLayoutEffect(() => {
+    paint()
+  }, [frameW, frameH, frozen.w, frozen.h, live, aspect])
+
   useEffect(() => {
-    if (!live || max < 8 || draggedRef.current) return
-    const from = max
-    const to = -max
-    const started = performance.now()
-    panRef.current = from
-    setPan(from)
-    let raf = 0
-    const tick = (now: number) => {
-      if (draggedRef.current) return
-      const t = Math.min(1, (now - started) / 8000)
-      const next = from + (to - from) * t
-      panRef.current = next
-      setPan(next)
-      if (t < 1) raf = requestAnimationFrame(tick)
+    if (!live) return
+    const frame = frameRef.current
+    const canvas = blurRef.current
+    const video = frame?.querySelector('video')
+    if (!video || !canvas) return
+    const paintBlur = () => {
+      if (video.videoWidth < 2) return
+      const width = 480
+      const height = Math.max(1, Math.round((width * video.videoHeight) / video.videoWidth))
+      if (canvas.width !== width) canvas.width = width
+      if (canvas.height !== height) canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(video, 0, 0, width, height)
+      canvas.style.opacity = '1'
     }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [live, max])
+    if (video.readyState >= 2) paintBlur()
+    video.addEventListener('loadeddata', paintBlur)
+    video.addEventListener('playing', paintBlur)
+    return () => {
+      video.removeEventListener('loadeddata', paintBlur)
+      video.removeEventListener('playing', paintBlur)
+    }
+  }, [live, frozen.w, frozen.h])
 
   const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!live || event.pointerType === 'mouse') return
-    draggedRef.current = true
+    if (!live || event.pointerType === 'mouse' || frozen.w < 8) return
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size >= 2) {
+      const pts = [...pointersRef.current.values()]
+      const a = pts[0]
+      const b = pts[1]
+      if (a && b) {
+        pinchRef.current = {
+          dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+          scale: scaleRef.current,
+        }
+      }
+      dragRef.current = null
+      return
+    }
     dragRef.current = { x: event.clientX, pan: panRef.current, moved: false }
   }
   const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointersRef.current.has(event.pointerId)) return
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const pts = [...pointersRef.current.values()]
+      const a = pts[0]
+      const b = pts[1]
+      if (!a || !b) return
+      const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
+      scaleRef.current = Math.max(1, Math.min(zoomCap, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      paint()
+      return
+    }
     const drag = dragRef.current
     if (!drag) return
     const dx = event.clientX - drag.x
     if (!drag.moved && Math.abs(dx) < 8) return
     drag.moved = true
-    const next = Math.max(-max, Math.min(max, drag.pan + dx))
-    panRef.current = next
-    setPan(next)
+    const limit = Math.max(0, (frameW * scaleRef.current - frozen.w) / 2)
+    panRef.current = Math.max(-limit, Math.min(limit, drag.pan + dx))
+    paint()
   }
-  const onUp = () => {
+  const onUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointersRef.current.delete(event.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
     dragRef.current = null
   }
+
+  const fitted = live && frozen.w >= 8
 
   return (
     <div
       ref={stageRef}
-      data-entry-pan={live ? pan.toFixed(1) : undefined}
-      data-entry-pan-max={live ? max.toFixed(1) : undefined}
-      className={cn('absolute inset-0 overflow-hidden', live && 'touch-none')}
-      style={live ? { touchAction: 'none' } : undefined}
+      data-entry-pan={fitted ? panRef.current.toFixed(1) : undefined}
+      data-entry-pan-max={fitted ? Math.max(0, (frameW * scaleRef.current - frozen.w) / 2).toFixed(1) : undefined}
+      className={cn('absolute inset-0 overflow-hidden', fitted && 'touch-none')}
+      style={fitted ? { touchAction: 'none' } : undefined}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
     >
+      {fitted ? (
+        <canvas
+          ref={blurRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-[-10%] h-[120%] w-[120%] max-w-none object-cover opacity-0"
+          style={{ filter: 'blur(24px) brightness(0.6)' }}
+        />
+      ) : null}
       <div
-        className="absolute top-0 left-1/2 h-full"
+        ref={frameRef}
+        className={fitted ? 'absolute top-1/2 left-1/2 overflow-hidden' : 'absolute inset-0'}
         style={
-          live
+          fitted
             ? {
-                width: Math.max(size.w, size.h * ENTRY_VIDEO_ASPECT),
-                transform: `translateX(calc(-50% + ${pan}px))`,
+                width: frameW,
+                height: frameH,
+                transform: `translate(calc(-50% + ${panRef.current}px), -50%) scale(${scaleRef.current})`,
               }
-            : { width: '100%', transform: 'translateX(-50%)' }
+            : undefined
         }
       >
         {children}
@@ -413,7 +592,7 @@ function EntryLateral({ active, children }: { active: boolean; children: ReactNo
 }
 
 type TourViewMode = 'tour' | 'galeria' | 'planos-2d' | 'planos-3d'
-type StillItem = { id: string; label: string; url: string; roomSlug?: string }
+type StillItem = { id: string; label: string; url: string; fallbackUrl?: string; roomSlug?: string }
 
 function stillLabelFromFile(fileName: string) {
   return fileName
@@ -764,8 +943,55 @@ function panoramaFallbackUrls(url: string): string[] {
   return urls
 }
 
+function tourViewerGl(viewer: Viewer | null | undefined) {
+  return (
+    viewer as unknown as {
+      renderer?: { renderer?: { domElement?: unknown; forceContextLoss?: () => void } }
+    }
+  )?.renderer?.renderer
+}
+
+function loseWebglCanvas(canvas: HTMLCanvasElement) {
+  try {
+    const gl =
+      canvas.getContext('webgl2') ||
+      canvas.getContext('webgl') ||
+      canvas.getContext('experimental-webgl')
+    const lose = (gl as WebGLRenderingContext | null)?.getExtension?.('WEBGL_lose_context')
+    lose?.loseContext()
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Suelta el contexto del canvas real antes de destruir el visor. */
+function releaseTourWebgl(viewer: Viewer | null | undefined, container?: HTMLElement | null) {
+  const three = tourViewerGl(viewer)
+  if (typeof three?.forceContextLoss === 'function') {
+    try {
+      three.forceContextLoss()
+    } catch {
+      /* ignore */
+    }
+  }
+  const canvases: HTMLCanvasElement[] = []
+  if (three?.domElement instanceof HTMLCanvasElement) canvases.push(three.domElement)
+  for (const root of [viewer?.container, container]) {
+    root?.querySelectorAll('canvas').forEach((node) => {
+      if (node instanceof HTMLCanvasElement) canvases.push(node)
+    })
+  }
+  const seen = new Set<HTMLCanvasElement>()
+  for (const canvas of canvases) {
+    if (seen.has(canvas)) continue
+    seen.add(canvas)
+    loseWebglCanvas(canvas)
+  }
+}
+
 /** Libera WebGL de forma agresiva (recargas en iOS dejan contextos vivos y tumba el tab). */
 function disposeTourViewer(viewer: Viewer | null | undefined, container?: HTMLElement | null) {
+  releaseTourWebgl(viewer, container)
   if (viewer) {
     try {
       const gyro = viewer.getPlugin<GyroscopePlugin>(GyroscopePlugin)
@@ -782,18 +1008,6 @@ function disposeTourViewer(viewer: Viewer | null | undefined, container?: HTMLEl
   const root = container
   if (!root) return
   root.querySelectorAll('canvas').forEach((canvas) => {
-    try {
-      const el = canvas as HTMLCanvasElement
-      // Sin attrs: si pedís preserveDrawingBuffer distinto al del contexto vivo, getContext → null en iOS.
-      const gl =
-        el.getContext('webgl2') ||
-        el.getContext('webgl') ||
-        el.getContext('experimental-webgl')
-      const lose = (gl as WebGLRenderingContext | null)?.getExtension?.('WEBGL_lose_context')
-      lose?.loseContext()
-    } catch {
-      /* ignore */
-    }
     try {
       canvas.remove()
     } catch {
@@ -1010,9 +1224,15 @@ function nodesFromPublicCatalog(
   }
 }
 
+function displayedStillUrl(item: { url: string; url2048?: string } | null | undefined, coarse: boolean) {
+  if (!item?.url) return null
+  return coarse && item.url2048 ? item.url2048 : item.url
+}
+
 function preloadLeadGallery(
   typ: TourTypologyOption | null | undefined,
   finishes: TourPublicCatalog['finishes'] | undefined,
+  coarse = false,
 ) {
   if (!typ) return
   const local = isGalleryOnlyTypology(typ)
@@ -1023,7 +1243,8 @@ function preloadLeadGallery(
     roomLabelOnly: !local,
     rendersOnly: local,
   })[0]
-  if (lead?.url) void preloadStill(lead.url)
+  const url = displayedStillUrl(lead, coarse)
+  if (url) void preloadStill(url)
 }
 
 export function TourViewer({ embedded = false }: { embedded?: boolean }) {
@@ -1264,18 +1485,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     }
   }, [])
 
-  useEffect(() => {
-    if (planEntryOpen) return
-    const ios = isIOSWebKit()
-    if (ios) {
-      void warmFloorPlans([planFloor], [planFloor])
-      return
-    }
-    const idx = FLOOR_PLAN_FLOORS.indexOf(planFloor)
-    const neighbors = FLOOR_PLAN_FLOORS.filter((_, i) => Math.abs(i - Math.max(0, idx)) <= 1)
-    void warmFloorPlans(neighbors, [planFloor])
-  }, [planFloor, planEntryOpen])
-
   const [terminacionesFocus, setTerminacionesFocus] = useState(false)
   const [finishCompareOpen, setFinishCompareOpen] = useState(false)
   const [finishRight, setFinishRight] = useState('')
@@ -1332,9 +1541,17 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [])
   const [galeriaIndex, setGaleriaIndex] = useState(0)
   const [galleryZoom, setGalleryZoom] = useState(1)
+  const [galleryPortrait, setGalleryPortrait] = useState(false)
   useEffect(() => {
     setGalleryZoom(1)
   }, [galeriaIndex])
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
+    const sync = () => setGalleryPortrait(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
   /** Semilla estable: cambia al entrar a galería / tipología para re-sortear acabado×luz. */
   const [galeriaSeed, setGaleriaSeed] = useState(() => Math.floor(Math.random() * 1_000_000))
   const [compareGaleriaSeedB, setCompareGaleriaSeedB] = useState(() => Math.floor(Math.random() * 1_000_000))
@@ -1535,7 +1752,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           ? publicCat.typologies.find((item) => item.id === unit.unit_type_id) ??
             publicCat.typologies.find((item) => item.code === unit.typology_code)
           : undefined
-        preloadLeadGallery(typ, publicCat.finishes)
+        preloadLeadGallery(typ, publicCat.finishes, window.matchMedia('(pointer: coarse)').matches)
       }
 
       const startFinish =
@@ -1578,6 +1795,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       setLight('dia')
       setRoom(TOUR_HOME_SLUG)
 
+      let webglRetries = 0
       const mountTourViewer = () => {
         if (cancelled || viewerRef.current) return
         const openingUrl = desiredPanoRef.current || startUrl
@@ -1697,17 +1915,26 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       }
       viewer.addEventListener(events.PanoramaErrorEvent.type, stepDownPanorama)
       let restoreTimer = 0
-      viewer.container.addEventListener('webglcontextlost', (event) => {
+      const glCanvas = tourViewerGl(viewer)?.domElement
+      const glTarget: EventTarget =
+        glCanvas instanceof HTMLCanvasElement ? glCanvas : viewer.container
+      const onContextLost = (event: Event) => {
         event.preventDefault()
+        if (viewModeRef.current !== 'tour') return
         setPanoRevealed(false)
         if (restoreTimer) window.clearTimeout(restoreTimer)
         restoreTimer = window.setTimeout(() => {
           restoreTimer = 0
-          try {
-            sessionStorage.setItem('lavilet-tour-360-failed', '1')
-          } catch {
-            /* ignore */
+          if (viewModeRef.current !== 'tour') return
+          if (webglRetries >= 2) {
+            try {
+              sessionStorage.setItem('lavilet-tour-360-failed', '1')
+            } catch {
+              /* ignore */
+            }
+            return
           }
+          webglRetries += 1
           const smaller = smallerTourUrl(currentUrlRef.current) || currentUrlRef.current
           if (smaller) desiredPanoRef.current = smaller
           const dying = viewerRef.current
@@ -1717,8 +1944,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setViewerMounted(false)
           mountTourViewer()
         }, 2000)
-      })
-      viewer.container.addEventListener('webglcontextrestored', () => {
+      }
+      const onContextRestored = () => {
         if (restoreTimer) {
           window.clearTimeout(restoreTimer)
           restoreTimer = 0
@@ -1734,9 +1961,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }).catch(() => {
           stepDownPanorama()
         })
-      })
+      }
+      glTarget.addEventListener('webglcontextlost', onContextLost, true)
+      glTarget.addEventListener('webglcontextrestored', onContextRestored, true)
 
       viewer.addEventListener(events.PanoramaLoadedEvent.type, () => {
+        webglRetries = 0
         const panorama = viewer.config.panorama
         const url = typeof panorama === 'string' ? panorama : currentUrlRef.current
         if (!url) return
@@ -1798,9 +2028,17 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     const onPageShow = (e: PageTransitionEvent) => {
       if (e.persisted) window.location.reload()
     }
+    const onResume = () => {
+      if (document.visibilityState === 'hidden') return
+      if (viewModeRef.current !== 'tour') return
+      if (viewerRef.current) return
+      mountTourViewerRef.current?.()
+    }
     window.addEventListener('pagehide', onPageHide)
     window.addEventListener('freeze', onPageHide as EventListener)
     window.addEventListener('pageshow', onPageShow)
+    document.addEventListener('resume', onResume)
+    document.addEventListener('visibilitychange', onResume)
 
     return () => {
       cancelled = true
@@ -1808,6 +2046,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       window.removeEventListener('pagehide', onPageHide)
       window.removeEventListener('freeze', onPageHide as EventListener)
       window.removeEventListener('pageshow', onPageShow)
+      document.removeEventListener('resume', onResume)
+      document.removeEventListener('visibilitychange', onResume)
       const v = viewerRef.current
       viewerRef.current = null
       tourRef.current = null
@@ -2016,7 +2256,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     const typ =
       publicCatalog?.typologies.find((item) => item.id === match.unit_type_id) ??
       publicCatalog?.typologies.find((item) => item.code === match.typology_code)
-    preloadLeadGallery(typ, publicCatalog?.finishes)
+    preloadLeadGallery(typ, publicCatalog?.finishes, entryCoarse)
     const floor = unitFloorNumber(match)
     if (floor != null) setPlanFloor(floor)
     setShellMode('unit')
@@ -2466,7 +2706,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       }).map((item) => ({
         id: item.id,
         label: item.label,
-        url: entryCoarse && item.url2048 ? item.url2048 : item.url,
+        url: displayedStillUrl(item, entryCoarse) || item.url,
+        fallbackUrl: entryCoarse && item.url2048 && item.url2048 !== item.url ? item.url : undefined,
         roomSlug: item.roomSlug,
       })),
     [currentTypology, catalogFinishes, galleryFinishSlug, light, galleryOnly, entryCoarse],
@@ -2526,7 +2767,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       }).map((item) => ({
         id: item.id,
         label: item.label,
-        url: entryCoarse && item.url2048 ? item.url2048 : item.url,
+        url: displayedStillUrl(item, entryCoarse) || item.url,
+        fallbackUrl: entryCoarse && item.url2048 && item.url2048 !== item.url ? item.url : undefined,
       })),
     [currentTypology, publicCatalog?.finishes, galleryOnly, entryCoarse],
   )
@@ -2569,28 +2811,40 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         typologies.find((item) => item.code === code) ??
         (code && code === selectedTypology ? currentTypology : null)
       if (!typ) return
-      preloadLeadGallery(typ, publicCatalog?.finishes)
+      if (viewModeRef.current === 'tour') return
+      preloadLeadGallery(typ, publicCatalog?.finishes, entryCoarse)
       const stills = buildGaleriaStills(typ, publicCatalog?.finishes, {
         allScenes: true,
         rendersOnly: isGalleryOnlyTypology(typ),
       })
-      const urls = stills.map((item) => item.url)
+      const urls = stills.map((item) => displayedStillUrl(item, entryCoarse)).filter((item): item is string => Boolean(item))
+      if (entryCoarse) {
+        const total = urls.length
+        warmStills(total ? [urls[0], urls[1], total > 2 ? urls[total - 1] : null] : [])
+        return
+      }
       warmStills(urls.slice(0, 4))
     },
-    [publicCatalog, selectedTypology, currentTypology],
+    [publicCatalog, selectedTypology, currentTypology, entryCoarse],
   )
 
   useEffect(() => {
-    if (!fichaOpen && shellMode !== 'unit') return
+    if (viewMode === 'tour') return
+    if (!fichaOpen && shellMode !== 'unit' && viewMode !== 'galeria') return
     if (leadGalleryUrl) void preloadStill(leadGalleryUrl)
     const urls = [
       ...fichaImages.map((item) => item.url),
       ...planoImages.map((item) => item.url),
     ]
-    const index = Math.min(galeriaIndex, Math.max(urls.length - 1, 0))
-    const priority = [leadGalleryUrl, urls[index], urls[index + 1], urls[index - 1], activePanoUrl]
-    warmStills(urls, priority)
-  }, [fichaOpen, shellMode, fichaImages, planoImages, galeriaIndex, activePanoUrl, leadGalleryUrl])
+    const cursor = isPlanosMode(viewMode) ? planoIndex : galeriaIndex
+    const index = Math.min(cursor, Math.max(urls.length - 1, 0))
+    const neighbors = [leadGalleryUrl, urls[index], urls[index + 1], urls[index - 1]]
+    if (entryCoarse) {
+      warmStills(neighbors)
+      return
+    }
+    warmStills(urls, neighbors)
+  }, [viewMode, fichaOpen, shellMode, fichaImages, planoImages, galeriaIndex, planoIndex, leadGalleryUrl, entryCoarse])
 
   const onSelectRoom = useCallback(
     (roomId: string) => {
@@ -2659,7 +2913,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     [setStillIndex, stillItems.length],
   )
   const stillSwipe = useSwipePages(viewMode !== 'tour', stillItems.length, stepStill)
-  const stillUrl = stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.url ?? null
+  const stillCursor = stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]
+  const stillUrl = stillCursor?.url ?? null
+  const stillFallback = stillCursor?.fallbackUrl
   useEffect(() => {
     if (viewMode !== 'galeria' || stillItems.length === 0) return
     const total = stillItems.length
@@ -3609,11 +3865,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         <CrossfadeStill
           key={stillScope}
           url={showStill ? overlayUrl : tourCover}
+          fallbackUrl={showStill ? stillFallback : undefined}
           alt={t(viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista')))}
           contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
           lateralPan={viewMode === 'galeria'}
           zoom={viewMode === 'galeria' ? galleryZoom : undefined}
+          onZoom={viewMode === 'galeria' ? setGalleryZoom : undefined}
           onStep={stepStill}
         />
         {selectedUnit && showStill && !overlayUrl?<p className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[80%] -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-center text-xs text-white">{t('Esta unidad no tiene un recurso disponible para esta vista.')}</p>:null}
@@ -3667,8 +3925,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               aria-label={t('Acercar')}
-              disabled={galleryZoom >= 3}
-              onClick={() => setGalleryZoom((value) => Math.min(3, Math.round((value + 0.5) * 10) / 10))}
+              disabled={galleryZoom >= (galleryPortrait ? 1 / PHONE_PORTRAIT_FRAME : 3) - 0.01}
+              onClick={() =>
+                setGalleryZoom((value) =>
+                  Math.min(galleryPortrait ? 1 / PHONE_PORTRAIT_FRAME : 3, Math.round((value + 0.5) * 10) / 10),
+                )
+              }
               onPointerDown={(event) => event.stopPropagation()}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md ring-1 ring-white/25 backdrop-blur-sm transition hover:bg-black/60 disabled:opacity-40"
             >
@@ -4673,21 +4935,23 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               coverHidden ? 'pointer-events-none opacity-0' : 'opacity-100',
             )}
           >
-            <CmafVideo
-              mp4={
-                entryCoarse
-                  ? '/inicio/portada-v2/portada-v2-mobile.mp4'
-                  : '/inicio/portada-v2/portada-v2.mp4'
-              }
-              preload="auto"
-              defer={entryCoarse && !planEntryOpen}
-              autoPlay={planEntryOpen && !coverHidden}
-              label={t('Fachada Lavilet del día a la noche')}
-              videoRef={coverVideoRef}
-              onFirstFrame={() => setCoverReady(true)}
-              onError={() => setCoverReady(true)}
-              className="tour-entry-video absolute inset-0 h-full w-full"
-            />
+            <EntryLateral active={!coverHidden} aspect={16 / 9}>
+              <CmafVideo
+                mp4={
+                  entryCoarse
+                    ? '/inicio/portada-v2/portada-v2-mobile.mp4'
+                    : '/inicio/portada-v2/portada-v2.mp4'
+                }
+                preload="auto"
+                defer={entryCoarse && !planEntryOpen}
+                autoPlay={planEntryOpen && !coverHidden}
+                label={t('Fachada Lavilet del día a la noche')}
+                videoRef={coverVideoRef}
+                onFirstFrame={() => setCoverReady(true)}
+                onError={() => setCoverReady(true)}
+                className="tour-entry-video absolute inset-0 h-full w-full"
+              />
+            </EntryLateral>
           </div>
           <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
             {!planEntryOpen || ingresoCoarse === null ? null : (

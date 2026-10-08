@@ -87,6 +87,8 @@ type FloorLayer = ReadyFloorView & {
 const ZOOM_MIN = 1
 const ZOOM_MAX = 3
 const ZOOM_STEP = 0.25
+/** En vertical el marco ocupa el 66% del alto. El zoom máximo lo devuelve al alto completo. */
+const PORTRAIT_FRAME = 0.66
 
 function statusDotClass(status: TourUnitSummary['status']) {
   if (status === 'disponible' || status === 'en_preventa') return 'bg-[#2f9e44]'
@@ -761,7 +763,7 @@ export function TourFloorPlan({
     }
 
     if (portraitPan) {
-      const frameH = stageH
+      const frameH = Math.round(stageH * PORTRAIT_FRAME)
       const frameW = Math.max(stageW, Math.round(frameH * aspect))
       return { width: frameW, height: frameH, flexShrink: 0 }
     }
@@ -903,6 +905,11 @@ export function TourFloorPlan({
       htmlHoverLabelRef.current = null
     }
   }, [htmlInteractive])
+
+  useEffect(() => {
+    if (!portraitPan) return
+    setScale((value) => Math.min(value, 1 / PORTRAIT_FRAME))
+  }, [portraitPan])
 
   useEffect(() => {
     if (!portraitPan) return
@@ -1053,10 +1060,11 @@ export function TourFloorPlan({
     prefetchSlotUnit(slot.unit)
   }
 
+  const zoomMax = portraitPan ? 1 / PORTRAIT_FRAME : ZOOM_MAX
   const zoomOut = () =>
     setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
   const zoomIn = () =>
-    setScale((value) => Math.min(ZOOM_MAX, Number((value + ZOOM_STEP).toFixed(2))))
+    setScale((value) => Math.min(zoomMax, Number((value + ZOOM_STEP).toFixed(2))))
 
   const panXRef = useRef(0)
   panXRef.current = panX
@@ -1145,7 +1153,7 @@ export function TourFloorPlan({
       const b = pts[1]
       if (!a || !b) return
       const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
-      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      const next = Math.max(ZOOM_MIN, Math.min(zoomMax, pinchRef.current.scale * (dist / pinchRef.current.dist)))
       scaleRef.current = next
       setScale(Number(next.toFixed(3)))
       return
@@ -1202,7 +1210,11 @@ export function TourFloorPlan({
       dragRef.current = null
     }
     window.addEventListener('orientationchange', clear)
-    return () => window.removeEventListener('orientationchange', clear)
+    return () => {
+      window.removeEventListener('orientationchange', clear)
+      if (inertiaRef.current) cancelAnimationFrame(inertiaRef.current)
+      inertiaRef.current = 0
+    }
   }, [])
 
   const switchVariant = (next: FloorPlanVariant) => {
@@ -1315,6 +1327,29 @@ export function TourFloorPlan({
         onPointerCancelCapture={portraitPan ? onPlanPanUp : undefined}
         onLostPointerCapture={portraitPan ? onPlanPanUp : undefined}
       >
+          {portraitPan
+            ? (() => {
+                const blurLayer = layerEntries.find(
+                  (layer) =>
+                    layer.kind !== 'html' &&
+                    layer.floor === frontFloor &&
+                    layer.variant === planVariant &&
+                    layer.url,
+                )
+                if (!blurLayer?.url) return null
+                return (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={blurLayer.url}
+                    alt=""
+                    aria-hidden
+                    draggable={false}
+                    className="pointer-events-none absolute inset-[-8%] z-0 h-[116%] w-[116%] max-w-none object-cover"
+                    style={{ filter: 'blur(24px) brightness(0.6)' }}
+                  />
+                )
+              })()
+            : null}
           {portraitPan && panHint ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-[max(5.5rem,env(safe-area-inset-bottom)+4.5rem)] z-20 flex justify-center px-16">
               <p className="inline-flex items-center gap-2 rounded-full bg-[#14110e]/80 px-3 py-2 text-[12px] text-[#f7f3ee] shadow-[0_8px_20px_rgba(0,0,0,0.28)]">
@@ -1376,7 +1411,7 @@ export function TourFloorPlan({
           <div
             className={cn(
               'relative shrink-0',
-              portraitPan ? 'overflow-visible' : 'overflow-hidden',
+              portraitPan ? 'z-[1] overflow-visible' : 'overflow-hidden',
               planVariant === '3d' ? 'bg-[#14110e]' : 'bg-white',
             )}
             data-plan-frame
@@ -1730,7 +1765,7 @@ export function TourFloorPlan({
           <button
             type="button"
             onClick={zoomIn}
-            disabled={scale >= ZOOM_MAX}
+            disabled={scale >= zoomMax - 0.001}
             className="tour-zoom-btn inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1a2744] shadow-[0_4px_14px_rgba(15,23,42,0.22)] ring-1 ring-black/10 transition-opacity disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             aria-label={t("Acercar plano")}
             title={t("Acercar")}

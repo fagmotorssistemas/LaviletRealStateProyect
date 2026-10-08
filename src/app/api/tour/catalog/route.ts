@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { getTypologyAssetPublicUrl } from '@/services/inmobiliaria.service'
-import { galleryRenderMobileFileName, typologyAssetStoragePath } from '@/lib/typology-assets'
+import { TYPOLOGY_ASSETS_BUCKET, galleryRenderMobileFileName, typologyAssetStoragePath } from '@/lib/typology-assets'
 import { TOUR_TENANT_ID } from '@/lib/tour/trackingIds'
 import {
   isExcludedTourAssetFile,
@@ -176,6 +176,22 @@ export async function GET() {
   )
 }
 
+async function renderFolderNames(admin: SupabaseClient, code: string) {
+  const names = new Set<string>()
+  for (let offset = 0; offset < 5000; offset += 1000) {
+    const { data, error } = await admin.storage.from(TYPOLOGY_ASSETS_BUCKET).list(`${code}/render`, {
+      limit: 1000,
+      offset,
+    })
+    if (error || !data?.length) break
+    for (const item of data) {
+      if (item.name && item.id) names.add(item.name)
+    }
+    if (data.length < 1000) break
+  }
+  return names
+}
+
 async function toCatalogTypology(
   admin: SupabaseClient,
   row: UnitTypeRow,
@@ -263,8 +279,8 @@ async function toCatalogTypology(
             variants,
             scenes: panoScenes,
           },
-    renders: list
-      .filter(
+    renders: await (async () => {
+      const masters = list.filter(
         (item) =>
           item.kind === 'render' &&
           !item.storage_path.includes('/_original/') &&
@@ -272,16 +288,20 @@ async function toCatalogTypology(
           !isTourPanoramaFileName(item.file_name) &&
           !parseRoomSceneFileName(item.file_name),
       )
-      .map((item) => {
+      const folder = masters.length ? await renderFolderNames(admin, masters[0]?.typology_code || row.name) : new Set<string>()
+      return masters.map((item) => {
         const mobileName = galleryRenderMobileFileName(item.file_name)
         const mobilePath = typologyAssetStoragePath(item.typology_code, 'render', mobileName)
+        const variants: Partial<Record<'2048', string>> = {}
+        if (mobileName !== item.file_name && folder.has(mobileName)) {
+          variants['2048'] = getTypologyAssetPublicUrl(admin, mobilePath, item.created_at)
+        }
         return {
           ...toPublic(item),
-          variants: {
-            '2048': getTypologyAssetPublicUrl(admin, mobilePath, item.created_at),
-          },
+          variants,
         }
-      }),
+      })
+    })(),
     planos: list.filter((item) => item.kind === 'plano').map(toPublic),
     vistas: slots
       .map((room) => {
