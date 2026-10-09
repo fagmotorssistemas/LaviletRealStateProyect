@@ -4,8 +4,8 @@ import { compareVoiceUnits } from './compareVoiceUnits'
 import { runTourVoiceAssist } from './voiceAssistServer'
 import { sanitizeVoiceConversation } from './voiceConversation'
 import {
-  isConversationEnd, normalizeFilters, parseListedOptionChoice, parsePhoneFromTranscript,
-  toVoiceUnitCard, withSoftPhoneAsk, type VoiceAssistCatalogUnit,
+  guardSpokenText, isConversationEnd, nextVoiceEngagement, normalizeFilters, parseListedOptionChoice, parsePhoneFromTranscript,
+  toVoiceUnitCard, voiceEngagementPhoneAskLine, withSoftPhoneAsk, type VoiceAssistCatalogUnit,
 } from './voiceAssist'
 
 // Inventario y respuestas de red simulados: no validan micrófono, producción ni calidad del modelo real.
@@ -70,7 +70,11 @@ test('pregunta contextual usa inventario del servidor, conserva orden y no abre 
   let requestBody = ''
   globalThis.fetch = async (_url, init) => {
     requestBody = String(init?.body)
-    return new Response(JSON.stringify({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ speak: 'La segunda cuesta 125000 dólares.', unit_ids: [] }) }] }] }))
+    const name = JSON.parse(requestBody).text?.format?.name
+    const payload = name === 'tour_voice_turn'
+      ? { intent: 'QUESTION', filters: null, action: null, financial_signal: null, free_text_question: 'precio de la segunda' }
+      : { speak: 'La segunda cuesta {{PRICE:b}}.', unit_ids: [], ui_action: null }
+    return new Response(JSON.stringify({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(payload) }] }] }))
   }
   try {
     const previousMatches = catalog.slice(0, 3).map(toVoiceUnitCard)
@@ -84,10 +88,19 @@ test('pregunta contextual usa inventario del servidor, conserva orden y no abre 
     assert.deepEqual(input.opciones_en_pantalla, ['a', 'b', 'c'])
     assert.equal(input.historial[0].content, 'Prefiero dos dormitorios')
     assert.equal(body.store, false)
-    assert.match(body.instructions, /No solicites WhatsApp/)
+    assert.match(body.instructions, /\{\{PRICE:id\}\}/)
+    assert.doesNotMatch(body.instructions, /No solicites WhatsApp/)
     globalThis.fetch = async () => new Response('', { status: 503 })
     const failed = await runTourVoiceAssist({ transcript: '¿Y las vistas?', catalog, previousMatches })
     assert.match(failed.speak, /No puedo responder en este momento/)
+    assert.equal(guardSpokenText('Cuesta {{PRICE:missing}}.', catalog), 'Dame un segundo que confirmo esa cifra.')
+    assert.equal(guardSpokenText('Cuesta {{PRICE:b}}.', catalog), 'Cuesta 125 mil dólares.')
+    let engagement = { strong: 0, unitTurns: {} as Record<string, number> }
+    engagement = nextVoiceEngagement(engagement, { transcript: 'opción 1', unitId: 'b', revealed: true }).state
+    engagement = nextVoiceEngagement(engagement, { transcript: 'esta unidad me gusta', unitId: 'b' }).state
+    const ready = nextVoiceEngagement(engagement, { transcript: 'sigo con esta', unitId: 'b' })
+    assert.equal(ready.ready, true)
+    assert.match(voiceEngagementPhoneAskLine(), /WhatsApp/)
     assert.deepEqual(failed.matches.map(unit => unit.id), ['a', 'b', 'c'])
   } finally {
     globalThis.fetch = oldFetch

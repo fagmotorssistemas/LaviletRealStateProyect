@@ -12,7 +12,7 @@ import {
   type VoiceAssistFilters,
   type VoiceAssistUnitCard,
 } from '@/lib/tour/voiceAssist'
-import { runTourVoiceAssist, synthesizeTourVoice, transcribeTourVoice } from '@/lib/tour/voiceAssistServer'
+import { runTourVoiceAssist, synthesizeTourVoice, transcribeTourVoice, type VoiceScreenContext } from '@/lib/tour/voiceAssistServer'
 import { sanitizeVoiceConversation, type VoiceConversationTurn } from '@/lib/tour/voiceConversation'
 import { isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { translateTourText, type TourLocale } from '@/lib/tour/tourMessages'
@@ -23,6 +23,17 @@ export const dynamic = 'force-dynamic'
 
 const MAX_UNITS = 250
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024
+
+function asScreen(raw: unknown): VoiceScreenContext | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const row = raw as Record<string, unknown>
+  return {
+    viewMode: row.viewMode == null ? null : String(row.viewMode),
+    fichaOpen: row.fichaOpen === true,
+    hasUnit: row.hasUnit === true,
+    galleryCount: typeof row.galleryCount === 'number' ? row.galleryCount : null,
+  }
+}
 
 function asCatalog(raw: unknown): VoiceAssistCatalogUnit[] {
   if (!Array.isArray(raw)) return []
@@ -121,6 +132,7 @@ export async function POST(request: Request) {
     let history: VoiceConversationTurn[] = []
     let seenUnitIds: unknown = []
     let locale: TourLocale = 'es'
+    let screen: VoiceScreenContext | null = null
 
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData()
@@ -154,6 +166,10 @@ export async function POST(request: Request) {
           previousMatches = []
         }
       }
+      const screenRaw = form.get('screen')
+      if (typeof screenRaw === 'string' && screenRaw.trim()) {
+        try { screen = asScreen(JSON.parse(screenRaw)) } catch { screen = null }
+      }
       const textField = form.get('text')
       if (typeof textField === 'string' && textField.trim()) {
         transcript = textField.trim().slice(0, 2000)
@@ -181,6 +197,7 @@ export async function POST(request: Request) {
         seen_unit_ids?: unknown
         history?: unknown
         locale?: unknown
+        screen?: unknown
       }
       try {
         body = (await request.json()) as typeof body
@@ -196,6 +213,7 @@ export async function POST(request: Request) {
       seenUnitIds = body.seen_unit_ids
       history = sanitizeVoiceConversation(body.history)
       locale = body.locale === 'en' ? 'en' : 'es'
+      screen = asScreen(body.screen)
     }
 
     if (!transcript) {
@@ -228,6 +246,7 @@ export async function POST(request: Request) {
       history,
       signal: request.signal,
       locale,
+      screen,
     })
     result.speak = correctSpokenPrices(translateTourText(result.speak, locale), [...catalog, ...previousMatches].map((unit) => unit.price))
     result.follow_up = result.follow_up ? translateTourText(result.follow_up, locale) : null

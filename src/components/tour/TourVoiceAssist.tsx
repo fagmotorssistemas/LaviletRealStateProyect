@@ -17,6 +17,7 @@ import {
   isShortAffirmative,
   isShortDecline,
   isStrongVoiceInterest,
+  nextVoiceEngagement,
   markAskedVoicePhone,
   markDeclinedVoicePhone,
   parseListedOptionChoice,
@@ -43,6 +44,7 @@ type TourVoiceAssistProps = {
   /** Adelanto visual de una opción sin abrir ficha ni pedir WhatsApp. */
   onPreviewUnit?: (unit: TourUnitSummary) => void
   onVoiceAction?: (action: VoiceUiAction) => void
+  screen?: { viewMode?: string | null; fichaOpen?: boolean; hasUnit?: boolean; galleryCount?: number | null }
   /** Catálogo público para miniaturas de tipología. */
   publicCatalog?: TourPublicCatalog | null
   /** Cambia al navegar (vista/ambiente) para disparar tips aleatorios. */
@@ -446,6 +448,7 @@ export function TourVoiceAssist({
   onPickUnit,
   onPreviewUnit,
   onVoiceAction,
+  screen,
   publicCatalog = null,
   sceneKey = '',
   hideTrigger = false,
@@ -484,6 +487,9 @@ export function TourVoiceAssist({
   onPreviewUnitRef.current = onPreviewUnit
   const onVoiceActionRef = useRef(onVoiceAction)
   onVoiceActionRef.current = onVoiceAction
+  const screenRef = useRef(screen)
+  screenRef.current = screen
+  const engagementRef = useRef({ strong: 0, unitTurns: {} as Record<string, number> })
   const [blockedAudio, setBlockedAudio] = useState<Blob | null>(null)
   useEffect(() => {
     playbackBlockedHandler = (blob) => setBlockedAudio(blob)
@@ -731,10 +737,19 @@ export function TourVoiceAssist({
     const isUnitReveal = pickedOption != null
 
     // WhatsApp solo cuando el visitante eligió una unidad.
+    const unitId = data.matches.length === 1 ? data.matches[0]?.id : null
+    const engagement = nextVoiceEngagement(engagementRef.current, {
+      transcript: data.transcript,
+      unitId,
+      revealed: isUnitReveal,
+      action: data.ui_action,
+    })
+    engagementRef.current = engagement.state
     const enriched = withSoftPhoneAsk(data, isShowroomIdentified(), {
       afterOptionPick: isUnitReveal,
       conversationEnding: isConversationEnd(data.transcript),
       strongInterest: isStrongVoiceInterest(data.transcript),
+      accumulatedInterest: engagement.ready,
       locale,
     })
     if (data.ui_action) onVoiceActionRef.current?.(data.ui_action)
@@ -1015,6 +1030,7 @@ export function TourVoiceAssist({
           seen_unit_ids: [...seenUnitIdsRef.current],
           history: historyRef.current,
           locale,
+          screen: screenRef.current ?? null,
         }),
       })
       const data = (await res.json().catch(() => ({}))) as VoiceAssistResult & {
@@ -1052,6 +1068,7 @@ export function TourVoiceAssist({
       const form = new FormData()
       form.set('history', JSON.stringify(historyRef.current))
       form.set('locale', locale)
+      if (screenRef.current) form.set('screen', JSON.stringify(screenRef.current))
       form.set('audio', blob, `voice.${ext}`)
       form.set('units', JSON.stringify(toVoiceCatalog(unitsRef.current)))
       if (memoryFiltersRef.current) {
@@ -1483,6 +1500,7 @@ export function TourVoiceAssist({
     })
   }
 
+  // Solo mientras piensa. Durante el habla, el audio de Lia se cuela en el micrófono.
   useVoiceInterruption(open && phase==='thinking' && conversationRef.current,()=>{void startRecording()})
 
   return (

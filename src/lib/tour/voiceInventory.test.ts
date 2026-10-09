@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { runTourVoiceAssist } from './voiceAssistServer'
 import { compareVoiceUnits } from './compareVoiceUnits'
-import { parseListedOptionChoice, parseVoiceFiltersLocal, mergeVoiceFilters, type VoiceAssistCatalogUnit } from './voiceAssist'
+import { parseListedOptionChoice, parseVoiceFiltersLocal, mergeVoiceFilters, toVoiceUnitCard, type VoiceAssistCatalogUnit } from './voiceAssist'
 
 // Synthetic inventory only: no production data, model, microphone or paid service.
 const catalog: VoiceAssistCatalogUnit[] = Array.from({length:8},(_,i)=>({
@@ -59,4 +59,51 @@ test('repeating a search advances options, while a new bedroom request is respec
   assert.ok(second.matches.every(unit=>!first.matches.some(old=>old.id===unit.id)))
   const changed=await runTourVoiceAssist({transcript:'otras opciones de dos habitaciones',catalog,previousFilters:first.filters,previousMatches:first.matches})
   assert.deepEqual(changed.matches.map(unit=>unit.id),['u7'])
+})
+
+test('family size, concepts, financing and screen actions do not fall through to a generic search', async () => {
+  const oldKey = process.env.OPENAI_API_KEY
+  const oldModel = process.env.OPENAI_MODEL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_MODEL
+  try {
+  const wide = [...catalog, { ...catalog[7], id: 'big', unit_number: '400', bedrooms: 4, price: 270000 }]
+  const family = await runTourVoiceAssist({ transcript: 'Somos una familia de ocho personas', catalog: wide })
+  assert.equal(family.filters.bedrooms, 4)
+  assert.deepEqual(family.matches.map(unit => unit.id), ['big'])
+
+  const concept = await runTourVoiceAssist({ transcript: '¿Qué significa 1.5 baños?', catalog })
+  assert.match(concept.speak, /1 baño completo y 1 baño social/)
+  assert.equal(concept.ui_action ?? null, null)
+
+  const gallery = await runTourVoiceAssist({ transcript: 'Abre la galería', catalog })
+  assert.equal(gallery.ui_action, 'OPEN_GALLERY')
+  assert.match(gallery.speak, /galería/)
+
+  const photo = await runTourVoiceAssist({ transcript: 'pasa de foto', catalog })
+  assert.equal(photo.ui_action, 'NEXT_PHOTO')
+
+  const tour = await runTourVoiceAssist({ transcript: 'quiero ver el tour', catalog })
+  assert.equal(tour.ui_action, 'OPEN_TOUR_360')
+
+  const financing = await runTourVoiceAssist({ transcript: 'Tienes financiamiento o algo por el estilo', catalog: wide })
+  assert.equal(financing.ui_action, 'OPEN_SIMULATOR')
+  assert.match(financing.speak, /no incluye tasas/)
+
+  const down = await runTourVoiceAssist({ transcript: 'Tengo una entrada de $1000', catalog: wide })
+  assert.equal(down.ui_action, 'OPEN_SIMULATOR')
+  assert.match(down.speak, /entrada es baja/)
+
+  const camera = await runTourVoiceAssist({ transcript: 'puedes mover la cámara', catalog })
+  assert.equal(camera.ui_action ?? null, null)
+  assert.match(camera.speak, /cámara/)
+
+  const shown = [toVoiceUnitCard(catalog[0])]
+  const why = await runTourVoiceAssist({ transcript: '¿por qué está tan cara?', catalog, previousMatches: shown })
+  assert.match(why.speak, /No puedo responder en este momento/)
+  assert.deepEqual(why.matches.map(unit => unit.id), ['u0'])
+  } finally {
+    if (oldKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldKey
+    if (oldModel === undefined) delete process.env.OPENAI_MODEL; else process.env.OPENAI_MODEL = oldModel
+  }
 })

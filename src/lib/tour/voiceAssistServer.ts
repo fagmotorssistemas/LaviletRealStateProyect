@@ -1,18 +1,22 @@
 import 'server-only'
 import { compareVoiceUnits } from './compareVoiceUnits'
-import { isVoiceQuestion } from './voiceTurnIntent'
 import { answerVoiceQuestion } from './voiceConversationServer'
+import { classifyVoiceTurn, obviousVoiceTurn, type VoiceTurnClassification } from './voiceTurnClassifier'
 import type { VoiceConversationTurn } from './voiceConversation'
 import { translateTourText, type TourLocale } from './tourMessages'
 import {
+  asPurePrice,
+  bedroomsForFamilySize,
+  bathroomsSpoken,
+  bathConceptSpoken,
   buildSpeakLine,
   correctSpokenPrices,
   filtersHaveSignal,
   formatPriceSpoken,
-  bathroomsSpoken,
+  guardSpokenText,
+  isBathConceptQuestion,
   isFinancingQuestion,
   isVoiceUiAction,
-  parseVoiceUiAction,
   voiceUiActionLine,
   findCatalogUnitByCode,
   isLikelyOffTopic,
@@ -36,6 +40,26 @@ import {
   type VoiceAssistResult,
   type VoiceAssistUnitCard,
 } from '@/lib/tour/voiceAssist'
+
+export type VoiceScreenContext = {
+  viewMode?: string | null
+  fichaOpen?: boolean
+  hasUnit?: boolean
+  galleryCount?: number | null
+}
+
+/** La acción solo se ejecuta si el estado de la pantalla la permite. */
+export function resolveVoiceAction(action: VoiceUiAction | null, context?: VoiceScreenContext | null): VoiceUiAction | null {
+  if (!action) return null
+  if (!context) return action
+  const needsUnit = action === 'NEXT_PHOTO' || action === 'PREV_PHOTO' || action === 'OPEN_GALLERY' || action === 'OPEN_TOUR_360' || action === 'OPEN_SIMULATOR' || action === 'SAVE_FAVORITE'
+  if (needsUnit && context.hasUnit === false) return null
+  if ((action === 'NEXT_PHOTO' || action === 'PREV_PHOTO') && context.galleryCount === 0) return null
+  if ((action === 'NEXT_PHOTO' || action === 'PREV_PHOTO') && context.fichaOpen === false && context.viewMode !== 'galeria') {
+    return context.hasUnit === false ? null : 'OPEN_GALLERY'
+  }
+  return action
+}
 
 function text(value: unknown) {
   return typeof value === 'string' ? value : value == null ? '' : String(value)
@@ -102,7 +126,7 @@ const FILTER_SCHEMA = {
     intent: { type: 'string', enum: ['question', 'search', 'action', 'farewell', 'other'] },
     ui_action: {
       type: ['string', 'null'],
-      enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'CLOSE_FICHA', 'GO_BEDROOM', 'LOOK_AROUND', null],
+      enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'OPEN_SIMULATOR', 'SAVE_FAVORITE', 'CLOSE_FICHA', null],
     },
   },
 } as const
@@ -155,7 +179,7 @@ async function extractFilters(
     'Si off_topic=true, deja filtros en null (only_available puede ser true), sort_pref=null, category=null, or_groups=null, soft_needs=[].',
     'soft_needs: necesidades humanas que no son un filtro de base de datos, como vista, mascota, inversión, alquiler, terraza grande. Lista vacía si no hay.',
     'intent: question si pide consejo, comparación, explicación o financiamiento; search si pide unidades; action si pide abrir galería, cambiar foto, mover la cámara, ir a un dormitorio, 360, plano o cerrar ficha; farewell si se despide; other si no encaja.',
-    'ui_action: OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN, CLOSE_FICHA, GO_BEDROOM o LOOK_AROUND solo si intent=action; si no, null. GO_BEDROOM si pide ir al dormitorio. LOOK_AROUND si pide mover la cámara o mirar el espacio.',
+    'ui_action: OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN, OPEN_SIMULATOR, SAVE_FAVORITE o CLOSE_FICHA solo si intent=action; si no, null. Mover la cámara no es una acción.',
     'assistant_note: frase corta interna (no para el cliente).',
   ].join(' ')
 
@@ -220,6 +244,7 @@ export async function runTourVoiceAssist(params: {
   signal?: AbortSignal
   locale?: TourLocale
   seenUnitIds?: string[]
+  screen?: VoiceScreenContext | null
 }): Promise<VoiceAssistResult> {
   const transcript = params.transcript.trim()
   if (!transcript || isUnclearOrSilentSpeech(transcript)) {
@@ -242,58 +267,26 @@ export async function runTourVoiceAssist(params: {
     }
   }
 
+  const locale = params.locale ?? 'es'
   const previous = wantsFreshSearch(transcript) ? null : (params.previousFilters ?? null)
   const previousMatches = wantsFreshSearch(transcript) ? [] : (params.previousMatches ?? [])
-  const uiAction = parseVoiceUiAction(transcript)
-  if (uiAction) {
-    return {
-      transcript,
-      speak: voiceUiActionLine(uiAction, params.locale),
-      filters: previous ?? normalizeFilters({ only_available: true }),
-      matches: previousMatches,
-      follow_up: null,
-      ui_action: uiAction,
-    }
-  }
-  const comparison=compareVoiceUnits(transcript,params.catalog,previousMatches.map(u=>u.id),params.locale)
-  if(comparison)return { ...comparison, filters: previous ?? comparison.filters }
+  const seal = (result: VoiceAssistResult): VoiceAssistResult => ({
+    ...result,
+    speak: guardSpokenText(
+      correctSpokenPrices(result.speak, params.catalog.map((unit) => unit.price)),
+      params.catalog,
+      locale,
+    ),
+  })
+  const unavailable = (matches: VoiceAssistUnitCard[] = previousMatches): VoiceAssistResult => seal({
+    transcript,
+    speak: locale === 'en' ? 'I could not look that up right now. Please try again.' : 'No puedo responder en este momento, intenta de nuevo.',
+    filters: previous ?? normalizeFilters({ only_available: true }),
+    matches,
+    follow_up: null,
+  })
   const localFilters = parseVoiceFiltersLocal(transcript)
   const more = /\b(otras? opciones|otros? departamentos|mas opciones|ver mas|muestra(?:me)? (?:mas|otras)|otras|more options|other apartments|show more|other options|next options)\b/i.test(transcript.normalize('NFD').replace(/\p{M}/gu, ''))
-  const inventorySearch = more || (filtersHaveSignal(localFilters) && /\b(busco|buscar|busca|quiero|necesito|muestra\w*|tienes|hay|departamentos?|apartments?|show|find|looking)\b/i.test(transcript))
-
-  // Las preguntas sobre una opción se contestan; no son órdenes de abrirla.
-  if (!inventorySearch && (isVoiceQuestion(transcript) || params.locale === 'en')) {
-    const questionFilters = mergeVoiceFilters(previous, parseVoiceFiltersLocal(transcript))
-    let answer: Awaited<ReturnType<typeof answerVoiceQuestion>> = null
-    try {
-      answer = await answerVoiceQuestion({ ...params, transcript, previousMatches, previousFilters: questionFilters })
-    } catch {
-      if (params.signal?.aborted) throw new Error('VOICE_TURN_CANCELLED')
-      // No convertir un fallo del servicio en una respuesta inventada o una búsqueda distinta.
-    }
-    const prices = [...previousMatches, ...params.catalog].map((unit) => unit.price)
-    const financingFallback = params.locale === 'en'
-      ? 'The catalog does not include financing terms. I can only confirm the published price.'
-      : 'El catálogo no incluye las condiciones de financiamiento. Solo puedo confirmarle el precio publicado.'
-    return {
-      transcript,
-      speak: correctSpokenPrices(
-        answer?.speak && !/con gusto le ayudo/i.test(answer.speak)
-          ? answer.speak
-          : isFinancingQuestion(transcript)
-            ? financingFallback
-            : (answer?.speak ?? (params.locale === 'en' ? 'I could not look up that answer right now. Please try again.' : 'No puedo responder en este momento, intenta de nuevo.')),
-        prices,
-      ),
-      filters: questionFilters,
-      matches: answer?.unitIds.length ? answer.unitIds.flatMap(id => {
-        const unit = params.catalog.find(unit => unit.id === id)
-        return unit ? [toVoiceUnitCard(unit)] : []
-      }) : previousMatches,
-      follow_up: null,
-      ui_action: answer?.ui_action ?? null,
-    }
-  }
 
   // “Opción 1 / la primera” → elegir de la lista anterior (no repetir búsqueda).
   const option = parseOptionChoice(transcript)
@@ -333,95 +326,19 @@ export async function runTourVoiceAssist(params: {
     }
   }
 
-  const offTopicReply = () => {
-    const { speak, follow_up } = speakOffTopicClarification(transcript)
-    return {
-      transcript,
-      speak,
-      filters: previous ?? normalizeFilters({ only_available: true }),
-      matches: previousMatches.slice(0, 3),
-      follow_up,
-    } satisfies VoiceAssistResult
-  }
-
-  // Fuera de tema claro (clima, chistes, etc.): aclara el rol sin gastar en búsqueda.
-  if (isLikelyOffTopic(transcript) && !isFinancingQuestion(transcript)) {
-    return offTopicReply()
-  }
-
-  // 1) Parser local (gratis). Cubre “2 dormitorios”, “2 baños”, “piso alto”, etc.
-  let extracted = localFilters
-  let aiOffTopic = false
-  let aiIntent = ''
-  let aiAction: VoiceUiAction | null = null
-
-  // 2) Si no hay señal clara, intentar OpenAI; si falla, seguimos con local/memoria.
-  if (!filtersHaveSignal(extracted) && !more) {
-    try {
-      const fromAi = await extractFilters(transcript)
-      const { assistant_note: _note, off_topic, intent, ui_action, ...rest } = fromAi
-      aiOffTopic = off_topic
-      aiIntent = intent
-      aiAction = ui_action
-      extracted = rest
-    } catch (error) {
-      const message = error instanceof Error ? error.message : ''
-      if (message.includes('429') && !previous) {
-        return {
-          transcript,
-          speak: 'No puedo responder en este momento, intenta de nuevo.',
-          filters: extracted,
-          matches: [],
-          follow_up: 'Puede escribir dormitorios, baños, piso o presupuesto.',
-        }
-      }
-      console.error('tour voice-assist extract', message)
-    }
-  }
-
-  if (isFinancingQuestion(transcript)) {
-    aiOffTopic = false
-    aiIntent = aiIntent === 'action' || aiIntent === 'search' ? aiIntent : 'question'
-  }
-
-  if (aiAction) {
-    return {
-      transcript,
-      speak: voiceUiActionLine(aiAction, params.locale),
-      filters: previous ?? normalizeFilters({ only_available: true }),
-      matches: previousMatches,
-      follow_up: null,
-      ui_action: aiAction,
-    }
-  }
-
-  if (aiOffTopic) {
-    return offTopicReply()
-  }
-
-  const filters = mergeVoiceFilters(previous, extracted)
-  const consult = async () => {
+  const baseFilters = previous ?? normalizeFilters({ only_available: true })
+  const consult = async (filters: VoiceAssistFilters) => {
     let answer: Awaited<ReturnType<typeof answerVoiceQuestion>> = null
     try {
       answer = await answerVoiceQuestion({ ...params, transcript, previousMatches, previousFilters: filters })
-    } catch {
+    } catch (error) {
       if (params.signal?.aborted) throw new Error('VOICE_TURN_CANCELLED')
+      const message = error instanceof Error ? error.message : ''
+      if (message.includes('429') || message === 'VOICE_ANSWER_UNKNOWN_UNIT') return unavailable(previousMatches)
     }
-    const prices = [...previousMatches, ...params.catalog].map((unit) => unit.price)
-    return {
+    return seal({
       transcript,
-      speak: correctSpokenPrices(
-        answer?.speak && !/con gusto le ayudo/i.test(answer.speak)
-          ? answer.speak
-          : isFinancingQuestion(transcript)
-            ? (params.locale === 'en'
-              ? 'The catalog does not include financing terms. I can only confirm the published price.'
-              : 'El catálogo no incluye las condiciones de financiamiento. Solo puedo confirmarle el precio publicado.')
-            : (answer?.speak ?? (params.locale === 'en'
-              ? 'I could not look that up right now. Please try again.'
-              : 'No puedo responder en este momento, intenta de nuevo.')),
-        prices,
-      ),
+      speak: answer?.speak ?? (locale === 'en' ? 'I could not look that up right now. Please try again.' : 'No puedo responder en este momento, intenta de nuevo.'),
       filters,
       matches: answer?.unitIds.length
         ? answer.unitIds.flatMap((id) => {
@@ -431,14 +348,142 @@ export async function runTourVoiceAssist(params: {
         : previousMatches,
       follow_up: null,
       ui_action: answer?.ui_action ?? null,
-    } satisfies VoiceAssistResult
+    })
   }
 
-  if (!filtersHaveSignal(filters) || aiIntent === 'question') {
-    if (isLikelyOffTopic(transcript) && !isFinancingQuestion(transcript)) return offTopicReply()
-    return consult()
+  let turn: VoiceTurnClassification | null = obviousVoiceTurn(transcript)
+  if (!turn) {
+    try {
+      turn = await classifyVoiceTurn(transcript, {
+        transcript,
+        locale,
+        previousFilters: previous,
+        previousMatchIds: previousMatches.map((unit) => unit.id),
+      }, params.signal)
+    } catch (error) {
+      if (params.signal?.aborted) throw new Error('VOICE_TURN_CANCELLED')
+      const message = error instanceof Error ? error.message : ''
+      if (message.includes('429')) return unavailable([])
+      console.error('tour voice-assist classify', message)
+      if (filtersHaveSignal(localFilters) || more) {
+        turn = { intent: 'SEARCH', filters: localFilters, action: null, financial_signal: null, free_text_question: null }
+      } else {
+        return unavailable()
+      }
+    }
+  }
+  if (!turn) return unavailable()
+
+  if (turn.intent === 'ACTION' || (turn.action && turn.intent !== 'QUESTION' && turn.intent !== 'FINANCIAL_SIGNAL')) {
+    const resolved = resolveVoiceAction(turn.action, params.screen)
+    if (!resolved) {
+      return seal({
+        transcript,
+        speak: locale === 'en'
+          ? 'I can open the gallery, the tour, or the floor plan once a unit is selected.'
+          : 'Puedo abrirle la galería, el recorrido o el plano cuando haya una unidad elegida.',
+        filters: baseFilters,
+        matches: previousMatches,
+        follow_up: null,
+      })
+    }
+    return seal({
+      transcript,
+      speak: voiceUiActionLine(resolved, locale),
+      filters: baseFilters,
+      matches: previousMatches,
+      follow_up: null,
+      ui_action: resolved,
+    })
   }
 
+  if (turn.intent === 'CLARIFICATION' && turn.free_text_question === 'camera') {
+    return seal({
+      transcript,
+      speak: locale === 'en'
+        ? 'I can open the 360 tour, change the photo, or move to another unit. I cannot move the camera inside the tour.'
+        : 'Puedo abrirle el recorrido, cambiar la foto o pasar a otra unidad. No puedo mover la cámara dentro del recorrido.',
+      filters: baseFilters,
+      matches: previousMatches,
+      follow_up: null,
+    })
+  }
+
+  if (turn.intent === 'SMALLTALK' || (turn.intent === 'CLARIFICATION' && isLikelyOffTopic(transcript) && !isFinancingQuestion(transcript))) {
+    const { speak, follow_up } = speakOffTopicClarification(transcript)
+    return seal({ transcript, speak, filters: baseFilters, matches: previousMatches.slice(0, 3), follow_up })
+  }
+
+  if (turn.intent === 'COMPARE') {
+    const comparison = compareVoiceUnits(transcript, params.catalog, previousMatches.map((unit) => unit.id), locale)
+    if (comparison) return seal({ ...comparison, filters: previous ?? comparison.filters })
+    return consult(baseFilters)
+  }
+
+  if (turn.intent === 'QUESTION' || turn.intent === 'CLARIFICATION') {
+    if (turn.free_text_question === 'bath_concept' || isBathConceptQuestion(transcript)) {
+      return seal({
+        transcript,
+        speak: bathConceptSpoken(locale),
+        filters: baseFilters,
+        matches: previousMatches,
+        follow_up: null,
+      })
+    }
+    if (turn.free_text_question === 'financing' || turn.action === 'OPEN_SIMULATOR' || isFinancingQuestion(transcript)) {
+      return seal({
+        transcript,
+        speak: locale === 'en'
+          ? 'The catalog does not include rates or terms. I am opening the simulator so you can review the bank options.'
+          : 'El catálogo no incluye tasas ni plazos. Le abro el simulador para revisar las opciones con los convenios bancarios.',
+        filters: baseFilters,
+        matches: previousMatches,
+        follow_up: null,
+        ui_action: 'OPEN_SIMULATOR',
+      })
+    }
+    return consult(mergeVoiceFilters(previous, turn.filters ?? localFilters))
+  }
+
+  if (turn.intent === 'FINANCIAL_SIGNAL' && turn.financial_signal?.type === 'family_size') {
+    const bedrooms = bedroomsForFamilySize(Number(turn.financial_signal.value))
+    turn = {
+      ...turn,
+      intent: 'SEARCH',
+      filters: normalizeFilters({ bedrooms, only_available: true }),
+    }
+  } else if (turn.intent === 'FINANCIAL_SIGNAL' && turn.financial_signal) {
+    const amount = asPurePrice(turn.financial_signal.value)
+    const prices = (previousMatches.length ? previousMatches : params.catalog)
+      .map((unit) => unit.price)
+      .filter((price): price is number => price != null && price > 0)
+    const reference = prices.length ? Math.min(...prices) : null
+    const low = amount != null && reference != null && amount < reference * 0.2
+    const amountSpoken = formatPriceSpoken(amount, locale)
+    const referenceSpoken = formatPriceSpoken(reference, locale)
+    const speak = turn.financial_signal.type === 'monthly_budget'
+      ? (locale === 'en'
+        ? `I noted a monthly budget of ${amountSpoken ?? 'that amount'}. The catalog does not include the monthly payment, so I cannot confirm whether it is enough. I am opening the simulator.`
+        : `Anoto una cuota de ${amountSpoken ?? 'ese monto'}. El catálogo no trae la cuota mensual, así que no puedo confirmar si alcanza. Le abro el simulador.`)
+      : low
+        ? (locale === 'en'
+          ? `A down payment of ${amountSpoken} is low next to a published price of ${referenceSpoken}. There are agreements with banks. I am opening the simulator.`
+          : `Con una entrada de ${amountSpoken}, frente a un precio publicado de ${referenceSpoken}, esa entrada es baja. Hay convenios con entidades bancarias. Le abro el simulador para revisarlo.`)
+        : (locale === 'en'
+          ? `I noted a down payment of ${amountSpoken ?? 'that amount'}. The catalog does not include loan terms, so I cannot confirm whether it is enough. I am opening the simulator.`
+          : `Anoto una entrada de ${amountSpoken ?? 'ese monto'}. El catálogo no trae las condiciones del crédito, así que no puedo confirmar si alcanza. Le abro el simulador para verlo con los convenios bancarios.`)
+    return seal({
+      transcript,
+      speak,
+      filters: baseFilters,
+      matches: previousMatches,
+      follow_up: null,
+      ui_action: 'OPEN_SIMULATOR',
+    })
+  }
+
+  const extracted = turn.filters ?? localFilters
+  const filters = mergeVoiceFilters(previous, extracted)
   const allMatches = matchVoiceUnits(params.catalog, filters, params.catalog.length)
   const repeated = previous && JSON.stringify(previous) === JSON.stringify(filters)
   const excludeSeen = more || (repeated && !/barat|cheap|econom|menor precio|lowest|caro|expensive|highest/i.test(transcript))
@@ -497,21 +542,21 @@ export async function runTourVoiceAssist(params: {
         const unit = params.catalog.find((item) => item.id === id)
         return unit ? [toVoiceUnitCard(unit)] : []
       })
-      return {
+      return seal({
         transcript,
         speak: correctSpokenPrices(answer.speak, prices),
         filters: replyFilters,
         matches: picked.length ? picked : matches,
         follow_up: null,
         ui_action: answer.ui_action,
-      }
+      })
     }
   }
 
   const { speak, follow_up } = buildSpeakLine(matches, filters, { suggested })
-  if (params.locale === 'en') return { transcript, filters: replyFilters, matches, follow_up: null,
-    speak: matches.length ? `${suggested ? 'These are nearby alternatives, with different features.' : `${allMatches.length} units match your filters.`} ${matches.map((unit, index) => `Option ${index + 1}, unit ${unit.unit_number}: ${[unit.bedrooms != null ? `${unit.bedrooms} bedrooms` : null, unit.bathrooms != null ? bathroomsSpoken(unit.bathrooms, 'en') : null, unit.area_total_m2 != null ? `${unit.area_total_m2} square meters` : null, unit.price != null ? formatPriceSpoken(unit.price, 'en') : null].filter(Boolean).join(', ')}.`).join(' ')}` : 'No units match these filters. Would you like to change the budget or bedroom count?' }
-  return { transcript, speak, filters: replyFilters, matches, follow_up }
+  if (params.locale === 'en') return seal({ transcript, filters: replyFilters, matches, follow_up: null,
+    speak: matches.length ? `${suggested ? 'These are nearby alternatives, with different features.' : `${allMatches.length} units match your filters.`} ${matches.map((unit, index) => `Option ${index + 1}, unit ${unit.unit_number}: ${[unit.bedrooms != null ? `${unit.bedrooms} bedrooms` : null, unit.bathrooms != null ? bathroomsSpoken(unit.bathrooms, 'en') : null, unit.area_total_m2 != null ? `${unit.area_total_m2} square meters` : null, unit.price != null ? formatPriceSpoken(unit.price, 'en') : null].filter(Boolean).join(', ')}.`).join(' ')}` : 'No units match these filters. Would you like to change the budget or bedroom count?' })
+  return seal({ transcript, speak, filters: replyFilters, matches, follow_up })
 }
 
 const TTS_VOICES = new Set([
@@ -627,7 +672,12 @@ async function synthesizeWithEdge(input: string, locale: TourLocale): Promise<Ar
  * TTS natural para el showroom: OpenAI primero; Edge como respaldo.
  */
 export async function synthesizeTourVoice(rawText: string, locale: TourLocale = 'es'): Promise<ArrayBuffer | null> {
-  const input = prepareSpeechText(rawText)
+  let safeText = rawText
+  if (/\{\{(?:PRICE|AREA):/.test(safeText)) {
+    console.error('[voice-token-unresolved]', safeText)
+    safeText = locale === 'en' ? 'Give me a second while I confirm that figure.' : 'Dame un segundo que confirmo esa cifra.'
+  }
+  const input = prepareSpeechText(safeText)
   if (!input) return null
 
   try {

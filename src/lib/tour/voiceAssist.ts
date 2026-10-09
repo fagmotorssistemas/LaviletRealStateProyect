@@ -16,6 +16,11 @@ export function voiceSoftPhoneAskLine(locale: TourLocale = 'es'): string {
   return ' Si más adelante quiere que un asesor le contacte, puede dejar su WhatsApp.'
 }
 
+export function voiceEngagementPhoneAskLine(locale: TourLocale = 'es'): string {
+  if (locale === 'en') return ' Would you like me to save this unit and write to you on WhatsApp with the details?'
+  return ' ¿Quiere que le guarde esta unidad y le escriba al WhatsApp con los detalles?'
+}
+
 /** Cómo cerrar la conversación con Lia. */
 export function voiceCloseHintLine(): string {
   return ' Si no desea más información, diga gracias y cierro.'
@@ -98,9 +103,9 @@ export const VOICE_UI_ACTIONS = [
   'PREV_PHOTO',
   'OPEN_TOUR_360',
   'OPEN_FLOOR_PLAN',
+  'OPEN_SIMULATOR',
+  'SAVE_FAVORITE',
   'CLOSE_FICHA',
-  'GO_BEDROOM',
-  'LOOK_AROUND',
 ] as const
 
 export type VoiceUiAction = (typeof VOICE_UI_ACTIONS)[number]
@@ -118,15 +123,25 @@ export function parseVoiceUiAction(transcript: string): VoiceUiAction | null {
     .replace(/\s+/g, ' ')
     .trim()
   if (!t) return null
-  if (/\b(dirig\w*|dirij\w*|llev\w*|vamos)\b.*\b(dormitorio|habitacion|cuarto)\b/.test(t)) return 'GO_BEDROOM'
-  if (/\b(muev\w*|mover|gira\w*|rot\w*)\b.*\b(camara|vista)\b|\bpuedes mover\b/.test(t)) return 'LOOK_AROUND'
   if (/\b(cambia\w*|cambiar|siguiente|proxima|adelante|otra)\b.*\b(foto|imagen|diapositiva)\b|\b(pasa|avanz\w*)\b.*\b(foto|imagen)\b/.test(t)) return 'NEXT_PHOTO'
   if (/\b(anterior|atras|previa)\b.*\b(foto|imagen|diapositiva)\b|\b(regres\w*|volv\w*)\b.*\b(foto|imagen)\b/.test(t)) return 'PREV_PHOTO'
+  if (/\b(simulador)\b/.test(t) && /\b(abre|abrir|muestra|ver|quiero|pon)\b/.test(t)) return 'OPEN_SIMULATOR'
+  if (/\b(favorit\w*|guardar|guardala|guardelo)\b/.test(t)) return 'SAVE_FAVORITE'
   if (/\b(galeria|fotos de la unidad|ver fotos)\b/.test(t)) return 'OPEN_GALLERY'
   if (/\b(recorrido|360|tour)\b/.test(t) && /\b(abre|abrir|muestra|ver|quiero|pon)\b/.test(t)) return 'OPEN_TOUR_360'
   if (/\b(plano|planta del edificio|pisos)\b/.test(t) && /\b(abre|abrir|muestra|ver|quiero|pon)\b/.test(t)) return 'OPEN_FLOOR_PLAN'
   if (/\b(cierra|cerrar|quita)\b.*\b(ficha)\b/.test(t)) return 'CLOSE_FICHA'
   return null
+}
+
+/** Pedir mover la cámara o un ambiente no tiene API en el visor. Se explica, no se simula. */
+export function isUnsupportedCameraAsk(transcript: string) {
+  const t = transcript
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+  return /\b(muev\w*|mover|gira\w*|rot\w*|dirig\w*|dirij\w*|llev\w*)\b.*\b(camara|vista|dormitorio|habitacion|cuarto)\b|\bpuedes mover\b/.test(t)
 }
 
 export function voiceUiActionLine(action: VoiceUiAction, locale: TourLocale = 'es'): string {
@@ -136,9 +151,9 @@ export function voiceUiActionLine(action: VoiceUiAction, locale: TourLocale = 'e
     PREV_PHOTO: 'Listo, vuelvo a la imagen anterior.',
     OPEN_TOUR_360: 'Listo, le abro el recorrido 360.',
     OPEN_FLOOR_PLAN: 'Listo, le muestro el plano.',
+    OPEN_SIMULATOR: 'Listo, le abro el simulador.',
+    SAVE_FAVORITE: 'Listo, le guardo esta unidad en favoritos.',
     CLOSE_FICHA: 'Listo, cierro la ficha.',
-    GO_BEDROOM: 'Listo, le llevo al dormitorio.',
-    LOOK_AROUND: 'Listo, abro el recorrido para que pueda mirar el espacio.',
   }
   const en: Record<VoiceUiAction, string> = {
     OPEN_GALLERY: 'Done, here is the gallery.',
@@ -146,9 +161,9 @@ export function voiceUiActionLine(action: VoiceUiAction, locale: TourLocale = 'e
     PREV_PHOTO: 'Done, previous photo.',
     OPEN_TOUR_360: 'Done, opening the 360 tour.',
     OPEN_FLOOR_PLAN: 'Done, here is the floor plan.',
+    OPEN_SIMULATOR: 'Done, opening the financing simulator.',
+    SAVE_FAVORITE: 'Done, saving this unit to favorites.',
     CLOSE_FICHA: 'Done, closing the unit card.',
-    GO_BEDROOM: 'Done, taking you to the bedroom.',
-    LOOK_AROUND: 'Done, opening the tour so you can look around.',
   }
   return locale === 'en' ? en[action] : es[action]
 }
@@ -683,6 +698,73 @@ function englishAmount(n: number): string {
   return rest ? `${head} ${englishAmount(rest)}` : head
 }
 
+export function formatAreaSpoken(value: number | null, locale: TourLocale = 'es') {
+  if (value == null || !Number.isFinite(value)) return null
+  const amount = Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)))
+  return locale === 'en' ? `${amount} square meters` : `${amount} metros cuadrados`
+}
+
+const SPOKEN_TOKEN = /\{\{(PRICE|AREA):([^}]+)\}\}/g
+const UNRESOLVED_TOKEN = /\{\{(?:PRICE|AREA):/
+
+/** El modelo escribe {{PRICE:id}} y {{AREA:id}}. Aquí se convierten, una sola vez. */
+export function substitutePriceTokens(
+  speak: string,
+  catalog: Array<{ id: string; price?: number | null; area_total_m2?: number | null }>,
+  locale: TourLocale = 'es',
+) {
+  return speak.replace(SPOKEN_TOKEN, (token, kind: string, rawId: string) => {
+    const unit = catalog.find((item) => item.id === rawId.trim())
+    if (!unit) return token
+    if (kind === 'PRICE') return formatPriceSpoken(unit.price, locale) ?? token
+    return formatAreaSpoken(unit.area_total_m2 ?? null, locale) ?? token
+  })
+}
+
+/** Si queda un token, no se habla. Así no sale un precio inventado ni el marcador en voz. */
+export function guardSpokenText(
+  speak: string,
+  catalog: Array<{ id: string; price?: number | null; area_total_m2?: number | null }>,
+  locale: TourLocale = 'es',
+) {
+  const substituted = substitutePriceTokens(speak, catalog, locale)
+  if (!UNRESOLVED_TOKEN.test(substituted)) return substituted
+  console.error('[voice-token-unresolved]', substituted)
+  return locale === 'en'
+    ? 'Give me a second while I confirm that figure.'
+    : 'Dame un segundo que confirmo esa cifra.'
+}
+
+const FAMILY_WORDS: Record<string, number> = {
+  un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
+}
+
+export function bedroomsForFamilySize(people: number) {
+  if (!Number.isFinite(people) || people < 1) return null
+  return Math.min(6, Math.max(1, Math.ceil(people / 2)))
+}
+
+export function parseFamilySize(transcript: string): number | null {
+  const t = transcript.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+  const match = t.match(/\b(?:somos|familia(?:\s+de)?)\s+(?:una\s+familia\s+de\s+|de\s+)?(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\b/)
+  if (!match) return null
+  const raw = match[1]
+  const people = /^\d+$/.test(raw) ? Number(raw) : FAMILY_WORDS[raw]
+  return people != null && people > 0 ? people : null
+}
+
+export function bathConceptSpoken(locale: TourLocale = 'es') {
+  return locale === 'en'
+    ? 'A 1.5 bathroom home is 1 full bathroom and 1 powder room. A 2.5 bathroom home is 2 full bathrooms and 1 powder room. The half is the powder room, not a decimal.'
+    : 'Un baño de 1.5 es 1 baño completo y 1 baño social. Uno de 2.5 es 2 baños completos y 1 baño social. El medio baño es el baño social, no un decimal.'
+}
+
+export function isBathConceptQuestion(transcript: string) {
+  const t = transcript.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+  return /\b(que significa|que es|que quiere decir|como es)\b.*\b(\d+[.,]5|1\.5|2\.5|bano)/.test(t)
+    && /\b(\d+[.,]5|medio bano|bano social|1\.5|2\.5)/.test(t)
+}
+
 /** Una sola vez, al hablar. 270000 → "270 mil dólares". */
 export function formatPriceSpoken(value: unknown, locale: TourLocale = 'es') {
   const amount = asPurePrice(value)
@@ -754,7 +836,6 @@ function describeUnitSpoken(u: VoiceAssistUnitCard) {
   }
   if (u.floor) bits.push(`piso ${u.floor}`)
   else if (u.floor_number != null) bits.push(`piso ${u.floor_number}`)
-  console.info('[voice-price]', typeof u.price, u.price)
   const price = formatPriceSpoken(u.price)
   if (price) bits.push(price)
   return bits.join(', ')
@@ -1312,6 +1393,24 @@ export function isFinancingQuestion(transcript: string) {
   return /\b(financi\w*|credito|hipotec\w*|cuotas?)\b/.test(t)
 }
 
+export type VoiceEngagementState = { strong: number; unitTurns: Record<string, number> }
+
+/** Dos señales fuertes, o tres turnos sobre la misma unidad, alcanzan para pedir el WhatsApp una vez. */
+export function nextVoiceEngagement(
+  state: VoiceEngagementState,
+  input: { transcript: string; unitId?: string | null; revealed?: boolean; action?: VoiceUiAction | null },
+): { state: VoiceEngagementState; ready: boolean } {
+  const next: VoiceEngagementState = { strong: state.strong, unitTurns: { ...state.unitTurns } }
+  if (input.revealed) next.strong += 1
+  if (input.action === 'SAVE_FAVORITE' || input.action === 'OPEN_SIMULATOR') next.strong += 1
+  if (isFinancingQuestion(input.transcript)) next.strong += 1
+  const plain = input.transcript.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+  if (/\b(me gusta|me interesa)\b/.test(plain)) next.strong += 1
+  if (input.unitId) next.unitTurns[input.unitId] = (next.unitTurns[input.unitId] ?? 0) + 1
+  const stuck = Object.values(next.unitTurns).some((count) => count >= 3)
+  return { state: next, ready: next.strong >= 2 || stuck }
+}
+
 export function isStrongVoiceInterest(transcript: string) {
   const t = transcript
     .toLowerCase()
@@ -1324,11 +1423,11 @@ export function isStrongVoiceInterest(transcript: string) {
 export function withSoftPhoneAsk(
   data: VoiceAssistResult,
   identified: boolean,
-  opts?: { afterOptionPick?: boolean; conversationEnding?: boolean; strongInterest?: boolean; locale?: TourLocale },
+  opts?: { afterOptionPick?: boolean; conversationEnding?: boolean; strongInterest?: boolean; accumulatedInterest?: boolean; locale?: TourLocale },
 ): VoiceAssistResult {
-  const moment = Boolean(opts?.afterOptionPick || opts?.conversationEnding || opts?.strongInterest)
+  const moment = Boolean(opts?.afterOptionPick || opts?.conversationEnding || opts?.strongInterest || opts?.accumulatedInterest)
   if (!moment || identified) return data
-  if (opts?.afterOptionPick && data.matches.length === 0) return data
+  if (opts?.afterOptionPick && data.matches.length === 0 && !opts?.accumulatedInterest) return data
   if (opts?.conversationEnding && !isConversationEnd(data.transcript)) return data
   if (hasAskedVoicePhone()) {
     if (!(opts?.strongInterest && hasDeclinedVoicePhone() && !hasRetriedVoicePhone())) return data
@@ -1336,9 +1435,10 @@ export function withSoftPhoneAsk(
   } else {
     markAskedVoicePhone()
   }
+  const line = opts?.accumulatedInterest ? voiceEngagementPhoneAskLine(opts?.locale) : voiceSoftPhoneAskLine(opts?.locale)
   return {
     ...data,
-    speak: `${data.speak.trim()}${voiceSoftPhoneAskLine(opts?.locale)}`,
+    speak: `${data.speak.trim()}${line}`,
   }
 }
 

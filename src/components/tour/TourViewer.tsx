@@ -4895,6 +4895,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             setFichaOpen(true)
             writeUnitQueryParam(unit.unit_number)
           }}
+          screen={{ viewMode, fichaOpen, hasUnit: Boolean(selectedUnit), galleryCount: galeriaImages.length }}
           onVoiceAction={(action) => {
             if (action === 'OPEN_GALLERY') {
               setShellMode('unit')
@@ -4915,24 +4916,25 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               )
               return
             }
-            if (action === 'OPEN_TOUR_360' || action === 'LOOK_AROUND') {
+            if (action === 'OPEN_TOUR_360') {
               setShellMode('unit')
               setViewMode('tour')
               setFichaOpen(false)
-              return
-            }
-            if (action === 'GO_BEDROOM') {
-              const bedroom = tourRooms.find((item) => item.slug === 'dormitorio' || item.slug.startsWith('dormitorio'))
-              setShellMode('unit')
-              setViewMode('tour')
-              setFichaOpen(false)
-              if (bedroom) setRoom(bedroom.slug)
               return
             }
             if (action === 'OPEN_FLOOR_PLAN') {
               setShellMode('plan')
               setViewMode('planos-3d')
               setFichaOpen(false)
+              return
+            }
+            if (action === 'OPEN_SIMULATOR') {
+              setShellMode('unit')
+              setSimulatorOpen(true)
+              return
+            }
+            if (action === 'SAVE_FAVORITE') {
+              setSaveUnitOpen(true)
               return
             }
             if (action === 'CLOSE_FICHA') setFichaOpen(false)
