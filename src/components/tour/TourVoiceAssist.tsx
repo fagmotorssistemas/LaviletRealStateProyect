@@ -1483,7 +1483,7 @@ export function TourVoiceAssist({
     })
   }
 
-  useVoiceInterruption(open && (phase==='speaking'||phase==='thinking') && conversationRef.current,()=>{void startRecording()})
+  useVoiceInterruption(open && phase==='thinking' && conversationRef.current,()=>{void startRecording()})
 
   return (
     <>
