@@ -44,8 +44,8 @@ export function budgetKindQuestion(budget: Row): string {
 
 export function budgetQuestion(info: Row): string {
   return leadBudget(info).status === 'amount_pending'
-    ? '¿De cuánto es el presupuesto que tiene previsto?'
-    : '¿Tiene un presupuesto estimado para esta compra?'
+    ? '¿De cuánto es el presupuesto total aproximado que tiene previsto para la compra?'
+    : '¿Qué presupuesto total aproximado tiene previsto para la compra?'
 }
 
 export function reviewedFinancingCovers(info: Row, unit: Row | null): boolean {

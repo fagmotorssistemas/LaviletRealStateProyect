@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { CONTEXTUAL_CALCULATION_REVIEW_RULES } from './semantic-review'
 import { needsPropertyPurpose } from './conversation-next-step'
 import { turnContinuation } from './turn-continuation'
+import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
 import { LAUNCH_PRICE_COMPARISON_RULE } from './launch-price-policy'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { PROJECT_TRUTH_RULES } from './project-truth'
@@ -77,7 +78,7 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
   if (Object.keys(journey).length) obligations.push({ id: 'commercial_next_step',
     ...journey, continuation_required: continuation.required,
     response_connection: continuation.response_connection,
-    instruction: text(journey.instruction) + ' Atienda primero cualquier consulta concreta; si hay pregunta de presentación pendiente, tiene prioridad y no añada otra. Con continuation_required=true, la pregunta debe aparecer en el mensaje real y cumplir esta decisión pendiente: responder la duda o entregar el brochure no basta. La formulación admite redacción equivalente, pero no omisión ni cambio de finalidad. No exija repetir detalles del sistema.' })
+    instruction: text(journey.instruction) + '\n' + BUDGET_ORIENTATION_RULES + ' Atienda primero cualquier consulta concreta; si hay pregunta de presentación pendiente, tiene prioridad y no añada otra. Con continuation_required=true, la pregunta debe aparecer en el mensaje real y cumplir esta decisión pendiente: responder la duda o entregar el brochure no basta. La formulación admite redacción equivalente, pero no omisión ni cambio de finalidad. No exija repetir detalles del sistema.' })
   if (!journey.action && needsPropertyPurpose(verified, audit, stage)) obligations.push({ id: 'property_purpose',
     instruction: 'Después de responder el precio o la oferta general, presente brevemente los tipos autorizados disponibles (suites, departamentos, penthouses y locales, según las fuentes) y pregunte si busca vivienda o un espacio para comercio. El propósito aún no se conoce; no termine solamente con el brochure. No vuelva a pedir un propósito ya confirmado.' })
   if (audit.source === 'clarify_previous_choice') obligations.push({ id: 'clarify_previous_choice',
@@ -98,7 +99,7 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
     instruction: 'El lead aceptó continuar el financiamiento, pero todavía no eligió una unidad. Si este turno continúa esa revisión, retome la selección con sus preferencias conocidas. No solicite cédula, empleo ni ingresos antes de elegir inmueble, no vuelva a pedir la aceptación y no sustituya la selección por una derivación. Explicar requisitos cuando se preguntan no es solicitar que los entregue.' })
   if (financing.stage === 'clarify_budget' && stage.requiere_captura !== true) obligations.push({ id: 'financing_budget_first', instruction: text(financing.instruction) })
   if (verified.presupuesto_del_turno) obligations.push({ id: 'current_budget_answer',
-    instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si existe un monto comparable y precios autorizados, explique su relación; sin monto declarado no exija comparar precios ni invente cero. Siga siguiente_paso_comercial para continuar sin repetir rechazos ni invitaciones ya contestadas. Si falta información para una comparación solicitada, comunique esa limitación. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
+    instruction: 'Compruebe semánticamente que el borrador atiende el presupuesto actual junto con la búsqueda. Use contexto_verificado.presupuesto_del_turno: si existe un monto comparable y precios autorizados, atienda su relación solo dentro del alcance comprobado; sin monto declarado no exija comparar precios ni invente cero. Un importe suficiente permite continuar por necesidades, no exige enumerar precios ni afirmar que todas las opciones cumplen requisitos. Una entrada conserva su papel y una aceptación de financiamiento no autoriza recopilar datos antes de elegir unidad. Siga siguiente_paso_comercial para continuar sin repetir rechazos ni invitaciones ya contestadas. Si falta información para una comparación solicitada, comunique esa limitación. No exija palabras exactas, repetir el importe, una frase fija ni confirmar financiación.' })
   if (object(verified.presupuesto_del_turno).continuation) obligations.push({ id: 'budget_continuation',
     action: object(verified.presupuesto_del_turno).continuation, instruction: stage.requiere_captura === true
       ? 'Atienda la relación del presupuesto con los precios y mencione el financiamiento si corresponde. La única pregunta en esta apertura solicita nombre y residencia; no añada todavía aceptación financiera ni preferencias.'

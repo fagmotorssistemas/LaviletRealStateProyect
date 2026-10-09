@@ -63,7 +63,23 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
     && (assessment.budget_source === 'current_lead_statement' || declaredTotalBudget)
   const knownPrices = rows(verified.catalogo).some(unit => positive(unit.published_commercial_price))
     || rows(assessment.prices).some(unit => positive(unit.published_commercial_price)) || positive(assessment.minimum_price)
-  const budgetComparison = (declaredTotalBudget || currentAssessment) && knownPrices
+  const journey = object(verified.siguiente_paso_comercial || audit.commercial_journey)
+  const guidance = object(journey.budget_guidance)
+  // A resolved guidance contract can say that prices are unnecessary even
+  // when a new budget amount appears. Keep legacy callers without that plan.
+  const budgetComparison = !text(guidance.status) && (declaredTotalBudget || currentAssessment) && knownPrices
+  const comparisonPrices = rows(guidance.prices)
+  const candidateIds = new Set(Array.isArray(guidance.candidate_unit_ids) ? guidance.candidate_unit_ids.map(text).filter(Boolean) : [])
+  const pricedIds = new Set(comparisonPrices.map(price => text(price.unit_id)).filter(Boolean))
+  // The planner compares the current relevant scope and records it only after
+  // delivery. A remembered amount or insufficiency alone cannot reopen prices.
+  const changedBudgetScopeComparison = guidance.comparison_required === true && guidance.complete === true
+    && guidance.status === 'below_available_prices' && guidance.coverage === 'none' && positive(guidance.amount)
+    && object(verified.politica_comercial).precios_autorizados === true
+    && candidateIds.size > 0 && pricedIds.size === candidateIds.size
+    && [...candidateIds].every(id => pricedIds.has(id))
+    && comparisonPrices.every(price => positive(price.published_commercial_price)
+      && Number(price.published_commercial_price) > Number(guidance.amount))
   const approvedIntroduction = projectIntroductionForTurn(verified)
   const initialOverview = !!approvedIntroduction && currentGrounded.some(request => request.domain === 'property')
     && (!hasTypedTopics || currentTopics.has('project_overview'))
@@ -93,9 +109,9 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
       initialOverview ? 'approved_initial_overview' : locationRequested ? 'location_request' : 'verified_in_person_confirmation'),
     exact_location: topic(explicitExactLocation || inPersonConfirmation,
       explicitExactLocation ? 'explicit_location_request' : 'verified_in_person_confirmation'),
-    purchase_prices: topic(requested.has('purchase_price') || legacyPrice || pendingPriceClarification || budgetComparison,
+    purchase_prices: topic(requested.has('purchase_price') || legacyPrice || pendingPriceClarification || budgetComparison || changedBudgetScopeComparison,
       requested.has('purchase_price') ? 'unanswered_price_request' : legacyPrice ? 'current_legacy_price_request'
-        : pendingPriceClarification ? 'pending_price_reference_clarification' : 'current_budget_comparison'),
+        : pendingPriceClarification ? 'pending_price_reference_clarification' : changedBudgetScopeComparison ? 'changed_budget_scope_comparison' : 'current_budget_comparison'),
     commercial_stage: topic(requested.has('commercial_stage'), 'commercial_stage_request'),
     construction_status: topic(requested.has('construction_status') || physicalVisitException || digitalException,
       requested.has('construction_status') ? 'construction_status_request' : physicalVisitException ? 'current_visit_access_restriction' : 'digital_representation_scope'),
@@ -154,6 +170,9 @@ export function projectContentForWriter(raw: Row, scope?: Row): Row {
     if (source.version === RESPONSE_CONTENT_SCOPE_VERSION || source.id === 'location_scope') return { ...source }
     const isProject = projectSourceKeys.has(key)
     return Object.fromEntries(Object.entries(source).filter(([field]) => {
+      // Delivery fingerprints are for continuity, not model evidence. Their
+      // serialized snapshots may contain prices hidden in this writer turn.
+      if (field === 'budget_scope_key' || key === 'budget_guidance' && field === 'scope_key') return false
       if (!prices && (purchasePriceFields.has(field) || priceEvidenceKeys.has(field) && source[field] != null
         || key === 'early_purchase_discount' && quoteAmountFields.has(field)
         || catalogRecord && ['price', 'commercial_price'].includes(field))) return false

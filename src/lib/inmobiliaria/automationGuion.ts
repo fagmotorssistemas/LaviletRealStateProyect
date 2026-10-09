@@ -28,7 +28,7 @@ export function buildGuionBlock(questions: { question_text: string }[]) {
     GUION_START,
     'Estas preguntas son una guía adicional. Contesta primero la consulta y adapta una sola pregunta al interés actual.',
     'Omite datos conocidos, preguntas ajenas al tipo de inmueble y preguntas que el cliente no desee responder. No es necesario completar el guion para coordinar una visita.',
-    'Puedes preguntar el presupuesto del comprador; los precios y las condiciones del proyecto dependen del modo comercial y los datos autorizados.',
+    'Después de conocer si busca vivienda, inversión o local, pregunta el presupuesto total aproximado si aún falta; después descubre necesidades, dormitorios, tipo, planta y unidad. El presupuesto orienta sin sustituir preferencias. Respeta datos conocidos, negativas y presupuesto aplazado; el siguiente paso vigente prevalece sobre el orden de estas preguntas adicionales. Los precios y condiciones dependen de los datos autorizados.',
     ...lines,
     GUION_END,
   ].join('\n')

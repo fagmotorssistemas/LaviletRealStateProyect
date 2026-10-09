@@ -20,6 +20,7 @@ const catalog: Row[] = [
 function info(query: Row = { group: 'residential', operation: 'search', filters: { bedrooms: 3 } }): Row {
   return { catalogo: catalog, catalog_read: { complete: true }, politica_comercial: { precios_autorizados: true },
     lead: { purchase_purpose: 'vivir' }, property_context: { query }, recorrido_comercial: {},
+    hechos_confirmados: { budget: { status: 'maximum_total', amount: 600000, confidence: 'high', evidence: 'Mi presupuesto total es 600000' } },
     financiamiento: { partners: ['Banco Pichincha', 'Cooperativa JEP'], journey: {} },
     semantica_turno: { primary_intent: 'select_property', budget: { status: 'not_discussed' } } }
 }
@@ -37,10 +38,22 @@ function resolve(current: string, context: Row, property: Row, kind = 'value') {
   return resolvePropertyTurn(catalog, current, { _property_context: context, _pending_question: pending }, [], semantics)
 }
 
-test('five bedrooms proceeds through consent, type, floor, displayed units and only then budget', () => {
+test('early total budget is remembered through bedroom alternatives, type, floor and displayed units', () => {
   const original = { group: 'residential', operation: 'search', filters: { bedrooms: 5 },
     requirements: [{ field: 'bedrooms', operator: 'eq', value: 5, strength: 'required', evidence: 'busco cinco dormitorios' }] }
-  let data = info(original), plan = commercialJourneyPlan(data)
+  let data = info({ group: 'residential', operation: 'search', filters: {} })
+  delete data.hechos_confirmados
+  let plan = commercialJourneyPlan(data)
+  assert.equal(plan.question_id, 'budget_amount')
+  assert.equal(plan.action, 'ask_budget')
+  assert.match(String(plan.question), /presupuesto total/)
+  assert.equal(Boolean(plan.requires_unit_presentation), false)
+  assert.equal(plan.financing_offer_allowed, false)
+  data.hechos_confirmados = { budget: { status: 'maximum_total', amount: 600000, confidence: 'high', evidence: 'Mi presupuesto total es 600000' } }
+  plan = commercialJourneyPlan(data)
+  assert.equal(plan.question_id, 'property_bedrooms')
+  data.property_context = { query: original }
+  plan = commercialJourneyPlan(data)
   assert.equal(plan.question_id, 'property_requirements')
   assert.match(String(plan.question), /3 dormitorios/)
   assert.deepEqual(plan.alternative_unit_ids, catalog.filter(unit => unit.bedrooms === 3).map(unit => unit.id))
@@ -70,14 +83,13 @@ test('five bedrooms proceeds through consent, type, floor, displayed units and o
   const floor = resolve('La segunda planta', context, { operation: 'search', category: 'departamento', filters: { floor_number: 2 } })
   data = { ...data, property_context: floor.context }
   plan = commercialJourneyPlan(data)
-  assert.equal(plan.question_id, 'budget_amount')
-  assert.equal(plan.presentation, 'units_before_budget')
+  assert.equal(plan.question_id, 'unit_choice')
+  assert.equal(plan.presentation, 'units')
   assert.equal(plan.requires_unit_presentation, true)
   assert.deepEqual(object(plan.selection_scope).unit_ids, ['d202', 'd205'])
   const reply = `El departamento 202 tiene 120.83 m² interiores y el departamento 205 tiene 118 m² interiores. ${plan.question}`
   const actualIds = unitsInPropertyReply(catalog, reply).map(unit => unit.id)
   data.recorrido_comercial = rememberCommercialJourney({}, plan, {}, true, actualIds)
-  data.hechos_confirmados = { budget: { status: 'maximum_total', amount: 300000, confidence: 'high', evidence: 'Mi presupuesto total es 300000' } }
   plan = commercialJourneyPlan(data)
   assert.equal(plan.question_id, 'unit_choice')
   assert.equal(plan.requires_unit_presentation, false)
@@ -85,23 +97,26 @@ test('five bedrooms proceeds through consent, type, floor, displayed units and o
   assert.equal(object(object(data.property_context).query).category, 'departamento')
   assert.equal(object(object(object(data.property_context).query).filters).floor_number, 2)
   assert.deepEqual(object(data.property_context).selected_ids, [])
+  assert.equal(object(object(plan.readiness).budget).amount, 600000)
+  assert.notEqual(plan.question_id, 'budget_kind')
 })
 
-test('one compatible floor is explained rather than asked, while its units precede budget', () => {
+test('after early budget, one compatible floor presents identified units without a redundant floor question', () => {
   const data = info({ group: 'residential', category: 'penthouse', operation: 'search', filters: { bedrooms: 3 } })
   const plan = commercialJourneyPlan(data)
   assert.deepEqual(object(plan.selection_scope).floors, [6])
-  assert.equal(plan.question_id, 'budget_amount')
-  assert.equal(plan.presentation, 'units_before_budget')
+  assert.equal(plan.question_id, 'unit_choice')
+  assert.equal(plan.presentation, 'units')
   assert.deepEqual(object(plan.selection_scope).unit_ids, ['p602', 'p605'])
   assert.match(String(plan.instruction), /Presente primero los números/)
 })
 
-test('one compatible unit is shown with its authorized tour before budget without selecting it', () => {
+test('after early budget, one compatible unit is shown with its authorized tour without selecting it', () => {
   const data = info({ group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3, floor_number: 5 } })
   const plan = commercialJourneyPlan(data), reply = catalogDialogueReply(data)!
-  assert.equal(plan.presentation, 'single_unit_before_budget')
-  assert.equal(plan.question_id, 'budget_amount')
+  assert.equal(plan.presentation, 'single_unit')
+  assert.equal(plan.question_id, 'unit_choice')
+  assert.equal(plan.question_act, 'confirm_unit')
   assert.equal(plan.selected_unit_id, null)
   assert.match(reply.reply, /departamento 502/i)
   assert.match(reply.reply, /360/)
@@ -146,7 +161,7 @@ test('unit exposure is recorded only from delivered actual IDs and authorized cu
   assert.equal(commercialJourneyPlan(data).requires_unit_presentation, true, 'One displayed option does not expose another option in the same plant.')
   data.recorrido_comercial = rememberCommercialJourney(object(data.recorrido_comercial), plan, {}, true, ['d205'])
   const next = commercialJourneyPlan(data)
-  assert.equal(next.presentation, 'known_units')
+  assert.equal(next.presentation, 'units')
   assert.equal(next.requires_unit_presentation, false)
 })
 
@@ -235,6 +250,7 @@ test('a bedroom recommendation preserves rejected types and never offers a suite
 
 test('a directly identified unit bypasses type and floor discovery without skipping the budget response', () => {
   const data = info({ group: 'residential', category: 'penthouse', operation: 'select', scope: 'selected', filters: { bedrooms: 3, floor_number: 6 } })
+  delete data.hechos_confirmados
   data.property_context = { ...object(data.property_context), selected_ids: ['p602'] }
   data.referencia_unidad = { explicit: true, hasUnitMention: true, matches: [catalog.find(unit => unit.id === 'p602')], query: object(data.property_context).query }
   const plan = commercialJourneyPlan(data), answer = catalogDialogueReply(data, 'Quiero el penthouse 602')!
@@ -245,7 +261,7 @@ test('a directly identified unit bypasses type and floor discovery without skipp
   assert.deepEqual(answer.audit.selected_unit_ids, ['p602'])
 })
 
-test('the reduced writer evidence retains the actual floor units before the budget question', () => {
+test('the reduced writer evidence retains the actual floor units after early budget discovery', () => {
   for (const floor of [2, 5]) {
     const data = info({ group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3, floor_number: floor } })
     const answer = catalogDialogueReply(data)!
@@ -254,7 +270,7 @@ test('the reduced writer evidence retains the actual floor units before the budg
     const evidence = taskModelEvidence(addTaskQueryEvidence(turnEvidence(data, answer.audit), projected), projected)
     const expected = catalog.filter(unit => unit.category === 'departamento' && unit.bedrooms === 3 && unit.floor_number === floor)
     assert.equal(object(data.siguiente_paso_comercial).requires_unit_presentation, true)
-    assert.equal(object(data.siguiente_paso_comercial).question_id, 'budget_amount')
+    assert.equal(object(data.siguiente_paso_comercial).question_id, 'unit_choice')
     assert.deepEqual(evidence.units.map(unit => unit.id), expected.map(unit => unit.id))
     assert.deepEqual(evidence.units.map(unit => unit.unit_number), expected.map(unit => unit.unit_number))
     assert.deepEqual(evidence.units.map(unit => unit.area_internal_m2), expected.map(unit => unit.area_internal_m2))

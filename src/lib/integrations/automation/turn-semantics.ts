@@ -309,8 +309,10 @@ export function pendingQuestionFromReply(reply: string): Row {
     && /que dia|cual dia|fecha|que hora|horario|cuando/.test(value)) id = 'visit_date_time'
   else if (/visita|cita|visitarnos|conocer el proyecto|conocerlo en persona/.test(value)
     && /gustaria|desea|quiere|coordin|agend|animaria/.test(value)) id = 'visit_invitation'
-  else if (/presupuesto total|monto disponible|capital inicial|entrada/.test(value)) id = 'budget_kind'
-  else if (/presupuesto|cuanto.*(?:invertir|dispone|cuenta)|capital aproximado/.test(value)) id = 'budget_amount'
+  else if ((/presupuesto total|monto total|valor total|toda la compra/.test(value)
+    && /entrada|capital inicial|aporte inicial/.test(value))
+    || /(?:ese|este|el) (?:monto|importe|dinero|valor).*(?:corresponde|destinad|para|es).*(?:entrada|capital inicial)/.test(value)) id = 'budget_kind'
+  else if (/presupuesto|cuanto.*(?:invertir|dispone|cuenta|entrada|capital)|capital aproximado|monto disponible|capital inicial|entrada/.test(value)) id = 'budget_amount'
   else if (/vivir.*invertir|invertir.*vivir|residencia.*inversion|inversion.*residencia/.test(value)) id = 'property_purpose'
   else if (/que tipo de espacio|suite.*departamento|departamento.*suite|departamento.*penthouse|penthouse.*departamento|vivienda.*local|local.*vivienda/.test(value)) id = 'property_category'
   else if (/que planta|cual.*planta|que piso|cual.*piso/.test(value)) id = 'property_floor'

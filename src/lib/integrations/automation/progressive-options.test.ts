@@ -111,3 +111,41 @@ test('a tour URL query marker cannot replace the planned post-tour commercial qu
   assert.deepEqual(progressivePendingQuestion(tour, audit), {})
   assert.deepEqual(progressivePendingQuestion(tour + '\n' + question, audit), audit.pending_question)
 })
+
+
+test('the current budget question supersedes a legacy unit/details suggestion and persists as budget, never a selection', () => {
+  const budgetQuestion = '¿Qué presupuesto total aproximado tiene previsto para la compra?'
+  const audit = { progressive_selection: { stage: 'choose_unit', question: '¿Cuál unidad desea conocer?', candidate_ids: ['p1', 'p2'] },
+    pending_question: { id: 'unit_choice', act: 'choose_unit', question: '¿Cuál unidad desea conocer?', candidate_ids: ['p1', 'p2'] },
+    commercial_journey: { action: 'ask_budget', question_id: 'budget_amount', question: budgetQuestion },
+    turn_completeness: { question: { purpose: 'clarify_request', continuation_id: 'budget_amount', continuation_act: 'budget' } } }
+  const reply = 'Podemos revisar opciones de vivienda. ' + budgetQuestion
+  assert.deepEqual(progressiveQuestionObservations(reply, audit, 'clarify_request'), [])
+  const receipt = progressivePendingQuestion(reply, audit)
+  assert.equal(receipt.id, 'budget_amount')
+  assert.equal(receipt.act, 'budget')
+  assert.equal(receipt.question, budgetQuestion)
+  assert.deepEqual(receipt.candidate_ids, [])
+  assert.deepEqual(progressiveQuestionObservations('Podemos revisar opciones de vivienda.', audit), ['commercial_next_question_missing'])
+})
+
+test('the next needs question replaces an obsolete post-tour budget question without relabeling the lead answer', () => {
+  const question = '¿Cuántos dormitorios necesita?'
+  const audit = { post_tour_continuation: { question: '¿Cuál es su presupuesto?' },
+    pending_question: { id: 'budget_amount', act: 'budget', question: '¿Cuál es su presupuesto?' },
+    commercial_journey: { action: 'ask_bedrooms', question_id: 'property_bedrooms', question },
+    turn_completeness: { question: { purpose: 'choose_property', continuation_id: 'property_bedrooms', continuation_act: 'other' } } }
+  assert.deepEqual(progressiveQuestionObservations(question, audit), [])
+  const receipt = progressivePendingQuestion(question, audit)
+  assert.equal(receipt.id, 'property_bedrooms')
+  assert.equal(receipt.act, 'other')
+  assert.equal(receipt.question, question)
+})
+
+test('a resolved close cannot revive a stale property or budget invitation', () => {
+  const audit = { progressive_selection: { stage: 'choose_unit', question: '¿Cuál prefiere?' },
+    pending_question: { id: 'unit_choice', act: 'choose_unit', question: '¿Cuál prefiere?', candidate_ids: ['p1'] },
+    commercial_journey: { action: 'leave_open', question_id: '', question: '' } }
+  assert.deepEqual(progressiveQuestionObservations('Con gusto atenderé cualquier otra consulta.', audit), [])
+  assert.deepEqual(progressivePendingQuestion('Con gusto atenderé cualquier otra consulta.', audit), {})
+})

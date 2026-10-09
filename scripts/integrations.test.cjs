@@ -741,7 +741,7 @@ test('yes to viewing a unit after a financing mention never starts qualification
   const sent = h.calls.find(c => c.name === 'patch').args[2]
   assert.match(sent, /502.*100 m².*sala, cocina/)
   assert.doesNotMatch(sent, /cédula|revisión|asesor|visita/)
-  assert.match(sent, /¿Lo busca para vivir o como inversi\u00f3n\?/)
+  assert.match(sent, /¿Qué presupuesto total aproximado tiene previsto para la compra\?/)
   assert.equal(h.calls.some(c => ['process_financing_message_v3', 'lv_collect_visit_intake', 'handoff_lead'].includes(c.name)), false)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
 })
@@ -1381,7 +1381,7 @@ test('a bare affirmative cannot accept a historical explanation saved as a phant
   assert.equal(h.calls.some(call => ['lv_request_reservation_handoff', 'lv_collect_visit_intake', 'process_financing_message_v3'].includes(call.name)), false)
 })
 
-for (const reviewEnabled of [true, false]) test(`family alternatives advance through type, floor, displayed unit and budget with review ${reviewEnabled}`, async t => {
+for (const reviewEnabled of [true, false]) test(`family alternatives recover early budget then advance through type, floor and displayed unit with review ${reviewEnabled}`, async t => {
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_FAMILY_REPLAY') })
   const catalog = continuityCatalog
@@ -1394,6 +1394,11 @@ for (const reviewEnabled of [true, false]) test(`family alternatives advance thr
       question: 'property_requirements', selected: [] },
     { current: 'Sí, me gustaría revisar esas opciones', property: { operation: 'none' },
       answer: { question_id: 'property_requirements', kind: 'affirmative' },
+      reply: 'Perfecto. ¿Qué presupuesto total aproximado tiene previsto para la compra?',
+      question: 'budget_amount', selected: [] },
+    { current: 'Mi presupuesto total es 600000 dólares', property: { operation: 'none' },
+      answer: { question_id: 'budget_amount', kind: 'value' },
+      budget: { status: 'maximum_total', amount: 600000, confidence: 'high', evidence: 'Mi presupuesto total es 600000 dólares' },
       reply: 'Los departamentos de tres dormitorios tienen 120,83 m² interiores; los penthouses cuentan con entre 140,53 y 142,09 m² interiores. Para empezar a revisar estas alternativas, ¿prefiere departamentos o penthouses?',
       question: 'property_category', selected: [] },
     { current: 'Me interesan más los departamentos', property: { category: 'departamento', operation: 'search' },
@@ -1402,12 +1407,7 @@ for (const reviewEnabled of [true, false]) test(`family alternatives advance thr
       question: 'property_floor', selected: [] },
     { current: 'Me gustaría en la tercera planta', property: { operation: 'search', filters: { floor_number: 3 } },
       answer: { question_id: 'property_floor', kind: 'value' },
-      reply: 'En la tercera planta está el departamento 302, de tres dormitorios y 120,83 m² interiores. Para valorar esta opción, ¿tiene un presupuesto establecido para esta compra?',
-      question: 'budget_amount', selected: [], presented: [unit302.id] },
-    { current: 'Mi presupuesto total es 300000 dólares', property: { operation: 'none' },
-      answer: { question_id: 'budget_amount', kind: 'value' },
-      budget: { status: 'maximum_total', amount: 300000, confidence: 'high', evidence: 'Mi presupuesto total es 300000 dólares' },
-      reply: 'El departamento 302 tiene un precio referencial de lanzamiento de $270,000, dentro de su presupuesto total de $300,000. ¿Desea continuar con el departamento 302?',
+      reply: 'En la tercera planta está el departamento 302, de tres dormitorios y 120,83 m² interiores. ¿Desea continuar con el departamento 302?',
       question: 'unit_choice', selected: [], presented: [unit302.id] },
   ]
   for (const turn of turns) {
@@ -1496,9 +1496,11 @@ async function currentContractCoverage(input, generate) {
   let writerQuestion
   return require('../src/lib/integrations/automation/turn-completeness.ts').completeTurnReply(input, async (...args) => {
     const context = args[1], schema = args[2], task = args.at(-1)
+    const actualPlan = context.contexto_verificado?.siguiente_paso_comercial || context.estado_del_turno?.siguiente_paso_comercial
+    const effectiveInput = actualPlan ? { ...input, verified: { ...input.verified, siguiente_paso_comercial: actualPlan } } : input
     let result = await generate(...args)
     if (task === 'writing' && result.requests !== null) {
-      writerQuestion = fixtureQuestion(result.reply, input, result.question)
+      writerQuestion = fixtureQuestion(result.reply, effectiveInput, result.question)
       const references = context.referencias_solicitud || []
       result = { reply: result.reply, question: writerQuestion, requests: result.requests.map(row => {
         const ref = references.find(reference => reference.id === row.fragment || reference.text === row.fragment)
@@ -1519,7 +1521,7 @@ async function currentContractCoverage(input, generate) {
         reason: 'The fixture cannot ground this claim', authoritative_fact: claim.evidence || 'No verified evidence' }))]
       result = { review_contract: 'business-risk-v2', verdict: findings.length ? 'block' : 'pass',
         facts: [], findings, question: /¿[^?]+\?/.test(context.borrador)
-          ? { ...fixtureQuestion(context.borrador, input, writerQuestion), offered_action: 'none' } : null }
+          ? { ...fixtureQuestion(context.borrador, effectiveInput, writerQuestion), offered_action: 'none' } : null }
     }
     // Disabled review intentionally accepts the writer envelope without its
     // usual fields; that explicit policy test does not fake a review verdict.
@@ -3217,7 +3219,10 @@ const progressiveReplayCatalog = [
   { id: 'progressive-203', unit_number: '203', category: 'suite', bedrooms: 1, bathrooms_full: 1, floor_number: 2,
     floor: 'Segunda Planta Alta', area_internal_m2: 60.57, area_exterior_m2: 10.34, published_commercial_price: 200000, is_published: true, status: 'disponible' },
 ]
-const progressiveReplaySummary = () => introducedSummary({ _property_context: {
+const progressiveReplaySummary = () => introducedSummary({
+  _interpretation_memory: { version: 2, budget: { status: 'maximum_total', amount: 600000,
+    confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } },
+  _property_context: {
   version: 2, offered_ids: ['progressive-602', 'progressive-605'], selected_ids: [],
   query: { group: 'residential', category: 'penthouse', operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } },
 } })
@@ -3227,7 +3232,9 @@ const checkedProgressiveCoverage = input => currentContractCoverage(input,
     if (args.at(-1) === 'review') return { all_requests_considered: true, answers_supported: true, answered_content_preserved: true,
       operational_goal_preserved: true, question_has_purpose: true, missing_fact_fragments: [], factual_values: [],
       claims: [{ fragment: input.baseReply, subject: 'opciones verificadas', polarity: 'affirmation', verdict: 'supported', evidence: 'catalogo', evidence_source: 'verified_context' }] }
-    const reply = fixtureDraftReply(input,input.baseReply,args[1])
+    let reply = fixtureDraftReply(input,input.baseReply,args[1])
+    const nextStep = args[1].contexto_verificado?.siguiente_paso_comercial
+    if (nextStep?.question_act === 'choose_unit') reply = reply.replace(/¿[^?]+\?$/, '¿Cuál de estas unidades le gustaría revisar?')
     const question = reply.match(/¿[^?]+\?/g)?.at(-1) || ''
     return { reply, requests: [{ fragment: input.current, intent: 'Atender la consulta actual sobre inmuebles', request_type: 'general_information',
       base_status: 'answered', status: 'answered', evidence: input.baseReply, fact_key: null }],
@@ -3237,11 +3244,13 @@ const checkedProgressiveCoverage = input => currentContractCoverage(input,
   })
 
 function progressiveReplay(initial = {}) {
-  let summary = initial.summary || progressiveReplaySummary(), lead = { preferred_category: 'penthouse', preferred_bedrooms: 3, ...initial.lead }
+  let summary = initial.summary || progressiveReplaySummary(), lead = { purchase_purpose: 'vivir', preferred_category: 'penthouse',
+    preferred_bedrooms: 3, last_bot_message_at: new Date().toISOString(), ...initial.lead }
   let history = initial.history || [{ role: 'cliente', content: 'Me interesan los penthouses de tres dormitorios' },
     { role: 'bot', content: 'Tenemos los penthouses 602 y 605 de tres dormitorios. ¿Qué le gustaría conocer?' }]
   return {
     async turn(current, property = {}, intent = 'select_property') {
+      let completionAudit
       const semantics = extractedProperty(current, property, intent)
       if (intent === 'answer_previous' && summary._pending_question?.id) semantics.answer_to_previous = {
         question_id: summary._pending_question.id, kind: 'affirmative', evidence: current, confidence: 'high',
@@ -3250,10 +3259,19 @@ function progressiveReplay(initial = {}) {
         conversacion: { datos_conocidos: { presupuesto_texto: lead.behavior_signals?.sdr?.presupuesto_texto || null } },
         financiamiento: { partners: [], current: {} }, politica_visitas: { allowSuggestions: false, launchDestination: 'office' } }
       const h = conversationHarness({ catalog: progressiveReplayCatalog, commercialInfo: info, realCommercial: true,
-        commercialAi: deterministicOnly, captureTrace: true, turnComplete: initial.turnComplete || checkedProgressiveCoverage, financeContext: info.financiamiento,
+        commercialAi: deterministicOnly, captureTrace: true, turnComplete: async input => {
+          const completed = await (initial.turnComplete || checkedProgressiveCoverage)(input)
+          completionAudit = completed.audit
+          return completed
+        }, financeContext: info.financiamiento,
         history, summary, lead, extracted: { events: intent === 'ask_price' ? ['asked_price'] : [], turn_semantics: semantics } })
       h.rows[0].payload.text = current
-      const result = await h.process([h.rows[0]], async () => {})
+      const result = await h.process([h.rows[0]], async () => {}).catch(error => {
+        throw new Error(`${current}: ${JSON.stringify({ error: error.message, status: completionAudit?.status,
+          issues: completionAudit?.issues, details: completionAudit?.validation_details,
+          plan: completionAudit?.commercial_journey, question: completionAudit?.question,
+          preview: completionAudit?.proposed_preview })}`, { cause: error })
+      })
       const sent = h.calls.find(call => call.name === 'register_outbound_message')?.args
       assert.equal(result.action, 'accepted', current)
       assert.ok(sent, current)
@@ -3273,7 +3291,7 @@ test('a quoted comparison keeps the AI draft through delivery despite repeated c
   const quote = await replay.turn('cuál es el precio de los penthouse?', { category: 'penthouse', operation: 'search', reference_kind: 'followup' }, 'ask_price')
   assert.equal(quote.summary._lead_introduction.request_sent, true)
   assert.equal(quote.summary._lead_introduction.status, 'complete')
-  const draft = 'La diferencia principal entre los penthouses 602 y 605, ambos de 3 dormitorios en la sexta planta alta, está en los baños y el tamaño de sus áreas. El penthouse 602 cuenta con 2 baños completos, 142,09 m² interiores y 25,3 m² de área exterior. El penthouse 605 dispone de 3 baños completos, 140,53 m² interiores y 23,01 m² de área exterior. ¿Cuál de estas opciones le gustaría conocer más a detalle?'
+  const draft = 'La diferencia principal entre los penthouses 602 y 605, ambos de 3 dormitorios en la sexta planta alta, está en los baños y el tamaño de sus áreas. El penthouse 602 cuenta con 2 baños completos, 142,09 m² interiores y 25,3 m² de área exterior. El penthouse 605 dispone de 3 baños completos, 140,53 m² interiores y 23,01 m² de área exterior. ¿Cuál de estas unidades le gustaría revisar?'
   const current = 'pero y cual es la diferencia entre estos dos?'
   const turnComplete = input => currentContractCoverage(input, async (...args) => {
     if (args.at(-1) === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [],
@@ -3440,7 +3458,7 @@ test('progressive dialogue prices and compares only the requested penthouses bef
   assert.match(quote.sent.p_content, /penthouses de 3 dormitorios.*602.*605/is)
   assert.match(quote.sent.p_content, /sexta planta alta/i)
   assert.match(quote.sent.p_content, /550[.,]000.*cada uno/i)
-  assert.match(quote.sent.p_content, /más detalles de alguna de estas opciones/i)
+  assert.match(quote.sent.p_content, /Cuál de estas unidades le gustaría revisar/i)
   assert.doesNotMatch(quote.sent.p_content, /601|603|604|606|suite|departamento|tour\?|presupuesto|financiamiento/i)
   assert.equal(quote.sent.p_tool_calls.progressive_selection.stage, 'offer_details')
   assert.deepEqual(quote.summary._property_context.selected_ids, [])
@@ -3459,9 +3477,11 @@ test('progressive dialogue prices and compares only the requested penthouses bef
   assert.equal(comparison.summary._pending_question.act, 'choose_unit')
 
   for (const knownBudget of ['missing', 'maximum_total', 'amount']) {
-    const selected = progressiveReplay({ summary: knownBudget === 'missing' ? comparison.summary : { ...comparison.summary,
-      _interpretation_memory: { ...comparison.summary._interpretation_memory, budget: { status: knownBudget, amount: knownBudget === 'maximum_total' ? 600000 : 70000, confidence: 'high', evidence: knownBudget === 'maximum_total' ? 'Mi presupuesto total es de 600 mil d\u00f3lares' : 'Cuento con 70 mil d\u00f3lares' } } }, history: comparison.history, lead: {
-      ...comparison.lead, ...(knownBudget !== 'missing' ? { behavior_signals: { sdr: {
+    const selected = progressiveReplay({ summary: { ...comparison.summary,
+      _interpretation_memory: { ...comparison.summary._interpretation_memory,
+        budget: knownBudget === 'missing' ? null : { status: knownBudget, amount: knownBudget === 'maximum_total' ? 600000 : 70000,
+          confidence: 'high', evidence: knownBudget === 'maximum_total' ? 'Mi presupuesto total es de 600 mil d\u00f3lares' : 'Cuento con 70 mil d\u00f3lares' } } }, history: comparison.history, lead: {
+      ...comparison.lead, budget: null, budget_max: null, ...(knownBudget !== 'missing' ? { behavior_signals: { sdr: {
         presupuesto_texto: knownBudget === 'maximum_total' ? 'Mi presupuesto total es de 600 mil dólares' : 'Cuento con 70 mil dólares',
       } } } : {}),
     } })
@@ -3478,7 +3498,7 @@ test('progressive dialogue prices and compares only the requested penthouses bef
       assert.equal(result.summary._pending_question.id, 'budget_kind')
       assert.equal(result.sent.p_tool_calls.post_tour_continuation.budget.amount, 70000)
     } else {
-      assert.match(result.sent.p_content, /¿Tiene un presupuesto estimado para esta compra\?/)
+      assert.match(result.sent.p_content, /¿Qué presupuesto total aproximado tiene previsto para la compra\?/)
       assert.equal(result.summary._pending_question.id, 'budget_amount')
     }
   }
@@ -3486,7 +3506,8 @@ test('progressive dialogue prices and compares only the requested penthouses bef
 
 test('progressive dialogue changes the bedroom requirement only on request then asks category floor and unit in order', async t => {
   live(t)
-  const replay = progressiveReplay()
+  const replay = progressiveReplay({ lead: { preferred_category: null }, summary: { ...progressiveReplaySummary(),
+    _property_context: { query: { group: 'residential', operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } }, selected_ids: [] } } })
   const fewer = await replay.turn('Mejor quiero algo con menos cuartos', { category: null, operation: 'search', query_scope: 'catalog' })
   assert.match(fewer.sent.p_content, /departamentos de 2 dormitorios.*penthouses de 2 dormitorios.*suites de 1 dormitorio/is)
   assert.doesNotMatch(fewer.sent.p_content, /3 dormitorios|602|605|tour\?|más económicas|más baratos/i)
@@ -3514,7 +3535,8 @@ test('progressive dialogue changes the bedroom requirement only on request then 
 
 test('progressive dialogue clarifies an unspecified cheaper request and preserves three bedrooms when accepted', async t => {
   live(t)
-  const replay = progressiveReplay()
+  const replay = progressiveReplay({ lead: { preferred_category: null }, summary: { ...progressiveReplaySummary(),
+    _property_context: { query: { group: 'residential', operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } }, selected_ids: [] } } })
   const cheaper = await replay.turn('Quiero algo más barato', { operation: 'search', query_scope: 'catalog' })
   assert.match(cheaper.sent.p_content, /¿Desea que mantengamos los 3 dormitorios al buscar opciones más económicas\?/)
   assert.doesNotMatch(cheaper.sent.p_content, /suite|departamento|601|tour\?/i)
@@ -3901,7 +3923,8 @@ test('dialogue v2 replays the reported housing conversation with durable filters
       assert.match(reply, /502.*120[.,]83/s); assert.doesNotMatch(reply, /número de la unidad|504/)
     }],
   ]
-  let summary = {}, lead = {}, history = []
+  let summary = { _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
+    confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }, lead = {}, history = []
   for (const [current, property, check] of turns) {
     const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog, historial: history },
       realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedBaseCoverage, history, summary, lead,
@@ -3949,7 +3972,8 @@ test('dialogue v2 accepts the focused 502 after mentioning 502 and 504, includin
 test('dialogue v2 five-bedroom preference survives false mandatory extraction and opens requested alternatives', async t => {
   live(t)
   for (const strict of [false, true]) {
-    let summary = {}, history = []
+    let summary = { _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
+      confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }, history = []
     const turns = strict ? ['Necesito exactamente 5 dormitorios', 'Bueno que opciones tiene?']
       : ['Me interesa una vivienda, tiene opciones de 5 habitaciones?', 'Es que si me serviría con 5 dormitorios.', 'Bueno que opciones tiene?']
     for (const [index, current] of turns.entries()) {
@@ -3982,7 +4006,8 @@ test('dialogue v2 replays five bedrooms, two affirmatives, apartment choice and 
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })
   for (const [firstYes, secondYes] of [['none', 'select'], ['search', 'none'], ['select', 'search']]) {
-    let summary = {}, lead = {}, history = []
+    let summary = { _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
+      confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }, lead = {}, history = []
     const turns = [
       ['me interesa vivienda', { category: 'departamento', operation: 'select' }],
       ['no tiene opciones de 5 cuartos', { operation: 'search', filters: { bedrooms: 5 } }],

@@ -72,6 +72,8 @@ test('six people alone never creates a bedroom requirement', () => {
   const input = info()
   input.lead = { purchase_purpose: 'vivir' }
   input.property_context = { query: { group: 'residential', operation: 'search', filters: {} } }
+  assert.equal(commercialJourneyPlan(input).action, 'ask_budget')
+  input.hechos_confirmados = { budget: { status: 'no_defined_budget', evidence: 'Aún no lo he definido', confidence: 'high' } }
   assert.equal(commercialJourneyPlan(input).action, 'discover_bedrooms')
 })
 
@@ -93,9 +95,14 @@ test('accepting the explicit alternative changes only the exploration query, ret
     assert.ok(!Array.isArray(result.query.requirements) || !result.query.requirements.some((r: Row) => r.field === 'bedrooms' && r.value === 5))
     assert.deepEqual(context, before, 'Resolution must not mutate the stored original context')
     const resumed = { ...info(), property_context: result.context, semantica_turno: answer(current, pending) }
-    const next = commercialJourneyPlan(resumed)
+    const early = commercialJourneyPlan(resumed)
+    assert.equal(early.action, 'ask_budget')
+    assert.equal(early.question_id, 'budget_amount')
+    assert.deepEqual(result.context.selected_ids, [])
+    const next = commercialJourneyPlan({ ...resumed,
+      hechos_confirmados: { budget: { status: 'maximum_total', amount: 600000, confidence: 'high', evidence: 'Mi presupuesto total es 600 mil' } } })
     assert.equal(next.action, 'select_property')
-    assert.equal(next.question_id, 'property_category', 'Accepting three bedrooms starts with its compatible types, before budget or floor.')
+    assert.equal(next.question_id, 'property_category', 'After early budget, accepting three bedrooms retains its compatible types before floor selection.')
     assert.deepEqual(object(next.selection_scope).categories, ['departamento', 'penthouse'])
     assert.equal(plan.selected_unit_id, null)
   }

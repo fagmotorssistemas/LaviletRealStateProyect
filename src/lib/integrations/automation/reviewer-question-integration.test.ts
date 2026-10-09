@@ -96,6 +96,7 @@ test('actual bedroom rediscovery is rejected even when attached metadata claims 
   const tasks: string[] = []
   const result = await completeTurnReply({ current: 'Necesito cinco, pero quiero conocer los de tres dormitorios', baseReply: correct,
     verified: { catalogo, recorrido_comercial: {}, lead: { purchase_purpose: 'vivir', preferred_category: 'departamento' },
+      hechos_confirmados: { budget: { status: 'maximum_total', amount: 300000, confidence: 'high', evidence: 'Tengo un presupuesto total de 300000 dólares' } },
       property_context: { query: { category: 'departamento', group: 'residential', operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } } } }, audit },
   async (_rules, _raw, _schema, _image, _file, _tone, task) => {
     tasks.push(task!)
@@ -157,7 +158,9 @@ test('the full completion route retains the proposal through 360, then a yes ask
       property: { group: 'residential', category: turn.category, operation: turn.operation, filters: {}, query_scope: 'offered', reference_kind: 'followup', evidence: turn.current, confidence: 'high' } } }, turn.current, pending)
     const resolved = resolvePropertyTurn(catalogo, turn.current, { _property_context: property, _pending_question: pending }, [], semantics)
     const info: Row = { catalogo, catalogo_verificacion: catalogo, catalog_read: { complete: true }, recorrido_comercial: {},
-      lead: {}, property_context: resolved.context, referencia_unidad: resolved, semantica_turno: semantics, financiamiento: { partners: [] } }
+      lead: { purchase_purpose: 'vivir' },
+      hechos_confirmados: { budget: { status: 'maximum_total', amount: 700000, confidence: 'high', evidence: 'Tengo un presupuesto total de 700000 dólares' } },
+      property_context: resolved.context, referencia_unidad: resolved, semantica_turno: semantics, financiamiento: { partners: [] } }
     const planned = commercialJourneyPlan(info)
     assert.equal(planned.question_id, turn.expected)
     const reply = 'Podemos revisar estas alternativas. '+String(planned.question)

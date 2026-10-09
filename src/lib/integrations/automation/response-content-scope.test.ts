@@ -404,3 +404,62 @@ test('a verified legacy unit quote supports its actual current price question wi
   verified.contrato_turno = {}
   assert.equal(allowed(evaluate('Penthouse', verified, audit), 'purchase_prices'), false)
 })
+
+
+test('a newly chosen incompatible price scope can explain its verified gap against remembered total budget once', () => {
+  const current = 'Prefiero los penthouses', verified = context(current, ['property_options'], { primary_intent: 'answer_previous' })
+  const guidance = { status: 'below_available_prices', coverage: 'none', complete: true, comparison_required: true,
+    amount: 200000, scope_key: 'penthouse-three-bedrooms', candidate_unit_ids: [unit.id], matching_unit_ids: [],
+    prices: [{ unit_id: unit.id, published_commercial_price: unit.published_commercial_price }] }
+  verified.siguiente_paso_comercial = { action: 'offer_financing', budget_guidance: guidance }
+  const before = structuredClone(verified)
+  const scope = evaluate(current, verified)
+  assert.equal(allowed(scope, 'purchase_prices'), true)
+  assert.equal(object(object(scope.topics).purchase_prices).reason, 'changed_budget_scope_comparison')
+  assert.equal(allowed(scope, 'spatial_caveat'), false)
+  assert.equal(allowed(scope, 'commercial_stage'), false)
+  assert.deepEqual(verified, before)
+  object(object(verified.siguiente_paso_comercial).budget_guidance).comparison_required = false
+  assert.equal(allowed(evaluate('Gracias', verified), 'purchase_prices'), false, 'The stored gap does not authorize a recurring price recital')
+})
+
+test('sufficient, partial, unauthorized or entry-only guidance cannot reopen purchase prices by itself', () => {
+  const current = 'Prefiero penthouse'
+  const base = { status: 'below_available_prices', coverage: 'none', complete: true, comparison_required: true,
+    amount: 200000, candidate_unit_ids: [unit.id], matching_unit_ids: [],
+    prices: [{ unit_id: unit.id, published_commercial_price: unit.published_commercial_price }] }
+  const invalid = [
+    { ...base, status: 'matching_options', coverage: 'all' },
+    { ...base, complete: false },
+    { ...base, status: 'not_comparable' },
+    { ...base, candidate_unit_ids: [unit.id, 'missing-price'] },
+    { ...base, amount: unit.published_commercial_price },
+    { ...base, prices: [] },
+  ]
+  for (const guidance of invalid) {
+    const verified = context(current, ['property_options'], { primary_intent: 'answer_previous' })
+    verified.siguiente_paso_comercial = { action: 'choose_category', budget_guidance: guidance }
+    assert.equal(allowed(evaluate(current, verified), 'purchase_prices'), false)
+  }
+  const hidden = context(current, ['property_options'], { primary_intent: 'answer_previous' })
+  hidden.siguiente_paso_comercial = { action: 'offer_financing', budget_guidance: base }
+  hidden.politica_comercial = { precios_autorizados: false }
+  assert.equal(allowed(evaluate(current, hidden), 'purchase_prices'), false)
+})
+
+
+test('sufficient new budget guidance keeps purchase prices out of the writer while preserving the declared amount', () => {
+  const current = 'Mi presupuesto total es 700000', verified = context(current, ['financing'], {
+    primary_intent: 'discuss_budget', budget: { status: 'maximum_total', amount: 700000, confidence: 'high', evidence: current },
+  })
+  verified.siguiente_paso_comercial = { action: 'ask_bedrooms', budget_guidance: { status: 'matching_options', coverage: 'all',
+    amount: 700000, complete: true, comparison_required: false, candidate_unit_ids: [unit.id], matching_unit_ids: [unit.id],
+    prices: [{ unit_id: unit.id, published_commercial_price: unit.published_commercial_price }] } }
+  const scope = evaluate(current, verified)
+  assert.equal(allowed(scope, 'purchase_prices'), false)
+  const projected = projectContentForWriter({ contexto_verificado: verified, response_content_scope: scope }, scope)
+  const projectedContext = object(projected.contexto_verificado)
+  assert.equal((projectedContext.catalogo as Row[])[0].published_commercial_price, undefined)
+  assert.equal(object(object(projectedContext.semantica_turno).budget).amount, 700000)
+  assert.deepEqual(object(projectedContext.property_context).selected_ids, [])
+})

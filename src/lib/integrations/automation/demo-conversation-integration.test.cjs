@@ -34,6 +34,12 @@ function extractionFixture(input, invalid = false) {
     raw.profile_evidence.residence_city = current
     raw.turn_semantics.primary_intent = 'answer_previous'
     raw.turn_semantics.answer_to_previous = { question_id: 'lead_profile_residence', kind: 'value', evidence: current, confidence: 'high' }
+  } else if (current === 'Unos 300 mil para la compra') {
+    raw.turn_semantics.primary_intent = 'discuss_budget'
+    raw.turn_semantics.answer_to_previous = { question_id: 'budget_amount', kind: 'value', evidence: current, confidence: 'high' }
+    raw.turn_semantics.budget = { status: 'maximum_total', amount: 300000, evidence: current, confidence: 'high' }
+    raw.financing_amounts = [{ role: 'total_budget', amount: 300000, evidence: current, replaces_role: null }]
+    raw.qualification.presupuesto_texto = current
   } else {
     raw.requests = [{ request: current, domain: 'property', evidence: current, confidence: 'high' }]
   }
@@ -127,6 +133,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
       start: (...args) => { const id = steps.length+1; steps.push({ id, args }); return id },
       add: (...args) => { const id = steps.length+1; steps.push({ id, args }); return id },
       finish: (id, status, output, error) => { steps.find(step => step.id === id).result = { status, output, error } },
+      currentStep: () => steps.findLast(step => step.id && !step.result)?.id || null,
       setContext: () => {}, setVersions: () => {}, failOpenSteps: error => { steps.push({ failure: error.message }) },
       flush: async () => ({ status: 'complete' }),
     }))
@@ -163,9 +170,16 @@ async function conversationHarness({ current, messages, extractionFails = false,
           lastQuestion = { purpose: 'collect_lead_profile', role: 'required_collection', missing_datum: decision.allowed_fields.join(', '),
             next_decision: 'Continuar la guía personalizada.', continuation_id: profileId, continuation_act: 'profile' }
         } else {
-          proposed = 'Gracias. ¿Cuántos dormitorios necesita?'
-          lastQuestion = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Dormitorios',
-            next_decision: 'Identificar las opciones compatibles.', continuation_id: 'property_bedrooms', continuation_act: 'confirm_bedrooms' }
+          const journey = raw.contexto_verificado?.siguiente_paso_comercial || raw.estado_operativo.commercial_journey || {}
+          if (journey.action === 'ask_budget') {
+            proposed = 'Gracias. '+journey.question
+            lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Presupuesto total',
+              next_decision: 'Identificar los dormitorios necesarios.', continuation_id: 'budget_amount', continuation_act: 'budget' }
+          } else {
+            proposed = 'Gracias. ¿Cuántos dormitorios necesita?'
+            lastQuestion = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Dormitorios',
+              next_decision: 'Identificar las opciones compatibles.', continuation_id: 'property_bedrooms', continuation_act: 'confirm_bedrooms' }
+          }
         }
       }
       return { reply: proposed, question: lastQuestion,
@@ -316,6 +330,9 @@ test('normal and observation keep the same greeting, profile capture, one reside
     assert.equal(resident.summary._lead_introduction.reminder_count, 1)
     assert.equal(resident.receipt.args.p_content.includes(BROCHURE_URL), false)
     assert.doesNotMatch(resident.receipt.args.p_content, /reside|ciudad|su nombre/)
+    assert.match(resident.receipt.args.p_content, /presupuesto total aproximado.*para la compra/)
+    assert.doesNotMatch(resident.receipt.args.p_content, /cuántos dormitorios/i)
+    assert.equal(resident.summary._pending_question.id, 'budget_amount')
     assert.deepEqual(execution.extractorInputs.map(raw => raw.mensaje_actual), messages.slice(1))
   }
   for (let index = 0; index < messages.length; index++) {
@@ -325,5 +342,43 @@ test('normal and observation keep the same greeting, profile capture, one reside
     assert.deepEqual(demoTurn.summary._lead_introduction, normalTurn.summary._lead_introduction)
     assert.deepEqual(demoTurn.summary._lead_profile, normalTurn.summary._lead_profile)
     assert.deepEqual(demoTurn.summary._pending_question, normalTurn.summary._pending_question)
+  }
+})
+
+test('normal and observation extract a total budget after the profile and continue bedrooms without repeating budget or brochure', async () => {
+  const messages = ['Hola', 'Algo para vivienda', 'Me llamo Carlos', 'Vivo en Cuenca', 'Unos 300 mil para la compra']
+  const startedAt = Date.now()
+  const normal = await conversationHarness({ messages, startedAt, observationOnly: false, reviewRejects: false })
+  const demo = await conversationHarness({ messages, startedAt, observationOnly: true, reviewRejects: false })
+  for (const execution of [normal, demo]) {
+    for (const turn of execution.turns)
+      assert.equal(turn.result?.action, 'accepted', turn.current+': '+(turn.failure?.original?.stack || turn.failure?.stack))
+    const [greeting, interest, named, resident, budget] = execution.turns
+    assert.equal(greeting.receipt.args.p_tool_calls.source, 'minimal_greeting')
+    assert.equal(interest.summary._pending_question.id, 'lead_profile')
+    assert.equal(named.summary._pending_question.id, 'lead_profile_residence')
+    assert.equal(named.receipt.args.p_content.includes(BROCHURE_URL), true)
+    assert.equal(resident.summary._pending_question.id, 'budget_amount')
+    assert.equal(budget.extractionCalls, 1)
+    assert.equal(budget.summary._interpretation_memory.budget.status, 'maximum_total')
+    assert.equal(budget.summary._interpretation_memory.budget.amount, 300000)
+    assert.equal(budget.summary._interpretation_memory.budget.evidence, messages.at(-1))
+    assert.equal(budget.summary._financing_amounts.total_budget.amount, 300000)
+    assert.equal(budget.summary._lead_profile.full_name, 'Carlos')
+    assert.equal(budget.summary._lead_profile.residence_city, 'Cuenca')
+    assert.equal(budget.summary._lead_introduction.reminder_count, 1)
+    assert.equal(budget.summary._pending_question.id, 'property_bedrooms')
+    assert.match(budget.receipt.args.p_content, /cuántos dormitorios/i)
+    assert.doesNotMatch(budget.receipt.args.p_content, /presupuesto|entrada|su nombre|reside/i)
+    assert.equal(budget.receipt.args.p_content.includes(BROCHURE_URL), false)
+    assert.equal(budget.summary._financing_journey?.accepted, undefined)
+    assert.deepEqual(execution.extractorInputs.map(raw => raw.mensaje_actual), messages.slice(1))
+  }
+  for (let index = 0; index < messages.length; index++) {
+    const normalTurn = normal.turns[index], demoTurn = demo.turns[index]
+    assert.equal(demoTurn.receipt.args.p_content, normalTurn.receipt.args.p_content)
+    assert.deepEqual(demoTurn.summary._pending_question, normalTurn.summary._pending_question)
+    assert.deepEqual(demoTurn.summary._interpretation_memory, normalTurn.summary._interpretation_memory)
+    assert.deepEqual(demoTurn.summary._lead_profile, normalTurn.summary._lead_profile)
   }
 })

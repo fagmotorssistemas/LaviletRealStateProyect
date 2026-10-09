@@ -255,13 +255,13 @@ function categoryReply(info: Row, current: string, category: PropertyCategory) {
     const fit = /\b(?:vivo solo|vivo sola|para mi solo|para mi sola)\b/.test(normalized(current))
       ? 'Una suite puede adaptarse muy bien a lo que busca.'
       : 'Perfecto, podemos concentrarnos en las suites.'
-    return `${fit} Tenemos opciones en distintas plantas, con diferencias de ubicación y valor. ¿Podría compartirnos un presupuesto aproximado para orientarle hacia las alternativas más convenientes?`
+    return `${fit} ${budgetQuestion(info)}`
   }
   if (category === 'departamento' || category === 'penthouse') {
     const bedrooms = [...new Set(availableCatalog(info, category).map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
-    return `Perfecto. Disponemos de ${label.plural}${bedrooms.length ? ` de ${bedrooms.join(' o ')} dormitorios` : ''} en distintas plantas. ¿Podría compartirnos un presupuesto aproximado para orientarle hacia las opciones más convenientes?`
+    return `Perfecto. Disponemos de ${label.plural}${bedrooms.length ? ` de ${bedrooms.join(' o ')} dormitorios` : ''}. ${budgetQuestion(info)}`
   }
-  return `Perfecto. Contamos con ${label.plural} en diferentes ubicaciones dentro del edificio, con variaciones de planta, exposición y valor. ¿Podría compartirnos un presupuesto aproximado para orientar mejor la búsqueda?`
+  return `Perfecto. Podemos revisar ${label.plural}. ${budgetQuestion(info)}`
 }
 
 function uncertainBudgetReply(info: Row, category: PropertyCategory) {
@@ -370,7 +370,7 @@ export function financingPrerequisiteReply(info: Row, current: string) {
     if (!category) return object(object(info.property_context).query).group === 'residential'
       ? 'Continuaremos con el financiamiento después de elegir la unidad. Retomemos las viviendas que se ajustan a sus preferencias. ¿Cuál de las opciones le interesa revisar?'
       : 'Podemos ayudarle a revisar alternativas de financiamiento. Primero necesitamos identificar la propiedad sobre la que desea realizar la evaluación. ¿Qué tipo de inmueble le interesa?'
-    if (budget === null && !deferred) return `Podemos ayudarle con el financiamiento. Primero definamos qué ${categoryLabels[category].singular} desea evaluar. ¿Con qué presupuesto aproximado cuenta para orientar la selección?`
+    if (budget === null && !deferred) return `Podemos ayudarle con el financiamiento. Primero definamos qué ${categoryLabels[category].singular} desea evaluar. ${budgetQuestion(info)}`
     const floor = object(object(object(info.property_context).query).filters).floor_number
     return `Podemos ayudarle con el financiamiento. Primero necesitamos elegir la ${category === 'suite' ? 'suite' : category === 'departamento' ? 'unidad' : 'opción'} concreta sobre la que se realizará la evaluación. ${floor != null ? '¿Cuál de las unidades que revisamos le interesa?' : '¿En qué planta le gustaría buscar?'}`
   }

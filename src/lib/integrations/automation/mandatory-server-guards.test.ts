@@ -11,7 +11,8 @@ const units = [202, 205].map(code => ({ id: `d${code}`, unit_number: String(code
   bedrooms: 3, floor_number: 2, area_internal_m2: 120.83, area_exterior_m2: 27.03,
   bathrooms_full: 2, published_commercial_price: 250000 }))
 const data = (): Row => ({ catalogo: units, catalog_read: { complete: true }, politica_comercial: { precios_autorizados: true },
-  lead: { purchase_purpose: 'vivir' }, property_context: { query: { group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3, floor_number: 2 } } },
+  lead: { purchase_purpose: 'vivir' },
+  hechos_confirmados: { budget: { status: 'maximum_total', amount: 300000, confidence: 'high', evidence: 'Mi presupuesto total es de 300000 dólares' } }, property_context: { query: { group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3, floor_number: 2 } } },
   recorrido_comercial: {}, financiamiento: { partners: [], journey: {} },
   semantica_turno: { primary_intent: 'select_property', confidence: 'high', primary_evidence: 'Me interesa la segunda planta', budget: { status: 'not_discussed' } } })
 
@@ -24,8 +25,8 @@ for (const enabled of [true, false]) test(`unit presentation is a mandatory inva
   }, async (_rules, _context, _schema, _image, _file, _tone, task) => {
     calls.push(task || 'data')
     if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-    return { reply: 'En esa planta hay opciones de tres dormitorios. ¿Qué presupuesto total tiene previsto para su compra?',
-      requests: [], question: { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'presupuesto', next_decision: 'Comparar', continuation_id: 'budget_amount', continuation_act: 'other' } }
+    return { reply: 'En esa planta hay opciones de tres dormitorios. ¿Cuál de estas unidades le gustaría conocer?',
+      requests: [], question: { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'unidad', next_decision: 'Comparar', continuation_id: 'unit_choice', continuation_act: 'choose_unit' } }
   }))
   assert.equal(result.audit.status, 'rejected_guard')
   assert.ok((result.audit.issues as string[]).includes('required_unit_presentation_missing'))
@@ -37,9 +38,9 @@ for (const enabled of [true, false]) test(`unit presentation is a mandatory inva
 test('unit numbers hidden only in a question do not satisfy presentation; verified collective descriptions do', () => {
   const verified = data(), plan = commercialJourneyPlan(verified)
   const input = { current: 'Segunda planta', baseReply: '', verified: { ...verified, siguiente_paso_comercial: plan } }
-  assert.ok(mandatoryReplyIssues(input, 'Tenemos tres dormitorios. ¿Su presupuesto para el departamento 202 o 205?').includes('required_unit_presentation_missing'))
-  assert.ok(mandatoryReplyIssues(input, 'Los departamentos 202 y 205. ¿Qué presupuesto contempla?').includes('required_unit_characteristics_missing'))
-  assert.deepEqual(mandatoryReplyIssues(input, 'Los departamentos 202 y 205 tienen tres dormitorios, 120,83 m² interiores y 27,03 m² exteriores. ¿Qué presupuesto contempla?'), [])
+  assert.ok(mandatoryReplyIssues(input, 'Tenemos tres dormitorios. ¿Prefiere el departamento 202 o el 205?').includes('required_unit_presentation_missing'))
+  assert.ok(mandatoryReplyIssues(input, 'Los departamentos 202 y 205. ¿Cuál desea conocer?').includes('required_unit_characteristics_missing'))
+  assert.deepEqual(mandatoryReplyIssues(input, 'Los departamentos 202 y 205 tienen tres dormitorios, 120,83 m² interiores y 27,03 m² exteriores. ¿Cuál desea conocer?'), [])
 })
 
 for (const enabled of [true, false]) test(`an operational approval cannot invent confirmed appointments with review ${enabled ? 'on' : 'off'}`, async () => {

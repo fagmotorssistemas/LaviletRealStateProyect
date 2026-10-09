@@ -251,7 +251,7 @@ describe('tour links in the conversation automation', () => {
 
     assert.equal(selected?.phase, 'review_unit')
     assert.equal(selected?.unit?.id, apartment202.id)
-    assert.match(selected?.reply ?? '', /presupuesto aproximado.*para la compra/i)
+    assert.match(selected?.reply ?? '', /presupuesto total aproximado.*para la compra/i)
     assert.equal(selected?.reply.match(/¿/g)?.length, 1)
     assert.doesNotMatch(selected?.reply ?? '', /asesor/i)
 

@@ -87,6 +87,7 @@ for (const strict of [false, true]) {
     assert.equal(resolved.query.category, null)
     assert.deepEqual(resolved.matches.map(unit => unit.id), candidateIds)
     const input = info(resolved, sem)
+    input.hechos_confirmados = { budget: { status: 'maximum_total', amount: 600000, confidence: 'high', evidence: 'Mi presupuesto total es 600 mil' } }
     input.lead = { purchase_purpose: 'vivir', preferred_category: 'departamento', preferred_bedrooms: 5 }
     assert.equal(commercialSelectionQuery(input).category, null, 'An inherited CRM category is not the current type choice')
     const plan = commercialJourneyPlan(input)
@@ -152,7 +153,8 @@ test('a legacy query recovers the original bedroom need while preserving the act
   assert.deepEqual(resolved.matches.map(unit => unit.id), candidateIds)
   assert.deepEqual(object(resolved.context.optimized_catalog_request).requirements, resolved.query.requirements)
   assert.equal(object(resolved.context.optimized_catalog_request).category, null)
-  const plan = commercialJourneyPlan(info(resolved, sem, 'vivir'))
+  const plan = commercialJourneyPlan({ ...info(resolved, sem, 'vivir'),
+    hechos_confirmados: { budget: { status: 'maximum_total', amount: 600000, confidence: 'high', evidence: 'Mi presupuesto total es 600 mil' } } })
   assert.equal(plan.question_id, 'property_category')
   assert.deepEqual(object(plan.selection_scope).categories, ['departamento', 'penthouse'])
   assert.doesNotMatch(String(plan.question), /cuántos dormitorios|finalmente/i)
@@ -200,7 +202,8 @@ test('a visual question with a new bedroom requirement uses its own search subje
 test('a typed bedroom condition prevents rediscovery even if the guarded optional filter is empty', () => {
   const query = { group: 'residential', category: 'departamento', operation: 'details', filters: {}, requirements: request('tres dormitorios').requirements }
   const plan = commercialJourneyPlan({ lead: { purchase_purpose: 'vivir' }, catalogo: catalog, catalog_read: { complete: true },
-    property_context: { query }, financiamiento: { partners: [] } })
+    property_context: { query }, financiamiento: { partners: [] },
+    hechos_confirmados: { budget: { status: 'no_defined_budget', confidence: 'high', evidence: 'Aún no tengo presupuesto definido' } } })
   assert.equal(plan.question_id, 'property_floor')
   assert.deepEqual(object(plan.selection_scope).unit_ids, candidateIds.filter(id => id.startsWith('d')))
 })
@@ -219,19 +222,25 @@ test('planning preserves matching explicit bedroom filters but never restores de
   }
 })
 
-test('accepted alternatives progress through type, floor and presented units before budget', () => {
+test('accepted alternatives recover early budget before type, floor and presented units', () => {
   const current = 'Sí, revisemos esas alternativas'
   const sem = semantic(current)
   sem.answer_to_previous = { question_id: pending.id, kind: 'affirmative', evidence: current, confidence: 'high' }
   const accepted = resolvePropertyTurn(catalog, current, { _property_context: context(), _pending_question: pending }, [], sem)
-  let plan = commercialJourneyPlan(info(accepted, sem))
+  const budget = { status: 'maximum_total', amount: 600000, evidence: 'Mi presupuesto total es 600 mil', confidence: 'high' }
+  const withBudget = (resolved: ReturnType<typeof resolvePropertyTurn>, turn: Row) => ({ ...info(resolved, turn), hechos_confirmados: { budget } })
+  let plan = commercialJourneyPlan(info(accepted, sem, 'vivir'))
+  assert.equal(plan.question_id, 'budget_amount')
+  assert.equal(Boolean(plan.requires_unit_presentation), false)
+  assert.deepEqual(accepted.context.selected_ids, [])
+  plan = commercialJourneyPlan(withBudget(accepted, sem))
   assert.equal(plan.question_act, 'choose_category')
   const typeQuestion = normalizedPendingQuestion(journeyPendingQuestion(String(plan.question), plan, true), catalog)
   const remembered = rememberPropertyReply(catalog, accepted.context, String(plan.question), { pending_question: typeQuestion })
   const preference = 'Me interesan más los departamentos'
   const typeSem = semantic(preference, { category: 'departamento', operation: 'search' })
   const type = resolvePropertyTurn(catalog, preference, { _property_context: remembered, _pending_question: typeQuestion }, [], typeSem)
-  plan = commercialJourneyPlan(info(type, typeSem))
+  plan = commercialJourneyPlan(withBudget(type, typeSem))
   assert.equal(plan.question_act, 'choose_floor', JSON.stringify({ plan, context: type.context, query: type.query }))
   assert.deepEqual(object(plan.selection_scope).floors, [2, 3, 4, 5])
   assert.ok((object(plan.selection_scope).unit_ids as string[]).every(id => id.startsWith('d')))
@@ -239,8 +248,9 @@ test('accepted alternatives progress through type, floor and presented units bef
   const afterType = rememberPropertyReply(catalog, type.context, String(plan.question), { pending_question: floorQuestion })
   const floorSem = semantic('La tercera planta', { operation: 'search', filters: { floor_number: 3 } })
   const floor = resolvePropertyTurn(catalog, 'La tercera planta', { _property_context: afterType, _pending_question: floorQuestion }, [], floorSem)
-  plan = commercialJourneyPlan(info(floor, floorSem))
-  assert.equal(plan.action, 'ask_budget')
+  plan = commercialJourneyPlan(withBudget(floor, floorSem))
+  assert.equal(plan.action, 'select_property')
+  assert.equal(plan.question_act, 'confirm_unit')
   assert.equal(plan.requires_unit_presentation, true)
   assert.deepEqual(object(plan.selection_scope).unit_ids, ['d302'])
   assert.deepEqual(floor.context.selected_ids, [])

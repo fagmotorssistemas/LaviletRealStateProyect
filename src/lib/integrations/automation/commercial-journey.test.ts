@@ -153,7 +153,7 @@ for (const [budget, action] of [
   [{ status: 'not_discussed' }, 'ask_budget'],
   [{ status: 'amount_pending', confidence: 'high', evidence: 'si tengo' }, 'ask_budget'],
   [{ status: 'unknown', confidence: 'high', evidence: 'no sé a qué se refiere' }, 'ask_budget'],
-  [{ status: 'no_defined_budget', confidence: 'high', evidence: 'no tengo presupuesto definido' }, 'offer_financing'],
+  [{ status: 'no_defined_budget', confidence: 'high', evidence: 'no tengo presupuesto definido' }, 'clarify_purchase'],
   [money(50000), 'offer_financing'],
   [{ status: 'initial_capital', amount: 350000, confidence: 'high', evidence: 'para entrada' }, 'clarify_purchase'],
   [money(350000), 'offer_reservation'],
@@ -280,6 +280,43 @@ test('financing continuation sends the same type choice across compatible catego
   assert.equal(result.audit.status, 'checked')
   assert.deepEqual(object(object(result.audit.commercial_journey).selection_scope).categories, categories)
   assert.deepEqual(calls, ['writing', 'review'])
+})
+
+test('the early total-budget step is identical for the writer, reviewer and delivered pending question', async () => {
+  const data = info({ status: 'not_discussed' }, false), calls: string[] = [], failures: string[] = []
+  data.lead = { purchase_purpose: 'vivir' }
+  data.property_context = { query: { group: 'residential', operation: 'search', filters: {} }, selected_ids: [] }
+  data.solicitudes_interpretadas = [{ domain: 'property', request: 'Busca vivienda', evidence: 'Algo para vivienda', confidence: 'high' }]
+  const reply = 'Con gusto. ¿Qué presupuesto total aproximado tiene previsto para la compra?'
+  const result = await completeTurnReply({ current: 'Algo para vivienda', baseReply: '', verified: data,
+    audit: { source: 'commercial', semantic_review_enabled: true, business_risk_review_enabled: true } },
+  async (_rules, raw, _schema, _image, _file, _tone, task) => {
+    const input = object(raw); calls.push(String(task))
+    try {
+      const next = (input.obligaciones_del_turno as Row[]).find(obligation => obligation.id === 'commercial_next_step')!
+      assert.equal(next.action, 'ask_budget')
+      assert.equal(next.question_id, 'budget_amount')
+      assert.equal(Boolean(next.requires_unit_presentation), false)
+      assert.match(String(next.question), /presupuesto total/)
+      if (task === 'writing') return { reply,
+        requests: [{ fragment: 'R1', intent: 'Busca vivienda', status: 'answered', evidence: reply,
+          fact_key: null, request_type: 'general_information' }],
+        question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'presupuesto total',
+          next_decision: 'Conocer los dormitorios que necesita', continuation_id: 'budget_amount', continuation_act: 'budget' } }
+      assert.equal(object(object(input.estado_del_turno).siguiente_paso_comercial).question_id, 'budget_amount')
+      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+    } catch (error) { failures.push(String(error)); throw error }
+  })
+  assert.deepEqual(failures, [])
+  assert.deepEqual(calls, ['writing', 'review'])
+  assert.equal(result.reply, reply)
+  assert.equal(result.audit.status, 'checked')
+  const plan = object(result.audit.commercial_journey)
+  const pending = journeyPendingQuestion(result.reply, plan, true)
+  assert.equal(pending.id, 'budget_amount')
+  assert.equal(pending.act, 'budget')
+  assert.equal(plan.financing_offer_allowed, false)
+  assert.doesNotMatch(reply, /departamento \d|penthouse \d|financiamiento/)
 })
 
 

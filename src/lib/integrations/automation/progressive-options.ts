@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { normalized } from './sdr-rules'
+import { deliveredPendingQuestion } from './continuation-question'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -74,18 +75,21 @@ export function preferenceOptionsReply(info: Row): { reply: string; audit: Row }
 }
 
 export const PROGRESSIVE_OPTIONS_RULES = `CONTINUIDAD DE LAS OPCIONES SOLICITADAS:
-estado_operativo.progressive_selection expresa el próximo paso y las opciones pertinentes. Explique por qué cumplen los requisitos conocidos (por ejemplo, los dormitorios) con datos verificados; no suponga que el cliente conoce los filtros internos. No amplíe categorías, dormitorios ni precios por iniciativa del bot. Ofrezca cambios solo si el cliente los pide; pedir menos dormitorios modifica ese requisito, aunque no mencione precio. Pedir más barato sin cantidad requiere aclarar si conserva los dormitorios, no reducirlos automáticamente. Un cambio de dormitorios no prueba que el precio sea menor.
-Atienda primero la consulta actual. Tras cotizar varias opciones, invite a conocer detalles; tras compararlas, pregunte cuál desea conocer mejor. Un sí a ver opciones no elige una unidad. Cuando el cliente identifica una unidad, comparta su recorrido verificado. No envíe recorridos de varias unidades para una comparación ni cambie una selección al mostrar alternativas.
-Para seleccionar, primero presente las plantas compatibles sin números de unidad y pregunte en qué planta le gustaría revisar opciones. Una vez definida la planta, muestre números y características si hay varias unidades. Si queda una sola compatible, preséntela con sus características y enlace 360 autorizado sin darla por elegida todavía. Si responde que hay una que le interesa sin identificarla, pregunte cuál sin repetir el catálogo.
-Si progressive_selection contiene question, úsela como propuesta de continuación: invite a detalles, a elegir categoría/planta/unidad o a aclarar dormitorios según stage cuando siga siendo pertinente. La solicitud actual interpretada prevalece: si pide reservar, financiamiento o una visita, responda esa solicitud sin repetir una pregunta comercial anterior. El revisor comprueba la pertinencia y el propósito, no el texto ni el número de preguntas.
-Después de un recorrido individual siga post_tour_continuation: pregunte presupuesto solo si falta, aclare total frente a entrada solo si es ambiguo y respete un presupuesto conocido o aplazado. No añada otra pregunta comercial si ya existe una solicitud operativa o de perfil prioritaria.`
+Siga siguiente_paso_comercial como decisión vigente, por encima de una pregunta anterior de progressive_selection o post_tour_continuation. El descubrimiento sigue uso → presupuesto → necesidades y dormitorios → tipo → planta → unidades → elección, omitiendo datos resueltos y respetando negativas o presupuesto aplazado. Atienda primero todas las consultas actuales y retome la única decisión pendiente; cotizar o comparar no obliga a ofrecer más detalles ni a reabrir una elección.
+estado_operativo.progressive_selection conserva las opciones pertinentes y sus requisitos conocidos. Explique brevemente por qué cumplen esos requisitos con datos verificados; no amplíe categorías, dormitorios ni precios por iniciativa del bot. Tener opciones asequibles no autoriza reducir dormitorios ni sustituir preferencias; si no gustan, aclare el motivo cuando falte y conserve lo conocido. Pedir menos dormitorios modifica ese requisito, aunque no mencione precio. Pedir más barato sin cantidad requiere aclarar si conserva los dormitorios, no reducirlos automáticamente. Un cambio de dormitorios no prueba que el precio sea menor.
+Un sí a ver opciones acepta esa exploración, no elige tipo ni unidad. Presente todos los tipos compatibles y pregunte cuál prefiere; después resuma dimensiones y plantas del tipo elegido, preguntando planta sólo si hay varias. Con la planta definida o única, muestre números y características de las unidades y continúe con la elección que falte. Una sola compatible tampoco queda elegida automáticamente. Cuando el cliente identifica una unidad o pide su recorrido, comparta el enlace 360 verificado correspondiente. Un recorrido general anterior no sustituye al individual. No envíe recorridos de varias unidades para una comparación ni cambie una selección al mostrar alternativas.
+Una limitación de cabida restringe promesas ante una duda espacial concreta; no se verbaliza como advertencia genérica de que las opciones podrían no servir a la familia. Después de un recorrido individual conserve la unidad de interés y siga el plan vigente: pregunte presupuesto únicamente si aún falta y no está pospuesto; aclare total frente a entrada solo si es ambiguo. Las solicitudes operativas o la presentación autorizada tienen prioridad. Una aceptación de financiamiento conserva ese interés y retoma primero la selección pendiente, sin adelantar datos financieros.`
 
 const finalQuestion = (reply: string) => (reply.replace(/https?:\/\/\S+/g, '').match(/¿[^¿?]+\?|[^.!?\n]+\?/g)?.at(-1) || '').trim()
 
 /** A recommendation for the writer/reviewer, never a deterministic rejection. */
 export function progressiveQuestionObservations(reply: string, audit: Row, purpose?: string) {
-  const plan = object(audit.progressive_selection)
-  if (!text(plan.question || object(audit.post_tour_continuation).question) || audit.profile_introduction) return []
+  const plan = object(audit.progressive_selection), journey = object(audit.commercial_journey)
+  if (audit.profile_introduction) return []
+  // The resolved journey can supersede a legacy selection/tour suggestion.
+  // Its semantic obligation is checked by turn review, not by the old stage.
+  if (text(journey.action)) return text(journey.question) && !finalQuestion(reply) ? ['commercial_next_question_missing'] : []
+  if (!text(plan.question || object(audit.post_tour_continuation).question)) return []
   if (!finalQuestion(reply)) return ['commercial_next_question_missing']
   const question = normalized(finalQuestion(reply))
   if (['offer_details', 'choose_unit', 'choose_category', 'choose_floor', 'confirm_bedrooms', 'choose_bedrooms'].includes(text(plan.stage))
@@ -100,6 +104,9 @@ export function progressivePendingQuestion(reply: string, audit: Row): Row {
   // Its content can still be accepted by semantic review for the current goal.
   const writtenQuestion = object(object(audit.turn_completeness).question)
   if (audit.profile_introduction || progressiveQuestionObservations(reply, audit, text(writtenQuestion.purpose)).length) return {}
+  const journey = object(audit.commercial_journey)
+  if (text(journey.action)) return text(journey.question)
+    ? deliveredPendingQuestion(reply, { metadata: writtenQuestion, plan: journey, candidates: [object(audit.pending_question)] }) : {}
   const plan = object(audit.progressive_selection), tour = object(audit.post_tour_continuation)
   if (!text(plan.question) && !text(tour.question)) return {}
   const question = finalQuestion(reply)

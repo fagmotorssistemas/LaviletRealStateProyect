@@ -22,7 +22,8 @@ export function budgetContinuationInstruction(assessment: Row): string {
   if (assessment.continuation === 'commercial_next_step') return 'Use los hechos del presupuesto para responder. La única continuación autorizada es siguiente_paso_comercial; no proponga alternativas, financiamiento ni otra pregunta desde este bloque.'
   const actions: Record<string, string> = {
     continue_property_selection: 'El financiamiento ya fue aceptado. Atienda cualquier nuevo importe sin volver a descartar al lead por falta de efectivo. Si falta unidad, continúe eligiéndola; si ya está elegida, siga siguiente_paso_comercial sin reabrir la selección. No repita consentimiento ni afirme viabilidad o inviabilidad del crédito.',
-    offer_financing_undefined: 'El lead declaró no tener presupuesto definido. Explique que puede explorar financiamiento con las entidades autorizadas y pregunte si desea continuar. No exija una cifra ni suponga un presupuesto cero.',
+    continue_needs_discovery: 'El lead no tiene presupuesto definido o lo pospuso. Continúe con las características pendientes sin insistir con una cifra, inventar cero ni ofrecer financiamiento por esa ausencia. Conserve cualquier unidad o preferencia conocida.',
+    offer_financing_for_entry: 'El importe fue declarado para la entrada. Conserve ese papel y ofrezca analizar financiamiento con las entidades autorizadas; no lo compare como presupuesto total ni prometa aprobación. La aceptación primero retoma la elección de unidad pendiente.',
     ask_budget_amount: 'Confirmó tener presupuesto, pero falta el monto. Pregunte de cuánto es; no suponga una cifra ni vuelva a preguntar si lo tiene.',
     clarify_requirements: 'No hay coincidencias confirmadas con las características solicitadas. Explique el alcance comprobado y aclare únicamente el requisito que impide avanzar. No exija listar inmuebles incompatibles porque sean baratos, ni ofrecer financiamiento: el crédito no resuelve una característica ausente.',
     clarify_available_information: 'La información disponible no permite concluir si el presupuesto alcanza. Explique qué dato falta y el alcance comprobado. No afirme ausencia global de opciones ni exija ofrecer financiamiento sin precios comparables.',
@@ -70,13 +71,16 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
     const available = Array.isArray(object(verified.financiamiento).partners) && (object(verified.financiamiento).partners as unknown[]).length > 0
     const declined = object(object(verified.financiamiento).journey).status === 'declined'
     if (budget.status === 'no_defined_budget' && (!available || declined)) return null
-    const continuation = budget.status === 'amount_pending' ? 'ask_budget_amount' : 'offer_financing_undefined'
+    const continuation = budget.status === 'amount_pending' ? 'ask_budget_amount' : 'continue_needs_discovery'
     return { status: budget.status, amount: null, continuation,
       continuation_instruction: budgetContinuationInstruction({ continuation }) }
   }
-  if (budget.confidence === 'high' && ['unknown', 'initial_capital'].includes(text(budget.status))) return {
-    status: 'clarify_budget_basis', amount: budget.amount ?? null, evidence: budget.evidence,
-    continuation: 'clarify_budget', instruction: BUDGET_CONTINUATION_RULES,
+  if (budget.confidence === 'high' && ['unknown', 'initial_capital'].includes(text(budget.status))) {
+    const available = Array.isArray(object(verified.financiamiento).partners) && (object(verified.financiamiento).partners as unknown[]).some(partner => !!text(partner))
+    const continuation = budget.status === 'initial_capital' && available && !financeDeclined && !financeAccepted
+      ? 'offer_financing_for_entry' : 'continue_needs_discovery'
+    return { status: budget.status, amount: budget.amount ?? null, evidence: budget.evidence,
+      continuation, continuation_instruction: budgetContinuationInstruction({ continuation }) }
   }
   if (!['amount', 'maximum_total'].includes(text(budget.status)) || budget.confidence !== 'high' || typeof budget.amount !== 'number'
     || !Number.isFinite(budget.amount) || budget.amount <= 0 || !text(budget.evidence)) return null

@@ -1,6 +1,6 @@
 import { object, text, type Row } from './data'
 import { commercialJourneyPlan } from './commercial-journey'
-import { budgetKindQuestion, leadBudget } from './budget-state'
+import { budgetKindQuestion, budgetQuestion, leadBudget } from './budget-state'
 import { normalizedPendingQuestion } from './turn-semantics'
 import { financingStage } from './financing-stage'
 
@@ -50,9 +50,9 @@ export function tourContinuation(info: Row, unit: Row = {}, current = ''): TourC
   const budgetDeferred = Array.isArray(deferred) && deferred.includes('presupuesto')
     && budget.source !== 'current_lead_statement'
   if (budgetDeferred) return answer('¿Qué le gustaría revisar con más detalle de esta opción?', 'budget_deferred')
-  if (budget.status === 'amount_pending') return answer('¿De cuánto es el presupuesto que tiene previsto?', 'budget_amount_missing', 'budget_amount')
+  if (budget.status === 'amount_pending') return answer(budgetQuestion(info), 'budget_amount_missing', 'budget_amount')
   if (budget.status === 'not_discussed' || budget.status === 'maximum_total' && budget.amount === null) {
-    return answer('¿Qué presupuesto aproximado tiene previsto para la compra?', 'budget_missing', 'budget_amount')
+    return answer(budgetQuestion(info), 'budget_missing', 'budget_amount')
   }
   if (budget.status === 'initial_capital' && budget.amount === null) {
     return answer('¿Con qué monto aproximado cuenta para la entrada?', 'initial_capital_amount_missing', 'budget_amount')

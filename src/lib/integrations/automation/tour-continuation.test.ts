@@ -5,6 +5,8 @@ import { commercialJourneyPlan, purchaseReadiness } from './commercial-journey'
 import { financingStage } from './financing-stage'
 import { leadBudget } from './budget-state'
 import { object, type Row } from './data'
+import { unitTourUrl } from '@/lib/tour/unitModels'
+import { selectedUnitModelDelivery, unitModelDelivery } from './unit-model'
 
 const unit = { id: 'p602', category: 'penthouse', unit_number: '602', bedrooms: 3, floor_number: 6,
   status: 'disponible', is_published: true, published_commercial_price: 539900 }
@@ -25,7 +27,7 @@ function selected(budget: Row, accepted = false): Row {
 describe('shared continuation after a selected unit tour', () => {
   it('asks the missing budget once without introducing other properties', () => {
     const answer = tourContinuation({ perfil_lead: { full_name: 'Carlos', residence_city: 'Cuenca' } }, unit)
-    assert.equal(answer.question, '¿Qué presupuesto aproximado tiene previsto para la compra?')
+    assert.equal(answer.question, '¿Qué presupuesto total aproximado tiene previsto para la compra?')
     assert.equal(answer.pending_question.id, 'budget_amount')
     assert.equal(answer.pending_question.act, 'budget')
     assert.equal(answer.reply.match(/\?/g)?.length, 1)
@@ -192,5 +194,31 @@ describe('shared continuation after a selected unit tour', () => {
     assert.notEqual(commercialJourneyPlan(paid).action, 'offer_financing')
     assert.equal(object(purchaseReadiness(paid).budget).status, 'initial_capital')
     assert.equal(purchaseReadiness(paid).can_offer_reservation, false)
+  })
+
+  it('an earlier general tour does not consume a later selected-unit tour or reopen the early budget', () => {
+    const general = unitModelDelivery({ explicit: false, hasUnitMention: false, matches: [] }, 'Quiero ver fotos del proyecto', [])!
+    assert.equal(general.url, unitTourUrl())
+    assert.equal(general.unit_id, null)
+    const history = [{ role: 'bot', content: general.caption }]
+    const reference = { explicit: true, hasUnitMention: true, matches: [unit],
+      context: { selected_ids: [unit.id] }, query: { operation: 'select' } }
+    const specific = selectedUnitModelDelivery(reference, 'Me interesa la 602', history)!
+    assert.equal(specific.url, unitTourUrl('602'))
+    assert.equal(specific.unit_id, unit.id)
+    assert.notEqual(specific.url, general.url)
+    for (const [budget, accepted] of [
+      [declaration('maximum_total', 600000, 'Mi presupuesto total es 600 mil'), false],
+      [declaration('initial_capital', 200000, 'Los 200 mil son para la entrada'), true],
+    ] as [Row, boolean][]) {
+      const data = selected(budget, accepted), next = tourContinuation(data, unit)
+      data.historial = history
+      assert.equal(next.budget.amount, budget.amount)
+      assert.equal(next.budget.status, budget.status)
+      assert.notEqual(next.pending_question.id, 'budget_amount')
+      assert.notEqual(next.pending_question.id, 'budget_kind')
+      assert.doesNotMatch(next.question, /presupuesto|entrada|otra opción/i)
+      assert.equal(next.reason, accepted ? 'continue_financing' : 'offer_reservation')
+    }
   })
 })

@@ -3,6 +3,7 @@ import { confirmedInterpretationMemory } from './interpretation-memory'
 import { focusedNumericMentions } from './focused-numeric-syntax'
 import { monetaryInterpretationIssues } from './financing-amounts'
 import { leadProfileSourceIssues } from './lead-profile'
+import { budgetQuestionBasis } from './budget-question-context'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -77,7 +78,7 @@ export function reconcileEchoedBudgetQuestion(raw: Row, input: Row, current: str
   const pending = object(input.pregunta_pendiente || object(input.contexto_propiedades).pending_question)
   const monetary = ['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
   const budgetDeclaration = ['amount_pending', 'no_defined_budget', 'unknown', 'amount', 'maximum_total', 'initial_capital',
-    'sufficient_for_selected_unit', 'insufficient_for_selected_unit'].includes(text(budget.status))
+    'sufficient_for_selected_unit', 'insufficient_for_selected_unit', 'declines_to_disclose'].includes(text(budget.status))
   if (!text(pending.id).startsWith('budget_') || !text(pending.question).trim()
     || semantics.confidence !== 'high'
     || !text(semantics.primary_evidence).trim() || !matches(semantics.primary_evidence, current)
@@ -150,6 +151,7 @@ export function interpretationInput(input: Row, current: string): Row {
   const catalog = rows(input.catalogo_unidades)
   const propertyContext = object(input.contexto_propiedades)
   const pending = object(propertyContext.pending_question || input.pregunta_pendiente)
+  const budgetPending = object(input.pregunta_pendiente || propertyContext.pending_question)
   const proposedIds = new Set(Array.isArray(pending.candidate_ids) ? pending.candidate_ids.map(text) : [])
   const proposal = pending.id === 'property_requirements' && pending.act === 'explore_alternatives'
     && Object.keys(object(pending.proposed_query)).length > 0 ? {
@@ -159,6 +161,10 @@ export function interpretationInput(input: Row, current: string): Row {
       note: 'Las consultas informativas pueden referirse a estas alternativas. Preguntar por ellas no acepta el cambio ni elimina la necesidad original.',
     } : null
   return { ...result,
+    ...(budgetQuestionBasis(budgetPending) ? { contexto_pregunta_presupuesto: {
+      role_asked: budgetQuestionBasis(budgetPending),
+      question: budgetPending.question,
+      instruction: 'La pregunta aclara la finalidad de una respuesta monetaria directa; cifra y cita deben pertenecer al mensaje actual. Una finalidad explícita distinta declarada ahora prevalece. No atribuya consentimiento.' } } : {}),
     ...(proposal ? { propuesta_pendiente: proposal } : {}),
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),

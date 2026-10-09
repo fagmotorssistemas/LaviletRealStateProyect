@@ -38,7 +38,7 @@ describe('property selection journey', () => {
     const result = propertySelectionReply(baseInfo({ lead: { preferred_category: 'suite', purchase_purpose: 'vivir' } }), 'Prefiero una suite, vivo solo y es mejor para mí')
 
     assert.match(result?.reply || '', /puede adaptarse muy bien/i)
-    assert.match(result?.reply || '', /presupuesto aproximado/i)
+    assert.match(result?.reply || '', /presupuesto total aproximado/i)
     assert.doesNotMatch(result?.reply || '', /210\.000|310\.000|USD|\$/)
   })
 
@@ -138,10 +138,11 @@ describe('property selection journey', () => {
 
   it('requires a selected unit and a budget answer before financing intake', () => {
     const withoutUnit = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite' } }), 'Quiero financiamiento')
-    assert.match(withoutUnit, /vivir o como inversión/i)
+    assert.match(withoutUnit, /presupuesto total aproximado/i)
+    assert.doesNotMatch(withoutUnit, /cédula|ingresos|qué entidad/i)
 
     const withoutBudget = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite', unit_id: suite210.id } }), 'Quiero financiamiento')
-    assert.match(withoutBudget, /presupuesto estimado/i)
+    assert.match(withoutBudget, /presupuesto total aproximado/i)
 
     const ready = financingPrerequisiteReply(baseInfo({ lead: {
       preferred_category: 'suite', unit_id: suite210.id, budget: 100000,

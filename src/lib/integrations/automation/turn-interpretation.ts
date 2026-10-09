@@ -5,6 +5,7 @@ import { EXTRACTION_REQUEST_RULES } from './extraction-request-rules'
 import { reconcilePassivePropertyMemory } from './turn-interpretation-input'
 import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
+import { budgetQuestionBasis } from './budget-question-context'
 import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_SCHEMA } from './turn-semantics'
 import { isGreetingOnly, normalized } from './sdr-rules'
@@ -274,15 +275,18 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, extractionSchema))
     recoveryIssues = interpretationSourceIssues(raw, readable, pending)
     const budget = object(object(raw.turn_semantics).budget)
-    // Reuse the existing question classifier only to request semantic checking;
-    // it never assigns a monetary role. A bare unknown amount does not pay for
-    // another model call. The focused response may keep the role ambiguous.
+    // Question context can request a semantic recheck, but never supplies the
+    // amount or changes the model's monetary role without that focused check.
+    // Generic amount questions deliberately preserve a genuine ambiguity.
     const previousQuestion = text(input.ultima_pregunta) || text(object(object(input.resumen)._last_operational_step).reply)
     const kindWasAsked = normalizedPendingQuestion(input.pregunta_pendiente).id === 'budget_kind'
       || pendingQuestionFromReply(previousQuestion).id === 'budget_kind'
+    const roleWasAsked = budgetQuestionBasis(normalizedPendingQuestion(input.pregunta_pendiente))
+      || budgetQuestionBasis(pendingQuestionFromReply(previousQuestion))
     const roleCue = pendingQuestionFromReply(`¿${text(budget.evidence)}?`).id === 'budget_kind'
+      || budgetQuestionBasis({ id: 'budget_amount', question: budget.evidence }) !== null
     if (budget.status === 'amount' && budget.confidence === 'high' && evidenceMatches(text(budget.evidence), readable)
-      && (kindWasAsked || roleCue)) recoveryIssues.push('unresolved_budget_role')
+      && (kindWasAsked || roleWasAsked || roleCue)) recoveryIssues.push('unresolved_budget_role')
     if (recoveryIssues.length) {
       const blocks = interpretationRepairBlocks(recoveryIssues)
       const quantityOnly = blocks.quantity && !blocks.property && !blocks.budget && !blocks.requests && !blocks.profile && blocks.semanticFields.length === 1
