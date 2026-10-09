@@ -39,6 +39,11 @@ html {
   font-size: 17px;
 }
 
+/* Lenis anima el scroll real. scroll-smooth del html lo duplicaría. */
+html.lenis {
+  scroll-behavior: auto !important;
+}
+
 [data-mkt-theme="light"] {
   --mkt-bg: #f2f2f2;
   --mkt-fg: #72735a;

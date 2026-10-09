@@ -617,7 +617,7 @@ export function TourFichaDrawer({
                 ) : null}
 
                 <div className="tour-ficha-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pt-2.5 pb-1.5">
-                  <div className="flex flex-col">
+                  <div className="tour-ficha-main flex min-h-full flex-col">
                   <div className="tour-ficha-identity flex flex-wrap items-center gap-2">
                     <h2 className="text-[1.35rem] leading-none font-bold tracking-tight text-[#1a2744]">
                       {t(" Unidad ")}{t(unit.unit_number)}

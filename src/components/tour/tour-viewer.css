@@ -1092,35 +1092,6 @@ html.tour-is-force-landscape body {
   }
 }
 
-/* Escritorio: la ficha corta no estira un hueco blanco encima del botón. */
-@media (min-width: 701px) and (min-height: 501px) {
-  .tour-ficha-sheet--compact.tour-modal-sheet {
-    bottom: auto !important;
-    height: fit-content !important;
-    max-height: calc(100dvh - 5.5rem - env(safe-area-inset-bottom, 0px)) !important;
-  }
-
-  .tour-ficha-sheet--compact .tour-ficha-shorthead {
-    display: flex;
-    box-sizing: border-box;
-    align-items: center;
-    min-height: 44px;
-    padding-top: 0.35rem;
-    padding-bottom: 0.35rem;
-  }
-
-  .tour-ficha-sheet--compact .tour-ficha-media,
-  .tour-ficha-sheet--compact .tour-ficha-identity {
-    display: none !important;
-  }
-
-  .tour-ficha-sheet--compact .tour-ficha-body,
-  .tour-ficha-sheet--compact .tour-ficha-scroll {
-    flex: 0 1 auto !important;
-    min-height: 0 !important;
-  }
-}
-
 /* iPhone vertical: la ficha no tapa el recorrido. Crece con el contenido y se corta al pasar de alto. */
 @media (max-width: 700px) and (min-height: 501px) {
   .tour-ficha-sheet.tour-modal-sheet {
@@ -1208,19 +1179,24 @@ html.tour-is-force-landscape body {
   }
 }
 
-/* Celular horizontal: panel lateral, no una sábana blanca a pantalla completa. */
+/* Celular horizontal: panel a la derecha, debajo de la barra y sin tapar sus botones. */
 @media (max-height: 500px) {
   .tour-ficha-sheet.tour-modal-sheet {
-    top: auto !important;
+    top: calc(var(--fab) + var(--edge-top) + 0.45rem) !important;
     right: max(0.4rem, env(safe-area-inset-right, 0px)) !important;
     bottom: max(0.4rem, env(safe-area-inset-bottom, 0px)) !important;
     left: auto !important;
     width: 40% !important;
     max-width: 40% !important;
-    height: fit-content !important;
-    max-height: calc(100dvh - 0.8rem) !important;
+    height: auto !important;
+    max-height: none !important;
     margin: 0 !important;
     border-radius: 1.75rem !important;
+    padding-top: 0 !important;
+  }
+
+  .tour-root:has(.tour-ficha-sheet) .tour-gallery-arrow--next {
+    right: calc(40% + var(--edge-right) + 0.65rem);
   }
 
   .tour-ficha-body,
@@ -1270,8 +1246,9 @@ html.tour-is-force-landscape body {
     padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
   }
 
-  .tour-ficha-sheet.tour-modal-sheet {
-    padding-top: env(safe-area-inset-top, 0px);
+  .tour-ficha-shorthead {
+    position: relative;
+    z-index: 6;
   }
 
   .tour-ficha-scroll {
@@ -1480,5 +1457,98 @@ html.tour-phone-preview .tour-ficha-media {
 
 html.tour-phone-preview .tour-ficha-tile {
   min-height: 0 !important;
+}
+
+/* La ficha compacta reparte el alto sobrante sin estirar las tarjetas de más. */
+.tour-ficha-sheet--compact .tour-ficha-main {
+  flex: 1 1 auto;
+  gap: 0.85rem;
+  min-height: 0;
+}
+
+.tour-ficha-sheet--compact .tour-ficha-specs {
+  flex: 1 1 auto;
+  gap: 0.7rem;
+  grid-auto-rows: minmax(4.85rem, 6.25rem);
+  align-content: start;
+}
+
+.tour-ficha-sheet--compact .tour-ficha-tile {
+  min-height: 4.85rem;
+  max-height: 6.25rem;
+  height: 100%;
+  justify-content: center;
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+}
+
+/* Vertical: la ficha queda a la izquierda y deja libres el riel y el zoom. */
+@media (max-width: 900px) and (min-height: 501px) {
+  .tour-ficha-sheet.tour-modal-sheet {
+    left: var(--edge-left) !important;
+    right: auto !important;
+    width: min(22.5rem, calc(100% - var(--edge-left) - var(--edge-right) - clamp(56px, 5vw, 84px) - 1.15rem)) !important;
+    bottom: calc(var(--edge-bottom) + var(--fab) + 0.55rem) !important;
+  }
+
+  .tour-ficha-sheet--expanded.tour-modal-sheet {
+    top: calc(4.75rem + env(safe-area-inset-top, 0px)) !important;
+  }
+}
+
+@media (min-height: 501px) {
+  .tour-root.is-plan-shell .tour-ficha-sheet.tour-modal-sheet {
+    top: calc(4rem + env(safe-area-inset-top, 0px) + var(--fab-gap) + var(--fab) + 0.9rem) !important;
+    left: var(--edge-left) !important;
+    right: auto !important;
+    bottom: calc(var(--edge-bottom) + var(--fab) + 0.55rem) !important;
+    width: min(22.5rem, calc(100% - var(--edge-left) - var(--edge-right) - clamp(56px, 5vw, 84px) - 1.15rem)) !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .tour-root.is-plan-shell .tour-ficha-sheet--compact .tour-ficha-media {
+    display: block !important;
+  }
+
+  .tour-root.is-plan-shell .tour-ficha-media-close {
+    display: flex !important;
+  }
+
+  .tour-root.is-plan-shell .tour-ficha-shorthead {
+    display: none !important;
+  }
+
+  .tour-root.is-plan-shell .tour-ficha-sheet--compact .tour-ficha-spec-full {
+    display: inline !important;
+  }
+
+  .tour-root.is-plan-shell .tour-ficha-sheet--compact .tour-ficha-spec-short {
+    display: none !important;
+  }
+
+  .tour-root.is-plan-shell .tour-ficha-sheet--compact .tour-ficha-specs {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.65rem !important;
+    margin-top: 0.35rem !important;
+    flex: 0 1 auto !important;
+    grid-auto-rows: auto !important;
+  }
+
+  .tour-root.is-plan-shell .tour-ficha-sheet--compact .tour-ficha-tile {
+    min-height: 4.85rem !important;
+    max-height: none !important;
+    height: auto !important;
+    padding: 0.85rem 0.75rem !important;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 700px) and (min-height: 501px) {
+  .tour-root.is-plan-shell .tour-ficha-sheet--compact .tour-ficha-media {
+    height: 9.5rem !important;
+    max-height: 9.5rem !important;
+    aspect-ratio: auto !important;
+  }
 }
 

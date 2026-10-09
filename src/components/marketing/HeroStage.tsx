@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ArrowRight, Building2, Trees, Waves } from 'lucide-react'
 import { notifyHeroLocked, resetHeroLock } from './heroLock'
 import { CmafVideo } from '@/components/media/CmafVideo'
 import { HeroEditorial } from './HeroEditorial'
+import { ParallaxImage } from './ParallaxImage'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
 import { useMarketingTheme } from './theme'
 
@@ -175,13 +175,14 @@ export function HeroStage() {
           {nuvia ? (
             <>
               <div className="absolute inset-0 bg-[#cfdce8]">
-                <Image
+                <ParallaxImage
                   src={HERO_PHOTO}
                   alt="Fachada Lavilet"
-                  fill
+                  strength={16}
                   priority
-                  className="object-contain object-right"
                   sizes="100vw"
+                  imageClassName="object-contain object-right"
+                  className="absolute inset-0"
                 />
               </div>
             </>
@@ -190,13 +191,14 @@ export function HeroStage() {
               <div className="absolute inset-0 bg-[linear-gradient(180deg,#e8e8e2_0%,#f2f2f2_42%,#ecece6_100%)]" />
 
               <div className="absolute inset-y-0 right-0 z-[1] w-[90%] sm:w-[72%]">
-                <Image
+                <ParallaxImage
                   src={HERO_PHOTO}
                   alt="Fachada Lavilet"
-                  fill
+                  strength={16}
                   priority
-                  className="object-cover object-[68%_center]"
                   sizes="75vw"
+                  imageClassName="object-[68%_center]"
+                  className="absolute inset-0"
                 />
               </div>
 

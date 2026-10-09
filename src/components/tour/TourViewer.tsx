@@ -451,26 +451,33 @@ const ENTRY_VIDEO_ASPECT = 1280 / 610
 function EntryLateral({
   active,
   aspect = ENTRY_VIDEO_ASPECT,
+  controls = false,
   children,
 }: {
   active: boolean
   aspect?: number
+  controls?: boolean
   children: ReactNode
 }) {
+  const { t } = useTourLanguage()
   const stageRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const blurRef = useRef<HTMLCanvasElement>(null)
   const [portrait, setPortrait] = useState(false)
   const [frozen, setFrozen] = useState({ w: 0, h: 0 })
+  const [zoom, setZoom] = useState(1)
   const panRef = useRef(0)
   const scaleRef = useRef(1)
   const dragRef = useRef<{ x: number; pan: number; moved: boolean } | null>(null)
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
   const live = active && portrait
-  const frameH = Math.round(frozen.h * PHONE_PORTRAIT_FRAME)
-  const frameW = Math.max(frozen.w, Math.round(frameH * aspect))
-  const zoomCap = frameH > 0 ? frozen.h / frameH : 1
+  const boxAspect = frozen.h > 0 ? frozen.w / frozen.h : aspect
+  const coverH = boxAspect > aspect ? frozen.w / aspect : frozen.h
+  const containH = boxAspect > aspect ? frozen.h : frozen.w / aspect
+  const zoomMin = coverH > 0 ? Math.min(1, containH / coverH) : 1
+  const frameH = Math.round(coverH)
+  const frameW = Math.round(frameH * aspect)
 
   const paint = () => {
     const frame = frameRef.current
@@ -513,6 +520,7 @@ function EntryLateral({
       if (rect.width < 8 || rect.height < 8) return
       panRef.current = 0
       scaleRef.current = 1
+      setZoom(1)
       setFrozen((prev) =>
         prev.w === rect.width && prev.h === rect.height ? prev : { w: rect.width, h: rect.height },
       )
@@ -522,8 +530,9 @@ function EntryLateral({
   }, [live])
 
   useLayoutEffect(() => {
+    scaleRef.current = zoom
     paint()
-  }, [frameW, frameH, frozen.w, frozen.h, live, aspect])
+  }, [frameW, frameH, frozen.w, frozen.h, live, aspect, zoom])
 
   useEffect(() => {
     if (!live) return
@@ -578,7 +587,9 @@ function EntryLateral({
       const b = pts[1]
       if (!a || !b) return
       const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
-      scaleRef.current = Math.max(1, Math.min(zoomCap, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      const next = Math.max(zoomMin, Math.min(1, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      scaleRef.current = next
+      setZoom(Number(next.toFixed(3)))
       paint()
       return
     }
@@ -615,8 +626,8 @@ function EntryLateral({
         <canvas
           ref={blurRef}
           aria-hidden
-          className="pointer-events-none absolute inset-[-10%] h-[120%] w-[120%] max-w-none object-cover opacity-0"
-          style={{ filter: 'blur(24px) brightness(0.6)' }}
+          className="pointer-events-none absolute inset-[-12%] h-[124%] w-[124%] max-w-none object-cover opacity-0"
+          style={{ filter: 'blur(28px) brightness(0.72) saturate(1.05)' }}
         />
       ) : null}
       <div
@@ -634,6 +645,28 @@ function EntryLateral({
       >
         {children}
       </div>
+      {fitted && controls ? (
+        <div className="tour-zoom-row pointer-events-auto z-20" onPointerDown={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            aria-label={t('Alejar')}
+            disabled={zoom <= zoomMin + 0.01}
+            onClick={() => setZoom((value) => Math.max(zoomMin, Math.round((value - 0.25) * 100) / 100))}
+            className="tour-zoom-btn disabled:opacity-40"
+          >
+            <Minus size={18} strokeWidth={2.25} />
+          </button>
+          <button
+            type="button"
+            aria-label={t('Acercar')}
+            disabled={zoom >= 1 - 0.01}
+            onClick={() => setZoom((value) => Math.min(1, Math.round((value + 0.25) * 100) / 100))}
+            className="tour-zoom-btn disabled:opacity-40"
+          >
+            <Plus size={18} strokeWidth={2.25} />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -3639,6 +3672,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       lang={locale}
       className={cn(
         'tour-root overflow-hidden bg-black overscroll-none',
+        showPlanShell && 'is-plan-shell',
         immersive && 'is-immersive',
         forceLandscapeCss && 'tour-force-landscape',
         immersive || !embedded || forceLandscapeCss
@@ -5029,7 +5063,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               coverHidden ? 'pointer-events-none opacity-0' : 'opacity-100',
             )}
           >
-            <EntryLateral active={!coverHidden} aspect={16 / 9}>
+            <EntryLateral active={!coverHidden} aspect={16 / 9} controls={!entryVideo}>
               <CmafVideo
                 mp4={
                   entryCoarse
@@ -5049,7 +5083,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           </div>
           <div className={`absolute inset-0 transition-opacity duration-[400ms] ease-linear ${droneOn ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
             {!planEntryOpen || ingresoCoarse === null ? null : (
-            <EntryLateral active={entryVideo && ingresoCoarse}>
+            <EntryLateral active={entryVideo && ingresoCoarse === true} controls>
               <CmafVideo
                 mp4={ingresoCoarse ? '/tour/ingreso-v2/ingreso-v2-mobile.mp4' : '/tour/ingreso-v2/ingreso-v2.mp4'}
                 hls={ingresoCoarse ? undefined : '/tour/ingreso-v2/hls/index.m3u8'}

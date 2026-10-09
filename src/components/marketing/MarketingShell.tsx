@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { MarketingFrame } from './MarketingTheme'
+import { SmoothScrollProvider } from './SmoothScrollProvider'
 
 export function MarketingShell({
   children,
@@ -8,5 +9,9 @@ export function MarketingShell({
   children: ReactNode
   showFooter?: boolean
 }) {
-  return <MarketingFrame showFooter={showFooter}>{children}</MarketingFrame>
+  return (
+    <SmoothScrollProvider>
+      <MarketingFrame showFooter={showFooter}>{children}</MarketingFrame>
+    </SmoothScrollProvider>
+  )
 }

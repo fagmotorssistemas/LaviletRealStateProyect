@@ -85,12 +85,10 @@ type FloorLayer = ReadyFloorView & {
   height: number
 }
 
-/** 1 = plano completo en el marco; solo se puede acercar desde ahí. */
+/** En horizontal, 1 es el plano ajustado y solo se puede acercar. */
 const ZOOM_MIN = 1
 const ZOOM_MAX = 3
 const ZOOM_STEP = 0.25
-/** En vertical el marco ocupa el 66% del alto. El zoom máximo lo devuelve al alto completo. */
-const PORTRAIT_FRAME = 0.66
 
 function statusDotClass(status: TourUnitSummary['status']) {
   if (status === 'disponible' || status === 'en_preventa') return 'bg-[#2f9e44]'
@@ -495,6 +493,10 @@ export function TourFloorPlan({
   }, [floor])
 
   useEffect(() => {
+    if (portraitPan) setScale(1)
+  }, [floor, portraitPan])
+
+  useEffect(() => {
     const el = stageRef.current
     if (!el) return
     const sync = () => {
@@ -629,6 +631,10 @@ export function TourFloorPlan({
   const currentLayer = layers[floor] ?? null
   const planVariant =
     variantByFloor[floor] ?? preferredVariant ?? currentLayer?.variant ?? '3d'
+
+  useEffect(() => {
+    if (portraitPan) setScale(1)
+  }, [planVariant, portraitPan])
   const targetReady = Boolean(
     revealFloor === floor ||
       (currentLayer &&
@@ -784,12 +790,6 @@ export function TourFloorPlan({
       }
     }
 
-    if (portraitPan) {
-      const frameH = Math.round(stageH * PORTRAIT_FRAME)
-      const frameW = Math.max(stageW, Math.round(frameH * aspect))
-      return { width: frameW, height: frameH, flexShrink: 0 }
-    }
-
     const stageWider = stageW / stageH > aspect
     const frameW = stageWider ? stageW : Math.round(stageH * aspect)
     const frameH = stageWider ? Math.round(frameW / aspect) : stageH
@@ -798,7 +798,7 @@ export function TourFloorPlan({
       height: frameH,
       flexShrink: 0,
     }
-  }, [planAspect, planAspectSize.height, planAspectSize.width, portraitPan, stageSize])
+  }, [planAspect, planAspectSize.height, planAspectSize.width, stageSize])
 
   const overlayAlign = useMemo(
     () => getFloorPlanOverlayAlign(docForToggles ?? null, planVariant),
@@ -937,10 +937,25 @@ export function TourFloorPlan({
     }
   }, [htmlInteractive])
 
+  const portraitZoomMin = useMemo(() => {
+    if (!portraitPan || stageSize.width < 8 || stageSize.height < 8) return ZOOM_MIN
+    const aspect = planAspectSize.width / Math.max(1, planAspectSize.height)
+    const boxAspect = stageSize.width / stageSize.height
+    const coverH = boxAspect > aspect ? stageSize.width / aspect : stageSize.height
+    const containH = boxAspect > aspect ? stageSize.height : stageSize.width / aspect
+    return coverH > 0 ? Math.min(1, containH / coverH) : ZOOM_MIN
+  }, [planAspectSize.height, planAspectSize.width, portraitPan, stageSize.height, stageSize.width])
+
   useEffect(() => {
-    if (!portraitPan) return
-    setScale((value) => Math.min(value, 1 / PORTRAIT_FRAME))
-  }, [portraitPan])
+    if (!portraitPan) {
+      setScale((value) => (value < ZOOM_MIN ? ZOOM_MIN : value))
+      return
+    }
+    setScale((value) => {
+      const next = Math.min(1, Math.max(portraitZoomMin, value))
+      return Math.abs(next - value) < 0.001 ? value : next
+    })
+  }, [portraitPan, portraitZoomMin])
 
   useEffect(() => {
     if (!portraitPan) return
@@ -1110,11 +1125,12 @@ export function TourFloorPlan({
     prefetchSlotUnit(slot.unit)
   }
 
-  const zoomMax = portraitPan ? 1 / PORTRAIT_FRAME : ZOOM_MAX
+  const zoomFloor = portraitPan ? portraitZoomMin : ZOOM_MIN
+  const zoomCeil = portraitPan ? 1 : ZOOM_MAX
   const zoomOut = () =>
-    setScale((value) => Math.max(ZOOM_MIN, Number((value - ZOOM_STEP).toFixed(2))))
+    setScale((value) => Math.max(zoomFloor, Number((value - ZOOM_STEP).toFixed(2))))
   const zoomIn = () =>
-    setScale((value) => Math.min(zoomMax, Number((value + ZOOM_STEP).toFixed(2))))
+    setScale((value) => Math.min(zoomCeil, Number((value + ZOOM_STEP).toFixed(2))))
 
   const panXRef = useRef(0)
   panXRef.current = panX
@@ -1203,7 +1219,7 @@ export function TourFloorPlan({
       const b = pts[1]
       if (!a || !b) return
       const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
-      const next = Math.max(ZOOM_MIN, Math.min(zoomMax, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+      const next = Math.max(zoomFloor, Math.min(zoomCeil, pinchRef.current.scale * (dist / pinchRef.current.dist)))
       scaleRef.current = next
       setScale(Number(next.toFixed(3)))
       return
@@ -1379,13 +1395,17 @@ export function TourFloorPlan({
       >
           {portraitPan
             ? (() => {
-                const blurLayer = layerEntries.find(
-                  (layer) =>
-                    layer.kind !== 'html' &&
-                    layer.floor === frontFloor &&
-                    layer.variant === planVariant &&
-                    layer.url,
-                )
+                const blurLayer =
+                  layerEntries.find(
+                    (layer) =>
+                      layer.kind !== 'html' &&
+                      layer.floor === frontFloor &&
+                      layer.variant === planVariant &&
+                      layer.url,
+                  ) ??
+                  layerEntries.find(
+                    (layer) => layer.kind !== 'html' && layer.floor === frontFloor && layer.url,
+                  )
                 if (!blurLayer?.url) return null
                 return (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -1394,8 +1414,8 @@ export function TourFloorPlan({
                     alt=""
                     aria-hidden
                     draggable={false}
-                    className="pointer-events-none absolute inset-[-8%] z-0 h-[116%] w-[116%] max-w-none object-cover"
-                    style={{ filter: 'blur(24px) brightness(0.6)' }}
+                    className="pointer-events-none absolute inset-[-12%] z-0 h-[124%] w-[124%] max-w-none object-cover"
+                    style={{ filter: 'blur(28px) brightness(0.72) saturate(1.05)' }}
                   />
                 )
               })()
@@ -1809,7 +1829,7 @@ export function TourFloorPlan({
           <button
             type="button"
             onClick={zoomOut}
-            disabled={scale <= ZOOM_MIN}
+            disabled={scale <= zoomFloor + 0.01}
             className="tour-zoom-btn disabled:opacity-40"
             aria-label={t("Alejar plano")}
             title={t("Alejar")}
@@ -1819,7 +1839,7 @@ export function TourFloorPlan({
           <button
             type="button"
             onClick={zoomIn}
-            disabled={scale >= zoomMax - 0.001}
+            disabled={scale >= zoomCeil - 0.001}
             className="tour-zoom-btn disabled:opacity-40"
             aria-label={t("Acercar plano")}
             title={t("Acercar")}
