@@ -28,7 +28,7 @@ export function weekOneChoice(c: NutritionWeekOneConfig, lead: Row, history: Row
   const actionsUsed = new Set(outbound.map(m => text(object(object(m.tool_calls).nutrition_week_one).action)))
   const candidates: Omit<WeekOneChoice, 'kind' | 'body' | 'reason'>[] = []
   if (c.financing && options.financing && /presupuesto|financ|credito|no se si.*alcanz|no me alcanza|pichincha|\bjep\b/.test(recent)
-    && !/no (?:quiero|necesito|deseo).*financ|pago (?:de )?contado/.test(normalized(latest))) candidates.push({ action: 'financing_options', topic: 'revisar las opciones de financiamiento disponibles' })
+    && !/\bno (?:quiero|necesito|deseo)\b.*financ|\bpago (?:de )?contado\b/.test(normalized(latest))) candidates.push({ action: 'financing_options', topic: 'revisar las opciones de financiamiento disponibles' })
   const reference = resolveCatalogReference(catalog, relevantClients.map(m => text(m.content)).join('\n'))
   const latestCategory = /\blocal/.test(recent) ? 'local' : /suite/.test(recent) ? 'suite' : /departamento|vivienda|dormitorio/.test(recent) ? 'departamento' : ''
   const unit = reference.hasUnitMention ? reference.matches.length === 1 ? reference.matches[0] : null
@@ -37,7 +37,7 @@ export function weekOneChoice(c: NutritionWeekOneConfig, lead: Row, history: Row
     const category = unit.category === 'suite' ? 'la suite' : unit.category === 'local' ? 'el local' : 'el departamento'
     candidates.push({ action: `unit_details:${unit.id}`, unitId: text(unit.id), topic: `conocer la distribución de ${category} ${unit.unit_number}`.replace('de el ', 'del ') })
   }
-  if (c.visits && options.visits && /visita|visitar|conocer en persona|oficina/.test(recent) && !/no (?:quiero|puedo|deseo).*visita/.test(recent)) candidates.push({ action: 'office_visit', topic: 'coordinar una visita a nuestra oficina' })
+  if (c.visits && options.visits && /visita|visitar|conocer en persona|oficina/.test(recent) && !/\bno (?:quiero|puedo|deseo)\b.*visita/.test(recent)) candidates.push({ action: 'office_visit', topic: 'coordinar una visita a nuestra oficina' })
   const category = latestCategory || text(lead.preferred_category)
   if (c.comparison && category && catalog.filter(u => u.category === category).length >= 2) {
     const label = category === 'local' ? 'locales comerciales' : category === 'suite' ? 'suites' : 'departamentos'

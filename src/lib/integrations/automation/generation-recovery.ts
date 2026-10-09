@@ -116,7 +116,7 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
       } catch { /* soft-fail */ }
       return { action: 'bot_paused' }
     }
-    if (/no (?:me )?(?:envien|mande|manden|escriban|contacten)|dejen de (?:escribirme|contactarme)|no (?:quiero|deseo) recibir.*mensaj/.test(normalized(events.map(e => e.text).join(' ')))) {
+    if (/\bno (?:me )?(?:envien|mande|manden|escriban|contacten)\b|\bdejen de (?:escribirme|contactarme)\b|\bno (?:quiero|deseo) recibir.*mensaj/.test(normalized(events.map(e => e.text).join(' ')))) {
       await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
       return { action: 'opt_out' }
     }

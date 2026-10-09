@@ -292,6 +292,27 @@ test('recovery respects duplicates, humans, stop flags, newer messages and the r
   assert.equal(optOut.calls.some(c => c.name === 'send'), false)
 })
 
+test('recovery does not withdraw consent when bueno precedes a positive message request', async () => {
+  for (const message of ['Bueno mande información', 'Bueno me contacten para orientarme', 'Bueno quiero recibir más mensajes']) {
+    const h = recoveryHarness({ message })
+    const result = await h.run()
+    assert.equal(h.calls.some(c => c.name === 'set_tracking_preference'), false, message)
+    assert.equal(result.delivery_status, 'accepted', message)
+    assert.equal(h.calls.filter(c => c.name === 'send').length, 1, message)
+  }
+})
+
+test('recovery still stops contact for genuine refusals after a courtesy', async () => {
+  for (const message of ['Bueno, no mande más mensajes', 'No me contacten', 'No deseo recibir más mensajes', 'Dejen de escribirme']) {
+    const h = recoveryHarness({ message })
+    const result = await h.run()
+    assert.equal(result.action, 'opt_out', message)
+    assert.equal(h.calls.find(c => c.name === 'set_tracking_preference').args.p_consent, false, message)
+    assert.equal(h.calls.some(c => c.name === 'send'), false, message)
+    assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false, message)
+  }
+})
+
 test('failed queueing cannot promise handoff and uncertain notices are never automatically repeated', async () => {
   for (const [option, uncertain] of [['handoffFails', false], ['uncertainOutbox', false], ['launchFails', true], ['registrationFails', true]]) {
     const h = recoveryHarness({ [option]: true })

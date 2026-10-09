@@ -133,7 +133,7 @@ export function isProfileOnlyTurn(current: string, extractedRaw: unknown) {
     && !concreteRequest(current) && (hasProfileAnswer(extracted.lead_profile) || declinedProfile(current))
 }
 function declinedProfile(current: string) {
-  return /(?:no quiero|no deseo|prefiero no|no voy a|no le voy a).{0,35}(?:dar|decir|compartir|nombre|datos|resido|vivo)|(?:no importa|no es necesario).{0,20}(?:nombre|donde|datos)/.test(normalized(current))
+  return /\b(?:no quiero|no deseo|prefiero no|no voy a|no le voy a)\b.{0,35}(?:dar|decir|compartir|nombre|datos|resido|vivo)|\b(?:no importa|no es necesario)\b.{0,20}(?:nombre|donde|datos)/.test(normalized(current))
 }
 function knownProfile(input: LeadIntroductionInput) {
   return confirmedLeadProfile(mergeLeadProfile(confirmedLeadProfile({ ...object(object(input.summary)._lead_profile), ...object(input.profile) }), confirmedLeadProfile(object(input.extracted).lead_profile)))

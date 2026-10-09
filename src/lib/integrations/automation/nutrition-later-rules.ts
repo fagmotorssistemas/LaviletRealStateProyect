@@ -23,7 +23,7 @@ export function laterChoice(week: LaterWeek, lead: Row, history: Row[], outbound
     const actions = outbound.flatMap(m => Object.values(object(m.tool_calls)).map(v => text(object(v).action)))
     const candidates: { action: string; topic: string }[] = []
     if (partners.length && /financ|credito|presupuesto|alcanz|\bjep\b|pichincha/.test(recent)
-      && !/no (?:quiero|necesito|deseo).*financ|pago (?:de )?contado/.test(recent)
+      && !/\bno (?:quiero|necesito|deseo)\b.*financ|\bpago (?:de )?contado\b/.test(recent)
       && !/financiamiento|credito|pichincha|\bjep\b/.test(sent)) candidates.push({ action: 'financing_options', topic: 'conocer las alternativas de financiamiento' })
     if ((category || lead.unit_id || /comprar|compra|invertir/.test(recent)) && !/proceso de compra|firma.{0,35}reserva|reserva.{0,35}firma/.test(sent)) candidates.push({ action: 'purchase_process', topic: 'revisar el proceso de compra del inmueble que le interesa' })
     if (!/coordinar una (?:conversacion|llamada) con un asesor|asesor.{0,35}(?:contact|comunic)|(?:contact|comunic).{0,35}asesor/.test(sent)) candidates.push({ action: 'advisor_conversation', topic: 'coordinar una conversación con un asesor' })

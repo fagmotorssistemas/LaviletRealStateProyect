@@ -21,7 +21,9 @@ const propertyQuestions = ['property_category', 'property_floor', 'property_bedr
 const propertyOperations = new Set(['search', 'rank', 'compare', 'select', 'details'])
 const propertyObjectives = new Set(['select_property', 'ask_price', 'project_information'])
 const propertyCategories = new Set(['suite', 'departamento', 'penthouse', 'local'])
-const salesRefusalPattern = /no (?:no )?(?:estoy interesad[oa]|me interesa)(?:\b|$)|no (?:quiero|deseo) (?:comprar|adquirir)|solo (?:por )?curiosidad|(?:numero|chat) equivocado|me equivoque de (?:numero|chat)/
+// Refusal must start at a word boundary. Without it, "bueno me interesa"
+// matches "no me interesa" and incorrectly disables commercial discovery.
+const salesRefusalPattern = /\b(?:no (?:no )?(?:estoy interesad[oa]|me interesa)(?:\b|$)|no (?:quiero|deseo) (?:comprar|adquirir)|solo (?:por )?curiosidad|(?:numero|chat) equivocado|me equivoque de (?:numero|chat))/
 const salesRefusal = (m: string) => salesRefusalPattern.test(m)
 const currentEvidence = (current: string, value: unknown) => {
   const evidence = text(value).trim(), fragment = normalized(evidence)
@@ -97,12 +99,22 @@ export function requestedPropertyContinuation(current: string, input: Commercial
     && (scope.kind !== 'neutral' || request || criteria)
   const propertyAnswer = propertyPending && answerEvidence && ['affirmative', 'uncertain', 'value'].includes(text(answer.kind))
     && scope.kind !== 'neutral'
-  if (!explicitRequest && !propertyAnswer) return deny('no_current_property_request_or_verified_answer')
-  const renewal = explicitRequest && objective === 'select_property' && semantics.confidence === 'high'
+  // A grounded choice of housing/commercial use resumes discovery even when
+  // the extractor labels the intent "other" and the catalogue operation none.
+  // This also recovers engagement incorrectly made passive in an earlier turn;
+  // it neither renews sales on a factual query nor grants workflow consent.
+  const useChoice = ['property_category', 'property_purpose'].includes(text(pending.id))
+    && !!replyQuestionText(text(pending.question)) && answer.kind === 'value' && !!answerEvidence
+    && ['other', 'answer_previous', 'select_property'].includes(objective)
+    && semantics.confidence === 'high' && property.confidence === 'high'
+    && ['residential', 'commercial'].includes(text(property.group)) && !!literal(property.evidence)
+    && ['none', 'search'].includes(text(property.operation)) && scope.kind !== 'neutral'
+  if (!explicitRequest && !propertyAnswer && !useChoice) return deny('no_current_property_request_or_verified_answer')
+  const renewal = useChoice || explicitRequest && objective === 'select_property' && semantics.confidence === 'high'
     && property.confidence === 'high' && ['search', 'rank', 'select'].includes(text(property.operation)) && !!evidence && criteria
   return { version: 'requested-property-continuation-v1', allowed: true, property_interest_renewed: !!renewal,
-    reason: renewal ? 'current_concrete_property_search' : propertyAnswer ? 'current_answer_to_property_question' : 'current_property_information_request',
-    objective, evidence: evidence || text(request?.evidence) || answerEvidence,
+    reason: useChoice ? 'current_property_use_choice' : renewal ? 'current_concrete_property_search' : propertyAnswer ? 'current_answer_to_property_question' : 'current_property_information_request',
+    objective, evidence: useChoice ? literal(property.evidence) : evidence || text(request?.evidence) || answerEvidence,
     allowed_question_ids: [...propertyQuestions] }
 }
 
@@ -118,7 +130,7 @@ function renewedPropertyInterest(m: string) {
 
 export function explicitPropertyInterest(value: string) {
   const m = normalized(value)
-  if (/no (?:estoy interesad|me interesa|quiero comprar|quiero adquirir)|solo (?:por )?curiosidad/.test(m)) return false
+  if (salesRefusal(m)) return false
   // Consulta concreta de disponibilidad / precio / visita sobre propiedad identificada.
   if (
     identifiedProperty.test(m) &&

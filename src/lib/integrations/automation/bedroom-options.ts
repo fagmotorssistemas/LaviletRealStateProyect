@@ -10,7 +10,7 @@ export function bedroomOptionsFromText(current: string): number[] {
   const token = '(?:\\d{1,2}|uno|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)'
   const noun = '(?:dormitorios?|habitaciones?|cuartos?)'
   const m = normalized(current)
-  if (/no (?:quiero|acepto|necesito)|menos de|mas de|entre|hasta/.test(m)) return []
+  if (/\bno (?:quiero|acepto|necesito)\b|\b(?:menos de|mas de|entre|hasta)\b/.test(m)) return []
   const match = m.match(new RegExp(`\\b(${token})\\s*(?:${noun}\\s*)?o\\s*(?:de\\s+)?(${token})(?:\\s*${noun}\\b|(?=[?.,!]|$))`))
   if (!match || !new RegExp(noun).test(m)) return []
   return bedroomOptions([words[match[1]] || Number(match[1]), words[match[2]] || Number(match[2])])

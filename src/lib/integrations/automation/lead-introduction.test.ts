@@ -18,6 +18,34 @@ const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroduction
   audit: { source: 'project_overview' }, ...overrides,
 })
 
+describe('profile refusal requires complete words', () => {
+  const pending = { status: 'pending', request_sent: true, reminder_count: 0, requested_fields: ['full_name', 'residence'] }
+
+  it('keeps residence collection after a positive name declaration starting with bueno', () => {
+    for (const current of ['Bueno quiero dar mi nombre, soy Carlos', 'Bueno deseo compartir mis datos, soy Carlos']) {
+      const turn = leadIntroductionTurn(input({ current, summary: { _lead_introduction: pending },
+        extracted: { lead_profile: declaredName('Carlos', 'soy Carlos') },
+        engagement: { passive: false }, audit: { source: 'profile_answer' }, reply: 'Para orientarle.' }))
+      assert.equal((turn.audit.profile_introduction as { profile_declined: boolean }).profile_declined, false)
+      assert.equal((turn.audit.profile_collection_decision as { action: string }).action, 'remind')
+      assert.equal((turn.audit.profile_introduction as { question_purpose: string }).question_purpose, 'collect_residence')
+      assert.match(turn.reply, /reside actualmente/)
+      assert.equal(turn.state.collection_status, 'awaiting')
+    }
+  })
+
+  it('continues respecting actual profile refusals, including after a courtesy', () => {
+    for (const current of ['No quiero dar mi nombre', 'Bueno, no deseo compartir mis datos', 'Prefiero no decir dónde vivo']) {
+      const turn = leadIntroductionTurn(input({ current, summary: { _lead_introduction: pending },
+        engagement: { passive: false }, audit: { source: 'profile_answer' }, reply: 'Para orientarle.' }))
+      assert.equal((turn.audit.profile_introduction as { profile_declined: boolean }).profile_declined, true)
+      assert.equal((turn.audit.profile_collection_decision as { action: string }).action, 'declined')
+      assert.equal(turn.state.collection_status, 'declined')
+      assert.doesNotMatch(turn.reply, /su nombre|reside actualmente/)
+    }
+  })
+})
+
 describe('informational engagement limits proactive profile capture', () => {
   it('answers a current information request without capturing profile or consuming the previous receipt', () => {
     const previous = { status: 'pending', request_sent: true, reminder_count: 0, requested_fields: ['full_name', 'residence'] }

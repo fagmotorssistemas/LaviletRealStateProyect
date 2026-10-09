@@ -44,6 +44,26 @@ test('followup is short and relevant, never a second brochure or an unsupported 
   const changed = choose({}, [...history('Quiero financiamiento para el departamento 202'), ...history('Mejor quiero la suite 210')], true, { lead: { unit_id: 'unit', preferred_category: 'departamento' }, catalog: [...catalog, { id: 'suite', unit_number: '210', category: 'suite' }] })
   assert.equal(changed.topic, 'conocer la distribución de la suite 210')
 })
+test('positive financing requests starting with bueno remain eligible in both follow-up schedules', () => {
+  for (const message of ['Quiero financiamiento', 'Bueno quiero financiamiento', 'Bueno necesito financiamiento', 'Bueno deseo financiamiento']) {
+    assert.equal(choose({}, history(message), true).action, 'financing_options', message)
+    assert.equal(laterRules.laterChoice(3, {}, history(message), [], ['JEP']).action, 'financing_options', message)
+  }
+  for (const message of ['No quiero financiamiento', 'Bueno, no necesito financiamiento', 'No deseo financiamiento', 'Pago de contado']) {
+    assert.equal(choose({}, history(message), true), null, message)
+    assert.notEqual(laterRules.laterChoice(3, {}, history(message), [], ['JEP'])?.action, 'financing_options', message)
+  }
+})
+
+test('visit follow-up distinguishes bueno from a real refusal', () => {
+  for (const message of ['Quiero una visita', 'Bueno quiero una visita', 'Bueno puedo hacer una visita', 'Bueno deseo una visita']) {
+    assert.equal(choose({ visits: true }, history(message), true).action, 'office_visit', message)
+  }
+  for (const message of ['No quiero una visita', 'Bueno, no puedo hacer una visita', 'No deseo una visita']) {
+    assert.equal(choose({ visits: true }, history(message), true), null, message)
+  }
+})
+
 test('acceptance follows the actual offer; questions, rejection and mixed replies remain intact', () => {
   for (const topic of ['conocer la distribución del departamento 202', 'comparar las opciones de departamentos disponibles', 'coordinar una visita a nuestra oficina', 'revisar las opciones de financiamiento disponibles']) {
     const h = [{ id: 'offer', role: 'bot', content: config.WEEK_ONE_FOLLOWUP_BODY.replace('{{1}}', topic) }]

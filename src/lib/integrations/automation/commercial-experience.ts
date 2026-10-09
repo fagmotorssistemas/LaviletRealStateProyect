@@ -30,7 +30,7 @@ export function commercialMemory(previous: unknown, history: unknown, current = 
     if (['bot', 'asesor'].includes(text(row.role))) {
       benefitsMentioned(message).forEach(b => mentioned.add(b)); lastReply = message
     } else if (row.role === 'cliente') {
-      if (/no (?:se|estoy segur|tengo idea|tengo claro|tenia idea|he pensado)|no lo he pensado/.test(message)) {
+      if (/\bno (?:se\b|estoy segur[oa]?\b|tengo idea\b|tengo claro\b|tenia idea\b|he pensado\b|lo he pensado\b)/.test(message)) {
         if (/tamano|metros|metraje|area/.test(message + ' ' + lastReply)) deferred.add('area_buscada')
         if (/presupuesto|cuanto.*invertir/.test(message + ' ' + lastReply)) deferred.add('presupuesto')
       }
@@ -60,7 +60,7 @@ export function residentialContinuity(info: Row, current: string) {
     && /^(?:(?:si|bueno|quiero|quisiera|me gustaria|uno|de|con)\s+)*(?:[1-9]|uno|dos|tres|cuatro|cinco|seis)(?:\s+(?:cuartos?|dormitorios?|habitaciones?))?$/.test(m)
   const categoryChosen = history.some((row, index) => row.role === 'cliente'
     && /departamento/.test(normalized(text(row.content)))
-    && (/prefiero|solo|no.*suite/.test(normalized(text(row.content)))
+    && (/prefiero|solo|\bno\b.*suite/.test(normalized(text(row.content)))
       || /suite/.test(normalized(text(history[index - 1]?.content))) && /departamento/.test(normalized(text(history[index - 1]?.content)))))
   const catalog = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object)
   const apartment = lead.preferred_category === 'departamento' || /departamento/.test(previousBot.at(-1) || '')
@@ -94,7 +94,7 @@ export function needsDimensions(current: string, memory: CommercialMemory) {
   const m = normalized(current)
   return /tamano|area|metro|m2|grande|ampli|pequen|espacio|distribu|compar|opciones/.test(m)
     || /\b\d+[.,]\d{1,2}\b/.test(current)
-    || (memory.deferred_fields.includes('area_buscada') && /no (?:se|tengo idea|tenia idea|he pensado)/.test(m))
+    || (memory.deferred_fields.includes('area_buscada') && /\bno (?:se\b|tengo idea\b|tenia idea\b|he pensado\b)/.test(m))
 }
 export function experienceContext(info: Row, current: string, memory: CommercialMemory): Row {
   const facilities = (Array.isArray(info.instalaciones) ? info.instalaciones : []).map(object)
@@ -113,7 +113,7 @@ export function experienceContext(info: Row, current: string, memory: Commercial
 export function turnWritingRules(current: string, memory: CommercialMemory) {
   const avoid = asksOverview(current) ? [] : memory.mentioned_benefits.filter(b => !requestedBenefits(current).includes(b))
   const m = normalized(current)
-  const clarify = /no entiendo|que significa|a que se refiere|explic/.test(m)
+  const clarify = /\bno entiendo\b|que significa|a que se refiere|explic/.test(m)
   const topics = [clarify && /circulacion|entrada|acceso/.test(m) ? 'qué significan las entradas separadas' : '',
     clarify && /parqueadero|parqueo|subsuel/.test(m) ? 'dónde están los parqueaderos, sin asignarlos a visitantes' : '',
     /piscina|gimnasio/.test(m) && /[?¿]|quien|como|para residentes/.test(m) ? 'la consulta concreta sobre piscina o gimnasio; está permitido responderla aunque ya se mencionaron' : '',
@@ -163,14 +163,14 @@ ${CURRENT_TONE.commercialLength}
 export function experienceIssues(reply: string, current: string, info: Row, memory: CommercialMemory) {
   const issues: string[] = [], m = normalized(current), r = normalized(reply)
   if (residentialContinuationIssues(reply, current, info).length) issues.push('repeated_question')
-  const clarification = /no entiendo|que significa|a que se refiere|explic/.test(m)
+  const clarification = /\bno entiendo\b|que significa|a que se refiere|explic/.test(m)
   if (/[?¿]|quien|como|para residentes/.test(m) && benefitsMentioned(current).some(b => ['piscina', 'gimnasio'].includes(b) && !benefitsMentioned(reply).includes(b))) issues.push('ignored_question')
   if (clarification && /circulacion|entrada|acceso/.test(m) && !/entrada|acceso/.test(r)) issues.push('ignored_question')
   if (clarification && /parqueadero|parqueo|subsuel/.test(m) && !/parqueadero|parqueo/.test(r)) issues.push('ignored_question')
-  const detailed = /\n| y |ademas/.test(m) && /explic|no entiendo|que (?:significa|quiere decir)|a que se refiere|sector|venderlo|venderla|reventa/.test(m)
+  const detailed = /\n| y |ademas/.test(m) && /explic|\bno entiendo\b|que (?:significa|quiere decir)|a que se refiere|sector|venderlo|venderla|reventa/.test(m)
   const multipleTopics = commercialTurnTopics(current, info.historial).length > 1
   if (reply.trim().split(/\s+/).length > (multipleTopics ? 160 : detailed ? 110 : 75) || /uso mixto|circulacion (?:comercial|para residentes)|unidades residenciales|expectativa de renta|metraje/.test(r)) issues.push('style')
-  if (/solo (?:permite|admite|puedo).*texto|promotora inmobiliaria|no por duenos individuales|pertenece a una promotora|puedo avisarle|le avisare/.test(r)) issues.push('unsupported_fact')
+  if (/solo (?:permite|admite|puedo).*texto|promotora inmobiliaria|\bno por duenos individuales|pertenece a una promotora|puedo avisarle|le avisare/.test(r)) issues.push('unsupported_fact')
   const referenced = object(info.referencia_unidad).matches
   if (/\d[\d.,]*\s*(?:m²|m2|metros cuadrados)/i.test(reply) && !needsDimensions(current, memory) && !(Array.isArray(referenced) && referenced.length)) issues.push('style')
   const requestedOverview = asksOverview(current), requested = requestedBenefits(current)
@@ -179,13 +179,13 @@ export function experienceIssues(reply: string, current: string, info: Row, memo
   if (memory.deferred_fields.includes('area_buscada') && /\?.*(?:$)/.test(reply)
     && /que tamano.*(?:mente|busca|necesita)|cuantos metros.*(?:busca|necesita)/.test(r)) issues.push('repeated_question')
   const catalog = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object)
-  if (catalog.some(u => Number(u.area_internal_m2) > 0) && /no (?:tenemos|tengo|se tiene|hay|contamos).*(?:area|tamano).*(?:publicad|registrad|disponible|exact)|no (?:se tiene|tenemos|hay) publicad.*area/.test(r)) issues.push('unsupported_fact')
-  if (/no necesita salir|no hace falta salir|hay de todo|totalmente seguro|alta demanda|facil de arrendar/.test(r)) issues.push('unsupported_fact')
+  if (catalog.some(u => Number(u.area_internal_m2) > 0) && /\bno (?:tenemos|tengo|se tiene|hay|contamos).*(?:area|tamano).*(?:publicad|registrad|disponible|exact)|\bno (?:se tiene|tenemos|hay) publicad.*area/.test(r)) issues.push('unsupported_fact')
+  if (/\bno necesita salir|\bno hace falta salir|hay de todo|totalmente seguro|alta demanda|facil de arrendar/.test(r)) issues.push('unsupported_fact')
   if (reply.split(/[.!?\n]/).some(s => /(?:plusvalia|rentabilidad) garantizada/.test(normalized(s)) && !/\bno\b|\bsin\b/.test(normalized(s)))) issues.push('unsupported_fact')
   if (/areas? exteriores? (?:privadas?|exclusivas?)/.test(r)) issues.push('unsupported_fact')
   if (/a (?:pocos|pocas|unas|unos|\d+) (?:minutos|cuadras)|a un paso/.test(r)) issues.push('unsupported_fact')
   const parkingClaims = reply.split(/[.!?\n]/).filter(s => /parqueader|parqueo/i.test(s) && /visitantes|clientes/i.test(s))
-  if (parkingClaims.some(s => !/no (?:sabemos|consta|podemos|esta)|falta verificar|por confirmar/i.test(normalized(s)))) issues.push('unsupported_fact')
+  if (parkingClaims.some(s => !/\bno (?:sabemos|consta|podemos|esta)|falta verificar|por confirmar/i.test(normalized(s)))) issues.push('unsupported_fact')
   return [...new Set(issues)]
 }
 
@@ -220,7 +220,7 @@ export function commercialFallback(info: Row, current: string, memory: Commercia
   const facilities = normalized(JSON.stringify(info.instalaciones ?? []))
   if (/circulacion|entrada|acceso/.test(m) && /independiente|separad/.test(facilities)) sentences.push('Las viviendas y los locales tienen entradas separadas.')
   if (/parqueadero|parqueo|subsuel/.test(m) && /parqueadero|parqueo/.test(facilities)) sentences.push('Los parqueaderos están en los pisos bajo tierra; falta verificar cuáles corresponden a cada local.')
-  if (/tamano|area|metros|metraje/.test(m) || (memory.deferred_fields.includes('area_buscada') && /no (?:se|tengo idea|tenia idea|he pensado)/.test(m))) {
+  if (/tamano|area|metros|metraje/.test(m) || (memory.deferred_fields.includes('area_buscada') && /\bno (?:se\b|tengo idea\b|tenia idea\b|he pensado\b)/.test(m))) {
     const category = text(object(info.lead).preferred_category)
     const units = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).filter(u => (!category || u.category === category) && Number(u.area_internal_m2) > 0)
     const selected = units.find(u => text(u.unit_number) && normalized(current).includes(normalized(text(u.unit_number))))
@@ -317,5 +317,5 @@ export function projectInformationChoiceReply(current: string, history: unknown)
 }
 
 export function unresolvedCommercialReply(reply: string) {
-  return !reply.trim() || /no quiero darle informaci[oó]n imprecisa|no (?:tengo|tenemos|cuento|contamos)[^.!?\n]{0,55}(?:informaci[oó]n|dato|precio|detalle)[^.!?\n]{0,30}(?:confirmad|disponible|publicad|precis)|(?:necesito|debemos|debe|falta|hay que)[^.!?\n]{0,25}(?:verificar|consultar|confirmar)[^.!?\n]{0,60}(?:asesor|equipo|precio|dato|correspond)|(?:asesor|equipo)[^.!?\n]{0,40}(?:puede ayudarle|debe verificarlo)/i.test(reply)
+  return !reply.trim() || /\bno quiero darle informaci[oó]n imprecisa|\bno (?:tengo|tenemos|cuento|contamos)[^.!?\n]{0,55}(?:informaci[oó]n|dato|precio|detalle)[^.!?\n]{0,30}(?:confirmad|disponible|publicad|precis)|(?:necesito|debemos|debe|falta|hay que)[^.!?\n]{0,25}(?:verificar|consultar|confirmar)[^.!?\n]{0,60}(?:asesor|equipo|precio|dato|correspond)|(?:asesor|equipo)[^.!?\n]{0,40}(?:puede ayudarle|debe verificarlo)/i.test(reply)
 }

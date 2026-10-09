@@ -92,7 +92,7 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const last = text(replies.at(-1)?.content), m = normalized(current)
   const pendingVisit = rows(info.propuestas).some(p => ['confirmed', 'awaiting_advisor', 'awaiting_client'].includes(text(p.status)))
     || object(info.coordinacion_visita).status === 'collecting'
-  const refuses = /no (?:quiero|deseo|necesito|me interesa).*(?:visita|cita)|solo (?:quiero )?(?:informacion|ver|saber)/.test(m)
+  const refuses = /\bno (?:quiero|deseo|necesito|me interesa)\b.*(?:visita|cita)|\bsolo (?:quiero )?(?:informacion|ver|saber)\b/.test(m)
   const model = object(info.modelo_3d).se_adjunta_en_esta_respuesta === true
   const sawModel = /\/tour\/(?:modelo-3d|unidad)\/|\b3D\b/.test(last)
   const topics = salesTopics(current)
@@ -110,7 +110,7 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   // An old offer must not block a useful next step after the client starts a new search.
   const recentUnitOffer = replies.slice(-2).some(row => /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(text(row.content))))
   const offerUnits = !engagement.passive && !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
-    && !/solo (?:quiero )?(?:el )?precio|no (?:quiero|deseo|necesito).*(?:ver|opcion|modelo|distribucion)/.test(m) && !isUnitVisualRequest(current)
+    && !/\bsolo (?:quiero )?(?:el )?precio\b|\bno (?:quiero|deseo|necesito)\b.*(?:ver|opcion|modelo|distribucion)/.test(m) && !isUnitVisualRequest(current)
   const quoted = rows(info.unidades_cotizadas)
   const unitClosing = quoted.length === 1
     ? `¿Le gustaría revisar la distribución ${quoted[0].category === 'suite' ? 'de la suite' : quoted[0].category === 'local' ? 'del local' : 'del departamento'} ${text(quoted[0].unit_number)}?`
@@ -118,8 +118,8 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
   const shareBrochure = !engagement.passive && twoQuestions && !pendingVisit && !invite && !offerUnits
     && !replies.some(r => /brochure-la-vilet|brochure|folleto/i.test(text(r.content)))
-    && !/no (?:quiero|deseo|necesito).*(?:material|brochure|folleto|informacion)/.test(m)
-  const uncertain = /no (?:se|estoy segur|tengo claro|tengo idea)|no he pensado/.test(m)
+    && !/\bno (?:quiero|deseo|necesito)\b.*(?:material|brochure|folleto|informacion)/.test(m)
+  const uncertain = /\bno (?:se\b|estoy segur|tengo claro\b|tengo idea\b)|\bno he pensado\b/.test(m)
   const answerOnly = engagement.passive || pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
   return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : shareBrochure ? 'share_brochure' : answerOnly ? 'answer_only' : 'discover', topics,
     question_purpose: invite ? 'Obtener permiso para coordinar la visita, sin confirmarla.' : offerUnits ? 'Elegir una unidad y mostrar su distribución.' : answerOnly ? null : object(info.siguiente_pregunta).purpose || 'Aclarar un dato faltante que cambie la recomendación o el siguiente paso.',

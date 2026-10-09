@@ -5,7 +5,7 @@ type Subject = 'vehicle' | 'property' | 'unknown'
 type Category = 'suite' | 'departamento' | 'local' | 'vivienda' | null
 const vehicles = /\b(?:carro|auto|vehiculo|coche|camioneta|moto)s?\b/g
 const properties = /\b(?:suites?|depart[ae]mentos?|deptos?|viviendas?|casas?|propiedades?|inmuebles?|local(?:es)?|lavilet|la vilet|proyecto)\b/g
-const acknowledged = (m: string) => !/no (?:entiendo|entendi|comprendo)/.test(m)
+const acknowledged = (m: string) => !/\bno (?:entiendo|entendi|comprendo)\b/.test(m)
   && /(?:^|\b)(?:oh entiendo|entiendo|entendi|entendido|ya (?:se|entendi|veo)|ah (?:bueno|ok)|ok|de acuerdo|gracias por aclarar)(?:\b|$)/.test(m)
 const propertyContext = /parque|garaje|estacion|parte de pago|como pago|permuta|como entrada|como abono|vendo mi|vender mi/
 
@@ -16,7 +16,7 @@ const propertyContext = /parque|garaje|estacion|parte de pago|como pago|permuta|
 export function isPropertyScopeRedirect(value: string) {
   const m = normalized(value)
   const property = /la\s*vilet|inmobiliari|suite|departamento|vivienda|local(?:es)? comercial/.test(m)
-  const boundary = /no (?:somos|gestionamos|organizamos|vendemos|alquilamos|prestamos|ofrecemos|atendemos|realizamos|brindamos)|no (?:los )?(?:vendemos|alquilamos)|no (?:le )?podemos ayudar|no poder ayudar|no corresponde a|nuestra atencion se centra|solo (?:atendemos|brindamos informacion|podemos ayudar)/.test(m)
+  const boundary = /\b(?:no (?:somos|gestionamos|organizamos|vendemos|alquilamos|prestamos|ofrecemos|atendemos|realizamos|brindamos)|no (?:los )?(?:vendemos|alquilamos)|no (?:le )?podemos ayudar|no poder ayudar|no corresponde a|nuestra atencion se centra|solo (?:atendemos|brindamos informacion|podemos ayudar))\b/.test(m)
   // An unavailable property or a financing/visit limitation is still an
   // in-scope sales conversation. It must not turn a following price question
   // into a clarification about an unrelated product.
@@ -38,11 +38,11 @@ function explicitSubject(m: string): { subject: Subject; category: Category } | 
   if (propertyContext.test(m) && /\b(?:auto|carro|vehiculo|moto)s?\b/.test(m)) return { subject: 'property', category: null }
   const property = [...m.matchAll(properties)].filter(match => {
     const before = m.slice(Math.max(0, match.index! - 55), match.index)
-    return !/(?:no|ni)\s*(?:(?:quiero|busco|necesito|me interesan?|hablo de|me refiero a)\s*)?(?:(?:los|las|un|una|unos|unas)\s*)?$/.test(before)
+    return !/\b(?:no|ni)\b\s*(?:(?:quiero|busco|necesito|me interesan?|hablo de|me refiero a)\s*)?(?:(?:los|las|un|una|unos|unas)\s*)?$/.test(before)
   }).at(-1)
   const vehicle = [...m.matchAll(vehicles)].filter(match => {
     const before = m.slice(Math.max(0, match.index! - 45), match.index)
-    return !/(?:no (?:los )?(?:venden|vendemos|alquilan|alquilamos)|(?:ya )?no (?:quiero|busco|hablo de|me refiero a))\s*(?:ni alquilan\s*)?$/.test(before)
+    return !/\b(?:no (?:los )?(?:venden|vendemos|alquilan|alquilamos)|(?:ya )?no (?:quiero|busco|hablo de|me refiero a))\s*(?:ni alquilan\s*)?$/.test(before)
   }).at(-1)
   if (property && (!vehicle || property.index! > vehicle.index!)) {
     const word = property[0]
