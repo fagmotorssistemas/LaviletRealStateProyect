@@ -6,6 +6,7 @@ import {
   resolveVoiceCategory,
   speakUnclearSpeechClarification,
   splitSpeakChunks,
+  asPurePrice,
   correctSpokenPrices,
   type VoiceAssistCatalogUnit,
   type VoiceAssistFilters,
@@ -42,7 +43,7 @@ function asCatalog(raw: unknown): VoiceAssistCatalogUnit[] {
         bedrooms: num(u.bedrooms),
         bathrooms: num(u.bathrooms),
         area_total_m2: num(u.area_total_m2),
-        price: num(u.price),
+        price: asPurePrice(u.price),
         status: String(u.status ?? ''),
         typology_code: u.typology_code == null ? null : String(u.typology_code),
         category: resolveVoiceCategory({
@@ -82,7 +83,7 @@ function asPreviousMatches(raw: unknown): VoiceAssistUnitCard[] {
         bedrooms: num(u.bedrooms),
         bathrooms: num(u.bathrooms),
         area_total_m2: num(u.area_total_m2),
-        price: num(u.price),
+        price: asPurePrice(u.price),
         status: String(u.status ?? ''),
         typology_code: u.typology_code == null ? null : String(u.typology_code),
         category: resolveVoiceCategory({

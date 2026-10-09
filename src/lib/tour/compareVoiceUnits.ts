@@ -1,4 +1,4 @@
-import { formatPriceSpoken, normalizeFilters, toVoiceUnitCard, type VoiceAssistCatalogUnit, type VoiceAssistResult } from './voiceAssist'
+import { bathroomsSpoken, formatPriceSpoken, normalizeFilters, toVoiceUnitCard, type VoiceAssistCatalogUnit, type VoiceAssistResult } from './voiceAssist'
 import { isVoiceComparison, normalizeVoiceText } from './voiceTurnIntent'
 import { translateTourText, type TourLocale } from './tourMessages'
 export function compareVoiceUnits(transcript:string,catalog:VoiceAssistCatalogUnit[],previousIds:string[]=[],locale:TourLocale='es'):VoiceAssistResult|null{
@@ -24,9 +24,9 @@ export function compareVoiceUnits(transcript:string,catalog:VoiceAssistCatalogUn
  const lines=units.map(u=>{
    const facts=[u.area_total_m2!=null?`${u.area_total_m2} ${en?'square meters':'metros cuadrados'}`:null,
      u.bedrooms!=null?`${u.bedrooms} ${en?'bedrooms':'dormitorios'}`:null,
-     u.bathrooms!=null?`${u.bathrooms} ${en?'bathrooms':'baños'}`:null,
+     u.bathrooms!=null?bathroomsSpoken(u.bathrooms,locale):null,
      u.floor?`${en?'floor':'piso'} ${translateTourText(u.floor,locale)}`:null,
-     u.price!=null?(en?`${new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(Math.round(u.price))} dollars`:formatPriceSpoken(u.price)):null,
+     u.price!=null?formatPriceSpoken(u.price,locale):null,
      u.status?translateTourText(u.status,locale):null].filter(Boolean)
    return `${en?'Unit':'Unidad'} ${u.unit_number}${facts.length?`: ${facts.join(', ')}`:''}.`
  })
@@ -34,13 +34,14 @@ export function compareVoiceUnits(transcript:string,catalog:VoiceAssistCatalogUn
  const a=units[i],b=units[j]
  lines.push(en?`Comparing ${a.unit_number} and ${b.unit_number}:`:`Entre ${a.unit_number} y ${b.unit_number}:`)
  if(a.area_total_m2!=null&&b.area_total_m2!=null){const diff=Number((a.area_total_m2-b.area_total_m2).toFixed(2));lines.push(locale==='en'?(diff===0?'Both have the same recorded area.':`Unit ${diff>0?a.unit_number:b.unit_number} has ${Math.abs(diff)} more square meters.`):(diff===0?'Las dos tienen la misma superficie registrada.':`La unidad ${diff>0?a.unit_number:b.unit_number} tiene ${Math.abs(diff)} metros cuadrados más.`))}
- if(a.price!=null&&b.price!=null){const diff=Number((a.price-b.price).toFixed(2));const spoken=en?`${new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(Math.abs(diff))} dollars`:`${formatPriceSpoken(Math.abs(diff))}`;lines.push(locale==='en'?(diff===0?'Both have the same recorded price.':`Unit ${diff>0?a.unit_number:b.unit_number} costs ${spoken} more.`):(diff===0?'El precio registrado es igual.':`La unidad ${diff>0?a.unit_number:b.unit_number} cuesta ${spoken} más.`))}
+ if(a.price!=null&&b.price!=null){const diff=Number((a.price-b.price).toFixed(2));const spoken=formatPriceSpoken(Math.abs(diff),locale);lines.push(locale==='en'?(diff===0?'Both have the same recorded price.':`Unit ${diff>0?a.unit_number:b.unit_number} costs ${spoken} more.`):(diff===0?'El precio registrado es igual.':`La unidad ${diff>0?a.unit_number:b.unit_number} cuesta ${spoken} más.`))}
  for(const field of ['bedrooms','bathrooms'] as const){
    if(a[field]==null||b[field]==null)continue
    const diff=a[field]!-b[field]!
    const count=diff===0?a[field]:Math.abs(diff)
+   const spokenCount=field==='bathrooms'?bathroomsSpoken(count,locale):null
    const label=(en?(field==='bedrooms'?'bedroom':'bathroom'):(field==='bedrooms'?'dormitorio':'baño'))+(count===1?'':'s')
-   lines.push(diff===0?(en?`Both have ${a[field]} ${label}.`:`Ambas tienen ${a[field]} ${label}.`):(en?`Unit ${diff>0?a.unit_number:b.unit_number} has ${Math.abs(diff)} more ${label}.`:`La unidad ${diff>0?a.unit_number:b.unit_number} tiene ${Math.abs(diff)} ${label} más.`))
+   lines.push(diff===0?(en?`Both have ${spokenCount??`${a[field]} ${label}`}.`:`Ambas tienen ${spokenCount??`${a[field]} ${label}`}.`):(en?`Unit ${diff>0?a.unit_number:b.unit_number} has ${spokenCount??`${Math.abs(diff)} ${label}`} more.`:`La unidad ${diff>0?a.unit_number:b.unit_number} tiene ${spokenCount??`${Math.abs(diff)} ${label}`} más.`))
  }
  }
  if(/vista|distribucion|terraza|ventana|orientacion|view|layout|terrace|window/.test(t))lines.push(en?'I cannot confirm differences in layout or views.':'No puedo confirmar diferencias de distribución o vistas.')

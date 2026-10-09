@@ -37,7 +37,8 @@ export async function answerVoiceQuestion(params: {
         'Primera, segunda y tercera son las posiciones de opciones_en_pantalla. Si no puedes identificar la unidad con certeza, pide aclaración; no adivines.',
         'unit_ids contiene hasta tres IDs exactos del catálogo si propones nuevas opciones para una búsqueda; si respondes sobre las opciones actuales, deja unit_ids vacío para conservar su orden.',
         'No inventes vistas, distribución, orientación, financiación, descuentos, rentabilidad ni recursos ausentes. Explica qué dato falta solo cuando sea pertinente.',
-        'Si pide abrir la galería, la siguiente o anterior foto, el recorrido 360, el plano o cerrar la ficha, responde en una frase y pon ui_action en OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN o CLOSE_FICHA. Si no pide una acción de pantalla, ui_action es null. La frase y la acción van juntas.',
+        'Si pide abrir la galería, cambiar o pasar la foto, mover la cámara, ir al dormitorio, el recorrido 360, el plano o cerrar la ficha, responde en una frase y pon ui_action en OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN, CLOSE_FICHA, GO_BEDROOM o LOOK_AROUND. GO_BEDROOM es ir al dormitorio. LOOK_AROUND es mover la cámara o mirar el espacio. Si no pide una acción de pantalla, ui_action es null. La frase y la acción van juntas.',
+        'Si preguntan por financiamiento, crédito, cuotas o hipoteca, di que el catálogo no incluye ese detalle y que solo puedes confirmar el precio publicado. No inventes tasas, plazos ni entradas. No pidas WhatsApp ni teléfono: el sistema lo ofrece aparte.',
         'Usa preferencias.soft_needs (vista, mascota, inversión, terraza) para razonar aunque no existan como columna del catálogo.',
         'Si la consulta no trata sobre La Vilet o elegir una unidad, explica brevemente qué puedes ayudar a consultar.',
       ].join(' '),
@@ -49,7 +50,7 @@ export async function answerVoiceQuestion(params: {
         pregunta: params.transcript,
       }) }] }],
       text: { format: { type: 'json_schema', name: 'tour_answer', strict: true,
-        schema: { type: 'object', additionalProperties: false, required: ['speak', 'unit_ids', 'ui_action'], properties: { speak: { type: 'string' }, unit_ids: { type: 'array', items: { type: 'string' } }, ui_action: { type: ['string', 'null'], enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'CLOSE_FICHA', null] } } },
+        schema: { type: 'object', additionalProperties: false, required: ['speak', 'unit_ids', 'ui_action'], properties: { speak: { type: 'string' }, unit_ids: { type: 'array', items: { type: 'string' } }, ui_action: { type: ['string', 'null'], enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'CLOSE_FICHA', 'GO_BEDROOM', 'LOOK_AROUND', null] } } },
       } },
     }),
   })

@@ -31,7 +31,7 @@ test('compara exactamente las posiciones pedidas, con diferencias reales y sin c
     const result = compareVoiceUnits(text, catalog, ['a', 'b', 'c'])!
     assert.deepEqual(result.matches.map(unit => unit.id), ['b', 'c'])
     assert.match(result.speak, /15 metros cuadrados/)
-    assert.match(result.speak, /25\.000 dólares/)
+    assert.match(result.speak, /25 mil dólares/)
   }
   assert.deepEqual(compareVoiceUnits('compara 001 y LC-01', catalog)!.matches.map(unit => unit.id), ['a', 'd'])
   assert.doesNotMatch(compareVoiceUnits('compara 001 y LC-01', catalog)!.speak, /no registrado|sin datos|not recorded/)
@@ -76,7 +76,7 @@ test('pregunta contextual usa inventario del servidor, conserva orden y no abre 
     const previousMatches = catalog.slice(0, 3).map(toVoiceUnitCard)
     const result = await runTourVoiceAssist({ transcript: '¿Cuánto cuesta la segunda?', catalog, previousMatches,
       history: [{ role: 'user', content: 'Prefiero dos dormitorios' }] })
-    assert.equal(result.speak, 'La segunda cuesta 125000 dólares.')
+    assert.equal(result.speak, 'La segunda cuesta 125 mil dólares.')
     assert.deepEqual(result.matches.map(unit => unit.id), ['a', 'b', 'c'])
     const body = JSON.parse(requestBody)
     const input = JSON.parse(body.input[0].content[0].text)
@@ -87,7 +87,7 @@ test('pregunta contextual usa inventario del servidor, conserva orden y no abre 
     assert.match(body.instructions, /No solicites WhatsApp/)
     globalThis.fetch = async () => new Response('', { status: 503 })
     const failed = await runTourVoiceAssist({ transcript: '¿Y las vistas?', catalog, previousMatches })
-    assert.match(failed.speak, /No pude consultar/)
+    assert.match(failed.speak, /No puedo responder en este momento/)
     assert.deepEqual(failed.matches.map(unit => unit.id), ['a', 'b', 'c'])
   } finally {
     globalThis.fetch = oldFetch

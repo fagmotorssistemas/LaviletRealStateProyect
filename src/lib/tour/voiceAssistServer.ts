@@ -9,6 +9,8 @@ import {
   correctSpokenPrices,
   filtersHaveSignal,
   formatPriceSpoken,
+  bathroomsSpoken,
+  isFinancingQuestion,
   isVoiceUiAction,
   parseVoiceUiAction,
   voiceUiActionLine,
@@ -100,7 +102,7 @@ const FILTER_SCHEMA = {
     intent: { type: 'string', enum: ['question', 'search', 'action', 'farewell', 'other'] },
     ui_action: {
       type: ['string', 'null'],
-      enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'CLOSE_FICHA', null],
+      enum: ['OPEN_GALLERY', 'NEXT_PHOTO', 'PREV_PHOTO', 'OPEN_TOUR_360', 'OPEN_FLOOR_PLAN', 'CLOSE_FICHA', 'GO_BEDROOM', 'LOOK_AROUND', null],
     },
   },
 } as const
@@ -149,11 +151,11 @@ async function extractFilters(
     'Si pide disponibles, only_available=true.',
     'Si pide lo más barato, económico o de menor precio: sort_pref="barato". Si pide lo más caro, premium o de lujo: sort_pref="caro".',
     'off_topic=true SOLO si el mensaje NO trata del showroom (chistes, clima, política, deportes, tecnología genérica, etc.).',
-    'off_topic=false si pide locales comerciales, departamentos, suites, mezclas, filtros, opciones, precios o cómo usarte.',
+    'off_topic=false si pide locales comerciales, departamentos, suites, mezclas, filtros, opciones, precios, financiamiento, crédito, cuotas o cómo usarte.',
     'Si off_topic=true, deja filtros en null (only_available puede ser true), sort_pref=null, category=null, or_groups=null, soft_needs=[].',
     'soft_needs: necesidades humanas que no son un filtro de base de datos, como vista, mascota, inversión, alquiler, terraza grande. Lista vacía si no hay.',
-    'intent: question si pide consejo, comparación o explicación; search si pide unidades; action si pide abrir galería, foto, 360, plano o cerrar ficha; farewell si se despide; other si no encaja.',
-    'ui_action: OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN o CLOSE_FICHA solo si intent=action; si no, null.',
+    'intent: question si pide consejo, comparación, explicación o financiamiento; search si pide unidades; action si pide abrir galería, cambiar foto, mover la cámara, ir a un dormitorio, 360, plano o cerrar ficha; farewell si se despide; other si no encaja.',
+    'ui_action: OPEN_GALLERY, NEXT_PHOTO, PREV_PHOTO, OPEN_TOUR_360, OPEN_FLOOR_PLAN, CLOSE_FICHA, GO_BEDROOM o LOOK_AROUND solo si intent=action; si no, null. GO_BEDROOM si pide ir al dormitorio. LOOK_AROUND si pide mover la cámara o mirar el espacio.',
     'assistant_note: frase corta interna (no para el cliente).',
   ].join(' ')
 
@@ -270,10 +272,17 @@ export async function runTourVoiceAssist(params: {
       // No convertir un fallo del servicio en una respuesta inventada o una búsqueda distinta.
     }
     const prices = [...previousMatches, ...params.catalog].map((unit) => unit.price)
+    const financingFallback = params.locale === 'en'
+      ? 'The catalog does not include financing terms. I can only confirm the published price.'
+      : 'El catálogo no incluye las condiciones de financiamiento. Solo puedo confirmarle el precio publicado.'
     return {
       transcript,
       speak: correctSpokenPrices(
-        answer?.speak ?? (params.locale === 'en' ? 'I could not look up that answer right now. Please try again.' : 'No puedo responder en este momento, intenta de nuevo.'),
+        answer?.speak && !/con gusto le ayudo/i.test(answer.speak)
+          ? answer.speak
+          : isFinancingQuestion(transcript)
+            ? financingFallback
+            : (answer?.speak ?? (params.locale === 'en' ? 'I could not look up that answer right now. Please try again.' : 'No puedo responder en este momento, intenta de nuevo.')),
         prices,
       ),
       filters: questionFilters,
@@ -336,7 +345,7 @@ export async function runTourVoiceAssist(params: {
   }
 
   // Fuera de tema claro (clima, chistes, etc.): aclara el rol sin gastar en búsqueda.
-  if (isLikelyOffTopic(transcript)) {
+  if (isLikelyOffTopic(transcript) && !isFinancingQuestion(transcript)) {
     return offTopicReply()
   }
 
@@ -370,6 +379,11 @@ export async function runTourVoiceAssist(params: {
     }
   }
 
+  if (isFinancingQuestion(transcript)) {
+    aiOffTopic = false
+    aiIntent = aiIntent === 'action' || aiIntent === 'search' ? aiIntent : 'question'
+  }
+
   if (aiAction) {
     return {
       transcript,
@@ -397,9 +411,15 @@ export async function runTourVoiceAssist(params: {
     return {
       transcript,
       speak: correctSpokenPrices(
-        answer?.speak ?? (params.locale === 'en'
-          ? 'I could not look that up right now. Please try again.'
-          : 'No puedo responder en este momento, intenta de nuevo.'),
+        answer?.speak && !/con gusto le ayudo/i.test(answer.speak)
+          ? answer.speak
+          : isFinancingQuestion(transcript)
+            ? (params.locale === 'en'
+              ? 'The catalog does not include financing terms. I can only confirm the published price.'
+              : 'El catálogo no incluye las condiciones de financiamiento. Solo puedo confirmarle el precio publicado.')
+            : (answer?.speak ?? (params.locale === 'en'
+              ? 'I could not look that up right now. Please try again.'
+              : 'No puedo responder en este momento, intenta de nuevo.')),
         prices,
       ),
       filters,
@@ -415,7 +435,7 @@ export async function runTourVoiceAssist(params: {
   }
 
   if (!filtersHaveSignal(filters) || aiIntent === 'question') {
-    if (isLikelyOffTopic(transcript)) return offTopicReply()
+    if (isLikelyOffTopic(transcript) && !isFinancingQuestion(transcript)) return offTopicReply()
     return consult()
   }
 
@@ -490,7 +510,7 @@ export async function runTourVoiceAssist(params: {
 
   const { speak, follow_up } = buildSpeakLine(matches, filters, { suggested })
   if (params.locale === 'en') return { transcript, filters: replyFilters, matches, follow_up: null,
-    speak: matches.length ? `${suggested ? 'These are nearby alternatives, with different features.' : `${allMatches.length} units match your filters.`} ${matches.map((unit, index) => `Option ${index + 1}, unit ${unit.unit_number}: ${[unit.bedrooms != null ? `${unit.bedrooms} bedrooms` : null, unit.area_total_m2 != null ? `${unit.area_total_m2} square meters` : null, unit.price != null ? formatPriceSpoken(unit.price) : null].filter(Boolean).join(', ')}.`).join(' ')}` : 'No units match these filters. Would you like to change the budget or bedroom count?' }
+    speak: matches.length ? `${suggested ? 'These are nearby alternatives, with different features.' : `${allMatches.length} units match your filters.`} ${matches.map((unit, index) => `Option ${index + 1}, unit ${unit.unit_number}: ${[unit.bedrooms != null ? `${unit.bedrooms} bedrooms` : null, unit.bathrooms != null ? bathroomsSpoken(unit.bathrooms, 'en') : null, unit.area_total_m2 != null ? `${unit.area_total_m2} square meters` : null, unit.price != null ? formatPriceSpoken(unit.price, 'en') : null].filter(Boolean).join(', ')}.`).join(' ')}` : 'No units match these filters. Would you like to change the budget or bedroom count?' }
   return { transcript, speak, filters: replyFilters, matches, follow_up }
 }
 

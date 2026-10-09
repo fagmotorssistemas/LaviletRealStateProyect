@@ -46,7 +46,7 @@ test('comparisons resolve two units, ask when ambiguous, omit missing fields and
   const result=compareVoiceUnits('cuál es la diferencia entre uno y otro',catalog,['u0','u7'])!
   assert.deepEqual(result.matches.map(unit=>unit.id),['u0','u7'])
   assert.match(result.speak,/7 metros cuadrados más/)
-  assert.match(result.speak,/7000 dólares más/)
+  assert.match(result.speak,/7 mil dólares más/)
   assert.match(result.speak,/1 dormitorio más/)
   const sparse=catalog.map(unit=>({...unit,price:null,area_total_m2:null,bathrooms:null}))
   const response=compareVoiceUnits('compara 100 y 101',sparse)!.speak

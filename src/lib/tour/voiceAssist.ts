@@ -99,6 +99,8 @@ export const VOICE_UI_ACTIONS = [
   'OPEN_TOUR_360',
   'OPEN_FLOOR_PLAN',
   'CLOSE_FICHA',
+  'GO_BEDROOM',
+  'LOOK_AROUND',
 ] as const
 
 export type VoiceUiAction = (typeof VOICE_UI_ACTIONS)[number]
@@ -116,7 +118,9 @@ export function parseVoiceUiAction(transcript: string): VoiceUiAction | null {
     .replace(/\s+/g, ' ')
     .trim()
   if (!t) return null
-  if (/\b(siguiente|proxima|adelante)\b.*\b(foto|imagen|diapositiva)\b|\b(pasa|avanz\w*)\b.*\b(foto|imagen)\b/.test(t)) return 'NEXT_PHOTO'
+  if (/\b(dirig\w*|dirij\w*|llev\w*|vamos)\b.*\b(dormitorio|habitacion|cuarto)\b/.test(t)) return 'GO_BEDROOM'
+  if (/\b(muev\w*|mover|gira\w*|rot\w*)\b.*\b(camara|vista)\b|\bpuedes mover\b/.test(t)) return 'LOOK_AROUND'
+  if (/\b(cambia\w*|cambiar|siguiente|proxima|adelante|otra)\b.*\b(foto|imagen|diapositiva)\b|\b(pasa|avanz\w*)\b.*\b(foto|imagen)\b/.test(t)) return 'NEXT_PHOTO'
   if (/\b(anterior|atras|previa)\b.*\b(foto|imagen|diapositiva)\b|\b(regres\w*|volv\w*)\b.*\b(foto|imagen)\b/.test(t)) return 'PREV_PHOTO'
   if (/\b(galeria|fotos de la unidad|ver fotos)\b/.test(t)) return 'OPEN_GALLERY'
   if (/\b(recorrido|360|tour)\b/.test(t) && /\b(abre|abrir|muestra|ver|quiero|pon)\b/.test(t)) return 'OPEN_TOUR_360'
@@ -133,6 +137,8 @@ export function voiceUiActionLine(action: VoiceUiAction, locale: TourLocale = 'e
     OPEN_TOUR_360: 'Listo, le abro el recorrido 360.',
     OPEN_FLOOR_PLAN: 'Listo, le muestro el plano.',
     CLOSE_FICHA: 'Listo, cierro la ficha.',
+    GO_BEDROOM: 'Listo, le llevo al dormitorio.',
+    LOOK_AROUND: 'Listo, abro el recorrido para que pueda mirar el espacio.',
   }
   const en: Record<VoiceUiAction, string> = {
     OPEN_GALLERY: 'Done, here is the gallery.',
@@ -141,6 +147,8 @@ export function voiceUiActionLine(action: VoiceUiAction, locale: TourLocale = 'e
     OPEN_TOUR_360: 'Done, opening the 360 tour.',
     OPEN_FLOOR_PLAN: 'Done, here is the floor plan.',
     CLOSE_FICHA: 'Done, closing the unit card.',
+    GO_BEDROOM: 'Done, taking you to the bedroom.',
+    LOOK_AROUND: 'Done, opening the tour so you can look around.',
   }
   return locale === 'en' ? en[action] : es[action]
 }
@@ -636,19 +644,88 @@ export function softenFiltersToSuggestions(
   return normalizeFilters(next)
 }
 
-export function formatPriceSpoken(value: number | null) {
-  if (value == null || !Number.isFinite(value)) return null
-  const grouped = new Intl.NumberFormat('es-EC', { maximumFractionDigits: 0 }).format(Math.round(value))
-  return `${grouped} dólares`
+/** "270.000" (es-EC) y "270,000" son 270000. El punto suelto de "270.5" sigue siendo decimal. */
+export function asPurePrice(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string') return null
+  const raw = value.trim().replace(/[$\s]/g, '').replace(/d[oó]lares|dollars/gi, '')
+  if (!raw) return null
+  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) return Number(raw.replace(/\./g, ''))
+  if (/^\d{1,3}(,\d{3})+$/.test(raw)) return Number(raw.replace(/,/g, ''))
+  const n = Number(raw.replace(',', '.'))
+  return Number.isFinite(n) ? n : null
+}
+
+const ENGLISH_BELOW_TWENTY = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen']
+const ENGLISH_TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+
+function englishUnder1000(n: number): string {
+  if (n < 20) return ENGLISH_BELOW_TWENTY[n] ?? String(n)
+  if (n < 100) {
+    const rest = n % 10
+    const ten = ENGLISH_TENS[Math.floor(n / 10)] ?? ''
+    return rest ? `${ten}-${ENGLISH_BELOW_TWENTY[rest]}` : ten
+  }
+  const rest = n % 100
+  const head = `${ENGLISH_BELOW_TWENTY[Math.floor(n / 100)]} hundred`
+  return rest ? `${head} ${englishUnder1000(rest)}` : head
+}
+
+function englishAmount(n: number): string {
+  if (n < 1000) return englishUnder1000(n)
+  if (n < 1_000_000) {
+    const rest = n % 1000
+    const head = `${englishUnder1000(Math.floor(n / 1000))} thousand`
+    return rest ? `${head} ${englishUnder1000(rest)}` : head
+  }
+  const rest = n % 1_000_000
+  const head = `${englishUnder1000(Math.floor(n / 1_000_000))} million`
+  return rest ? `${head} ${englishAmount(rest)}` : head
+}
+
+/** Una sola vez, al hablar. 270000 → "270 mil dólares". */
+export function formatPriceSpoken(value: unknown, locale: TourLocale = 'es') {
+  const amount = asPurePrice(value)
+  if (amount == null) return null
+  const rounded = Math.round(amount)
+  if (locale === 'en') return `${englishAmount(rounded)} dollars`
+  if (rounded >= 1_000_000) {
+    const millions = Math.floor(rounded / 1_000_000)
+    const thousands = Math.round((rounded % 1_000_000) / 1000)
+    const head = millions === 1 ? '1 millón' : `${millions} millones`
+    return thousands ? `${head} ${thousands} mil dólares` : `${head} de dólares`
+  }
+  if (rounded >= 1000) return `${Math.round(rounded / 1000)} mil dólares`
+  return `${rounded} dólares`
+}
+
+/** 2.5 baños del catálogo = 2 completos + 1 social. Nunca se dice el decimal. */
+export function bathroomsSpoken(value: number, locale: TourLocale = 'es') {
+  if (!Number.isFinite(value) || value <= 0) return null
+  const fraction = Math.abs(value - Math.trunc(value))
+  if (Math.abs(fraction - 0.5) < 0.001) {
+    const full = Math.floor(value)
+    if (locale === 'en') {
+      if (full <= 0) return '1 powder room'
+      return full === 1 ? '1 full bathroom and 1 powder room' : `${full} full bathrooms and 1 powder room`
+    }
+    if (full <= 0) return '1 baño social'
+    return full === 1 ? '1 baño completo y 1 baño social' : `${full} baños completos y 1 baño social`
+  }
+  const whole = Math.round(value)
+  if (locale === 'en') return whole === 1 ? '1 bathroom' : `${whole} bathrooms`
+  return whole === 1 ? '1 baño' : `${whole} baños`
 }
 
 /** Sustituye cifras de dinero que no están en el catálogo antes de hablarlas. */
 export function correctSpokenPrices(speak: string, prices: Array<number | null | undefined>): string {
-  const known = prices.filter((price): price is number => price != null && Number.isFinite(price) && price > 0)
+  const known = prices
+    .map((price) => asPurePrice(price))
+    .filter((price): price is number => price != null && price > 0)
   if (!known.length) return speak
-  return speak.replace(/\$?\s?\d{1,3}(?:[.\s]\d{3})+|\b\d{5,7}\b/g, (raw) => {
-    const digits = Number(raw.replace(/[^\d]/g, ''))
-    if (!Number.isFinite(digits) || digits < 1000) return raw
+  return speak.replace(/(?:\$\s*)?\d{1,3}(?:[.\s]\d{3})+(?:\s*(?:d[oó]lares|dollars))?|\b\d{5,7}\b(?:\s*(?:d[oó]lares|dollars))?/gi, (raw) => {
+    const digits = asPurePrice(raw)
+    if (digits == null || digits < 1000) return raw
     if (known.some((price) => Math.abs(price - digits) < 1)) return formatPriceSpoken(digits) ?? raw
     if (known.length === 1) return formatPriceSpoken(known[0]) ?? raw
     return 'el precio publicado'
@@ -668,7 +745,8 @@ function describeUnitSpoken(u: VoiceAssistUnitCard) {
       bits.push(u.bedrooms === 1 ? '1 dormitorio' : `${u.bedrooms} dormitorios`)
     }
     if (u.bathrooms != null && u.bathrooms > 0) {
-      bits.push(u.bathrooms === 1 ? '1 baño' : `${u.bathrooms} baños`)
+      const baths = bathroomsSpoken(u.bathrooms)
+      if (baths) bits.push(baths)
     }
     if (u.area_total_m2 != null && Number.isFinite(u.area_total_m2)) {
       bits.push(`${Math.round(u.area_total_m2)} metros`)
@@ -676,6 +754,7 @@ function describeUnitSpoken(u: VoiceAssistUnitCard) {
   }
   if (u.floor) bits.push(`piso ${u.floor}`)
   else if (u.floor_number != null) bits.push(`piso ${u.floor_number}`)
+  console.info('[voice-price]', typeof u.price, u.price)
   const price = formatPriceSpoken(u.price)
   if (price) bits.push(price)
   return bits.join(', ')
@@ -695,7 +774,8 @@ function needPhrase(filters: VoiceAssistFilters) {
         parts.push(g.bedrooms === 1 ? '1 dormitorio' : `${g.bedrooms} dormitorios`)
       }
       if (g.bathrooms != null) {
-        parts.push(g.bathrooms === 1 ? '1 baño' : `${g.bathrooms} baños`)
+        const baths = bathroomsSpoken(g.bathrooms)
+        if (baths) parts.push(baths)
       }
       if (parts.length) bits.push(parts.join(' de '))
     }
@@ -706,7 +786,8 @@ function needPhrase(filters: VoiceAssistFilters) {
     if (filters.category === 'departamento') bits.push('departamentos')
     for (const need of filters.soft_needs) bits.push(need)
     if (filters.bathrooms != null) {
-      bits.push(filters.bathrooms === 1 ? '1 baño' : `${filters.bathrooms} baños`)
+      const baths = bathroomsSpoken(filters.bathrooms)
+      if (baths) bits.push(baths)
     }
     if (filters.bedrooms != null) {
       bits.push(filters.bedrooms === 1 ? '1 dormitorio' : `${filters.bedrooms} dormitorios`)
@@ -1223,12 +1304,20 @@ function markRetriedVoicePhone() {
   }
 }
 
+export function isFinancingQuestion(transcript: string) {
+  const t = transcript
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+  return /\b(financi\w*|credito|hipotec\w*|cuotas?)\b/.test(t)
+}
+
 export function isStrongVoiceInterest(transcript: string) {
   const t = transcript
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
-  return /\b(precio|cuesta|cuanto|compar\w*|fotos?|galeria|360|plano|me interesa|esa unidad|esa opcion)\b/.test(t)
+  return /\b(precio|cuesta|cuanto|compar\w*|fotos?|galeria|360|plano|me interesa|esa unidad|esa opcion|financi\w*|credito|hipotec\w*|cuotas?)\b/.test(t)
 }
 
 /** Invitación opcional de contacto, una vez por sesión, y una segunda si luego hay más interés. */
@@ -1294,7 +1383,7 @@ export function isLikelyOffTopic(transcript: string): boolean {
 }
 
 function isTourHousingCue(t: string): boolean {
-  return /\b(dormitor|habitacion|bano|piso|departamento|depto|dpto|unidad|tipolog|presupuesto|precio|dolar|metro|m2|area|disponible|opcion|comparar|favorit|tour|galeria|acabado|lavilet|cuenca|vivienda|casa|apto|apartamento|suite|local(es)?|comercial(es)?|negocio|oficina|preventa|inversion|credito|financia|simulador|barat|econom|mas caro|premium|mostrar opciones|ver opciones|busco (depto|departamento|vivienda|casa|unidad|local)|buscar (depto|departamento|vivienda|casa|unidad|local)|tienes locales|hay locales)\b/.test(
+  return /\b(dormitor|habitacion|bano|piso|departamento|depto|dpto|unidad|tipolog|presupuesto|precio|dolar|metro|m2|area|disponible|opcion|comparar|favorit|tour|galeria|acabado|lavilet|cuenca|vivienda|casa|apto|apartamento|suite|local(es)?|comercial(es)?|negocio|oficina|preventa|inversion|credito|hipotec\w*|cuotas?|financi\w*|simulador|barat|econom|mas caro|premium|mostrar opciones|ver opciones|busco (depto|departamento|vivienda|casa|unidad|local)|buscar (depto|departamento|vivienda|casa|unidad|local)|tienes locales|hay locales)\b/.test(
     t,
   )
 }

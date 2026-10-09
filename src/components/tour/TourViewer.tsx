@@ -4915,10 +4915,18 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               )
               return
             }
-            if (action === 'OPEN_TOUR_360') {
+            if (action === 'OPEN_TOUR_360' || action === 'LOOK_AROUND') {
               setShellMode('unit')
               setViewMode('tour')
               setFichaOpen(false)
+              return
+            }
+            if (action === 'GO_BEDROOM') {
+              const bedroom = tourRooms.find((item) => item.slug === 'dormitorio' || item.slug.startsWith('dormitorio'))
+              setShellMode('unit')
+              setViewMode('tour')
+              setFichaOpen(false)
+              if (bedroom) setRoom(bedroom.slug)
               return
             }
             if (action === 'OPEN_FLOOR_PLAN') {
