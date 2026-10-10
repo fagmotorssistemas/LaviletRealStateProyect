@@ -2,13 +2,23 @@
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import Image from 'next/image'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
 import { cn } from '@/lib/utils'
 import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
+import { getShowroomPhone, SHOWROOM_IDENTITY_EVENT } from '@/lib/tour/showroomIdentity'
+
+function subscribeIdentity(onChange: () => void) {
+  window.addEventListener(SHOWROOM_IDENTITY_EVENT, onChange)
+  window.addEventListener('storage', onChange)
+  return () => {
+    window.removeEventListener(SHOWROOM_IDENTITY_EVENT, onChange)
+    window.removeEventListener('storage', onChange)
+  }
+}
 
 const MOTIVOS = [
   { value: 'informacion', label: 'Quiero más información' },
@@ -58,6 +68,7 @@ export function TourInfoRequestModal({
   const [pending, setPending] = useState(false)
   const submitLockRef = useRef(false)
   const requestIdRef = useRef<string | null>(null)
+  const knownPhone = useSyncExternalStore(subscribeIdentity, getShowroomPhone, () => '')
 
   useEffect(() => {
     if (!open) return
@@ -102,9 +113,11 @@ export function TourInfoRequestModal({
     setPending(true)
     try {
       await identifyTourLead({
-        name: String(data.get('name') ?? ''),
-        email: String(data.get('email') ?? ''),
-        phone: String(data.get('phone') ?? ''),
+        // The server resolves the existing lead by phone and preserves its real name/email.
+        name: knownPhone ? undefined : String(data.get('name') ?? ''),
+        email: knownPhone ? undefined : String(data.get('email') ?? ''),
+        phone: knownPhone || String(data.get('phone') ?? ''),
+        mode: knownPhone ? 'phone' : 'full',
         consent: true,
         request_kind: 'info_request',
         client_request_id: requestIdRef.current,
@@ -181,38 +194,42 @@ export function TourInfoRequestModal({
           ) : null}
 
           <div className="mt-6 space-y-3.5">
-            <label className="block">
-              <span className={labelClass}>{t("Nombre")}</span>
-              <input
-                name="name"
-                required
-                autoComplete="name"
-                placeholder={t("Tu nombre")}
-                className={fieldClass}
-              />
-            </label>
-            <label className="block">
-              <span className={labelClass}>{t("Email")}</span>
-              <input
-                name="email"
-                type="email"
-                required
-                autoComplete="email"
-                placeholder={t("tu@email.com")}
-                className={fieldClass}
-              />
-            </label>
-            <label className="block">
-              <span className={labelClass}>{t("Teléfono")}</span>
-              <input
-                name="phone"
-                type="tel"
-                required
-                autoComplete="tel"
-                placeholder={t("099 000 0000")}
-                className={fieldClass}
-              />
-            </label>
+            {!knownPhone ? (
+              <>
+                <label className="block">
+                  <span className={labelClass}>{t("Nombre")}</span>
+                  <input
+                    name="name"
+                    required
+                    autoComplete="name"
+                    placeholder={t("Tu nombre")}
+                    className={fieldClass}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>{t("Email")}</span>
+                  <input
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder={t("tu@email.com")}
+                    className={fieldClass}
+                  />
+                </label>
+                <label className="block">
+                  <span className={labelClass}>{t("Teléfono")}</span>
+                  <input
+                    name="phone"
+                    type="tel"
+                    required
+                    autoComplete="tel"
+                    placeholder={t("099 000 0000")}
+                    className={fieldClass}
+                  />
+                </label>
+              </>
+            ) : null}
             <label className="block">
               <span className={labelClass}>{t("Motivo de contacto")}</span>
               <select

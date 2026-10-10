@@ -230,21 +230,14 @@ export function pickCatalogPanoUrl(
   if (!pano) return null
   const wantedFinish = finish || null
   const wantedLight = light || 'dia'
-  const scene =
-    pano.scenes?.find((item) => item.finish === wantedFinish && item.light === wantedLight) ??
-    pano.scenes?.find(
-      (item) =>
-        (item.finish === wantedFinish ||
-          (wantedFinish === 'nogal' && item.finish === 'acabado-1') ||
-          (wantedFinish === 'acabado-1' && item.finish === 'nogal') ||
-          (wantedFinish === 'roble' && item.finish === 'acabado-2') ||
-          (wantedFinish === 'acabado-2' && item.finish === 'roble')) &&
-        item.light === wantedLight,
-    ) ??
-    pano.scenes?.find((item) => item.finish == null && item.light === wantedLight) ??
-    pano.scenes?.find((item) => item.finish === wantedFinish && item.light === 'dia') ??
-    pano.scenes?.[0]
-  const variants = scene?.widths ?? pano.variants ?? {}
+  const canonical = (value: string | null) => value === 'acabado-1' ? 'nogal' : value === 'acabado-2' ? 'roble' : value
+  const candidates = wantedFinish
+    ? pano.scenes?.filter((item) => canonical(item.finish) === canonical(wantedFinish))
+    : pano.scenes
+  const scene = candidates?.find((item) => item.light === wantedLight) ??
+    candidates?.find((item) => item.light === 'dia') ?? candidates?.[0]
+  if (wantedFinish && pano.scenes?.length && !scene) return null
+  const variants = scene ? scene.widths ?? {} : pano.variants ?? {}
   const baseUrl = scene?.url ?? pano.url
   const versionBase = baseUrl && !isPngAssetUrl(baseUrl) ? baseUrl : undefined
   const take = (key: '2048' | '4096' | '8192') => {

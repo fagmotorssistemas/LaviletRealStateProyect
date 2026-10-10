@@ -231,6 +231,11 @@ export function pickRoomScene(
 ): TourRoomScene | undefined {
   if (!scenes?.length) return undefined
   const wanted = finish || null
+  if (wanted) {
+    const matching = scenes.filter((item) => finishesMatch(item.finish, wanted))
+    return matching.find((item) => item.light === light) ??
+      matching.find((item) => item.light === 'dia') ?? matching[0]
+  }
   return (
     scenes.find((item) => finishesMatch(item.finish, wanted) && item.light === light) ??
     scenes.find((item) => item.finish === wanted && item.light === light) ??

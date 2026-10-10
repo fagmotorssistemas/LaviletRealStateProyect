@@ -6,6 +6,7 @@ export type TourLocale = 'es' | 'en'
 export const tourEnglish: Record<string, string> = {
   ...tourFinanceEnglish,
   ...tourVoiceEnglish,
+  'No disponible para este acabado': 'Not available for this finish',
   'tu@email.com': 'you@example.com', 'deshabilitado': 'Unavailable', 'Deshabilitado': 'Unavailable',
   '1 dorm.': '1 bedroom',
   'No se pudo conectar con Supabase. Revisa tu internet o vuelve a intentar.': 'Could not load the inventory. Check your connection and try again.',

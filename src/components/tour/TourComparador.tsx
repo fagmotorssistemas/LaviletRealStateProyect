@@ -4,6 +4,7 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, Moon, Reply, Sun, X } from 'lucide-react'
+import { TourZoomableImage } from './TourZoomableImage'
 import { CompareSidePano, type ComparePanoPose } from '@/components/tour/CompareSidePano'
 import { isCommonAreaCode } from '@/lib/tour/commonAreas'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
@@ -309,21 +310,15 @@ export function TourComparador({
           ) : (
             <div className="relative h-full bg-[#111]">
               {activePreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={activePreview.url}
-                  alt={t(activePreview.label)}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  draggable={false}
-                />
+                <TourZoomableImage src={activePreview.url} alt={t(activePreview.label)} />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white/50">
-                  {t(" Sin imágenes para esta tipología ")}</div>
+                  {t(sceneControlsB?.finish ? 'No disponible para este acabado' : ' Sin imágenes para esta tipología ')}</div>
               )}
               {activePreview?.label ? (
                 <div
-                  className="pointer-events-none absolute bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[4] flex justify-center px-2"
-                  style={{ left: `${splitClamped}%`, right: 0 }}
+                  className="pointer-events-none absolute bottom-[max(4.25rem,calc(env(safe-area-inset-bottom)+4rem))] z-[4] flex justify-center px-2"
+                  style={{ left: 0, right: 0 }}
                 >
                   <div className="max-w-[min(100%,14rem)] truncate rounded-full bg-black/45 px-3 py-1.5 text-center text-[10px] font-semibold tracking-[0.12em] text-white shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[11px]">
                     {t(activePreview.label)}
@@ -332,8 +327,8 @@ export function TourComparador({
               ) : null}
               {sceneControlsB ? (
                 <div
-                  className="tour-compare-scene-controls pointer-events-none absolute bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+3.75rem))] z-[4] flex justify-center px-1.5 sm:bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+5rem))] sm:px-2"
-                  style={{ left: `${splitClamped}%`, right: 0 }}
+                  className="pointer-events-none absolute bottom-[max(7rem,calc(env(safe-area-inset-bottom)+6.75rem))] z-[4] flex justify-center px-1.5 sm:px-2"
+                  style={{ left: 0, right: 0 }}
                 >
                   <div className="pointer-events-auto w-full max-w-[min(100%,15.5rem)] sm:max-w-[min(100%,18rem)]">
                     <TourFinishLightControls {...sceneControlsB} tone="b" compact />
@@ -367,7 +362,7 @@ export function TourComparador({
           {showPanoB && !panoBUrl ? (
             <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center bg-[#111]/55 px-6 text-center">
               <p className="max-w-xs text-sm text-white/70">
-                {t(" Esta tipología no tiene tour 360 cargado. Elige otra unidad o sube el 360 en Inventario. ")}</p>
+                {t('No disponible para este acabado')}</p>
             </div>
           ) : null}
         </div>
@@ -455,12 +450,12 @@ export function TourComparador({
       ) : null}
 
       {unitA && unitB && !drawerOpen ? (
-        <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-[31] pb-[3.25rem] sm:pb-14">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[31] pb-[3.25rem] sm:pb-14">
           <div className="flex justify-center">
             <button
               type="button"
               onClick={() => setStatsOpen((value) => !value)}
-              className="mb-1 inline-flex items-center gap-1 rounded-t-lg bg-white/95 px-3 py-1 text-[11px] font-semibold tracking-wide text-[#1a2744] uppercase shadow-sm"
+              className="pointer-events-auto mb-1 inline-flex items-center gap-1 rounded-t-lg bg-white/95 px-3 py-1 text-[11px] font-semibold tracking-wide text-[#1a2744] uppercase shadow-sm"
             >
               {t(statsOpen ? 'Ocultar' : 'Comparación')}
               <ChevronDown
@@ -470,7 +465,7 @@ export function TourComparador({
             </button>
           </div>
           {statsOpen ? (
-            <div className="border-t border-[#e5e7eb] bg-white/95 px-3 py-3 backdrop-blur-sm sm:px-5">
+            <div className="pointer-events-auto border-t border-[#e5e7eb] bg-white/95 px-3 py-3 backdrop-blur-sm sm:px-5">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-[10px] font-semibold tracking-[0.18em] text-[#6b7280] uppercase">
                   {t(" Comparación ")}</p>

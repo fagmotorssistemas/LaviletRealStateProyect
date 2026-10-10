@@ -407,6 +407,17 @@ export function TourFloorPlan({
   const { t, locale } = useTourLanguage()
 
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
+  const [coarsePointer, setCoarsePointer] = useState(false)
+  useEffect(() => {
+    const query = window.matchMedia('(pointer: coarse)')
+    const sync = () => {
+      setCoarsePointer(query.matches)
+      if (query.matches) setHoverSlot(null)
+    }
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
   const [scale, setScale] = useState(ZOOM_MIN)
   /** Capas montadas: se quedan en DOM y el cambio es solo visibility. */
   const [layers, setLayers] = useState<Partial<Record<number, FloorLayer>>>(() => {
@@ -1069,16 +1080,19 @@ export function TourFloorPlan({
     if (!slotOpens(slot)) return
     const start = slotPointerRef.current
     slotPointerRef.current = null
-    if (panMovedRef.current) return
+    if (pinchActiveRef.current || panMovedRef.current) return
     if (!start || start.slotId !== slot.id || start.pointerId !== event.pointerId) return
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > (portraitPanRef.current ? 22 : 14)) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > (event.pointerType === 'touch' ? 30 : 14)) {
+      panMovedRef.current = true
+      return
+    }
     event.preventDefault()
     event.stopPropagation()
     handleSelectSlot(slot)
   }
 
   const onPlanBackgroundTap = (event: PointerEvent<SVGSVGElement>) => {
-    if (event.target !== event.currentTarget) return
+    if (pinchActiveRef.current || event.target !== event.currentTarget) return
     if (panMovedRef.current) {
       panMovedRef.current = false
       return
@@ -1097,6 +1111,7 @@ export function TourFloorPlan({
   }
 
   const onSlotClick = (slot: DisplaySlot, event: MouseEvent) => {
+    if (event.detail !== 0 && pinchActiveRef.current) return
     if (!slotOpens(slot)) return
     if (panMovedRef.current) {
       panMovedRef.current = false
@@ -1114,6 +1129,7 @@ export function TourFloorPlan({
   }
 
   const handleHoverSlot = (slot: DisplaySlot | null) => {
+    if (window.matchMedia('(pointer: coarse)').matches) return
     if (!slot || !slotOpens(slot)) {
       setHoverSlot(null)
       elevateHtmlUnit(null)
@@ -1141,6 +1157,9 @@ export function TourFloorPlan({
   const frameWRef = useRef(0)
   frameWRef.current = typeof planFrameStyle.width === 'number' ? planFrameStyle.width : stageSize.width
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  // Keep the gesture latch through both releases and the compatibility click.
+  // Only a fresh pointer sequence may clear it.
+  const pinchActiveRef = useRef(false)
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
   const dragRef = useRef<{
     id: number
@@ -1178,18 +1197,20 @@ export function TourFloorPlan({
   }
 
   const onPlanPanDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (!portraitPanRef.current) return
     if (event.pointerType === 'mouse' && event.button !== 0) return
     const target = event.target
-    if (target instanceof Element && target.closest('button, a, input, textarea')) return
+    if (target instanceof Element && target.closest('button, a, input, textarea') && !target.closest('.tour-unit-pin')) return
     if (inertiaRef.current) cancelAnimationFrame(inertiaRef.current)
     inertiaRef.current = 0
-    if (event.isPrimary) {
-      pointersRef.current.clear()
+    if (pointersRef.current.size === 0) {
+      pinchActiveRef.current = false
+      panMovedRef.current = false
       pinchRef.current = null
     }
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (pointersRef.current.size >= 2) {
+      pinchActiveRef.current = true
+      slotPointerRef.current = null
       const pts = [...pointersRef.current.values()]
       const a = pts[0]
       const b = pts[1]
@@ -1197,6 +1218,7 @@ export function TourFloorPlan({
       dragRef.current = null
       return
     }
+    if (!portraitPanRef.current) return
     dragRef.current = {
       id: event.pointerId,
       x: event.clientX,
@@ -1228,7 +1250,7 @@ export function TourFloorPlan({
     if (!drag || drag.id !== event.pointerId) return
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
-    if (!drag.moved && Math.hypot(dx, dy) < 22) return
+    if (!drag.moved && Math.hypot(dx, dy) <= (event.pointerType === 'touch' ? 30 : 22)) return
     if (!drag.moved) {
       drag.moved = true
       panMovedRef.current = true
@@ -1244,6 +1266,10 @@ export function TourFloorPlan({
   }
 
   const onPlanPanUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.type === 'pointercancel') {
+      panMovedRef.current = true
+      slotPointerRef.current = null
+    }
     pointersRef.current.delete(event.pointerId)
     if (pointersRef.current.size < 2) pinchRef.current = null
     const drag = dragRef.current
@@ -1383,14 +1409,14 @@ export function TourFloorPlan({
         ref={stageRef}
         className={cn(
           'absolute inset-0 flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-0',
-          portraitPan && 'touch-none',
+          'touch-none',
         )}
         data-plan-stage
         style={portraitPan ? { touchAction: 'none' } : undefined}
-        onPointerDownCapture={portraitPan ? onPlanPanDown : undefined}
-        onPointerMoveCapture={portraitPan ? onPlanPanMove : undefined}
-        onPointerUpCapture={portraitPan ? onPlanPanUp : undefined}
-        onPointerCancelCapture={portraitPan ? onPlanPanUp : undefined}
+        onPointerDownCapture={onPlanPanDown}
+        onPointerMoveCapture={onPlanPanMove}
+        onPointerUpCapture={onPlanPanUp}
+        onPointerCancelCapture={onPlanPanUp}
         onLostPointerCapture={portraitPan ? onPlanPanUp : undefined}
       >
           {portraitPan
@@ -1648,7 +1674,7 @@ export function TourFloorPlan({
               >
               {displaySlots.map((slot) => {
                 const opens = slotOpens(slot)
-                const marked = opens && (hoverSlot === slot.id || slot.unit?.id === selectedUnitId)
+                const marked = opens && ((!coarsePointer && hoverSlot === slot.id) || slot.unit?.id === selectedUnitId)
                 const hovered = marked
                 const areaFill = hovered ? 'rgba(189,162,126,0.46)' : 'rgba(189,162,126,0.22)'
                 const areaStroke = hovered ? '#BDA27E' : 'rgba(189,162,126,0.95)'
@@ -1704,7 +1730,7 @@ export function TourFloorPlan({
               {displaySlots.map((slot) => {
                 const { cx, cy } = slotCentroid(slot.points)
                 const opens = slotOpens(slot)
-                const marked = opens && (hoverSlot === slot.id || slot.unit?.id === selectedUnitId)
+                const marked = opens && ((!coarsePointer && hoverSlot === slot.id) || slot.unit?.id === selectedUnitId)
                 const hovered = marked
                 const label = slot.area ? slot.label : (slot.unit?.unit_number ?? slot.label)
                 const shiftY = cy > 86 ? '-100%' : cy < 14 ? '0%' : '-50%'
@@ -1714,7 +1740,7 @@ export function TourFloorPlan({
                     key={`label-${slot.id}`}
                     type="button"
                     disabled={!opens}
-                    onMouseEnter={() => setHoverSlot(slot.id)}
+                    onMouseEnter={() => handleHoverSlot(slot)}
                     onMouseLeave={() => setHoverSlot(null)}
                     onPointerDown={(event) => onSlotPointerDown(slot, event)}
                     onPointerUp={(event) => onSlotPointerUp(slot, event)}

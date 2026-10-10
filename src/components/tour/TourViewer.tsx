@@ -71,7 +71,7 @@ import {
 import { pickCatalogPanoUrl, pickTourWidth, smallerTourUrl, tourCoarsePanoUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
-import { pickRoomScene, pickSceneUrl, finishesMatch, hasBothFinishesForRoom } from '@/lib/tour/roomScene'
+import { pickRoomScene, pickSceneUrl, hasBothFinishesForRoom } from '@/lib/tour/roomScene'
 import { buildGaleriaStills } from '@/lib/tour/galeriaStills'
 import { galleryFinishPresentation } from '@/lib/tour/finishSwatch'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
@@ -2488,14 +2488,14 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, item.slug) && entry.url)
       const scene = pickRoomScene(roomItem?.scenes, finish || null, light)
       const picked = pickSceneUrl(scene, catalogWidthRef.current, { coarse: entryCoarse })
-      map[item.slug] = picked ?? (entryCoarse ? tourCoarsePanoUrl(roomItem?.url) : roomItem?.url ?? null)
+      map[item.slug] = picked ?? (finish && roomItem?.scenes.length ? null : entryCoarse ? tourCoarsePanoUrl(roomItem?.url) : roomItem?.url ?? null)
     }
     return map
   }, [tourRooms, currentTypology, finish, light, entryCoarse])
 
   const urlForRoom = useCallback(
     (slug: string) => {
-      if (photoBySlug[slug]) return photoBySlug[slug]
+      if (Object.prototype.hasOwnProperty.call(photoBySlug, slug)) return photoBySlug[slug]
       const slotted = Object.keys(photoBySlug).find((key) => roomsShareSlot(key, slug) && photoBySlug[key])
       if (slotted) return photoBySlug[slotted]
       const family = Object.keys(photoBySlug).find((key) => roomsShareFamily(key, slug) && photoBySlug[key])
@@ -2511,7 +2511,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     light,
     { coarse: entryCoarse },
   )
-  const activePanoUrl = urlForRoom(room) ?? (room === homeSlug ? typologyPanoUrl : null)
+  const requestedRoom = currentTypology?.rooms.find((entry) => entry.slug === room) ??
+    currentTypology?.rooms.find((entry) => roomsShareSlot(entry.slug, room))
+  const roomFinishMissing = Boolean(finish && requestedRoom?.scenes.length &&
+    !pickRoomScene(requestedRoom.scenes, finish, light))
+  const activePanoUrl = urlForRoom(room) ??
+    (room === homeSlug && !roomFinishMissing ? typologyPanoUrl : null)
   const steppedLive = steppedPanoRef.current
   desiredPanoRef.current =
     steppedLive && activePanoUrl && steppedLive.requested === activePanoUrl
@@ -2623,7 +2628,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       const scene = pickRoomScene(scenes, finish || null, light)
       return (
         pickSceneUrl(scene, sideWidth, { coarse: entryCoarse }) ??
-        (entryCoarse ? tourCoarsePanoUrl(roomUrl) : roomUrl ?? scenes[0]?.url ?? null)
+        (finish ? null : entryCoarse ? tourCoarsePanoUrl(roomUrl) : roomUrl ?? scenes[0]?.url ?? null)
       )
     }
 
@@ -2637,18 +2642,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       return urlFromScenes(roomItem.scenes, roomItem.url)
     }
 
-    const homeOfB = tourHomeSlug(rooms.map((item) => ({ slug: item.slug, label: item.label })))
-
-    return (
-      urlForSlug(roomShownByB) ??
-      urlForSlug(homeOfB) ??
-      urlForSlug(homeSlug) ??
-      pickCatalogPanoUrl(typ.panorama, sideWidth, finish || null, light, { coarse: entryCoarse }) ??
-      pickCatalogPanoUrl(typ.panorama, sideWidth, undefined, undefined, { coarse: entryCoarse }) ??
-      rooms.map((item) => urlFromScenes(item.scenes, item.url)).find(Boolean) ??
-      activePanoUrl ??
-      null
-    )
+    return urlForSlug(roomShownByB)
   }, [
     compareUnitB,
     compareTypologyB,
@@ -2656,7 +2650,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     finish,
     light,
     room,
-    homeSlug,
+    selectedTypology,
     activePanoUrl,
     entryCoarse,
     compareRoomB,
@@ -2979,7 +2973,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     void preloadStill(stillItems[(index + 1) % total]?.url)
     void preloadStill(stillItems[(index - 1 + total) % total]?.url)
   }, [viewMode, stillItems, stillIndex])
-  const stillScope = `${currentTypology?.id ?? ''}:${selectedUnitId ?? ''}`
+  const stillScope = `${currentTypology?.id ?? ''}:${selectedUnitId ?? ''}:${finish}:${light}`
   if (stillScopeRef.current !== stillScope) {
     stillScopeRef.current = stillScope
     lastStillRef.current = null
@@ -3563,7 +3557,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const finishRightPanoUrl = useMemo(() => {
     if (!isFinishCompare || !finishRightOption) return null
     const finishSlug = finishRightOption.slug
-    const leftSlug = finish || null
     // Textura más liviana en el lado B → carga más rápida / menos WebGL
     const sideWidth = 2048 as const
 
@@ -3571,32 +3564,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       scenes: NonNullable<typeof currentTypology>['rooms'][number]['scenes'] | undefined,
     ) => {
       if (!scenes?.length) return null
-      const exact =
-        scenes.find(
-          (item) => finishesMatch(item.finish, finishSlug) && item.light === light,
-        ) ??
-        scenes.find(
-          (item) => finishesMatch(item.finish, finishSlug) && item.light === 'dia',
-        ) ??
-        scenes.find((item) => item.finish === finishSlug)
-      if (exact) {
-        return pickSceneUrl(exact, sideWidth, { coarse: entryCoarse }) ?? pickSceneUrl(exact, catalogWidthRef.current, { coarse: entryCoarse })
-      }
       const matched = pickRoomScene(scenes, finishSlug, light)
-      if (!matched) return null
-      if (leftSlug && finishesMatch(matched.finish, leftSlug)) {
-        const other =
-          scenes.find(
-            (item) =>
-              item.finish &&
-              !finishesMatch(item.finish, leftSlug) &&
-              item.light === light,
-          ) ??
-          scenes.find((item) => item.finish && !finishesMatch(item.finish, leftSlug))
-        if (other) {
-          return pickSceneUrl(other, sideWidth, { coarse: entryCoarse }) ?? pickSceneUrl(other, catalogWidthRef.current, { coarse: entryCoarse })
-        }
-      }
       return pickSceneUrl(matched, sideWidth, { coarse: entryCoarse }) ?? pickSceneUrl(matched, catalogWidthRef.current, { coarse: entryCoarse })
     }
 
@@ -3606,7 +3574,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       currentTypology?.rooms.find((entry) => roomsShareFamily(entry.slug, room) && entry.url)
 
     const fromRoom = resolveFromScenes(roomItem?.scenes)
-    if (fromRoom) return fromRoom
+    if (roomItem) return fromRoom
 
     // Buscar en todos los rooms de la tipología (misma familia)
     for (const entry of currentTypology?.rooms ?? []) {
@@ -4070,7 +4038,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {!booting && viewMode === 'tour' && !activePanoUrl && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
-          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">{t("Falta el 360")}</p>
+          <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">{t(finish ? "No disponible para este acabado" : "Falta el 360")}</p>
           <p className="mt-2 text-sm text-white/45">
             {t(roomName)}
           </p>
@@ -4080,7 +4048,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       {!booting && viewMode === 'galeria' && galeriaImages.length === 0 && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black px-6 text-center">
           <p className="text-[13px] tracking-[0.16em] text-white/70 uppercase">{t("Galería")}</p>
-          <p className="mt-2 text-sm text-white/45">{t("Aún no hay imágenes de galería en esta tipología.")}</p>
+          <p className="mt-2 text-sm text-white/45">{t(finish ? "No disponible para este acabado" : "Aún no hay imágenes de galería en esta tipología.")}</p>
         </div>
       )}
 

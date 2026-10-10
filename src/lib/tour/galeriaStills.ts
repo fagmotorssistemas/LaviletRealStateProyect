@@ -205,7 +205,7 @@ export function buildGaleriaStills(
           (scenes.length
             ? scenes.find((s) => (filterLight ? s.light === filterLight : true) && finishesMatch(s.finish, filterFinish ?? null))
             : undefined))
-      const url = pickSceneUrl(scene) ?? scene?.url ?? (options?.strict ? null : room.url)
+      const url = pickSceneUrl(scene) ?? scene?.url ?? (options?.strict || (filterFinish && scenes.length) ? null : room.url)
       if (!url) continue
       const parts = options?.roomLabelOnly
         ? [room.label]
