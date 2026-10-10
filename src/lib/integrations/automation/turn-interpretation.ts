@@ -6,6 +6,8 @@ import { reconcilePassivePropertyMemory } from './turn-interpretation-input'
 import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
 import { budgetQuestionBasis } from './budget-question-context'
+import { interpretationConsistencyIssues } from './interpretation-consistency'
+import { isolateHistoricalBudget } from './historical-budget-isolation'
 import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence } from './purchase-evidence'
 import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_SCHEMA } from './turn-semantics'
@@ -240,6 +242,10 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   }
   let recoveryIssues: string[] = []
   let isolatedProperty = false
+  let isolatedBudget = false
+  const validationIssues = (value: Row) => [...new Set([
+    ...interpretationSourceIssues(value, readable, pending), ...interpretationConsistencyIssues(value, readable),
+  ])]
   if (method === 'model') {
     // Interpretation is shared by both retrieval routes. The feature switch
     // controls retrieval/context size, never the meaning of a requirement.
@@ -274,7 +280,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     dependencies.onPromptRevision?.(promptRevision)
     const modelInput = interpretationInput(input, readable)
     raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, extractionSchema))
-    recoveryIssues = interpretationSourceIssues(raw, readable, pending)
+    recoveryIssues = validationIssues(raw)
     const budget = object(object(raw.turn_semantics).budget)
     // Question context can request a semantic recheck, but never supplies the
     // amount or changes the model's monetary role without that focused check.
@@ -293,7 +299,11 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       const quantityOnly = blocks.quantity && !blocks.property && !blocks.budget && !blocks.requests && !blocks.profile && blocks.semanticFields.length === 1
       const rootProperties = object(extractionSchema.properties), semanticProperties = object(TURN_SEMANTICS_SCHEMA.properties)
       const repairProperties: Row = Object.fromEntries(blocks.rootFields.map(field => [field, rootProperties[field]]))
-      if (blocks.budget) repairProperties.qualification = closedObject({ presupuesto_texto: nullableString })
+      if (blocks.budget) {
+        repairProperties.qualification = closedObject({ presupuesto_texto: nullableString })
+        repairProperties.budget_turn_use = closedObject({ kind: { type: 'string', enum: ['current_update', 'context_only', 'none', 'uncertain'] },
+          evidence: { type: 'string' }, confidence })
+      }
       if (blocks.property) {
         repairProperties.declaration_evidence = closedObject({ preferred_category: nullableString })
         repairProperties.property_turn_use = closedObject({ kind: { type: 'string', enum: ['current_request', 'context_only', 'none', 'uncertain'] },
@@ -315,7 +325,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
           fields: [...blocks.semanticFields, ...blocks.rootFields], preserve_other_fields: true,
           instruction: 'Corrija únicamente los bloques del esquema. Las referencias conocidas no son declaraciones actuales; no copie citas del historial. Conserve las demás interpretaciones y permisos.' } }) as Row
       const repairInstructions = blocks.fullTurn ? currentInstructions : quantityOnly ? QUANTITY_RECOVERY_RULES
-        : BLOCK_RECOVERY_RULES + (blocks.budget ? '\n' + FINANCING_AMOUNTS_RULES : '')
+        : BLOCK_RECOVERY_RULES + (blocks.budget ? '\n' + FINANCING_AMOUNTS_RULES + '\n' + EXTRACTION_CONSISTENCY_RULES : '')
           + (blocks.profile ? '\n' + LEAD_PROFILE_EXTRACTION_RULES : '')
           + (blocks.property ? '\n' + CATALOG_REQUEST_RULES + '\n' + REQUEST_TOPICS_RULES : '')
       const repaired = await dependencies.aiJson(repairInstructions,
@@ -324,14 +334,27 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
         repairSchema)
       const previous = raw
       raw = reconcile(mergeInterpretationRepair(raw, repaired, recoveryIssues))
-      let remaining = interpretationSourceIssues(raw, readable, pending)
+      let remaining = validationIssues(raw)
+      if (blocks.budget && !blocks.fullTurn && remaining.length) {
+        const isolated = isolateHistoricalBudget(previous, raw, repaired, input, readable, remaining,
+          blocks.semanticFields.includes('primary_intent'))
+        if (isolated) {
+          const candidate = reconcile(isolated)
+          const candidateIssues = validationIssues(candidate)
+          if (!candidateIssues.length) {
+            raw = candidate
+            remaining = candidateIssues
+            isolatedBudget = true
+          }
+        }
+      }
       if (blocks.property && !blocks.budget && !blocks.fullTurn && remaining.length) {
         const knownBudgetQuestion = text(normalizedPendingQuestion(input.pregunta_pendiente).id).startsWith('budget_')
           || text(pendingQuestionFromReply(previousQuestion).id).startsWith('budget_')
         const isolated = isolateHistoricalPropertyFromBudget(previous, raw, repaired, readable, knownBudgetQuestion, remaining)
         if (isolated) {
           raw = reconcile(isolated)
-          remaining = interpretationSourceIssues(raw, readable, pending)
+          remaining = validationIssues(raw)
           isolatedProperty = !remaining.length
         }
       }
@@ -341,7 +364,9 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   const withDiagnostics = (result: TurnInterpretation): TurnInterpretation => {
     result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed',
       ...(isolatedProperty ? { contract: 'budget-property-isolation-v1', isolated_fields: ['property', 'catalog_request', 'preferred_category', 'unit_id'],
-        preserved_fields: ['budget', 'financing_amounts'], reason: 'current_budget_answer_with_context_only_property' } : {}) }
+        preserved_fields: ['budget', 'financing_amounts'], reason: 'current_budget_answer_with_context_only_property' } : {}),
+      ...(isolatedBudget ? { contract: 'historical-budget-isolation-v1', isolated_fields: ['budget', 'financing_amounts', 'qualification.presupuesto_texto'],
+        preserved_fields: ['property', 'requests', 'profile', 'permissions'], reason: 'current_request_with_context_only_budget' } : {}) }
     result.diagnostic.historical_reconciliation = { status: historicalFields.size ? 'confirmed_facts_preserved' : 'not_needed', fields: [...historicalFields] }
     const rebind = result.withActionMessage
     if (rebind) result.withActionMessage = message => withDiagnostics(rebind(message))

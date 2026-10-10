@@ -6,7 +6,8 @@ export function interpretationIssueDetail(issue: string): { code: string; field:
   const [code, source] = issue.split(':')
   const quantity = /^quantity\.(\d+)$/.exec(source || '')
   const request = /^requests\.(\d+)$/.exec(source || '')
-  const field = propertyFields[source] || (quantity ? `turn_semantics.housing_quantities[${quantity[1]}].evidence`
+  const field = code === 'inconsistent_primary_intent' ? 'turn_semantics.primary_intent'
+    : propertyFields[source] || (quantity ? `turn_semantics.housing_quantities[${quantity[1]}].evidence`
     : request ? `requests[${request[1]}].evidence` : source || (code === 'invalid_budget_amount' ? 'turn_semantics.budget.amount'
       : ['unresolved_budget_role', 'inconsistent_budget_role'].includes(code) ? 'turn_semantics.budget.status' : 'Interpretación del turno'))
   const message = code === 'non_current_evidence'
@@ -19,6 +20,8 @@ export function interpretationIssueDetail(issue: string): { code: string; field:
           ? 'No quedó resuelto si el importe declarado es presupuesto total, entrada u otro concepto. La recuperación debe conservarlo sin inventar su papel.'
           : code === 'inconsistent_budget_role'
             ? 'Los bloques de presupuesto y cantidades financieras atribuyen papeles contradictorios al mismo importe.'
-            : 'Este control de la interpretación quedó sin resolver. Consulte el identificador y la salida original; no se deduce una solicitud de asesor ni un rechazo del lead.'
+            : code === 'inconsistent_primary_intent'
+              ? 'La intención principal se clasificó como presupuesto, pero los bloques actuales respaldan otra solicitud sin una actualización monetaria. Por ejemplo, responder cuántos dormitorios necesita no vuelve a declarar el presupuesto conocido. La reparación debe revisar ambos bloques; esto no demuestra que necesite un asesor.'
+              : 'Este control de la interpretación quedó sin resolver. Consulte el identificador y la salida original; no se deduce una solicitud de asesor ni un rechazo del lead.'
   return { code, field, message }
 }

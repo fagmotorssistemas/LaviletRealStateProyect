@@ -24,7 +24,25 @@ export function confirmedInterpretationMemory(summary: Row): Row {
   const saved = object(summary._interpretation_memory)
   // Support conversations created before this memory existed. The last turn
   // contract already contains a validated budget with its original evidence.
-  const budget = Object.hasOwn(saved, 'budget') ? object(saved.budget) : object(object(summary._turn_intent).budget)
+  const hasSavedBudget = Object.hasOwn(saved, 'budget')
+  const withdrawn = Object.keys(object(saved.budget_revocation)).length > 0
+  let budget = hasSavedBudget ? object(saved.budget) : withdrawn ? {} : object(object(summary._turn_intent).budget)
+  // Older conversations may retain the accepted monetary role without a turn
+  // budget. A single evidenced funds declaration can supply that memory; loans,
+  // competing roles and explicit withdrawals cannot establish a new budget.
+  if (!hasSavedBudget && !withdrawn && !validBudget(budget)) {
+    const amounts = object(summary._financing_amounts)
+    const funds = ['total_budget', 'down_payment'].filter(role => {
+      const amount = object(amounts[role])
+      return typeof amount.amount === 'number' && Number.isFinite(amount.amount) && amount.amount > 0
+        && !!text(amount.evidence).trim()
+    })
+    if (funds.length === 1) {
+      const amount = object(amounts[funds[0]])
+      budget = { status: funds[0] === 'total_budget' ? 'maximum_total' : 'initial_capital',
+        amount: amount.amount, evidence: amount.evidence, confidence: 'high' }
+    }
+  }
   const result = { ...saved }
   delete result.budget
   return { ...result, ...(validBudget(budget) ? { budget } : {}) }

@@ -73,3 +73,15 @@ test('historical invalid interpretation without details stays explicit about mis
   assert.match(issue.message, /No se deduce.*asesor.*saldo/)
   assert.doesNotMatch(issue.message, /se registraron 2|reintento no resolvió/)
 })
+
+test('inconsistent budget intent identifies the label and explains the current bedroom answer', () => {
+  const item = { ...step({ interpretation_validation: { status: 'invalid',
+    issues: ['inconsistent_primary_intent:budget'], extractor_calls: 2, attempted_repair: true,
+  } }, {}, 'semantic_extraction'), status: 'failed', errorCode: 'TURN_INTERPRETATION_INVALID' }
+  const issue = reviewDiagnostics(item)[0]
+  assert.equal(issue.code, 'inconsistent_primary_intent')
+  assert.equal(issue.field, 'turn_semantics.primary_intent')
+  assert.match(issue.message, /dormitorios.*no vuelve a declarar el presupuesto/)
+  assert.match(issue.message, /revisar ambos bloques/)
+  assert.match(issue.message, /no demuestra.*asesor/)
+})

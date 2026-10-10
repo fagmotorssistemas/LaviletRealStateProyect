@@ -150,8 +150,8 @@ export function interpretationInput(input: Row, current: string): Row {
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   const catalog = rows(input.catalogo_unidades)
   const propertyContext = object(input.contexto_propiedades)
-  const pending = object(propertyContext.pending_question || input.pregunta_pendiente)
-  const budgetPending = object(input.pregunta_pendiente || propertyContext.pending_question)
+  const pending = object(Object.hasOwn(input, 'pregunta_pendiente') ? input.pregunta_pendiente : propertyContext.pending_question)
+  const budgetPending = pending
   const proposedIds = new Set(Array.isArray(pending.candidate_ids) ? pending.candidate_ids.map(text) : [])
   const proposal = pending.id === 'property_requirements' && pending.act === 'explore_alternatives'
     && Object.keys(object(pending.proposed_query)).length > 0 ? {
@@ -161,6 +161,7 @@ export function interpretationInput(input: Row, current: string): Row {
       note: 'Las consultas informativas pueden referirse a estas alternativas. Preguntar por ellas no acepta el cambio ni elimina la necesidad original.',
     } : null
   return { ...result,
+    pregunta_pendiente: pending,
     ...(budgetQuestionBasis(budgetPending) ? { contexto_pregunta_presupuesto: {
       role_asked: budgetQuestionBasis(budgetPending),
       question: budgetPending.question,
@@ -169,9 +170,12 @@ export function interpretationInput(input: Row, current: string): Row {
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
     resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts', '_visit_dialogue']),
-      _turn_intent: pick(object(summary._turn_intent), ['objective', 'subject', 'continuation_goal', 'pending_question']) },
-    contexto_propiedades: pick(object(input.contexto_propiedades), ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
-      'offered_ids', 'focused_ids', 'phase', 'preference_transition', 'pending_question']),
+      // The previous objective/question describe a completed interpretation,
+      // not this turn. Keep referents and unresolved goals, with the actual
+      // pending question supplied separately above.
+      _turn_intent: pick(object(summary._turn_intent), ['subject', 'continuation_goal']) },
+    contexto_propiedades: { ...pick(propertyContext, ['query', 'selected_ids', 'candidate_ids', 'comparison_ids',
+      'offered_ids', 'focused_ids', 'phase', 'preference_transition']), pending_question: pending },
     catalogo_unidades: [...new Set(catalog.map(u => text(u.category)))].map(category => ({ category,
       unit_numbers: catalog.filter(u => u.category === category).map(u => u.unit_number) })),
     unidades_identificadas: rows(input.unidades_identificadas).map(unit => pick(unit, unitFields)),
@@ -220,7 +224,8 @@ export function interpretationRepairBlocks(issues: string[]) {
   const fullTurn = fields.includes('primary_intent') && requests
   return { property, budget, quantity, requests, profile, fullTurn,
     semanticFields: [...new Set([
-      ...(property || fields.includes('primary_intent') ? ['primary_intent', 'primary_evidence', 'confidence'] : []),
+      ...(property || fields.includes('primary_intent') || issues.includes('inconsistent_primary_intent:budget')
+        ? ['primary_intent', 'primary_evidence', 'confidence'] : []),
       ...(property ? ['property'] : []), ...(budget ? ['budget'] : []), ...(quantity ? ['housing_quantities'] : []),
     ])],
     rootFields: [...new Set([...(property ? ['preferred_category', 'declaration_evidence', 'unit_id', 'catalog_request', 'requests'] : []),
@@ -343,8 +348,10 @@ export const QUANTITY_RECOVERY_RULES = `Corrija únicamente turn_semantics.housi
 Si el mensaje actual no declara ni evalúa personas/dormitorios, devuelva housing_quantities=[]. No cree objetos vacíos para completar dimensiones. Cada elemento activo requiere evidencia literal actual que conserve el contexto y la corrección; values=[] es válido si habla de una cantidad desconocida (por ejemplo una familia numerosa sin cifra).
 dimension=people cuenta personas, bedrooms dormitorios, unknown conserva ambigüedad. role=requirement solicita una cantidad o restricción; evaluation pregunta si las opciones sirven o cómo funcionan; context describe la familia. Evaluar cuántos ocupantes caben no solicita otra búsqueda ni impone dormitorios. count_basis=total solo si incluye al hablante, excluding_speaker si explícitamente lo excluye, unspecified si no se sabe. Separe varias dimensiones sin convertir personas en dormitorios, sumar cifras que se solapen o inventar valores. Un sí a explorar opciones no declara de nuevo sus cantidades. Devuelva solo los campos solicitados, sin modificar otros datos o permisos.`
 
-export const EXTRACTION_CONSISTENCY_RULES = `Antes de devolver el JSON, compruebe coherencia entre los bloques: housing_quantities=[] si el turno actual no menciona ni evalúa cantidades; un catálogo o una pregunta previa no son una declaración nueva. Una consulta sobre si un espacio sirve a una familia es evaluation y details, con referencia a las opciones actuales; no es precio salvo que también pregunte importes, ni convierte esa cantidad en un requisito de búsqueda. Una cifra deseada y el operador eq no significan rigidez: bedrooms_required=true necesita una declaración actual inequívoca de que no acepta otra cantidad. Ante flexibilidad expresa no use true; conserve la cantidad deseada sin sustituirla automáticamente. Ninguna respuesta a una alternativa inmobiliaria acepta una visita, entidad o trámite diferente. Las acciones negadas, hipotéticas, condicionadas o citadas como palabras de otra persona no son permisos actuales.`
+export const EXTRACTION_CONSISTENCY_RULES = `Antes de devolver el JSON, compruebe coherencia entre los bloques: housing_quantities=[] si el turno actual no menciona ni evalúa cantidades; un catálogo o una pregunta previa no son una declaración nueva. Una consulta sobre si un espacio sirve a una familia es evaluation y details, con referencia a las opciones actuales; no es precio salvo que también pregunte importes, ni convierte esa cantidad en un requisito de búsqueda. Una cifra deseada y el operador eq no significan rigidez: bedrooms_required=true necesita una declaración actual inequívoca de que no acepta otra cantidad. Ante flexibilidad expresa no use true; conserve la cantidad deseada sin sustituirla automáticamente. Ninguna respuesta a una alternativa inmobiliaria acepta una visita, entidad o trámite diferente. Las acciones negadas, hipotéticas, condicionadas o citadas como palabras de otra persona no son permisos actuales.
+La intención principal debe describir la solicitud actual y ser coherente con los bloques activos; que una cita sea literal no demuestra que justifique esa intención. Un presupuesto guardado no convierte una respuesta de dormitorios, planta, tipo o unidad en discuss_budget. La pregunta pendiente vigente prevalece sobre el objetivo de un turno anterior. Si el mensaje también modifica o aclara presupuesto, entrada o crédito, preserve AMBAS solicitudes actuales; no borre una de ellas para imponer una intención única.`
 
 export const BLOCK_RECOVERY_RULES = `Repare únicamente los bloques y campos que permite el esquema adjunto. mensaje_actual es la única fuente de novedades y de citas. El contexto confirmado solo resuelve referentes: una unidad seleccionada del historial NO es una selección actual ni aporta una cita nueva. Si el cliente únicamente aclara una cantidad, property usa operation=none, reference_kind=none, valores neutros y evidence=""; preserve la unidad conocida fuera de esa salida. No cambie permisos, perfil ni solicitudes de otros dominios.
 Si el esquema incluye property_turn_use, certifique por separado si mensaje_actual solicita una acción o información inmobiliaria (current_request), si el inmueble es únicamente referente conocido de una respuesta monetaria (context_only), si no tiene uso (none), o si no puede decidirlo (uncertain). Cite literalmente el mensaje actual y no el historial; confidence expresa su certeza. Una solicitud inmobiliaria adicional, incluida una preferencia nueva, requiere current_request aunque también haya presupuesto. Este metadato no autoriza selecciones, cambios ni consentimiento.
+Si el esquema incluye budget_turn_use, certifique si el mensaje actual declara, aclara, cambia, niega o retira presupuesto, entrada o crédito (current_update), si esos datos únicamente sirven de referencia conocida (context_only), si no tienen uso (none), o si no puede decidirlo (uncertain). Una aclaración sin cifra nueva sigue siendo current_update. Cite el mensaje actual y no una respuesta del bot. Para context_only o none use budget.status=not_discussed, amount=null, evidence="", financing_amounts=[] y qualification.presupuesto_texto=null; los fondos confirmados se conservan fuera de esa actualización. Si también se permite reparar la intención principal, haga que coincida con los bloques actuales que siguen válidos y la pregunta pendiente, sin inventar preferencias o permisos.
 Si se solicita el bloque monetario, interprete el papel de cada importe, incluidos negaciones, dudas, autocorrecciones y aclaraciones de una cifra conocida. Devuelva budget y financing_amounts coherentes. Una entrada explícita es initial_capital y down_payment; el presupuesto total explícito es maximum_total y total_budget; un préstamo es loan y no un presupuesto. amount significa que el rol continúa realmente ambiguo. Una cita del mensaje actual puede conservar faltas de escritura, pero no puede sustituirse por una frase histórica o inventada. No complete importes desde una pregunta del bot ni otorgue consentimiento financiero. Devuelva los valores neutros del bloque que no está activo, en vez de fabricar acciones o evidencia.`
