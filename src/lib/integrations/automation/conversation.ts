@@ -405,6 +405,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (continuation) current = continuation.message
   const originalTurn = current
   let reply = '', finalNotice = false, handoffNotice = '', pendingCommercialHandoff = ''
+  let introductionProjectInfo: Row | undefined
   let appliedVisitAction: Row | null = null
   let interestDecision: Row | null = null
   let summary: Row = {}, audit: Row = {}, greetingTemplate = false
@@ -951,8 +952,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   if (!reply && answeringIntroduction && !operationalTurn && !inbound.mediaFailed && !businessScope.uncertain
     && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
+    if (turnIntent.objective === 'project_information')
+      introductionProjectInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     const continuation = leadIntroductionTurn({ current, history: context.historial,
       summary: { ...previousSummary, _lead_profile: summary._lead_profile }, extracted, reply: '', audit: { source: 'commercial' }, catalog: turnCatalog,
+      projectInfo: introductionProjectInfo && { ...introductionProjectInfo, semantica_turno: turnSemantics,
+        contrato_turno: turnIntent, solicitudes_interpretadas: interpretation.requests, property_context: reference.context,
+        estado_conversacion: { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
+          presentation_sent: object(previousSummary._lead_introduction).presentation_sent === true } },
       engagement: commercialEngagement(current, context.historial, previousSummary._sales_memory,
         { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion }) })
     if (continuation.applied) {
@@ -965,6 +972,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (!reply && !inbound.mediaFailed && !operationalTurn && (turnIntent.objective === 'project_information'
     || (turnSemantics.confidence !== 'high' && isProjectInformationRequest(current)))) {
     const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), semantica_turno: turnSemantics, property_context: reference.context }
+    introductionProjectInfo = info
     reply = projectInformationReply(info, current, BROCHURE_URL)
     if (reply) audit = { source: 'project_overview', brochure_sent: true }
   }
@@ -1286,6 +1294,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
           referencia_unidad:reference, property_context: reference.context, semantica_turno: turnSemantics, archivos_no_leidos:inbound.mediaErrors,
           modelo_3d: model ? { unidad: model.unit_number, se_adjunta_en_esta_respuesta: true, modelo_especifico_disponible: model.model_available, texto_de_entrega: model.caption } : null }
+        introductionProjectInfo = info
         const placeClarification = info.estado_proyecto
           ? readinessPlaceClarification(info.estado_proyecto as ProjectReadiness,current) : ''
         if(placeClarification) {
@@ -1384,8 +1393,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   audit.brochure_intent = brochureIntent
   if (!audit.profile_introduction && !startingReservation) {
+    if (!introductionProjectInfo && turnIntent.objective === 'project_information' && !finalNotice && !handoffNotice
+      && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind))
+      introductionProjectInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     const introduction = leadIntroductionTurn({ current, history: context.historial, summary: { ...previousSummary, _lead_profile: summary._lead_profile },
       extracted, reply, audit, catalog: turnCatalog,
+      projectInfo: introductionProjectInfo && { ...introductionProjectInfo, semantica_turno: turnSemantics,
+        contrato_turno: turnIntent, solicitudes_interpretadas: interpretation.requests, property_context: reference.context,
+        estado_conversacion: { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
+          presentation_sent: object(previousSummary._lead_introduction).presentation_sent === true } },
       engagement: commercialEngagement(current, context.historial, previousSummary._sales_memory,
         { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion }) })
     if (!finalNotice && !handoffNotice && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
@@ -1450,6 +1466,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const commercialInfo: Row = !scopeOnlyReview || businessScope.uncertain
       ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile, quoteInquiry.requested ? finance : undefined) : {}
     commercialInfo.estado_conversacion = { brochure_sent: object(previousSummary._lead_introduction).brochure_sent === true,
+      presentation_sent: object(previousSummary._lead_introduction).presentation_sent === true,
       unit_models_sent: previousSummary._unit_models_sent || [],
       introduction_status: object(previousSummary._lead_introduction).status || null }
     commercialInfo.hechos_confirmados = confirmedInterpretationMemory(Object.keys(summary).length ? summary : previousSummary)

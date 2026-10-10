@@ -71,7 +71,8 @@ test('below the complete residential minimum offers analysis without treating ch
 test('commercial use compares only commercial inventory and asks budget before business purpose', () => {
   const data = info()
   data.lead = { preferred_category: 'local' }
-  data.property_context = { query: { category: 'local' }, selected_ids: [] }
+  data.property_context = { query: { category: 'local' }, selected_ids: [],
+    category_preference: { category: 'local', confirmed: true, evidence: 'Busco un local para mi negocio' } }
   assert.equal(commercialJourneyPlan(data).action, 'ask_budget')
   object(data.semantica_turno).budget = { status: 'maximum_total', amount: 60000, evidence: 'Sesenta mil', confidence: 'high' }
   const next = commercialJourneyPlan(data)
@@ -111,10 +112,14 @@ test('some affordable matches orient presentation without changing the query; a 
   object(data.property_context).query = { group: 'residential', operation: 'search', filters: { bedrooms: 3 } }
   const query = structuredClone(object(data.property_context).query)
   const next = commercialJourneyPlan(data)
-  assert.equal(next.question_id, 'unit_choice')
+  assert.equal(next.question_id, 'property_category')
+  assert.equal(next.question_act, 'choose_category')
+  assert.match(String(next.question), /exploremos los departamentos/)
+  assert.equal(object(next.proposed_query).category, 'departamento')
   assert.deepEqual(object(next.selection_scope).unit_ids, ['department'])
   assert.deepEqual(object(data.property_context).query, query)
   object(data.property_context).query = { ...query, category: 'penthouse' }
+  object(data.property_context).category_preference = { category: 'penthouse', confirmed: true, evidence: 'Prefiero los penthouses aunque superen mi presupuesto' }
   const penthouse = commercialJourneyPlan(data)
   assert.equal(penthouse.action, 'offer_financing')
   assert.deepEqual(object(penthouse.budget_guidance).candidate_unit_ids, ['602', '605'])
@@ -203,6 +208,7 @@ test('a selected expensive unit enables a necessary comparison once; courtesy do
 test('financing refusal keeps an over-budget preference without substituting cheaper units', () => {
   const data = info('maximum_total', 300000)
   object(data.property_context).query = { group: 'residential', category: 'penthouse', operation: 'search', filters: { bedrooms: 3 } }
+  object(data.property_context).category_preference = { category: 'penthouse', confirmed: true, evidence: 'Me interesan los penthouses' }
   object(data.financiamiento).journey = { status: 'declined', accepted: false }
   const before = structuredClone(data.property_context), next = commercialJourneyPlan(data)
   assert.equal(next.action, 'leave_open')
@@ -213,6 +219,7 @@ test('financing refusal keeps an over-budget preference without substituting che
 test('reading the same over-budget options does not repeat the comparison or financing offer', () => {
   const data = info('maximum_total', 300000)
   object(data.property_context).query = { group: 'residential', category: 'penthouse', operation: 'search', filters: { bedrooms: 3 } }
+  object(data.property_context).category_preference = { category: 'penthouse', confirmed: true, evidence: 'Revisemos los penthouses' }
   const initial = commercialJourneyPlan(data)
   assert.equal(initial.action, 'offer_financing')
   data.recorrido_comercial = rememberCommercialJourney({}, initial, { id: 'financing_invitation' }, true)

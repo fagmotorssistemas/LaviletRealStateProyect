@@ -175,6 +175,9 @@ test('recorded acceptance with a follow-up question stays in financing instead o
   assert.equal(isFinancingTurn(extracted, fixture.message, fixture.last_question, input), true)
   let journey = financingJourney({}, input, 'acceptance')
   const pending = { ...info(), financiamiento: { ...finance, journey } }
+  pending.hechos_confirmados = { ...object(pending.hechos_confirmados), property: {
+    group: 'residential', category: null, filters: { bedrooms: 3 },
+    confidence: 'high', evidence: 'Busco una vivienda de tres dormitorios' } }
   assert.equal(financingStage(pending).stage, 'select_property')
   assert.equal(financingStage(pending).collection_allowed, false)
   assert.match(financingPrerequisiteReply(pending, fixture.message), /vivir o como inversión/)

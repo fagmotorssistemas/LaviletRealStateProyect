@@ -481,7 +481,8 @@ for (const operation of ['details', 'compare']) {
 for (const boundary of ['actual_price', 'price_metric', 'multiple_requests', 'new_requirement', 'new_filter', 'advisor', 'no_known_options']) {
   test('evaluation scope cannot hide an independently meaningful turn: ' + boundary, async () => {
     const capacity = '¿Alcanzan tres dormitorios para una familia de seis?', price = '¿Qué precios tienen estas opciones?'
-    const message = boundary === 'actual_price' ? capacity + ' ' + price : capacity, raw = capacityExtraction()
+    const message = boundary === 'actual_price' ? capacity + ' ' + price
+      : boundary === 'new_filter' ? capacity + ' Prefiero el tercer piso.' : capacity, raw = capacityExtraction()
     raw.events = ['asked_price']
     object(raw.turn_semantics).primary_intent = 'ask_price'
     object(raw.turn_semantics).primary_evidence = message

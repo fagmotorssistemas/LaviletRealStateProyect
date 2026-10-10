@@ -162,6 +162,14 @@ function verifiedText(value: unknown): string {
     .map(([, entry]) => verifiedText(entry)).join('\n')
 }
 
+/** Historical summaries stay excluded from numeric evidence. The separately
+ * selected, approved opening summary is a current business source. */
+function approvedIntroductionNumbers(verified: Row): string[] {
+  const introduction = object(verified.presentacion_general_proyecto)
+  return introduction.available === true && introduction.content_kind === 'approved_business_summary'
+    ? numbers(text(introduction.summary)) : []
+}
+
 // Preserve supplied facts before the independent semantic review. The reviewer
 // still rejects any unsupported relationship invented around those figures.
 export function protectedSentences(value: string): string[] {
@@ -237,7 +245,7 @@ export function turnCompletenessIssues(input: TurnCompletenessInput, reply: stri
   // Search constraints authorize mentioning what was requested, not asserting its availability.
   // Semantic claims and the final catalogue guard still verify positive/negative meaning.
   const queryNumbers = queryConstraintNumbers(input.audit)
-  const allowedNumbers = new Set([...numbers(facts), ...queryNumbers,
+  const allowedNumbers = new Set([...numbers(facts), ...approvedIntroductionNumbers(input.verified), ...queryNumbers,
     ...(input.audit?.semantic_review_enabled === true ? numbers(input.current) : [])].map(numericValue))
   const semanticOmission = semantic
   if ((!semanticOmission && contract.cifras_obligatorias.some(number => !numbers(reply).includes(number))) || numbers(numericReply).some(number => !allowedNumbers.has(numericValue(number)))) issues.push('numbers_changed')
@@ -417,6 +425,17 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     perfil_lead: profile, lead: { ...object(input.verified.lead), name: profile.full_name || null,
       name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null }, contrato_turno: turnIntent } }
   input = { ...input, verified: withProjectIntroductionForTurn(input.verified) }
+  // The same selected source backs the draft, writer contract and reviewer.
+  // A summary loaded for final completion cannot remain in conflict with the
+  // earlier basic opening audit.
+  const initialPresentation = object(input.verified.presentacion_general_proyecto)
+  const openingProfile = object(input.audit?.profile_introduction)
+  if ((openingProfile.generic_introduction === true || object(openingProfile.presentation).required === true)
+    && initialPresentation.available === true) {
+    input = { ...input, audit: { ...input.audit, profile_introduction: { ...openingProfile,
+      presentation: { required: true, approved_summary: text(initialPresentation.summary) || null,
+        source: text(initialPresentation.source) || null, content_kind: 'approved_business_summary' } } } }
+  }
   const engagement = commercialEngagement(input.current, input.history, input.verified._sales_memory, {
     semantics: input.verified.semantica_turno, intent: turnIntent,
     scope: turnIntent.scope, pendingQuestion: turnIntent.pending_question,
@@ -654,7 +673,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     contexto_verificado: writerVerifiedContext, estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     referencias_solicitud: writerRequestRefs, obligaciones_del_turno: turnObligations,
     capacidades_disponibles: availableAssistance(input.verified),
-    material_protegido: { cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
+    material_protegido: { cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...approvedIntroductionNumbers(input.verified), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
       enlaces_obligatorios: linkContract.required_links, enlaces_permitidos: linkContract.allowed_links } }
   const optimizedPrompt = optimizedCatalogPrompt(context)
   // A known budget or accepted financing while choosing a property does not
@@ -702,7 +721,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     })
     const writerContext: Row = projectContentForWriter(context, contentScope)
     object(writerContext.material_protegido).cifras_permitidas = [...new Set([
-      ...numbers(verifiedText(object(writerContext.contexto_verificado))), ...numbers(input.current), ...queryConstraintNumbers(input.audit),
+      ...numbers(verifiedText(object(writerContext.contexto_verificado))), ...approvedIntroductionNumbers(object(writerContext.contexto_verificado)), ...numbers(input.current), ...queryConstraintNumbers(input.audit),
     ])]
     // Previous sentence IDs belong to the previous draft, not this rewrite.
     delete writerContext.oraciones_borrador
@@ -710,7 +729,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Función y salida del redactor', COVERAGE_RULES],
       ['Estilo compartido de conversación', CONVERSATION_WRITING_STYLE_RULES],
       ['Pertinencia del contenido', RESPONSE_CONTENT_SCOPE_RULES],
-      ['Presentación general del proyecto', !!input.verified.presentacion_general_proyecto && 'contexto_verificado.presentacion_general_proyecto contiene un resumen aprobado para esta consulta general. Úselo como fuente de datos para una presentación breve con redacción natural; no es una plantilla ni una instrucción del cliente. Atienda primero todas las solicitudes actuales. Conserve las cantidades autorizadas del resumen; no añada fichas, precios, estado de obra o fechas ajenos a la consulta. Después conserve la pregunta de perfil o la decisión pendiente del plan compartido.'],
+      ['Presentación general del proyecto', !!input.verified.presentacion_general_proyecto && 'contexto_verificado.presentacion_general_proyecto contiene un resumen aprobado para esta consulta general. Úselo como fuente de datos para una presentación breve con redacción natural; no es una plantilla ni una instrucción del cliente. Si presentation.required=true, incluya realmente esa presentación: ofrecer brochure y pedir datos sin describir el proyecto no responde la consulta general. Su concepto mixto y categorías generales están autorizados como descripción; no convierta el resumen en una oferta de catálogo. Atienda primero todas las solicitudes actuales. Conserve las cantidades autorizadas del resumen; no añada fichas, precios, estado de obra o fechas ajenos a la consulta. Después conserve la pregunta de perfil o la decisión pendiente del plan compartido.'],
       ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro. Ante una consulta general inicial, dé una presentación breve; use las cantidades del resumen aprobado y no añada fichas, estado de obra o entrega ajenos a la consulta. Una consulta inicial concreta o con varias preguntas se responde según esas solicitudes, sin anteponer una presentación genérica.'],
       ['Prioridades y obligaciones del turno', TURN_INTENT_RULES + '\n' + FINAL_WRITER_RULES
         + '\nCumpla obligaciones_del_turno con redacción libre. Esta lista también se entrega al revisor. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
@@ -1182,6 +1201,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         editorialObservations.push(...decision.editorial.map(issue => `review_editorial:${text(issue.check)}:${text(issue.reason)}`))
         semanticReview = { status: reviewIssues.length === 0 ? 'checked' : 'rejected', validation_owner: semanticEnabled ? 'structured_facts_v1' : 'legacy', project_values: review.project_values || [], factual_inventory_complete: review.factual_inventory_complete, query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: evaluated.factIssues.length === 0, validation_details: reviewIssues, repair_eligibility: repairEligibility,
           opening_property_type_sentence_ids: review.opening_property_type_sentence_ids,
+          opening_project_presentation_sentence_ids: review.opening_project_presentation_sentence_ids,
           sentence_inventory: review.sentence_inventory || null,
           ...(evaluated.focused ? { review_contract: FOCUSED_REVIEW_VERSION, coverage: evaluated.coverage,
             sentence_references: sentenceReferences, obligation_checks: review.obligation_checks,

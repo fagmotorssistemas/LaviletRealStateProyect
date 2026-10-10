@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { floorEvidence } from './floor-evidence'
 
 export const CATALOG_NUMBER_FIELDS = ['bedrooms', 'bathrooms_full', 'floor_number', 'area_internal_m2', 'area_exterior_m2', 'area_total_m2', 'published_commercial_price'] as const
 const purposes = ['search', 'details', 'compare', 'select', 'count', 'list', 'range', 'min', 'max', 'none']
@@ -20,6 +21,7 @@ Los campos de CATALOG_REQUEST_SCHEMA describen las dimensiones que el código pu
 Una consulta general de precios («qué precio tiene», incluso junto con nombre o residencia) usa purpose=range y metric=published_commercial_price, con el alcance conocido; no use none por no haberse elegido unidad o categoría. Mantenga las solicitudes de presupuesto o financiamiento separadas sin borrar la consulta de catálogo simultánea. Una recomendación familiar conserva los dormitorios solicitados y sus preferencias; las personas no son un filtro de dormitorios.
 purpose distingue search (buscar opciones), details (caracteristicas de una categoria o unidades), compare (comparar referentes), select (eleccion explicita), count (cantidad de unidades), list (todas las opciones), range (intervalo), min y max (extremo), none (sin consulta de catalogo). Una consulta de detalles o continuacion conserva su operacion y sus referentes; no use none solo porque ya se conocen preferencias o presupuesto. Cuantos inmuebles hay es count y metric=unit_count; de cuantos dormitorios hay es range y metric=bedrooms. Los filtros exactos y la memoria confirmada se resuelven en codigo. semantic_preferences describe preferencias cualitativas para ordenar, no prueba que una ficha cumpla una condicion no documentada.
 requirements expresa TODOS los requisitos explícitos actuales mediante field, operator, value y upper_value (solo between), strength=required o preferred y evidencia literal. Represente superficies interiores/exteriores/totales, baños, dormitorios, plantas y precios en sus campos respectivos. «Con espacio exterior» es area_exterior_m2 gt 0; «sin espacio exterior» es eq 0; «al menos 20 m² exteriores» es gte 20. No convierta superficie exterior en terraza o balcón: son características distintas. «Plantas altas» es una preferencia relativa, no invente un número exacto. «Por debajo de 300 mil» es lt 300000; no cambie operadores estrictos por inclusivos. Preserve negaciones, intervalos y unidades. Un presupuesto declarado sigue también su contrato de budget; no lo convierta en precio de una unidad.
+Planta baja equivale a floor_number eq 0; primera planta alta a 1. Una preferencia relativa por pisos bajos o altos no es floor_number eq 0 ni eq 1: guarde la frase y el motivo en semantic_preferences, sin umbral inventado. Si necesita una altura obligatoria aún ambigua, conserve esa condición como unmodeled para aclararla.
 spaces contiene nombres de espacios documentados (Balcón, Terraza, Estudio, etc.); use contains/not_contains y el nombre, nunca atribuya amenidades comunes a una unidad. Si una condición obligatoria no tiene campo fiable (vista, orientación, accesibilidad, uso permitido...), use field=unmodeled y conserve la condición en value. Las preferencias descriptivas van además en semantic_preferences, como citas literales. No omita condiciones para hacer parecer completa una búsqueda. Cantidad familiar no equivale a dormitorios.
 evidence y cada requisito deben citar el mensaje actual sin corregir su ortografía. Historial y consulta resuelta conservan las restricciones anteriores por separado. Si no hay petición de catálogo, use purpose=none, metric=null, requirements=[], semantic_preferences=[], evidence="". No invente valores por ser desconocidos.`
 
@@ -29,7 +31,23 @@ export function normalizeCatalogRequest(raw: unknown, current: string): Row | nu
   const input = object(raw)
   if (input.confidence !== 'high' || !purposes.includes(text(input.purpose)) || input.purpose === 'none' || !quoted(input.evidence, current)) return null
   if (!Array.isArray(input.requirements) || !Array.isArray(input.semantic_preferences)) return null
-  const requirements = input.requirements.map(object)
+  const requirements = input.requirements.map(object).map(requirement => {
+    if (requirement.field !== 'floor_number' || requirement.operator !== 'eq') return requirement
+    let floor = floorEvidence(text(requirement.evidence))
+    if (floor.kind === 'other') {
+      const abbreviated = floorEvidence(text(requirement.evidence), true)
+      const context = floorEvidence(current, true)
+      if (abbreviated.kind === 'exact' && context.kind === 'exact' && abbreviated.number === context.number) floor = abbreviated
+    }
+    if (floor.kind === 'exact') return { ...requirement, value: floor.number }
+    // A relative height is not equality to ground/first floor. Keep a mandatory
+    // qualitative condition as unknown, rather than certifying an invented
+    // threshold or silently discarding the condition.
+    if (floor.kind === 'relative') return { ...requirement, field: 'unmodeled', value: text(requirement.evidence) }
+    // A current quote is necessary but does not prove the number or equality.
+    // Unsupported equality disables this optimized query without stopping the turn.
+    return { ...requirement, value: null }
+  })
   // An invalid condition disables optimization; it never silently drops a restriction or stops the turn.
   if (requirements.length > 24 || requirements.some(r => !fields.includes(r.field as typeof fields[number])
     || !operators.includes(text(r.operator)) || !['required', 'preferred'].includes(text(r.strength)) || !quoted(r.evidence, current)

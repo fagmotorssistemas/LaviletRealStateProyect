@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { isBareAffirmative, unresolvedChoice } from './conversation-next-step'
+import { categoryInvitationTarget } from './category-offer'
 import { normalized } from './sdr-rules'
 import { informationSubject } from './information-context'
 import { bedroomOptionsFromText } from './bedroom-options'
@@ -657,6 +658,22 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   }
   const declinesPending = answersPendingQuestion(semantics, pending.id as Parameters<typeof answersPendingQuestion>[1], 'negative')
     || /^(?:no|no gracias)$/.test(m)
+  const offeredCategory = pending.id === 'property_category' && pending.act === 'choose_category'
+    ? categoryInvitationTarget(text(pending.question)) : ''
+  const categoryOptions = offeredCategory ? fromIds(pending.candidate_ids) : []
+  if (offeredCategory && acceptsPending && !declinesPending && !category
+    && proposal.category === offeredCategory && categoryOptions.length > 0
+    && categoryOptions.length === ids(pending.candidate_ids).length
+    && categoryOptions.every(unit => unit.category === offeredCategory)) {
+    // Accept only the type in the delivered invitation. Preserve physical
+    // requirements and leave every unit unselected until its own decision.
+    Object.assign(query, { ...normalizedPropertyQuery(previousQuery), category: offeredCategory,
+      group: offeredCategory === 'local' ? 'commercial' : 'residential', operation: 'search', selector: null })
+    context.category_preference = { category: offeredCategory, confirmed: true, evidence: current }
+    context.pending_question = {}; context.selected_ids = []; context.focused_ids = []; context.comparison_ids = []
+    context.phase = 'category_accepted'
+    return result(filterCatalog(catalog, catalogQuery(query)), 'accepted_category_offer')
+  }
   if (pending.id === 'unit_choice' && pending.act === 'confirm_unit' && declinesPending) {
     const rejectedTargets = ids(pending.target_ids)
     if (rejectedTargets.length === 1 && previousSelectedIds.includes(rejectedTargets[0])) {
@@ -681,11 +698,20 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     return { ...result([], 'alternative_query_unavailable', false, true),
       clarification: 'Las alternativas sobre las que conversábamos ya no se pueden confirmar. ¿Le gustaría revisar las opciones actuales?' }
   }
+  const previousBedroomFilters = normalizedPropertyFilters(previousQuery.filters)
+  const proposedBedroomFilters = normalizedPropertyFilters(proposal.filters)
+  const bedroomRequirements = (value: Row) => (Array.isArray(value.requirements) ? value.requirements.map(object) : [])
+    .filter(requirement => requirement.field === 'bedrooms')
+    .map(({ operator, value, strength }) => ({ operator, value, strength }))
+  const preservesRequiredBedrooms = previousBedroomFilters.bedrooms === proposedBedroomFilters.bedrooms
+    && JSON.stringify(previousBedroomFilters.bedrooms_any || []) === JSON.stringify(proposedBedroomFilters.bedrooms_any || [])
+    && proposedBedroomFilters.bedrooms_required === true
+    && JSON.stringify(bedroomRequirements(previousQuery)) === JSON.stringify(bedroomRequirements(proposal))
   const acceptedAlternative = ['explore_alternatives', 'confirm_bedrooms'].includes(text(pending.act))
     && !declinesPending
     && (acceptsPending || pending.act === 'explore_alternatives' && !!category
       || pending.act === 'confirm_bedrooms' && lexicalFilters.bedrooms !== null && !/\bno\s+(?:quiero|necesito|me interesan?)\b/.test(m))
-    && (pending.act === 'confirm_bedrooms' || normalizedPropertyFilters(previousQuery.filters).bedrooms_required !== true)
+    && (pending.act === 'confirm_bedrooms' || previousBedroomFilters.bedrooms_required !== true || preservesRequiredBedrooms)
     && Object.keys(proposal).length > 0
   if (acceptedAlternative) {
     // Exploring a relaxed query is not a new declaration of the original need,
@@ -781,7 +807,16 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       ? ids(pending.candidate_ids) : []
     const scopeIds = query.scope === 'offered' ? ids(context.offered_ids).length ? ids(context.offered_ids) : progressionIds : query.scope === 'comparison' ? ids(context.comparison_ids)
       : query.scope === 'selected' ? ids(context.selected_ids) : []
-    const source = scopeIds.length ? fromIds(scopeIds) : catalog
+    const floorConditions = (value: Row) => (Array.isArray(value.requirements) ? value.requirements.map(object) : [])
+      .filter(requirement => requirement.field === 'floor_number')
+      .map(({ operator, value, strength }) => ({ operator, value, strength }))
+    const acceptingOfferedFloor = acceptedAlternative && proposedOptions
+      && (normalizedPropertyFilters(previousQuery.filters).floor_number !== normalizedPropertyFilters(proposal.filters).floor_number
+        || JSON.stringify(floorConditions(previousQuery)) !== JSON.stringify(floorConditions(proposal)))
+    // The current acceptance refers to the options actually offered. Keep its
+    // receipt bounded without turning budget orientation into a durable cap;
+    // a later budget correction may widen the physical query again.
+    const source = acceptingOfferedFloor ? proposedOptions : scopeIds.length ? fromIds(scopeIds) : catalog
     const matchingIds = new Set(filterCatalog(source, catalogQuery(query)).map(unit => text(unit.id)))
     const candidates = source.filter(unit => matchingIds.has(text(unit.id)) && !excluded.includes(text(unit.category)))
     context.selected_ids = activePreferenceTransition ? previousSelectedIds : []; context.comparison_ids = []

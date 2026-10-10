@@ -26,6 +26,7 @@ const info = (operation = 'details', enabled = true): Row => ({ catalogo: units,
   politica_comercial: { precios_autorizados: true }, recorrido_comercial: {},
   lead: { purchase_purpose: 'vivir' }, financiamiento: { partners: ['Cooperativa JEP', 'Banco Pichincha'], journey: {} },
   property_context: { query: { group: 'residential', category: 'penthouse', operation, scope: 'catalog', filters: { bedrooms: 3 } } },
+  hechos_confirmados: { property: { category: 'penthouse', group: 'residential', confidence: 'high', evidence: 'Me interesan los penthouses' } },
   referencia_unidad: {}, contrato_turno: { objective: 'project_information', requests: [{ domain: 'property', confidence: 'high' }] },
   semantica_turno: { primary_intent: 'project_information', confidence: 'high', catalog_request: null, catalog_request_status: 'not_requested',
     property: { group: 'residential', category: 'penthouse', operation, confidence: 'high', reference_kind: 'followup' },
@@ -124,6 +125,19 @@ test('compound and pending requests preserve their policy and amenity facts when
     { catalog_retrieval: retrieval.audit }, 'Sí, detalles')
   assert.equal((projected.politicas_negocio as Row[]).length, 2)
   assert.equal((projected.instalaciones as Row[]).length, 1)
+})
+
+test('a retrieval category without declaration evidence cannot establish an over-budget purchase preference', () => {
+  const input = info('search')
+  delete input.hechos_confirmados
+  object(input.semantica_turno).budget = { status: 'maximum_total', amount: 460000, confidence: 'high',
+    evidence: 'Mi presupuesto total para la compra es de 460000' }
+  const plan = commercialJourneyPlan(input)
+  assert.equal(plan.action, 'select_property')
+  assert.equal(plan.question_id, 'property_category')
+  assert.equal(plan.financing_offer_allowed, false)
+  assert.deepEqual(object(plan.selection_scope).categories, ['departamento'])
+  assert.equal(object(plan.proposed_query).category, 'departamento')
 })
 
 test('a detailed category request has one commercial plan and omits unrelated affordable alternatives and duplicate aggregates', async () => {

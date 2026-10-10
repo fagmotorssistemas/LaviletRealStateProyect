@@ -6,6 +6,9 @@ import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
 import { normalizeCatalogRequest } from './catalog-request'
 import { replyQuestions } from './reply-question'
 import { budgetAmountWithLiteralQuantity } from './turn-interpretation-input'
+import { isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
+import { floorEvidence, floorInvitationTarget } from './floor-evidence'
+import { categoryInvitationTarget } from './category-offer'
 
 export const questionIds = [
   'reservation_invitation',
@@ -202,6 +205,7 @@ property.category solo indica una preferencia AFIRMADA AHORA: suite|departamento
 property.group distingue residential (vivienda en general) de commercial (locales). «Me interesa vivienda» y «algo para vivir» son group=residential, category=null: no implican elegir departamento ni excluir suites. Solo complete category si el mensaje realmente elige o consulta esa categoría concreta.
 Pedir dormitorios tampoco elige una tipología: «prefiero algo de dos dormitorios» conserva category=null y group=residential; incluye departamentos y penthouses compatibles. Una respuesta sobre dormitorios no hereda la categoría de los ejemplos del bot. Una preferencia anterior se conserva en la memoria, no se declara otra vez.
 property.operation distingue buscar opciones (search), preguntar cuáles son mayores/menores/baratas (rank), comparar (compare), elegir afirmativamente (select) y pedir detalles (details). «¿Cuál es la opción más grande?» es rank, NO select. «Prefiero la más grande de esas» es select. Un empate se puede mostrar como resultado de una consulta; no obliga al cliente a elegir antes de recibir información.
+Responder una pregunta de dormitorios, superficie o planta no elige un tipo de unidad ni excluye otros tipos. El presupuesto puede motivar una recomendación, pero no confirma categoría. Un sí a una invitación entregada para explorar UN solo tipo responde a esa invitación; no selecciona unidad ni acepta reserva o financiamiento. Un sí entre varios tipos sigue sin escoger.
 property.filters expresa restricciones actuales: «5ta planta», «quinta planta» y «piso cinco» son floor_number=5; «de5habiataciones» expresa bedrooms=5. Corrija errores evidentes sin inventar datos. Una restricción no es un número de unidad ni una negativa a la pregunta anterior. «No tiene opciones de 5 habitaciones» pregunta disponibilidad, no rechaza presupuesto.
 bedrooms_required=true solo si declara indispensable/exacta esa cantidad; false solo si acepta expresamente otra cantidad; null si no expresa esa decisión. No insista con menos dormitorios cuando el requisito es indispensable.
 Conserve la comparación de dormitorios: bedrooms es el valor o extremo inferior; bedrooms_operator=eq significa exactamente, gte al menos/mínimo, lte como máximo y between un intervalo inclusivo cuyo extremo superior va en bedrooms_upper. Interprete el significado aunque use otras palabras o errores de escritura. No transforme «mínimo 2» en exactamente 2: admite también 3 o más. «Entre 2 y 4» usa bedrooms=2, bedrooms_operator=between, bedrooms_upper=4. Cite el fragmento actual en filter_evidence para cada campo; bedrooms_upper=null fuera de between. bedrooms_required indica flexibilidad, no sustituye la comparación. Si usa bedrooms_any, deje operador y extremo superior null. Plantas altas expresa preferencia relativa: no invente una planta numérica exacta.
@@ -211,6 +215,7 @@ pregunta_pendiente.act, target_ids y candidate_ids expresan el foco real. «Sí 
 Si pregunta_pendiente.act=explore_alternatives, una aceptación permite explorar proposed_query, no elige una unidad ni reemplaza el requisito original. El sistema aplicará esa consulta; no vuelva a extraer dormitorios del historial ni transforme el sí en select. Elegir una categoría (por ejemplo, departamentos entre alternativas residenciales) refina la búsqueda sin borrar dormitorios, planta o superficie ya establecidos. Un sí a una elección entre varias categorías o unidades no identifica una de ellas.
 Si pregunta_pendiente.act=explore_quoted_options, aceptar ver detalles continúa con candidate_ids y operation=details; no selecciona una unidad ni repite la consulta de precio anterior. Si además pregunta la diferencia, operation=compare. Si act=confirm_bedrooms, un sí conserva esa cantidad al explorar opciones más económicas; un no no autoriza una cantidad distinta inventada.
 Un pedido explícito de menos dormitorios cambia ese requisito aunque antes fuese indispensable. Si no indica una cantidad nueva, no invente bedrooms=2 ni mantenga el número anterior: el catálogo determinará qué cantidades menores existen y el lead elegirá. Si pide exactamente dos dormitorios, conserve dos y no ofrezca suites de uno. Pedir algo más económico sin mencionar dormitorios no autoriza reducirlos: primero se confirma si desea mantener la cantidad conocida. Buscar alternativas es distinto de preguntar cuál de las opciones mostradas es la más económica.
+PLANTAS: planta baja es floor_number=0; primera planta alta o primer piso es 1; segunda planta alta es 2. Pisos bajos, plantas inferiores, una planta más baja y plantas altas son preferencias relativas: no invente un número exacto. Conserve su motivo (por ejemplo, evitar gradas) como preferencia cualitativa actual. La comodidad o la existencia de ascensores no confirma accesibilidad ni sustituye la elección. Distinguir una planta preferida de una unidad elegida también aplica cuando sólo hay una unidad en esa planta.
 property.reference_kind: explicit si identifica una unidad; comparison si compara varias; relative para "el más grande", "la primera", "el más barato"; followup para continuar una consulta sobre unidades previas ("¿y en precio?"). En relative seleccione selector=largest|smallest|cheapest|most_expensive|first|last según corresponda. Use las opciones que el bot REALMENTE acaba de mostrar, no otra categoría guardada anteriormente. Un empate no permite elegir una unidad.
 unit_numbers contiene solo códigos del catálogo realmente referidos. En explicit deben aparecer en el mensaje actual; en comparison/followup pueden proceder de la comparación activa del contexto. Nunca convierta precios, áreas, horas o pisos en números de unidad. En relative no invente un código: el sistema resuelve selector contra las opciones mostradas. Una pregunta "¿y en precio?" tras comparar 202 y 302 se refiere a AMBAS unidades, no a todo el catálogo.
 Use confidence=high solo cuando la evidencia literal y el contexto produzcan una única interpretación. No invente intención, unidad, presupuesto ni aceptación.
@@ -314,6 +319,8 @@ export function pendingQuestionFromReply(reply: string): Row {
     || /(?:ese|este|el) (?:monto|importe|dinero|valor).*(?:corresponde|destinad|para|es).*(?:entrada|capital inicial)/.test(value)) id = 'budget_kind'
   else if (/presupuesto|cuanto.*(?:invertir|dispone|cuenta|entrada|capital)|capital aproximado|monto disponible|capital inicial|entrada/.test(value)) id = 'budget_amount'
   else if (/vivir.*invertir|invertir.*vivir|residencia.*inversion|inversion.*residencia/.test(value)) id = 'property_purpose'
+  else if (floorInvitationTarget(question) !== null) { id = 'property_requirements'; act = 'explore_alternatives' }
+  else if (categoryInvitationTarget(question)) id = 'property_category'
   else if (/que tipo de espacio|suite.*departamento|departamento.*suite|departamento.*penthouse|penthouse.*departamento|vivienda.*local|local.*vivienda/.test(value)) id = 'property_category'
   else if (/que planta|cual.*planta|que piso|cual.*piso/.test(value)) id = 'property_floor'
   else if (/cuantos? (?:dormitorios?|habitaciones?|cuartos?)/.test(value)) id = 'property_bedrooms'
@@ -374,7 +381,8 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const mentionedCategories = [...propertyCategories].filter(candidate => new RegExp(candidate === 'departamento'
     ? '\\b(?:departamentos?|departametnos?|departametos?|apartamentos?)\\b' : `\\b${candidate}s?\\b`).test(value))
   if (!propertyConfident && mentionedCategories.length === 1 && !/\b(?:no quiero|no prefiero|no me interesa|descarto)\b/.test(value)) category = mentionedCategories[0]
-  const genericResidential = /\bviviendas?|residencial|(?:algo|opciones?|espacio) para vivir\b/.test(value)
+  const genericResidential = !isPassivePurchaseEvidence(current)
+    && /\bviviendas?|residencial|(?:algo|opciones?|espacio) para vivir\b/.test(value)
     && !/\bsuites?|depart\w*ment\w*|apartamentos?|penthouses?|locales?\b/.test(value)
   if (genericResidential && category) { category = null; normalizationIssues.push('generic_residential_is_not_category') }
   let group = genericResidential ? 'residential' : category === 'local' ? 'commercial'
@@ -434,10 +442,35 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     if (structuredCatalog) continue
     if (lexicalValue === null) continue
     const field = key as keyof PropertyFilters, semanticValue = semanticFilters[field]
+    // An omitted current-field quote in the typed contract is not permission
+    // to promote a floor described in a document/history into a new constraint.
+    // A literal value answering the actual floor question remains recoverable.
+    if (field === 'floor_number' && property.filter_evidence !== undefined && !filterEvidence.floor_number
+      && !(answerQuestionId === 'property_floor' && answer.kind === 'value')) continue
     const groundedSemanticValue = propertyConfident && !!filterEvidence[field] && semanticValue != null
     if (groundedSemanticValue) {
       if (JSON.stringify(semanticValue) !== JSON.stringify(lexicalValue)) normalizationIssues.push(`extractor_filter_precedes_keywords:${field}`)
     } else Object.assign(filters, { [field]: lexicalValue })
+  }
+  const floorSource = filterEvidence.floor_number || current
+  const declaredFloor = floorEvidence(floorSource, pendingId === 'property_floor')
+  const currentFloorRequirement = Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(requirement =>
+    object(requirement).field === 'floor_number')
+  const floorIsConstraint = !!filterEvidence.floor_number || currentFloorRequirement
+    || answerQuestionId === 'property_floor' && answer.kind === 'value'
+    || property.filter_evidence === undefined && propertyConfident && filters.floor_number !== null
+  if (floorIsConstraint && declaredFloor.kind === 'exact' && filters.floor_number !== declaredFloor.number) {
+    filters.floor_number = declaredFloor.number
+    filterEvidence.floor_number = floorSource
+    normalizationIssues.push('floor_number_corrected_from_current_evidence')
+  } else if (declaredFloor.kind === 'relative' && filters.floor_number !== null) {
+    filters.floor_number = null
+    filterEvidence.floor_number = ''
+    normalizationIssues.push('relative_floor_does_not_supply_number')
+  } else if (declaredFloor.kind === 'other' && filters.floor_number !== null) {
+    filters.floor_number = null
+    filterEvidence.floor_number = ''
+    normalizationIssues.push('floor_evidence_does_not_supply_exact_number')
   }
   if (filters.bedrooms !== null && !semanticFilters.bedrooms_any?.includes(filters.bedrooms)) delete filters.bedrooms_any
   else if (filters.bedrooms_any?.length) filters.bedrooms = null
@@ -461,6 +494,26 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     category = null
     group = 'residential'
     normalizationIssues.push('bedroom_requirement_does_not_choose_category')
+  }
+  const otherConstraint = filters.floor_number != null || filters.min_area_m2 != null || filters.max_area_m2 != null
+    || declaredFloor.kind === 'relative'
+    || Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(r =>
+      ['floor_number', 'area_internal_m2', 'area_exterior_m2', 'area_total_m2', 'bathrooms_full'].includes(text(object(r).field)))
+  if (otherConstraint && category && !mentionedCategories.includes(category)
+    && !['explicit', 'relative', 'comparison', 'followup'].includes(text(property.reference_kind))) {
+    category = null
+    // Reject the group inferred from that same unsupported type as well. A
+    // floor, area or bathroom preference cannot move an established local
+    // search into housing (or the reverse). Keep only independent current
+    // asset evidence; property-context inherits the previously accepted scope.
+    const mentionedGroups = [...new Set(mentionedCategories.map(type => type === 'local' ? 'commercial' : 'residential'))]
+    group = genericResidential || bedroomRequest ? 'residential' : mentionedGroups.length === 1 ? mentionedGroups[0] : null
+    normalizationIssues.push('property_requirement_does_not_choose_category')
+  }
+  if ((bedroomRequest || otherConstraint) && !mentionedCategories.length
+    && !['explicit', 'relative', 'comparison', 'followup'].includes(text(property.reference_kind)) && excluded.length) {
+    excluded.length = 0
+    normalizationIssues.push('property_requirement_does_not_exclude_categories')
   }
   // The interpreter has already identified bedrooms, not commercial rooms or
   // household size. Apply that typed meaning without scanning the message.
@@ -488,6 +541,13 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     category = null; group = null; excluded.length = 0
     normalizationIssues.push('previous_answer_does_not_restart_property_search')
   }
+  const overviewWithoutScope = isGeneralProjectOverviewWithoutPurchaseScope(raw, current)
+  if (property.operation === 'none' && !selector && !hasFilters
+    && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)
+    && (isPassivePurchaseEvidence(propertyEvidence) || overviewWithoutScope) && (group || category)) {
+    group = null; category = null
+    normalizationIssues.push('property_scope_from_passive_source')
+  }
   let operation = propertyConfident && operations.has(text(property.operation)) ? text(property.operation) : 'none'
   const explicitOperation = propertyConfident && operations.has(text(property.operation)) && property.operation !== 'none'
   if (explicitOperation) {
@@ -496,7 +556,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   else if (hasFilters || genericResidential) operation = 'search'
   else if (propertyConfident) {
     if (property.reference_kind === 'comparison') operation = 'compare'
-    else if (asksDetails) operation = 'details'
+    else if (asksDetails && !overviewWithoutScope) operation = 'details'
     else if (category && property.reference_kind !== 'relative' && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) operation = 'search'
     else if (primaryIntent === 'select_property' || property.reference_kind === 'relative') operation = 'select'
   }

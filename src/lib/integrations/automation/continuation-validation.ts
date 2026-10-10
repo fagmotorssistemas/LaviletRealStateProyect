@@ -3,6 +3,7 @@ import { normalized } from './sdr-rules'
 import { replyQuestionText } from './reply-question'
 import { continuationMetadata } from './continuation-question'
 import { pendingQuestionFromReply } from './turn-semantics'
+import { categoryInvitationTarget } from './category-offer'
 
 /** A bounded recognition of the emitted question; an unknown paraphrase remains
  * unknown rather than receiving the planned meaning automatically. */
@@ -16,6 +17,7 @@ export function actualContinuation(reply: string): Row {
     : /tambien.*resid|resid.*tambien/.test(value) ? 'lead_residence_confirmation' : 'lead_profile_residence', act: 'profile', question }
   if (/\bvivir\b.*\b(?:invertir|inversion)\b|\b(?:invertir|inversion)\b.*\bvivir\b/.test(value))
     return { id: 'property_purpose', act: 'choose_category', question }
+  if (categoryInvitationTarget(question)) return { id: 'property_category', act: 'choose_category', question }
   if (['property_floor', 'unit_choice', 'budget_amount', 'budget_kind', 'visit_date_time'].includes(text(inferred.id))
     || inferred.id === 'property_category' && /\bo\b/.test(value)) return inferred
   if (/dormitorios?|habitaciones?|cuartos?/.test(value) && /revis|explor|evalu|acept|consider/.test(value)

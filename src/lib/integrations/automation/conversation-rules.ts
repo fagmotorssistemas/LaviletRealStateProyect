@@ -3,6 +3,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { financingDocument } from './financing-identity'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
+import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence } from './purchase-evidence'
 const events = new Set<string>(EXTRACTED_CONVERSATION_EVENTS)
 
 export const VISIT_PREFERENCE_EXTRACTION_RULES = `
@@ -71,7 +72,7 @@ export function normalizedVisitIntent(raw: unknown, message: string): Row | null
   return { kind, purpose, target, destination, evidence, confidence: 'high' }
 }
 
-export function normalizeEvents(raw: unknown, message: string, awaitingDocument = false): Row {
+export function normalizeEvents(raw: unknown, message: string, awaitingDocument = false, pendingQuestion?: unknown): Row {
   const data = object(raw)
   const nullableText = (key: string) => text(data[key]).trim() || null
   const positive = (key: string) => typeof data[key] === 'number' && Number.isFinite(data[key]) && Number(data[key]) >= 0 ? data[key] : null
@@ -83,8 +84,13 @@ export function normalizeEvents(raw: unknown, message: string, awaitingDocument 
     const quote = normalized(text(evidence[key]))
     return quote.length > 0 && quote.length <= 180 && normalized(message).includes(quote)
   }
-  const category = supported('preferred_category') && (PROPERTY_CATEGORIES as readonly string[]).includes(text(data.preferred_category)) ? data.preferred_category : null
-  const purpose = supported('purchase_purpose') && ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(data.purchase_purpose)) ? data.purchase_purpose : null
+  const overviewOnly = isGeneralProjectOverviewWithoutPurchaseScope(data, message)
+  const passiveSource = (quote: unknown) => isPassivePurchaseEvidence(quote)
+    || isPassiveProfilePurposeEvidence(data, pendingQuestion, quote) || overviewOnly
+  const category = supported('preferred_category') && !passiveSource(evidence.preferred_category)
+    && (PROPERTY_CATEGORIES as readonly string[]).includes(text(data.preferred_category)) ? data.preferred_category : null
+  const purpose = supported('purchase_purpose') && !passiveSource(evidence.purchase_purpose)
+    && ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(data.purchase_purpose)) ? data.purchase_purpose : null
   return {
     events: chosenEvents.filter(e => (e !== 'declared_unit_type' || category) && (e !== 'declared_purchase_purpose' || purpose)),
     preferred_category: category,

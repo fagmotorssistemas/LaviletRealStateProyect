@@ -4,6 +4,8 @@ import { leadIntroductionIssues, leadIntroductionReviewIssues, leadIntroductionR
   leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction, PROFILE_INVITATION, type LeadIntroductionInput } from './lead-introduction'
 import { BROCHURE_URL } from './project-material'
 import { normalizeTurnSemantics } from './turn-semantics'
+import { object, type Row } from './data'
+import { resolveTurnIntent } from './turn-intent'
 
 const catalog = [
   { id: 'a201', unit_number: '201', category: 'departamento', bedrooms: 2, price: 210000 },
@@ -16,6 +18,60 @@ const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroduction
   current: 'Quiero información', history: [], summary: {}, extracted: {}, catalog,
   reply: `La Vilet reúne suites, departamentos y locales. Aquí está el brochure: ${BROCHURE_URL}\n¿Le gustaría conocer alguna de estas opciones?`,
   audit: { source: 'project_overview' }, ...overrides,
+})
+
+describe('one semantic general opening with an approved editable summary', () => {
+  const summary = 'El proyecto reúne 49 viviendas entre suites y departamentos, junto a espacios comerciales, en Puertas del Sol, Cuenca.'
+  function generalInput(): LeadIntroductionInput {
+    const current = 'Saludos, quiero informacion por favor'
+    const requests = [{ domain: 'property', topics: ['project_overview'], request: 'Quiero informacion por favor', evidence: current, confidence: 'high' }]
+    const semantics = { primary_intent: 'project_information', primary_evidence: current, confidence: 'high', requests,
+      property: { operation: 'none', reference_kind: 'none', group: 'residential', filters: {}, unit_numbers: [] }, budget: { status: 'not_discussed' } }
+    const intent = resolveTurnIntent({ current, semantics, requests, scope: { kind: 'property', uncertain: false } })
+    return input({ current, extracted: { requests, turn_semantics: semantics }, audit: { source: 'catalog_search', resolved_turn_intent: intent },
+      projectInfo: { configuracion_presentacion_proyecto: { available: true, summary, source: 'Resumen editable verificado' },
+        semantica_turno: semantics, contrato_turno: intent, solicitudes_interpretadas: requests, property_context: { query: { group: 'residential', operation: 'none' } }, lead: {} } })
+  }
+  it('describes the configured project on an interpreted general request without depending on greeting words or the route name', () => {
+    const turn = leadIntroductionTurn(generalInput()), plan = object(turn.audit.profile_introduction)
+    assert.equal(turn.applied, true)
+    assert.equal(plan.generic_introduction, true)
+    assert.equal(object(plan.presentation).required, true)
+    assert.equal(object(plan.presentation).approved_summary, summary)
+    assert.equal(object(plan.presentation).source, 'Resumen editable verificado')
+    assert.match(turn.reply, /49 viviendas/)
+    assert.ok(turn.reply.endsWith(PROFILE_INVITATION))
+    assert.deepEqual(leadIntroductionIssues(turn.reply, turn.audit), [])
+    assert.doesNotMatch(turn.reply, /lanzamiento|precios|construcción/)
+    assert.equal(turn.state.presentation_sent, undefined, 'a planned draft is not a sent receipt')
+  })
+  it('preserves a price answer or compound request before the profile instead of forcing a general presentation', () => {
+    for (const topics of [['purchase_prices'], ['project_overview', 'delivery']]) {
+      const fixture = generalInput(), extracted = object(fixture.extracted), semantics = object(extracted.turn_semantics)
+      const requests = (extracted.requests as Row[]).map(request => ({ ...request, topics }))
+      extracted.requests = requests; semantics.requests = requests
+      fixture.audit = { ...object(fixture.audit), source: 'project_overview', resolved_turn_intent: {
+        ...object(object(fixture.audit).resolved_turn_intent), requests } }
+      fixture.reply = 'Esta es la respuesta a las consultas actuales.'
+      const turn = leadIntroductionTurn(fixture), plan = object(turn.audit.profile_introduction)
+      assert.equal(plan.generic_introduction, false)
+      assert.equal(object(plan.presentation).required, false)
+      assert.equal(object(plan.presentation).approved_summary, null)
+      assert.match(turn.reply, /respuesta a las consultas actuales/)
+      assert.doesNotMatch(turn.reply, /49 viviendas/)
+    }
+  })
+  it('commits the presentation receipt only on an accepted, usable reviewed reply, and does not repeat it', () => {
+    const fixture = generalInput(), turn = leadIntroductionTurn(fixture)
+    const receipt = (extra: Row = {}) => rememberLeadIntroduction({ previous: {}, planned: turn.state, profile: {},
+      reply: turn.reply, audit: { ...turn.audit, turn_completeness: { status: 'checked' } }, accepted: true, followUpUsable: true, ...extra })
+    assert.equal(receipt().presentation_sent, true)
+    for (const extra of [{ accepted: false }, { recovery: true }, { followUpUsable: false },
+      { audit: { ...turn.audit, turn_completeness: { status: 'rejected_review' } } }]) assert.equal(receipt(extra).presentation_sent, undefined)
+    const continuation = leadIntroductionTurn({ ...fixture, summary: { _lead_introduction: receipt() }, reply: 'Podemos responder sus consultas.' })
+    assert.equal(object(object(continuation.audit.profile_introduction).presentation).required, false)
+    assert.doesNotMatch(continuation.reply, /49 viviendas/)
+  })
 })
 
 describe('profile refusal requires complete words', () => {
@@ -345,6 +401,34 @@ describe('semantic opening stage review', () => {
     const field = schema.properties.opening_property_type_sentence_ids as { items: { enum: string[] }; maxItems: number }
     assert.deepEqual(field.items.enum, ['S1', 'S2', 'S3'])
     assert.equal(field.maxItems, 3)
+  })
+  it('requires a positive semantic description and allows the facts of the approved mixed-use summary', () => {
+    const approvedAudit = { profile_introduction: { generic_introduction: true, presentation: {
+      required: true, approved_summary: 'El proyecto combina viviendas y locales.', source: 'Resumen aprobado', content_kind: 'approved_business_summary' } } }
+    const schema = leadIntroductionReviewSchema(approvedAudit, references)
+    assert.deepEqual(schema.required, ['opening_property_type_sentence_ids', 'opening_project_presentation_sentence_ids'])
+    assert.match(String(object(schema.properties.opening_property_type_sentence_ids).description), /NO son tipos prematuros/)
+    assert.deepEqual(leadIntroductionReviewIssues({ opening_property_type_sentence_ids: [],
+      opening_project_presentation_sentence_ids: ['S1', 'S2'] }, approvedAudit, references), [])
+    const [missing] = leadIntroductionReviewIssues({ opening_property_type_sentence_ids: [],
+      opening_project_presentation_sentence_ids: [] }, approvedAudit, references.filter(row => row.id === 'S3'))
+    assert.equal(missing.code, 'lead_project_presentation_missing')
+    assert.equal(missing.kind, 'commercial_content')
+    assert.equal(missing.repair_owner, 'writer')
+    assert.match(String(missing.reason), /ofrecer el brochure y solicitar perfil no responde/)
+    const [repair] = leadIntroductionRepairs([String(missing.code)], approvedAudit)
+    assert.match(String(repair.instruction), /presentación breve/)
+    assert.equal(object(repair.presentation).approved_summary, 'El proyecto combina viviendas y locales.')
+  })
+  it('repairs absent presentation IDs as reviewer metadata without invalidating the draft', () => {
+    const approvedAudit = { profile_introduction: { generic_introduction: true, presentation: { required: true, approved_summary: 'Descripción verificada.' } } }
+    for (const value of [undefined, 'S1', ['S99'], [null]]) {
+      const [issue] = leadIntroductionReviewIssues({ opening_property_type_sentence_ids: [],
+        opening_project_presentation_sentence_ids: value }, approvedAudit, references)
+      assert.equal(issue.kind, 'review_metadata')
+      assert.equal(issue.repair_owner, 'reviewer')
+      assert.equal(issue.field, 'opening_project_presentation_sentence_ids')
+    }
   })
 
   it('makes the reviewer category finding binding even if the general operational check says true', () => {

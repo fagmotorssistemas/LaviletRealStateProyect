@@ -202,7 +202,7 @@ test('a visual question with a new bedroom requirement uses its own search subje
 test('a typed bedroom condition prevents rediscovery even if the guarded optional filter is empty', () => {
   const query = { group: 'residential', category: 'departamento', operation: 'details', filters: {}, requirements: request('tres dormitorios').requirements }
   const plan = commercialJourneyPlan({ lead: { purchase_purpose: 'vivir' }, catalogo: catalog, catalog_read: { complete: true },
-    property_context: { query }, financiamiento: { partners: [] },
+    property_context: { query, category_preference: { category: 'departamento', confirmed: true, evidence: 'Quiero conocer departamentos de tres dormitorios' } }, financiamiento: { partners: [] },
     hechos_confirmados: { budget: { status: 'no_defined_budget', confidence: 'high', evidence: 'Aún no tengo presupuesto definido' } } })
   assert.equal(plan.question_id, 'property_floor')
   assert.deepEqual(object(plan.selection_scope).unit_ids, candidateIds.filter(id => id.startsWith('d')))

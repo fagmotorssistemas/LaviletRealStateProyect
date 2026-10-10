@@ -8,6 +8,7 @@ import { bedroomComparison, bedroomCondition, matchesBedrooms, type BedroomCompa
 import { verifiedAbsenceReply } from './catalog-absence'
 import { requirementMatch, catalogNumber } from './catalog-request'
 import { unitModelDelivery } from './unit-model'
+import { leadBudget } from './budget-state'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
 export type CatalogQuery = {
@@ -91,15 +92,20 @@ export function filterCatalog(catalog: Row[], query: CatalogQuery, scopedIds?: s
 
 /** A recommendation changes one verified physical requirement, never the
  * customer's price limit or an indispensable number of bedrooms. */
-export function catalogRequirementAlternative(catalog: Row[], query: CatalogQuery, excluded: Set<string>, scopedIds?: string[]) {
-  if (query.filters.bedrooms_required === true) return null
+export function catalogRequirementAlternative(catalog: Row[], query: CatalogQuery, excluded: Set<string>, scopedIds?: string[],
+  budget?: { maximum: number }) {
   const fields = new Set(rows(query.requirements).filter(r => r.strength === 'required'
     && !['published_commercial_price', 'unmodeled', 'spaces'].includes(text(r.field))).map(r => text(r.field)))
   if (query.filters.bedrooms !== null || query.filters.bedrooms_any?.length) fields.add('bedrooms')
   if (query.filters.floor_number !== null) fields.add('floor_number')
   if (query.filters.min_area_m2 !== null || query.filters.max_area_m2 !== null) fields.add('area_internal_m2')
+  const withoutFloor = catalogQuery({ ...query, filters: { ...query.filters, floor_number: null },
+    requirements: rows(query.requirements).filter(r => !['floor_number', 'published_commercial_price'].includes(text(r.field))) })
+  const canPreserveBedroomsByChangingFloor = fields.has('floor_number') && fields.has('bedrooms')
+    && filterCatalog(catalog, withoutFloor, scopedIds).some(unit => !excluded.has(text(unit.category)))
   const proposals: { field: string; query: CatalogQuery; units: Row[] }[] = []
   for (const field of fields) {
+    if (field === 'bedrooms' && (query.filters.bedrooms_required === true || canPreserveBedroomsByChangingFloor)) continue
     const filters = { ...query.filters }
     if (field === 'bedrooms') Object.assign(filters, { bedrooms: null, bedrooms_any: [], bedrooms_operator: null, bedrooms_upper: null, bedrooms_required: false })
     if (field === 'floor_number') filters.floor_number = null
@@ -112,6 +118,11 @@ export function catalogRequirementAlternative(catalog: Row[], query: CatalogQuer
       requirements: rows(query.requirements).filter(r => r.field !== field) })
     let units = filterCatalog(catalog, proposed, scopedIds).filter(unit => !excluded.has(text(unit.category))
       && unit[field] != null && unit[field] !== '' && Number.isFinite(Number(unit[field])))
+    // Budget orientation limits what is offered, never adds a permanent price
+    // requirement. A later correction of the budget can expand this same search.
+    if (budget && Number.isFinite(budget.maximum) && budget.maximum > 0) units = units.filter(unit =>
+      typeof unit.published_commercial_price === 'number' && Number.isFinite(unit.published_commercial_price)
+      && unit.published_commercial_price > 0 && unit.published_commercial_price <= budget.maximum)
     if (!units.length) continue
     if (field === 'bedrooms' && units.every(unit => typeof unit.bedrooms === 'number' && Number.isFinite(unit.bedrooms) && unit.bedrooms > 0)) {
       const requested = query.filters.bedrooms ?? query.filters.bedrooms_any?.[0]
@@ -123,9 +134,98 @@ export function catalogRequirementAlternative(catalog: Row[], query: CatalogQuer
         units = filterCatalog(units, proposed)
       }
     }
+    if (field === 'floor_number') {
+      const conditions = rows(query.requirements).filter(r => r.field === field && r.strength === 'required')
+      if (query.filters.floor_number !== null) conditions.push({ operator: 'eq', value: query.filters.floor_number })
+      const distance = (floor: number) => conditions.reduce((total, condition) => {
+        const value = Number(condition.value), upper = Number(condition.upper_value)
+        if (!Number.isFinite(value)) return total
+        if (condition.operator === 'eq') return total + Math.abs(floor - value)
+        if (['lt', 'lte'].includes(text(condition.operator))) return total + Math.max(0, floor - value)
+        if (['gt', 'gte'].includes(text(condition.operator))) return total + Math.max(0, value - floor)
+        if (condition.operator === 'between' && Number.isFinite(upper)) return total + Math.max(0, value - floor, floor - upper)
+        return total
+      }, 0)
+      const floors = [...new Set(units.map(unit => Number(unit.floor_number)))]
+      const nearest = Math.min(...floors.map(distance))
+      const proposedFloors = floors.filter(floor => distance(floor) === nearest)
+      // A concrete, consentable proposal is not a silent floor selection. Ties
+      // remain open instead of arbitrarily choosing an upper or lower floor.
+      if (conditions.length && proposedFloors.length === 1) {
+        proposed = catalogQuery({ ...proposed, filters: { ...proposed.filters, floor_number: proposedFloors[0] } })
+        units = filterCatalog(units, proposed)
+      }
+    }
     proposals.push({ field, query: proposed, units })
   }
-  return proposals.length === 1 ? proposals[0] : null
+  // Keeping the requested bedrooms precedes offering fewer rooms merely to
+  // stay on the unavailable floor. Each change still needs explicit consent.
+  return proposals.find(proposal => proposal.field === 'floor_number') || (proposals.length === 1 ? proposals[0] : null)
+}
+
+/** Use the catalogue's official floor label. Number alone never invents a
+ * ground-floor or accessibility claim. */
+export function alternativeFloorQuestion(query: CatalogQuery, units: Row[], includeBedrooms = false): string {
+  if (query.filters.floor_number === null || !units.length) return ''
+  const names = [...new Set(units.map(floorLabel).filter(Boolean))]
+  const floor = names.length === 1 ? names[0] : `planta ${query.filters.floor_number}`
+  const categoryNames = [...new Set(units.map(unit => text(unit.category)))]
+  const subject = categoryNames.length === 1 ? plural[categoryNames[0]] || 'opciones' : 'opciones'
+  const bedrooms = includeBedrooms && query.filters.bedrooms !== null ? ` de ${query.filters.bedrooms} dormitorios` : ''
+  return `¿Le gustaría que revisemos ${subject === 'suites' || subject === 'opciones' ? 'las' : 'los'} ${subject}${bedrooms} en ${floor}?`
+}
+
+/** A no to one concrete floor permits another explicitly consented proposal,
+ * never a silent bedroom reduction or a sequence of repeated offers. */
+export function canOfferLowerFloorBedrooms(info: Row, query: CatalogQuery, declined: Row): boolean {
+  const semantics = object(info.semantica_turno), answer = object(semantics.answer_to_previous)
+  const current = text(answer.evidence).trim(), evidence = text(declined.evidence).trim()
+  const refusal = evidence.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const engagement = object(info.commercial_engagement)
+  return query.filters.bedrooms_required !== true && answer.confidence === 'high'
+    && answer.kind === 'negative' && answer.question_id === 'property_requirements'
+    && !!current && current === evidence && engagement.passive !== true
+    && object(info._sales_memory).passive_sales !== true && semantics.opt_out !== true && info.opt_out !== true
+    && object(info.catalog_verification_read || info.catalog_read).complete === true
+    && !/\b(?:ningun[oa]?|no (?:quiero|deseo|necesito) (?:seguir|continuar|revisar|explorar|evaluar)|no (?:me interesa|estoy interesad[oa])|no (?:quiero|deseo).*(?:alternativas|opciones)|no insista|dej(?:e|a) de)\b/.test(refusal)
+}
+
+export function catalogLowerFloorBedroomAlternative(catalog: Row[], query: CatalogQuery, declined: Row,
+  excluded: Set<string>, scopedIds?: string[], budget?: { maximum: number }) {
+  const rejected = catalogQuery(declined.proposed_query)
+  const original = catalogQuery(declined.original_query)
+  const nonFloor = (value: CatalogQuery) => JSON.stringify({ group: value.group, category: value.category,
+    filters: { ...value.filters, floor_number: null }, requirements: rows(value.requirements).filter(r => r.field !== 'floor_number') })
+  // A rejected bedroom change is already the second offer. It does not permit
+  // another reduction, nor can a rejected category/area change masquerade as a floor decision.
+  if (nonFloor(original) !== nonFloor(query) || nonFloor(rejected) !== nonFloor(original)
+    || original.filters.bedrooms_required === true || rejected.filters.floor_number === null
+    || JSON.stringify([original.filters.floor_number, rows(original.requirements).filter(r => r.field === 'floor_number')])
+      === JSON.stringify([rejected.filters.floor_number, rows(rejected.requirements).filter(r => r.field === 'floor_number')])) return null
+  const bedroomRequirements = rows(query.requirements).filter(r => r.field === 'bedrooms' && r.strength === 'required')
+  const threshold = query.filters.bedrooms ?? (bedroomRequirements.length === 1
+    && ['eq', 'gte'].includes(text(bedroomRequirements[0].operator)) ? catalogNumber(bedroomRequirements[0].value) : null)
+  if (threshold === null || threshold <= 1 || query.filters.bedrooms_any?.length
+    || ['lte', 'between'].includes(text(query.filters.bedrooms_operator))) return null
+  const requirements = rows(query.requirements).filter(r => !['floor_number', 'bedrooms'].includes(text(r.field)))
+  const available = catalogQuery({ ...query, operation: 'search', selector: null, requirements,
+    filters: { ...query.filters, floor_number: null, bedrooms: null, bedrooms_any: [], bedrooms_operator: null, bedrooms_upper: null, bedrooms_required: false } })
+  let units = filterCatalog(catalog, available, scopedIds).filter(unit => !excluded.has(text(unit.category))
+    && catalogNumber(unit.floor_number) !== null && Number(unit.floor_number) < rejected.filters.floor_number!
+    && Number(unit.floor_number) >= 0 && catalogNumber(unit.bedrooms) !== null
+    && Number(unit.bedrooms) > 0 && Number(unit.bedrooms) < threshold)
+  if (budget && Number.isFinite(budget.maximum) && budget.maximum > 0) units = units.filter(unit =>
+    typeof unit.published_commercial_price === 'number' && Number.isFinite(unit.published_commercial_price)
+    && unit.published_commercial_price > 0 && unit.published_commercial_price <= budget.maximum)
+  if (!units.length) return null
+  // Minimize the bedroom reduction among verified options below the rejected
+  // floor; then keep its lowest floor. Category changes remain excluded.
+  const bedrooms = Math.max(...units.map(unit => Number(unit.bedrooms)))
+  units = units.filter(unit => Number(unit.bedrooms) === bedrooms)
+  const floor = Math.min(...units.map(unit => Number(unit.floor_number)))
+  units = units.filter(unit => Number(unit.floor_number) === floor)
+  const proposed = catalogQuery({ ...available, filters: { ...available.filters, bedrooms, floor_number: floor } })
+  return { field: 'bedrooms_and_floor', query: proposed, units }
 }
 
 export function rankCatalog(units: Row[], selector: string | null, pricesAllowed = false) {
@@ -363,7 +463,12 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   if (query.filters.bedrooms_operator === 'between' && query.filters.bedrooms_upper == null) return null
   // A relative price choice needs a complete price ranking before selecting a unit.
   if (query.operation === 'select' && ['cheapest', 'most_expensive'].includes(query.selector || '')) query.operation = 'rank'
-  if (query.operation === 'none') return null
+  if (query.operation === 'none') {
+    if (!canOfferLowerFloorBedrooms(info, query, object(context.requirements_declined))) return null
+    // A scoped refusal has no new catalogue operation. Execute only the
+    // second, consentable proposal; never change the durable original query.
+    query.operation = 'search'
+  }
   const catalog = rows(info.catalogo)
   if (!catalog.length) return null
   const pending = object(context.pending_question || info.pregunta_pendiente)
@@ -420,15 +525,29 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     const opening = unknown.length ? 'Falta información en las fichas para confirmar qué opciones cumplen todas esas características.'
       : verifiedAbsenceReply(baseAudit) || `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
     if (unknown.length) return respond(opening)
-    if (query.filters.bedrooms_required === true) return respond(opening)
-    const alternative = catalogRequirementAlternative(catalog, query, new Set(excluded), scopedIds)
+    const budget = leadBudget(info)
+    const cap = budget.status === 'maximum_total' && budget.confidence === 'high'
+      && typeof budget.amount === 'number' && object(info.politica_comercial).precios_autorizados === true
+      ? { maximum: budget.amount } : undefined
+    const declined = object(context.requirements_declined)
+    const rejectionForThisQuery = Object.keys(declined).length > 0
+      && JSON.stringify(catalogQuery({ ...object(declined.original_query), operation: 'search' }))
+        === JSON.stringify(catalogQuery({ ...query, operation: 'search' }))
+    const lowerAlternative = rejectionForThisQuery && canOfferLowerFloorBedrooms(info, query, declined)
+      ? catalogLowerFloorBedroomAlternative(catalog, query, declined, new Set(excluded), scopedIds, cap) : null
+    if (rejectionForThisQuery && !lowerAlternative) return respond(opening, { original_query: query })
+    const alternative = lowerAlternative || catalogRequirementAlternative(catalog, query, new Set(excluded), scopedIds, cap)
     if (!alternative) return respond(opening, { original_query: query })
     const proposed = alternative.query, wider = alternative.units
     const overview = alternativeOverview(wider, false)
-    const next = alternative.field === 'bedrooms' && proposed.filters.bedrooms !== null
+    const next = ['floor_number', 'bedrooms_and_floor'].includes(alternative.field)
+      && alternativeFloorQuestion(proposed, wider, alternative.field === 'bedrooms_and_floor')
+      || (alternative.field === 'bedrooms' && proposed.filters.bedrooms !== null
       ? `¿Le gustaría revisar las opciones de ${proposed.filters.bedrooms} dormitorios que tenemos disponibles?`
-      : '¿Le gustaría revisar estas alternativas con ese cambio de requisito?'
-    return respond(`${opening} Podemos revisar estas alternativas y valorar si se adaptan a lo que necesita: ${overview.reply} ${next}`,
+      : '¿Le gustaría revisar estas alternativas con ese cambio de requisito?')
+    const floor = alternative.field === 'floor_number' && proposed.filters.floor_number !== null
+      ? ` La planta compatible más cercana al requisito solicitado es ${floorLabel(wider[0])}.` : ''
+    return respond(`${opening}${floor} Podemos revisar estas alternativas y valorar si se adaptan a lo que necesita: ${overview.reply} ${next}`,
       { original_query: query, alternative_results: { query: proposed, unit_ids: unitIds(wider), units: wider.map(unit => facts(unit, object(info.politica_comercial).precios_autorizados === true)) },
         alternative_presentation: { kind: 'category_overview', groups: overview.groups },
         pending_question: { ...question('property_requirements', 'explore_alternatives', next, [], wider), proposed_query: proposed,

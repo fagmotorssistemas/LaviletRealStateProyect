@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { replyQuestions } from './reply-question'
 import { normalizedPendingQuestion, pendingQuestionFromReply, questionActs, questionIds } from './turn-semantics'
+import { categoryInvitationTarget } from './category-offer'
 
 /** Shared by writer and reviewer. Meaning belongs to the emitted CTA, not the plan. */
 export const continuationQuestionProperties = {
@@ -92,10 +93,14 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   const matching = matchingReceiptScope(matchingQuestions.filter(candidate => candidate.id === pending.id && candidate.act === pending.act))
   const planMatches = plan.question_id === pending.id && (!plan.question_act || plan.question_act === pending.act)
   const scope = object(plan.selection_scope)
+  const offeredCategories = ids(scope.categories)
+  const categoryProposal = pending.id === 'property_category' && pending.act === 'choose_category'
+    && categoryInvitationTarget(question) === object(plan.proposed_query).category
+    && offeredCategories.length === 1 && offeredCategories[0] === object(plan.proposed_query).category
   const scoped: Row = planMatches ? {
     target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : pending.act === 'confirm_unit' ? ids(scope.unit_ids) : [],
     candidate_ids: ids(pending.act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
-    ...(pending.act === 'explore_alternatives' && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),
+    ...((pending.act === 'explore_alternatives' || categoryProposal) && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),
   } : {}
   const result = normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
     target_ids: matching.target_ids ?? scoped.target_ids ?? pending.target_ids,

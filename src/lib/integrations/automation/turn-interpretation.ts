@@ -6,6 +6,7 @@ import { reconcilePassivePropertyMemory } from './turn-interpretation-input'
 import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
 import { budgetQuestionBasis } from './budget-question-context'
+import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence } from './purchase-evidence'
 import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_SCHEMA } from './turn-semantics'
 import { isGreetingOnly, normalized } from './sdr-rules'
@@ -355,7 +356,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
 function normalizeInterpretation(input: Row, raw: Row, readable: string, method: TurnInterpretation['method'], promptRevision: string | null): TurnInterpretation {
   const actionMessage = Object.hasOwn(input, 'mensaje_accion') ? text(input.mensaje_accion) : readable
   const lastQuestion = text(input.ultima_pregunta) || text(object(object(input.resumen)._last_operational_step).reply)
-  const extracted = normalizeEvents(raw, actionMessage, /(?:n[uú]mero|d[ií]gitos?).*(?:c[eé]dula)|c[eé]dula.*(?:n[uú]mero|d[ií]gitos?)/i.test(lastQuestion))
+  const extracted = normalizeEvents(raw, actionMessage, /(?:n[uú]mero|d[ií]gitos?).*(?:c[eé]dula)|c[eé]dula.*(?:n[uú]mero|d[ií]gitos?)/i.test(lastQuestion), input.pregunta_pendiente)
   const actions = evidencedActions(raw, actionMessage, lastQuestion || text(object(input.pregunta_pendiente).question))
   actions.opt_out = evidencedActions(raw, readable).opt_out
   if (actions.opt_out) actions.tracking_consent = false
@@ -369,6 +370,21 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
   const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
+  // The scoring/CRM declaration is a parallel representation of the same turn.
+  // A quote about a floor, area or bedroom requirement cannot reinstate a type
+  // choice rejected by the current semantic evidence checks.
+  const semanticIssues = Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []
+  const normalizedProperty = object(semantics.property)
+  const hasCurrentConstraint = Object.values(object(normalizedProperty.filters)).some(value => value != null
+    && (!Array.isArray(value) || value.length > 0))
+  const typeQuote = normalized(text(object(raw.declaration_evidence).preferred_category))
+  const constraintOnlyType = hasCurrentConstraint && normalizedProperty.reference_kind === 'none'
+    && !/\b(?:suites?|departamentos?|departametnos?|departametos?|apartamentos?|penthouses?|locales?)\b/.test(typeQuote)
+  if (semanticIssues.includes('property_requirement_does_not_choose_category')
+    || semanticIssues.includes('bedroom_requirement_does_not_choose_category') || constraintOnlyType) {
+    extracted.preferred_category = null
+    extracted.events = (Array.isArray(extracted.events) ? extracted.events : []).filter(event => event !== 'declared_unit_type')
+  }
   const actualPendingQuestion = normalizedPendingQuestion(input.pregunta_pendiente)
   const partnerChoice = object(extracted.financing_partner_choice)
   if (actualPendingQuestion.id === 'financing_partner' && partnerChoice.kind === 'select'
@@ -482,19 +498,17 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   // the intended use of the purchase. Generic requests for information cannot
   // fill that missing decision either. Only reject those demonstrably passive
   // sources, rather than requiring every valid purpose to use a fixed phrase.
-  const purposeQuote = normalized(text(object(raw.declaration_evidence).purchase_purpose))
-  const passivePurposeSource = (quote: string) => /^(?:(?:solo|solamente|unicamente|por ahora) )?(?:(?:quiero|quisiera|deseo|necesito|busco|me interesa) (?:tener |recibir |conocer |obtener |mas )?)?(?:informacion|detalles)(?: (?:del|sobre el|sobre la|sobre|de|del proyecto) [a-z0-9 ]+)?[.!?]*$/.test(quote)
-    || /^(?:(?:yo|actualmente|ahora|por ahora) )?(?:vivo|vivimos|resido|residimos|radico|radicamos|estoy viviendo|estamos viviendo) en [^.!?;,]+[.!?]*$/.test(quote)
-      && !/\b(?:para|busco|quiero|quisiera|deseo|necesito|comprar|compra|mud|invertir|inversion|negocio|vivienda)\b/.test(quote)
-  if (extracted.purchase_purpose && passivePurposeSource(purposeQuote)) {
-    extracted.purchase_purpose = null
-    extracted.events = (Array.isArray(extracted.events) ? extracted.events : []).filter(event => event !== 'declared_purchase_purpose')
+  const purposeQuote = text(object(raw.declaration_evidence).purchase_purpose)
+  if (raw.purchase_purpose && (isPassivePurchaseEvidence(purposeQuote)
+    || isPassiveProfilePurposeEvidence(raw, input.pregunta_pendiente, purposeQuote)
+    || isGeneralProjectOverviewWithoutPurchaseScope(raw, actionMessage))) {
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'purchase_purpose_from_passive_source']
   }
   const propertySource = object(semantics.property)
   if (propertySource.operation === 'none' && !propertySource.category && !propertySource.selector
-    && passivePurposeSource(normalized(text(propertySource.evidence)))
+    && (isPassivePurchaseEvidence(propertySource.evidence)
+      || isPassiveProfilePurposeEvidence(raw, input.pregunta_pendiente, propertySource.evidence))
     && !Object.values(object(propertySource.filters)).some(value => value !== null && value !== undefined && (!Array.isArray(value) || value.length))) {
     semantics.property = { ...propertySource, group: null }
   }

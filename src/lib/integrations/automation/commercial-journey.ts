@@ -2,15 +2,50 @@ import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
 import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers } from './budget-state'
-import { catalogQuery, filterCatalog, partitionCatalog, catalogRequirementAlternative } from './catalog-dialogue'
+import { catalogQuery, filterCatalog, partitionCatalog, catalogRequirementAlternative, alternativeFloorQuestion,
+  canOfferLowerFloorBedrooms, catalogLowerFloorBedroomAlternative } from './catalog-dialogue'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { deliveredPendingQuestion } from './continuation-question'
 import { normalizedPropertyQuery } from './turn-semantics'
 import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
+import { isPassivePurchaseEvidence } from './purchase-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
+const assetCategory = (value: unknown) => ['suite', 'departamento', 'penthouse', 'local'].includes(text(value)) ? text(value) : ''
+const assetGroup = (category: unknown) => category === 'local' ? 'commercial' : assetCategory(category) ? 'residential' : ''
+
+/** Retrieval scope and CRM labels are not declarations of what the lead seeks.
+ * Keep accepted conversational evidence separate from the query used for RAG. */
+function declaredCommercialInterest(info: Row) {
+  const context = object(info.property_context), query = object(context.query)
+  const memory = object(info.hechos_confirmados), current = object(object(info.semantica_turno).property)
+  const usable = (value: Row) => value.confidence === 'high' && !!text(value.evidence).trim()
+    && !isPassivePurchaseEvidence(value.evidence)
+  const currentProperty = usable(current) ? current : {}, saved = object(memory.property)
+  const knownProperty = usable(saved) ? saved : {}
+  const preference = object(context.category_preference)
+  const confirmedCategory = preference.confirmed === true ? assetCategory(preference.category) : ''
+  const exploration = object(context.exploration_state)
+  const acceptedExploration = exploration.authorized === true && !!text(exploration.evidence).trim()
+    && !isPassivePurchaseEvidence(exploration.evidence)
+  // Older delivered selection receipts did not carry declaration metadata. A
+  // genuine floor/unit decision still retains its established category.
+  const advancedCategory = ['choose_floor', 'choose_unit', 'review_unit'].includes(text(context.phase))
+    ? assetCategory(query.category || context.preference_category) : ''
+  const category = assetCategory(currentProperty.category) || confirmedCategory || assetCategory(knownProperty.category) || advancedCategory
+  const declaredGroup = (property: Row) => ['residential', 'commercial'].includes(text(property.group)) ? text(property.group)
+    : assetGroup(assetCategory(property.category)) || (typeof object(property.filters).bedrooms === 'number' ? 'residential' : '')
+  const qualificationPurpose = text(object(memory.qualification).proposito).trim()
+  const rawPurpose = text(object(info.lead).purchase_purpose || qualificationPurpose)
+  const purpose = ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(rawPurpose)
+    && !(qualificationPurpose && isPassivePurchaseEvidence(qualificationPurpose)) ? rawPurpose : ''
+  const group = declaredGroup(currentProperty) || assetGroup(confirmedCategory) || declaredGroup(knownProperty)
+    || assetGroup(advancedCategory) || (acceptedExploration && ['residential', 'commercial'].includes(text(query.group)) ? text(query.group) : '')
+    || (['vivir', 'segunda_vivienda'].includes(purpose) ? 'residential' : purpose === 'negocio' ? 'commercial' : '')
+  return { category, group, purpose, known: !!(category || group || purpose) }
+}
 
 /** A code-resolved informational reference does not accept the proposed change. */
 export function proposalInformationContext(info: Row): Row {
@@ -31,9 +66,9 @@ export function commercialSelectionQuery(info: Row) {
   const sameBedroomCondition = bedroomConditions.length === 1 && bedroomConditions[0].operator === 'eq'
     && typeof currentBedrooms === 'number' && currentBedrooms === bedroomConditions[0].value
   const category = commercialSelectionCategory(info)
-  const purpose = text(lead.purchase_purpose || object(object(info.hechos_confirmados).qualification).proposito)
+  const interest = declaredCommercialInterest(info)
   return catalogQuery({ ...query, category,
-    group: query.group || (category === 'local' ? 'commercial' : category || purpose === 'vivir' ? 'residential' : null),
+    group: interest.group || assetGroup(category) || null,
     filters: { ...object(query.filters), bedrooms: bedroomConditions.length
       ? sameBedroomCondition ? currentBedrooms : null : currentBedrooms ?? lead.preferred_bedrooms } })
 }
@@ -42,9 +77,9 @@ function commercialSelectionCategory(info: Row) {
   const context = object(info.property_context), preference = object(context.category_preference)
   // An earlier CRM label or an incidental visualization noun is not a choice
   // between the compatible types in the current alternative set.
-  return object(context.exploration_state).authorized === true
-    ? preference.confirmed === true ? text(preference.category) || null : null
-    : text(object(context.query).category || context.preference_category || object(info.lead).preferred_category) || null
+  if (object(context.exploration_state).authorized === true)
+    return preference.confirmed === true ? assetCategory(preference.category) || null : null
+  return declaredCommercialInterest(info).category || null
 }
 
 export const COMMERCIAL_JOURNEY_RULES = `${BUDGET_ORIENTATION_RULES}
@@ -93,9 +128,9 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const lead = object(info.lead), profile = object(info.perfil_lead)
   const context = object(info.property_context), query = object(context.query)
   const proposalInformation = proposalInformationContext(info)
-  const filters = object(query.filters), memory = object(info.hechos_confirmados)
+  const filters = object(query.filters)
   const category = text(commercialSelectionCategory(info))
-  const purpose = text(lead.purchase_purpose || object(memory.qualification).proposito)
+  const interest = declaredCommercialInterest(info), purpose = interest.purpose
   const profileDone = !!text(profile.full_name) && !!text(profile.residence_city || profile.residence_country)
   const stage = object(info.etapa_financiamiento), accepted = readiness.financing_accepted === true
   const selected = text(readiness.selected_unit_id)
@@ -168,6 +203,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const comparable = budget.status === 'maximum_total' && amount !== null && budget.confidence === 'high' && scopeKnown
   const authorizedPrices = object(info.politica_comercial).precios_autorizados === true
   const physicalCandidates = physicalPartition.units.filter(unit => !excluded.has(text(unit.category)))
+  const physicalCategories = Object.keys(labels).filter(type => physicalCandidates.some(unit => unit.category === type))
   const assessmentCandidates = selected ? physicalCandidates.filter(unit => unit.id === selected) : physicalCandidates
   const priced = authorizedPrices ? assessmentCandidates.filter(unit => typeof unit.published_commercial_price === 'number'
     && Number.isFinite(unit.published_commercial_price) && unit.published_commercial_price > 0) : []
@@ -208,30 +244,51 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     const pendingUnits = hasPendingProposal
       ? filterCatalog(planningCatalog, pendingQuery, ids(pendingProposal.candidate_ids))
         .filter(unit => !excluded.has(text(unit.category))) : []
-    const alternative = hasPendingProposal
+    const initialAlternative = hasPendingProposal
       ? pendingUnits.length ? { field: text(object(pendingProposal.requirement_change).field)
-        || (pendingQuery.filters.bedrooms !== selectionQuery.filters.bedrooms ? 'bedrooms' : 'other'), query: pendingQuery, units: pendingUnits } : null
-      : catalogRequirementAlternative(planningCatalog, selectionQuery, excluded, scopedIds)
-    const bedroomCount = alternative?.field === 'bedrooms' ? alternative.query.filters.bedrooms : null
-    const strict = selectionQuery.filters.bedrooms_required === true
+        || (pendingQuery.filters.floor_number !== selectionQuery.filters.floor_number && pendingQuery.filters.bedrooms !== selectionQuery.filters.bedrooms ? 'bedrooms_and_floor'
+          : pendingQuery.filters.floor_number !== selectionQuery.filters.floor_number ? 'floor_number'
+          : pendingQuery.filters.bedrooms !== selectionQuery.filters.bedrooms ? 'bedrooms' : 'other'), query: pendingQuery, units: pendingUnits } : null
+      : catalogRequirementAlternative(planningCatalog, selectionQuery, excluded, scopedIds,
+        comparable && authorizedPrices ? { maximum: amount! } : undefined)
     const declined = object(context.requirements_declined)
     const adjustmentDeclined = Object.keys(declined).length > 0
       && JSON.stringify(normalizedPropertyQuery({ ...object(declined.original_query), operation: 'search', selector: null }))
         === JSON.stringify(normalizedPropertyQuery({ ...selectionQuery, operation: 'search', selector: null }))
+      && (!hasPendingProposal || JSON.stringify(normalizedPropertyQuery(pendingProposal.proposed_query))
+        === JSON.stringify(normalizedPropertyQuery(declined.proposed_query)))
+    const lowerAlternative = adjustmentDeclined && canOfferLowerFloorBedrooms(info, selectionQuery, declined)
+      ? catalogLowerFloorBedroomAlternative(planningCatalog, selectionQuery, declined, excluded, scopedIds,
+        comparable && authorizedPrices ? { maximum: amount! } : undefined) : null
+    const alternative = lowerAlternative || initialAlternative
+    const bedroomCount = ['bedrooms', 'bedrooms_and_floor'].includes(text(alternative?.field)) ? alternative!.query.filters.bedrooms : null
+    const strict = selectionQuery.filters.bedrooms_required === true
+    const blockedByBedrooms = strict && (!alternative || ['bedrooms', 'bedrooms_and_floor'].includes(alternative.field))
+    const lowerFloorProposal = alternative?.field === 'bedrooms_and_floor'
+    const floorQuestion = ['floor_number', 'bedrooms_and_floor'].includes(text(alternative?.field))
+      ? alternativeFloorQuestion(alternative!.query, alternative!.units, lowerFloorProposal) : ''
+    const declinedProposalBlocks = adjustmentDeclined && !lowerAlternative
     const informationMissing = !complete && !alternative
-    const question = strict || adjustmentDeclined || informationMissing ? '' : bedroomCount !== null
+    const question = blockedByBedrooms || declinedProposalBlocks || informationMissing ? '' : floorQuestion || (bedroomCount !== null
       ? `¿Le gustaría revisar las opciones de ${bedroomCount} dormitorios que tenemos disponibles?`
       : alternative ? '¿Estaría dispuesto a ajustar ese requisito para revisar las alternativas disponibles?'
-        : '¿Cuál de sus requisitos considera indispensable y cuál podría flexibilizar para buscar alternativas?'
+        : '¿Cuál de sus requisitos considera indispensable y cuál podría flexibilizar para buscar alternativas?')
+    const recommendation = Object.keys(proposalInformation).length
+      ? 'Responda primero la consulta informativa sobre la propuesta pendiente con su referente verificado, incluidos precios autorizados si se preguntan. Después conecte esa respuesta con la decisión todavía pendiente de aceptar explorar el ajuste. Consultar detalles o precios no acepta la propuesta; no vuelva a presentar todo el catálogo ni cambie la necesidad original.'
+      : 'Recomiende brevemente la alternativa verificable, no se limite a enumerar que existe. Explique por qué merece revisarla mediante rangos de área interior y características comunes comprobadas de los grupos requirement_alternatives, distinguiendo las categorías disponibles. Si un área no está verificada, omítala. No enumere números de unidad ni añada precios no solicitados antes de aceptar la alternativa. La recomendación invita a valorar otra opción, no afirma que satisfaga el requisito original ni que sea adecuada para toda la familia.'
+    const floorInstruction = lowerFloorProposal
+      ? 'El cliente rechazó la planta anterior, no aceptó reducir dormitorios. Proponga una única alternativa verificada en una planta inferior con menos dormitorios, indicando ambos cambios de proposed_query en la explicación y en la pregunta. Conserve la búsqueda original, categoría y presupuesto hasta recibir un sí a esta nueva propuesta; no insista en la planta rechazada ni seleccione una unidad. Rechazar también esta segunda propuesta deja abierta la conversación, sin una tercera oferta.'
+      : floorQuestion ? 'Preserve los dormitorios y el presupuesto al proponer la planta compatible más cercana verificada. Explique la diferencia con la planta solicitada y pregunte por la planta concreta de proposed_query, sin enumerar todas las plantas ni reducir dormitorios. Use su denominación oficial: una segunda planta alta no es una segunda planta baja. No dé esa propuesta por elegida antes de la aceptación. Si falta cobertura completa o alguna planta está sin verificar, no afirme que es la más baja de todo el proyecto.' : ''
+    const consentInstruction = 'La explicación y la pregunta reales deben identificar el mismo ajuste de proposed_query, incluida la cantidad propuesta si existe. El revisor debe comprobar tanto la recomendación sustentada (o la respuesta a la consulta informativa) como esa equivalencia antes de aprobar: un sí autoriza explorar esa propuesta, no otra ni seleccionar una unidad. Admita redacción equivalente sin exigir una frase literal.'
     return { ...plan('clarify_requirements',
       `${complete ? 'La consulta completa no tiene coincidencias con todos los requisitos actuales.'
-        : 'No hay coincidencias confirmadas en el alcance consultado; faltan fichas o datos para afirmar ausencia en todo el proyecto.'} Reconozca el presupuesto solo si fue declarado, sin afirmar que alcanza para alternativas incompatibles. Explique el requisito que cambia y pregunte si aceptaría revisar ese cambio antes de pedir presupuesto, planta, unidad o financiamiento. No garantice que otra cantidad de dormitorios acomode a la familia.${alternative && !strict && !adjustmentDeclined ? ` ${Object.keys(proposalInformation).length ? 'Responda primero la consulta informativa sobre la propuesta pendiente con su referente verificado, incluidos precios autorizados si se preguntan. Después conecte esa respuesta con la decisión todavía pendiente de aceptar explorar el ajuste. Consultar detalles o precios no acepta la propuesta; no vuelva a presentar todo el catálogo ni cambie la necesidad original.' : 'Recomiende brevemente la alternativa verificable, no se limite a enumerar que existe. Explique por qué merece revisarla mediante rangos de área interior y características comunes comprobadas de los grupos requirement_alternatives, distinguiendo las categorías disponibles. Si un área no está verificada, omítala. No enumere números de unidad ni añada precios no solicitados antes de aceptar la alternativa. La recomendación invita a valorar otra opción, no afirma que satisfaga el requisito original ni que sea adecuada para toda la familia.'} La explicación y la pregunta reales deben identificar el mismo ajuste de proposed_query, incluida la cantidad propuesta si existe. El revisor debe comprobar tanto la recomendación sustentada (o la respuesta a la consulta informativa) como esa equivalencia antes de aprobar: un sí autoriza explorar esa propuesta, no otra ni seleccionar una unidad. Admita redacción equivalente sin exigir una frase literal.` : ''}${strict ? ' La cantidad de dormitorios fue declarada indispensable: respétela y no insista en alternativas ni añada una pregunta de ajuste.' : ''}${adjustmentDeclined ? ' El cliente rechazó ajustar esta búsqueda: respete su negativa, no repita la propuesta ni pida presupuesto; atienda la consulta y deje abierta la conversación sin una nueva pregunta obligatoria.' : ''}${informationMissing ? ' Falta información para comprobar este requisito y tampoco hay una alternativa verificada: explique ese límite, sin pedir que cambie una condición cuya ausencia no se ha confirmado.' : ''}`,
+        : 'No hay coincidencias confirmadas en el alcance consultado; faltan fichas o datos para afirmar ausencia en todo el proyecto.'} Reconozca el presupuesto solo si fue declarado, sin afirmar que alcanza para alternativas incompatibles. Explique el requisito que cambia y pregunte si aceptaría revisar ese cambio antes de pedir presupuesto, planta, unidad o financiamiento. No garantice que otra cantidad de dormitorios acomode a la familia.${alternative && !blockedByBedrooms && !declinedProposalBlocks ? ` ${recommendation} ${floorInstruction} ${consentInstruction}` : ''}${strict ? blockedByBedrooms ? ' La cantidad de dormitorios fue declarada indispensable: respétela y no insista en alternativas ni añada una pregunta de ajuste.' : ' La cantidad de dormitorios es indispensable: consérvela al proponer únicamente el cambio de planta u otro requisito.' : ''}${declinedProposalBlocks ? ' El cliente rechazó ajustar esta búsqueda: respete su negativa, no repita la propuesta ni pida presupuesto; atienda la consulta y deje abierta la conversación sin una nueva pregunta obligatoria. Rechazar otra planta no autoriza reducir dormitorios: cualquier propuesta con menos habitaciones necesita una aceptación específica.' : ''}${informationMissing ? ' Falta información para comprobar este requisito y tampoco hay una alternativa verificada: explique ese límite, sin pedir que cambie una condición cuya ausencia no se ha confirmado.' : ''}`,
       question, question ? 'property_requirements' : ''), question_act: alternative ? 'explore_alternatives' : 'other',
       ...(!alternative && question ? { adjustment_requires_specific_choice: true,
         instruction: 'No hay una propuesta concreta que un sí pueda aceptar. Explique los requisitos incompatibles verificados y pregunte cuál desea mantener o flexibilizar; conserve la búsqueda original hasta recibir una preferencia específica. No repita una invitación genérica a aceptar alternativas inexistentes.' } : {}),
       selection_scope: selectionScope, presentation: 'requirements', requested_query: selectionQuery,
       match_complete: complete, unknown_unit_ids: unknownIds,
-      ...(alternative && !strict && !adjustmentDeclined ? { proposed_query: alternative.query, alternative_unit_ids: alternative.units.map(unit => text(unit.id)),
+      ...(alternative && !blockedByBedrooms && !declinedProposalBlocks ? { proposed_query: alternative.query, alternative_unit_ids: alternative.units.map(unit => text(unit.id)),
         requirement_change: { field: alternative.field }, recommendation_mode: Object.keys(proposalInformation).length ? 'answer_then_confirm_alternative' : 'brief_verified_summary' } : {}) }
   }
   // A tour, price question, courtesy or answer about use can interrupt this
@@ -251,7 +308,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const kindQuestion = budgetKindQuestion(budget)
   const budgetDeferred = ids(object(info.memoria_comercial).deferred_fields).includes('presupuesto')
     && budget.source !== 'current_lead_statement'
-  if (!selected && !category && !selectionQuery.group && !purpose)
+  if (!selected && !interest.known)
     return plan('discover_use', 'Presente brevemente las categorías disponibles y pregunte vivienda o comercio.', '¿Busca una vivienda o un local para su negocio?', 'property_category')
   if (!passive && budget.answered !== true && !budgetDeferred) return {
     ...plan('ask_budget', selected
@@ -341,6 +398,14 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
       floors = [...new Set(candidates.map(unit => unit.floor_number).filter(value => typeof value === 'number'))]
       selectionScope = { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean), floors }
       selection.instruction = `${text(selection.instruction)} Oriente la presentación hacia las alternativas compatibles dentro del importe declarado, sin dar ninguna por elegida ni modificar la búsqueda guardada. Conserve las preferencias explícitas aunque superen el importe y atienda cualquier petición de revisar otras opciones. No transforme una cifra aproximada en una condición rígida.`
+    }
+    if (!category && categories.length === 1 && physicalCategories.length > 1) {
+      const recommendedCategory = categories[0]
+      return { ...selection, question: `¿Le gustaría que exploremos ${labels[recommendedCategory]}?`,
+        question_id: 'property_category', question_act: 'choose_category',
+        selection_scope: selectionScope, presentation: 'categories',
+        proposed_query: normalizedPropertyQuery({ ...selectionQuery, category: recommendedCategory, operation: 'search', selector: null }),
+        instruction: `${text(selection.instruction)} El presupuesto orienta hacia un tipo, pero el cliente todavía no lo ha elegido. Presente brevemente esa recomendación y pregunte si desea explorarla antes de planta o unidad. No dé por aceptado el tipo ni descarte las demás alternativas físicamente compatibles; si solicita otro tipo, conserve sus necesidades y evalúe ese interés con el presupuesto conocido. No enumere números de unidad todavía.` }
     }
     if (!category && categories.length > 1) {
       const options = new Intl.ListFormat('es', { type: 'disjunction' }).format(categories.map(category => labels[category]))

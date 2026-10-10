@@ -1,6 +1,9 @@
+import { PURCHASE_EVIDENCE_RULES } from './purchase-evidence'
+
 /** Domain-specific details live in the adjoining extraction sections. Keep
  * this shared contract concise instead of repeating their full procedures. */
 export const EXTRACTION_REQUEST_RULES = `
+${PURCHASE_EVIDENCE_RULES}
 Devuelva todos los campos del esquema. requests contiene TODAS las solicitudes independientes del mensaje actual, con evidencia literal (conserve sus errores). La única fuente adicional es consultas_pendientes, citando allí su evidencia original. El historial resuelve referencias y correcciones, no crea nuevas declaraciones, solicitudes ni consentimientos.
 Asigne domain: property (proyecto, catálogo, precios, reserva informativa), financing (información o revisión financiera), visit (visita inmobiliaria), advisor (atención humana explícita o iniciar reserva), tracking (alta/baja de mensajes), courtesy (cortesía sin consulta nueva), other (ajeno o no resoluble). Separe cada duda adicional aunque una aceptación sea principal. La clasificación de alcance es provisional: interprete independientemente todo el mensaje. Datos, presupuesto y visitas de otro negocio no autorizan acciones inmobiliarias. opt_out sí es global.
 Consultar el significado, utilidad o funcionamiento de un concepto, material o servicio inmobiliario presentado pertenece a property y project_information; no es other solo porque no pide una unidad. Resuelva el referente con la conversación y mantenga coherentes primary_intent y el dominio de cada solicitud apoyados en su evidencia actual. Informarse sobre un servicio no solicita iniciarlo ni autoriza gestiones.
