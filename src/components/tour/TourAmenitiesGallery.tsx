@@ -41,10 +41,25 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [index, setIndex] = useState(0)
   const [zoom, setZoom] = useState(1)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
+  const [aspects, setAspects] = useState<Record<string, number>>({})
   const startRef = useRef<{ x: number; y: number } | null>(null)
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
-  const aspectRef = useRef(1.6)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!open || !container) return
+    const measure = () => {
+      const { width, height } = container.getBoundingClientRect()
+      setBoxSize({ w: width, h: height })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -98,12 +113,17 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         .trim()
     : ''
   const buffers = useDualBuffer(slide?.imageUrl ?? null)
+  const frontSrc = buffers.assigned[buffers.front]
+  const fit = amenityFit(boxSize, (frontSrc && aspects[frontSrc]) || 1.6, zoom)
+  const minZoom = fit?.minZoom ?? 1
+  const effectiveZoom = Math.max(minZoom, zoom)
 
   if (!open) return null
 
   return (
     <div
-      className="absolute inset-0 z-[80] overflow-hidden bg-[#14110e]"
+      ref={containerRef}
+      className="absolute inset-0 z-[80] overflow-hidden touch-none bg-[#14110e]"
       onPointerDown={(event) => {
         if (event.button !== 0) return
         pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
@@ -114,7 +134,7 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
           if (a && b) {
             pinchRef.current = {
               dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
-              scale: zoom,
+              scale: effectiveZoom,
             }
           }
           startRef.current = null
@@ -131,8 +151,8 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         const b = pts[1]
         if (!a || !b) return
         const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
-        const next = Math.max(1, Math.min(3, pinchRef.current.scale * (dist / pinchRef.current.dist)))
-        setZoom(Number(next.toFixed(3)))
+        const next = Math.max(minZoom, Math.min(1, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+        setZoom(next)
       }}
       onPointerUp={(event) => {
         pointersRef.current.delete(event.pointerId)
@@ -166,18 +186,16 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
                 draggable={false}
                 decoding="async"
                 fetchPriority={buffers.front === slot ? 'high' : 'low'}
-                onLoad={
-                  buffers.front === slot
-                    ? (event) => {
-                        const img = event.currentTarget
-                        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-                          aspectRef.current = img.naturalWidth / img.naturalHeight
-                        }
-                      }
-                    : undefined
-                }
+                onLoad={(event) => {
+                  const img = event.currentTarget
+                  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                    const aspect = img.naturalWidth / img.naturalHeight
+                    // El siguiente buffer se carga oculto: guardar su proporción antes del relevo.
+                    setAspects((current) => current[src] === aspect ? current : { ...current, [src]: aspect })
+                  }
+                }}
                 className={`absolute inset-0 h-full w-full origin-center object-cover transition-opacity duration-[400ms] ease-linear ${buffers.front === slot ? 'opacity-100' : 'opacity-0'}`}
-                style={{ transform: `scale(${zoom})` }}
+                style={(buffers.front === slot ? fit : amenityFit(boxSize, aspects[src] || 1.6, zoom))?.style}
               />
             )
           })}
@@ -225,8 +243,8 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         <button
           type="button"
           aria-label={t('Alejar')}
-          disabled={zoom <= 1}
-          onClick={() => setZoom((value) => Math.max(1, Math.round((value - 0.25) * 100) / 100))}
+          disabled={effectiveZoom <= minZoom + 0.01}
+          onClick={() => setZoom((value) => Math.max(minZoom, Math.round((Math.max(minZoom, value) - 0.25) * 100) / 100))}
           onPointerDown={(event) => event.stopPropagation()}
           className="tour-zoom-btn disabled:opacity-40"
         >
@@ -235,8 +253,8 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         <button
           type="button"
           aria-label={t('Acercar')}
-          disabled={zoom >= 3}
-          onClick={() => setZoom((value) => Math.min(3, Math.round((value + 0.25) * 100) / 100))}
+          disabled={effectiveZoom >= 1}
+          onClick={() => setZoom((value) => Math.min(1, Math.round((Math.max(minZoom, value) + 0.25) * 100) / 100))}
           onPointerDown={(event) => event.stopPropagation()}
           className="tour-zoom-btn disabled:opacity-40"
         >
