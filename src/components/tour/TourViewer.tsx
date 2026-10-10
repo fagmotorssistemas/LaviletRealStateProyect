@@ -1408,6 +1408,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   // celular llega a pedir el MP4 de escritorio y luego el de teléfono.
   const [ingresoCoarse, setIngresoCoarse] = useState<boolean | null>(null)
   const [coverReady, setCoverReady] = useState(false)
+  const [coverReopenTick, setCoverReopenTick] = useState(0)
   const coverVideoRef = useRef<HTMLVideoElement | null>(null)
   useLayoutEffect(() => {
     setIngresoCoarse(window.matchMedia('(pointer: coarse)').matches)
@@ -1427,7 +1428,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       window.clearTimeout(timer)
       video?.removeEventListener('loadeddata', markLoaded)
     }
-  }, [planEntryOpen, shellMode, entryCoarse])
+  }, [planEntryOpen, shellMode, entryCoarse, coverReopenTick])
   const entryFailedRef = useRef(false)
   const [droneOn, setDroneOn] = useState(false)
   const droneRef = useRef<HTMLVideoElement>(null)
@@ -3704,7 +3705,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setViewMode('planos-3d')
           setPlanFloor(openingPlanFloor)
           const reopen = view !== 'plan'
-          if (reopen && entryCoarse) setCoverReady(false)
+          if (reopen && entryCoarse) {
+            setCoverReady(false)
+            // Re-arm readiness even when the cover is already open.
+            setCoverReopenTick((tick) => tick + 1)
+          }
           setPlanEntryOpen(reopen)
           setFichaOpen(false)
           setFichaExpanded(false)
