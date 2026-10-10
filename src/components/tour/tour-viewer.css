@@ -1179,7 +1179,7 @@ html.tour-is-force-landscape body {
   }
 }
 
-/* Celular horizontal: panel a la derecha, debajo de la barra y sin tapar sus botones. */
+/* Celular horizontal: reservar la barra y elevar el contexto completo de la ficha. */
 @media (max-height: 500px) {
   .tour-ficha-sheet.tour-modal-sheet {
     top: calc(var(--fab) + var(--edge-top) + 0.45rem) !important;
@@ -1189,14 +1189,11 @@ html.tour-is-force-landscape body {
     width: 40% !important;
     max-width: 40% !important;
     height: auto !important;
-    max-height: none !important;
+    max-height: calc(100% - var(--fab) - var(--edge-top) - 0.45rem - max(0.4rem, env(safe-area-inset-bottom, 0px))) !important;
+    /* La X no puede superar la barra (120) desde un contexto padre de 95. */
+    z-index: 121;
     margin: 0 !important;
     border-radius: 1.75rem !important;
-    padding-top: 0 !important;
-  }
-
-  .tour-root:has(.tour-ficha-sheet) .tour-gallery-arrow--next {
-    right: calc(40% + var(--edge-right) + 0.65rem);
   }
 
   .tour-ficha-body,
@@ -1224,8 +1221,9 @@ html.tour-is-force-landscape body {
   }
 
   .tour-ficha-sheet--expanded .tour-ficha-media {
-    height: 8.5rem !important;
-    max-height: 8.5rem !important;
+    height: min(8.5rem, 25dvh) !important;
+    max-height: min(8.5rem, 25dvh) !important;
+    min-height: 0 !important;
   }
 
   .tour-ficha-tile {
@@ -1238,6 +1236,8 @@ html.tour-is-force-landscape body {
 
   .tour-ficha-shorthead {
     display: flex;
+    position: relative;
+    z-index: 121;
     box-sizing: border-box;
     min-height: 44px;
     padding-top: 0;
@@ -1246,9 +1246,13 @@ html.tour-is-force-landscape body {
     padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
   }
 
-  .tour-ficha-shorthead {
+  .tour-ficha-sheet.tour-modal-sheet {
+    padding-top: 0;
+  }
+
+  .tour-ficha-close {
     position: relative;
-    z-index: 6;
+    z-index: 122;
   }
 
   .tour-ficha-scroll {

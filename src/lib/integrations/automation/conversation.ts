@@ -1160,8 +1160,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         if (exit) return exit
       }
       else {
-        if (!['reply', 'stale', 'conversation'].includes(text(applied.action))) throw new Error('VISIT_INTENT_RPC_CONTRACT_MISMATCH')
-        reply = text(applied.mensaje)
+      if (!['reply', 'stale', 'conversation'].includes(text(applied.action))) throw new Error('VISIT_INTENT_RPC_CONTRACT_MISMATCH')
+      reply = text(applied.mensaje)
       }
       if (intent === 'cancel' && applied.action === 'reply') {
         const { error } = await db().from('lv_visit_intakes').delete().eq('conversation_id', inbound.registration.conversation_id)

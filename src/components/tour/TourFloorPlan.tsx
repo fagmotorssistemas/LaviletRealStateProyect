@@ -493,7 +493,7 @@ export function TourFloorPlan({
   }, [floor])
 
   useEffect(() => {
-    if (portraitPan) setScale(1)
+    const el = stageRef.current
   }, [floor, portraitPan])
 
   useEffect(() => {

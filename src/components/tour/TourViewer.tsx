@@ -365,7 +365,7 @@ function CrossfadeStill({
     const src = assigned[slot]
     if (!src) return null
     const fitted = fittedStill(box, aspect, zoom, framed, contain)
-    return (
+  return (
       <div
         className={cn(
           'pointer-events-none absolute inset-0 transition-opacity duration-[400ms] ease-linear',
@@ -399,9 +399,9 @@ function CrossfadeStill({
             )}
           />
         </div>
-      </div>
-    )
-  }
+    </div>
+  )
+}
 
   return (
     <div
@@ -3477,9 +3477,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           })
           shownUrl = candidate
           break
-        } catch {
+      } catch {
           /* la siguiente pasada usa la resolución menor */
-        }
+      }
       }
       if (token === switchTokenRef.current) setLoading(false)
 
@@ -4451,27 +4451,27 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 </span>
             </button>
             ) : null}
-          </div>
+        </div>
 
           {/* Mobile / landscape: Menú agrupado */}
           <div className="tour-mobile-nav pointer-events-auto">
             {showUnitChrome ? (
               <>
-                <button
-                  type="button"
-                  onClick={() =>
+                  <button
+                    type="button"
+                    onClick={() =>
                     setMobilePanel((value) => (value === 'nav' ? null : 'nav'))
-                  }
+                    }
                   className="tour-fab"
                   aria-expanded={mobilePanel === 'nav'}
                   aria-label={t('Pisos')}
-                >
+                  >
                   <Layers size={18} strokeWidth={2.25} />
-                </button>
+                  </button>
                 {mobilePanel === 'nav' ? (
                   <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
-                    <button
-                      type="button"
+                  <button
+                    type="button"
                       onClick={() => {
                         setShellMode('plan')
                         setViewMode('planos-3d')
@@ -4487,8 +4487,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                       {t(" Pisos ")}</button>
                     {selectedTypology && !viewingCommonArea ? (
                       <>
-                        <button
-                          type="button"
+                  <button
+                    type="button"
                           onClick={() => {
                             setFichaExpanded(false)
                             setSimulatorOpen(false)
@@ -4515,7 +4515,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                             openFinancingTool()
                             setMobilePanel(null)
                           }}
-                          className={cn(
+                    className={cn(
                             'inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase',
                             !showroomIdentified && 'opacity-80',
                           )}
@@ -4524,11 +4524,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                           {t(" Financiar ")}</button>
                       </>
                     ) : null}
-                  </div>
+              </div>
                 ) : null}
               </>
             ) : null}
-          </div>
+            </div>
         </div>
 
         {showUnitChrome ? (
@@ -4574,8 +4574,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {showUnitChrome && !fichaOpen && !navChooserOpen && viewMode === 'tour' ? (
-        <button
-          type="button"
+                  <button
+                    type="button"
           onClick={() => setNavChooserOpen(true)}
           className="tour-nav-pill tour-glass pointer-events-auto text-[#f7f3ee]"
           aria-label={t("Cambiar control del tour")}
@@ -4598,8 +4598,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           <div className="tour-unit-actions">
           <div className="tour-actions-secondary">
           {!isComparador && !isFinishCompare && !voiceAssistOpen ? (
-                  <button
-                    type="button"
+              <button
+                type="button"
               data-tour-voice
               onClick={() => setVoiceAssistOpen(true)}
               className="tour-fab"
@@ -4607,7 +4607,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               title={t("Asistente de voz")}
             >
               <Mic size={18} strokeWidth={1.75} />
-                  </button>
+              </button>
                 ) : null}
           {selectedUnit ? (
                   <button
@@ -4693,9 +4693,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <WhatsAppIcon size={18} />
             </a>
           ) : null}
-          </div>
-          </div>
+            </div>
         </div>
+      </div>
       ) : null}
 
       {embedded || showUnitChrome ? (
