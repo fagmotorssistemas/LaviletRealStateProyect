@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const { chromium } = require('playwright')
 const base = process.env.SHOWROOM_URL || 'http://localhost:3000/tour'
 
-async function waitForEnter(page, label) {
+async function waitForEnter(page, label, immediate = false) {
   await page.waitForFunction(() => {
     const button = [...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Ingresar')
     return button?.classList.contains('opacity-100') && getComputedStyle(button).pointerEvents !== 'none'
@@ -20,7 +20,12 @@ async function waitForEnter(page, label) {
     const r = el.getBoundingClientRect()
     return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) && Number(getComputedStyle(el).opacity) > .9
   }), label + ': INGRESAR must be visible and receive the tap')
-  console.log(`PASS ${label}: ready after ${Math.round(elapsed)}ms`)
+  const status = await page.evaluate(() => ({ ready: window.__homeReady, hidden: window.__homeHidden }))
+  if (status.ready || immediate) {
+    assert.ok(elapsed < 500, label + ': loaded cover must not wait for fallback')
+    assert.equal(status.hidden, false, label + ': loaded cover must not flash or disable INGRESAR')
+  }
+  console.log(`PASS ${label}: ready after ${Math.round(elapsed)}ms, cover already loaded=${Boolean(status.ready)}`)
   return elapsed
 }
 
@@ -30,13 +35,15 @@ async function home(page) {
 }
 
 async function main() {
-  const browser = await chromium.launch()
+  // Installed Chrome includes the MP4 codecs used by the production cover.
+  const browser = await chromium.launch({ channel: 'chrome' })
   try {
     for (const scenario of [
+      { width: 390, height: 844, touch: true, stalled: false },
+      { width: 844, height: 390, touch: true, stalled: false },
+      { width: 900, height: 700, touch: false, stalled: false },
       { width: 390, height: 844, touch: true, stalled: true },
       { width: 844, height: 390, touch: true, stalled: true },
-      { width: 390, height: 844, touch: true, stalled: false },
-      { width: 900, height: 700, touch: false, stalled: false },
     ]) {
       const { width, height, touch, stalled } = scenario
       const context = await browser.newContext({ viewport: { width, height }, hasTouch: touch, isMobile: touch })
@@ -44,8 +51,17 @@ async function main() {
       page.setDefaultTimeout(15000)
       await page.addInitScript(blockCover => {
         document.addEventListener('click', event => {
-          if (event.target.closest('button')?.textContent.trim() === 'Inicio / edificio') window.__homeAt = performance.now()
+          if (event.target.closest('button')?.textContent.trim() === 'Inicio / edificio') {
+            window.__homeAt = performance.now()
+            window.__homeReady = document.querySelector('video[aria-label*="Fachada"]')?.readyState >= 2
+            window.__homeHidden = false
+          }
         }, true)
+        new MutationObserver(() => {
+          if (!window.__homeAt) return
+          const enter = [...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Ingresar')
+          if (enter?.classList.contains('opacity-0') || enter?.classList.contains('pointer-events-none')) window.__homeHidden = true
+        }).observe(document, { subtree: true, attributes: true, attributeFilter: ['class'], childList: true })
         if (!blockCover) return
         // No load/error/frame callback can rescue the button: exercise the fallback timer.
         const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src')
@@ -67,6 +83,7 @@ async function main() {
       await page.evaluate(() => { window.__homeAt = performance.now() })
       await waitForEnter(page, label + ' initial')
       if (stalled) assert.equal(await page.locator('video').evaluateAll(videos => videos.some(video => (video.currentSrc || video.src).includes('portada') && video.readyState >= 2)), false)
+      if (!stalled) await page.waitForFunction(() => document.querySelector('video[aria-label*="Fachada"]')?.readyState >= 2)
       // The cover is already open: planEntryOpen and shellMode do not change.
       for (let n = 1; n <= 3; n++) {
         await home(page)
@@ -79,13 +96,15 @@ async function main() {
       await home(page)
       const rapid = await waitForEnter(page, label + ' rapid reopen')
       if (stalled) assert.ok(rapid >= 2400, 'old timer must not mark a newer cover ready')
-      // Return from a unit as well as from the already-open cover.
-      await page.locator('[data-showroom-menu]').click()
-      await page.getByRole('button', { name: 'Buscar departamentos', exact: true }).click()
-      await page.getByRole('button', { name: 'Abrir ficha', exact: true }).first().click()
-      await page.locator('.tour-ficha-sheet').waitFor()
-      await home(page)
-      await waitForEnter(page, label + ' from unit')
+      // Repeated returns from a unit must also preserve the loaded cover.
+      for (let n = 1; n <= 3; n++) {
+        await page.locator('[data-showroom-menu]').click()
+        await page.getByRole('button', { name: 'Buscar departamentos', exact: true }).click()
+        await page.getByRole('button', { name: 'Abrir ficha', exact: true }).first().click()
+        await page.locator('.tour-ficha-sheet').waitFor()
+        await home(page)
+        await waitForEnter(page, label + ' from unit ' + n, !stalled)
+      }
       await page.getByRole('button', { name: 'Ingresar', exact: true }).click()
       await page.getByRole('button', { name: 'Ingresar', exact: true }).waitFor({ state: 'hidden' })
       console.log(`PASS ${label}: actual INGRESAR click starts entry`)

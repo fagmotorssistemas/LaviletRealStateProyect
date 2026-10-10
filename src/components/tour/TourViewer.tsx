@@ -1410,6 +1410,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [coverReady, setCoverReady] = useState(false)
   const [coverReopenTick, setCoverReopenTick] = useState(0)
   const coverVideoRef = useRef<HTMLVideoElement | null>(null)
+  const coverHasShownFrameRef = useRef(false)
   useLayoutEffect(() => {
     setIngresoCoarse(window.matchMedia('(pointer: coarse)').matches)
   }, [])
@@ -3706,9 +3707,16 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setPlanFloor(openingPlanFloor)
           const reopen = view !== 'plan'
           if (reopen && entryCoarse) {
-            setCoverReady(false)
-            // Re-arm readiness even when the cover is already open.
-            setCoverReopenTick((tick) => tick + 1)
+            const cover = coverVideoRef.current
+            // Unit views unmount the cover; keep its successful first-frame confirmation.
+            const alreadyReady = cover ? cover.readyState >= 2 : coverHasShownFrameRef.current
+            if (alreadyReady) {
+              setCoverReady(true)
+            } else {
+              setCoverReady(false)
+              // Re-arm readiness only when the cover has no frame available.
+              setCoverReopenTick((tick) => tick + 1)
+            }
           }
           setPlanEntryOpen(reopen)
           setFichaOpen(false)
@@ -5080,7 +5088,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 autoPlay={planEntryOpen && !coverHidden}
                 label={t('Fachada Lavilet del día a la noche')}
                 videoRef={coverVideoRef}
-                onFirstFrame={() => setCoverReady(true)}
+                onFirstFrame={() => {
+                  coverHasShownFrameRef.current = true
+                  setCoverReady(true)
+                }}
                 onError={() => setCoverReady(true)}
                 className="tour-entry-video absolute inset-0 h-full w-full"
               />
