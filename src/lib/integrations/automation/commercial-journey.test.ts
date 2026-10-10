@@ -83,7 +83,8 @@ test('category choice comes from compatible inventory, including suites when the
 
 test('an explicit category choice or exclusion does not reopen the other category', () => {
   for (const context of [
-    { query: { group: 'residential', category: 'departamento', filters: { bedrooms: 3 } } },
+    { query: { group: 'residential', category: 'departamento', filters: { bedrooms: 3 } },
+      category_preference: { category: 'departamento', confirmed: true, evidence: 'Prefiero los departamentos' } },
     { query: { group: 'residential', filters: { bedrooms: 3 } }, excluded_categories: ['penthouse'] },
   ]) {
     const data = residentialSelection()

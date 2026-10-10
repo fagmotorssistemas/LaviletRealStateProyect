@@ -15,6 +15,18 @@ const sentences = [
   { id: 'S2', text: 'La Vilet está en Puertas del Sol, Cuenca.' },
   { id: 'S3', text: '¿Podría indicarnos su nombre y dónde reside actualmente para enviarle el brochure y una guía personalizada?' },
 ]
+test('a first general presentation is a positive obligation and approved categories do not conflict with the opening scope', () => {
+  const approvedSummary = 'El proyecto combina viviendas y espacios comerciales.'
+  const plan = { required: true, approved_summary: approvedSummary, source: 'Administrador', content_kind: 'approved_business_summary' }
+  const obligations = reviewObligations({ profile_introduction: { generic_introduction: true, presentation: plan } }, {}, {})
+  const presentation = obligations.find(row => row.id === 'opening_presentation')!
+  assert.equal(presentation.approved_summary, approvedSummary)
+  assert.match(String(presentation.instruction), /NO atiende la consulta/)
+  assert.match(String(presentation.instruction), /sin exigir copia literal/)
+  assert.match(String(obligations.find(row => row.id === 'opening_scope')!.instruction), /NO constituyen una oferta prematura/)
+  const otherTurn = reviewObligations({ profile_introduction: { generic_introduction: false, presentation: { ...plan, required: false } } }, {}, {})
+  assert.ok(!otherTurn.some(row => row.id === 'opening_presentation' || row.id === 'opening_scope'))
+})
 const obligations = [{ id: 'business_scope', instruction: 'Respetar el proyecto.' }, { id: 'profile_collection', instruction: 'Solicitar datos pendientes.' }]
 function review(extra: Row = {}): Row {
   return { review_contract: FOCUSED_REVIEW_VERSION, claims: [], factual_values: [], project_values: [],

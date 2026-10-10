@@ -103,6 +103,7 @@ test('early total budget is remembered through bedroom alternatives, type, floor
 
 test('after early budget, one compatible floor presents identified units without a redundant floor question', () => {
   const data = info({ group: 'residential', category: 'penthouse', operation: 'search', filters: { bedrooms: 3 } })
+  object(data.property_context).category_preference = { category: 'penthouse', confirmed: true, evidence: 'Prefiero conocer los penthouses' }
   const plan = commercialJourneyPlan(data)
   assert.deepEqual(object(plan.selection_scope).floors, [6])
   assert.equal(plan.question_id, 'unit_choice')
@@ -131,7 +132,8 @@ test('a budget given voluntarily is preserved and does not remove type or floor 
   let plan = commercialJourneyPlan(data)
   assert.equal(plan.question_id, 'property_category')
   assert.equal(object(object(plan.readiness).budget).amount, 600000)
-  data.property_context = { query: { group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3 } } }
+  data.property_context = { query: { group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3 } },
+    category_preference: { category: 'departamento', confirmed: true, evidence: 'Prefiero departamentos' } }
   plan = commercialJourneyPlan(data)
   assert.equal(plan.question_id, 'property_floor')
   object(object(data.property_context).query).filters = { bedrooms: 3, floor_number: 2 }
@@ -171,7 +173,8 @@ test('requested informational continuations can clarify options without commerci
   data.commercial_engagement = { passive: true, property_continuation_allowed: true }
   let plan = commercialJourneyPlan(data)
   assert.equal(plan.question_id, 'property_category')
-  data.property_context = { query: { group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3 } } }
+  data.property_context = { query: { group: 'residential', category: 'departamento', operation: 'search', filters: { bedrooms: 3 } },
+    category_preference: { category: 'departamento', confirmed: true, evidence: 'Muéstreme los departamentos' } }
   plan = commercialJourneyPlan(data)
   assert.equal(plan.question_id, 'property_floor')
   object(object(data.property_context).query).filters = { bedrooms: 3, floor_number: 2 }

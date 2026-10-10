@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { projectIntroductionContext } from '@/lib/inmobiliaria/projectIntroduction'
-import { projectIntroductionForTurn, withProjectIntroductionForTurn } from './project-introduction-context'
+import { generalProjectIntroductionTurn, projectIntroductionForTurn, withProjectIntroductionForTurn } from './project-introduction-context'
 import { resolveTurnIntent } from './turn-intent'
 import { taskVerifiedContext } from './task-context'
 import { projectInformationReply } from './commercial-experience'
@@ -49,6 +49,29 @@ test('real intent projection keeps a source-less extracted request identical to 
   ;(mixed.solicitudes_interpretadas as Row[]).push({ ...extracted[0], request: '¿Aceptan mascotas?' })
   assert.equal(projectIntroductionForTurn(mixed), null)
 })
+test('an explicit general overview keeps the approved source despite an incidental broad property group', () => {
+  for (const group of ['residential', 'commercial']) {
+    const input = fixture(), current = 'Saludos, quiero informacion por favor'
+    const requests = [{ domain: 'property', topics: ['project_overview'], confidence: 'high', request: 'Quiero informacion por favor', evidence: current }]
+    input.solicitudes_interpretadas = requests
+    input.semantica_turno = { ...object(input.semantica_turno), requests, primary_evidence: current,
+      property: { ...object(object(input.semantica_turno).property), group } }
+    input.contrato_turno = resolveTurnIntent({ current, semantics: object(input.semantica_turno), requests, scope: { kind: 'property', uncertain: false } })
+    object(input.property_context).query = { operation: 'none', group, filters: { bedrooms: null } }
+    const before = structuredClone(input)
+    assert.equal(generalProjectIntroductionTurn(input), true)
+    assert.equal(object(projectIntroductionForTurn(input)).summary, summary)
+    assert.equal(object(taskVerifiedContext(input, { source: 'catalog_search' }, current).presentacion_general_proyecto).summary, summary)
+    assert.deepEqual(input, before)
+    for (const topics of [['purchase_prices'], ['property_options'], ['project_overview', 'delivery']]) {
+      const concrete = structuredClone(input)
+      ;(concrete.solicitudes_interpretadas as Row[])[0].topics = topics
+      ;(object(concrete.contrato_turno).requests as Row[])[0].topics = topics
+      assert.equal(generalProjectIntroductionTurn(concrete), false, topics.join(','))
+      assert.equal(projectIntroductionForTurn(concrete), null)
+    }
+  }
+})
 test('greetings, concrete topics, compound requests, uncertainty and active unit selection exclude the presentation irrespective of wording', () => {
   const modifications: [string, (input: Row) => void][] = [
     ['greeting', input => { object(input.semantica_turno).primary_intent = 'other'; object(input.contrato_turno).objective = 'other' }],
@@ -65,6 +88,7 @@ test('greetings, concrete topics, compound requests, uncertainty and active unit
     ['details clarification', input => { object(object(input.semantica_turno).property).operation = 'details' }],
     ['followup clarification', input => { object(object(input.semantica_turno).property).reference_kind = 'followup' }],
     ['brochure already delivered', input => { input.estado_conversacion = { brochure_sent: true } }],
+    ['presentation already delivered', input => { input.estado_conversacion = { presentation_sent: true } }],
     ['commercial pending question', input => { input.pregunta_pendiente = { id: 'property_category', act: 'discover' } }],
     ['known commercial preference', input => { object(input.lead).purchase_purpose = 'vivir' }],
     ['known commercial context', input => { input.conversacion = { datos_conocidos: { categoria: 'suite' } } }],

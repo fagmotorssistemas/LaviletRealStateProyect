@@ -96,6 +96,38 @@ test('multiple needs questions retain both requests and resume the bank choice w
   assert.equal(object(object(verified.financiamiento).journey).accepted, true)
 })
 
+for (const available of [true, false]) test('current stairs need reaches the final writer with only verified access facts; available=' + available, async () => {
+  const current = 'Prefiero un piso bajo para no subir tantas gradas'
+  const verified = inputFor(current), originalElevator = { amenity_name: '2 ascensores de última generación',
+    description: 'Ascensores modernos y eficientes', access_condition: 'Sujetos a mantenimiento.' }
+  verified.instalaciones = available ? [originalElevator, { amenity_name: 'Piscina', description: 'Uso común.' }] : []
+  object(verified.semantica_turno).property = { operation: 'search', reference_kind: 'followup' }
+  object(verified.semantica_turno).catalog_request = { purpose: 'search', requirements: [], semantic_preferences: [] }
+  const original = structuredClone(verified)
+  const reply = (available ? 'El proyecto cuenta con dos ascensores.' : 'Podemos revisar las opciones en plantas bajas.') + ' ' + question
+  let writerCalls = 0
+  let writerContext: Row = {}
+  const result = await completeTurnReply({ current, verified, baseReply: reply,
+    audit: { source: 'catalog_search', semantic_review_enabled: true, business_risk_review_enabled: true } },
+  async (_rules, raw, _schema, _image, _file, _tone, task) => {
+    if (task === 'writing') {
+      writerCalls++
+      writerContext = object(raw)
+      return { reply, question: metadata, requests: [{ fragment: 'R1', intent: 'Necesidad de evitar gradas',
+        request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: null }] }
+    }
+    return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: { ...metadata, offered_action: 'none' } }
+  })
+  assert.equal(result.reply, reply, JSON.stringify(result.audit))
+  assert.equal(result.needsAdvisor, false)
+  assert.equal(writerCalls, 1)
+  const evidence = object(writerContext.contexto_verificado)
+  assert.deepEqual(evidence.instalaciones, available ? [originalElevator] : [])
+  assert.match(String(object(writerContext.razonamiento_contextual).guidance), /existencia de ascensores no demuestra/)
+  assert.deepEqual(object(object(verified.semantica_turno).catalog_request).semantic_preferences, [])
+  assert.deepEqual(verified, original)
+})
+
 const bedMeasures = 'Dos camas de 0,90 m por 1,90 m: ¿qué superficie suman?'
 const footprintProof = (result: number): Row => ({ operation: 'multiply', scope: 'grounded', operands: [
   { value: 0.9, unit: 'm', source: { kind: 'lead_current', reference: '', quote: bedMeasures } },

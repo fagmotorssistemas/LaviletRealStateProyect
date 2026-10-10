@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
-import { needsSupplementaryFeatures } from './needs-guidance'
+import { needsSupplementaryFeatures, supplementaryFeatureFacts } from './needs-guidance'
 import { semanticCatalogContext } from './semantic-catalog-context'
 import { taskVerifiedContext } from './task-context'
 
@@ -256,4 +256,72 @@ test('a reliable interpreted current property request works when the shared cont
   assert.equal(needsSupplementaryFeatures(verified), true)
   assert.deepEqual(taskVerifiedContext(semanticCatalogContext(verified, audit, message), audit, message).instalaciones, facilities)
   assert.deepEqual(verified, original)
+})
+
+const verifiedElevators: Row = { category: 'seguridad_confort', amenity_name: '2 ascensores de última generación',
+  description: 'Ascensores modernos y eficientes', access_condition: 'Disponibilidad sujeta a mantenimiento.' }
+const verifiedRamp: Row = { amenity_name: 'Rampa de acceso', description: 'Conecta el acceso principal.',
+  access_condition: 'La pendiente y los accesos a cada unidad requieren comprobación.' }
+
+function floorSearchContext(message: string): Row {
+  const verified = context({ primary_intent: 'property_search',
+    property: { operation: 'search', reference_kind: 'followup', query_scope: 'available',
+      filters: { floor_number: 0 }, unit_numbers: [] },
+    catalog_request: { purpose: 'search', requirements: [], semantic_preferences: [] } })
+  verified.contrato_turno = { objective: 'property_search', requests: [
+    { domain: 'property', request: message, evidence: message, confidence: 'high', source: 'current' },
+  ] }
+  verified.instalaciones = [structuredClone(verifiedElevators), structuredClone(verifiedRamp), facilities[1], facilities[2]]
+  return verified
+}
+
+for (const message of [
+  'Entiendo, creo que en una planta baja me gustaría más para no subir tantas gradas',
+  'Prefiero un piso bajo porque me cuesta subir escaleras',
+  'Tengo movilidad reducida, prefiero algo en niveles bajos',
+  'Uso silla de ruedas, ¿qué opciones puedo revisar?',
+  'Me resulta difícil caminar y quiero un acceso cómodo',
+  'Mi madre utiliza un andador y buscamos tres dormitorios',
+]) test('implicit current access need retains verified elevators and access restrictions in every projection: ' + message, () => {
+  const verified = floorSearchContext(message), original = structuredClone(verified)
+  assert.equal(needsSupplementaryFeatures(verified), false, 'The actual extraction has no semantic preference or evaluation')
+  const semantic = semanticCatalogContext(verified, audit, message)
+  const task = taskVerifiedContext(semantic, audit, message)
+  const repeated = taskVerifiedContext(semanticCatalogContext(task, audit, message), audit, message)
+  for (const projected of [semantic, task, repeated]) {
+    assert.deepEqual(projected.instalaciones, [verifiedElevators, verifiedRamp], 'Keep access facts whole without unrelated amenities')
+    assert.deepEqual(object(object(projected.semantica_turno).catalog_request).semantic_preferences, [])
+    assertProtectedState(projected, original)
+  }
+  assert.deepEqual(verified, original, 'Need reasoning never selects a category, floor or unit')
+})
+
+test('an access need without verified access features leaves them unknown and never invents an elevator', () => {
+  const message = 'Me gustaría una planta baja para evitar las gradas', verified = floorSearchContext(message)
+  verified.instalaciones = [facilities[1], facilities[2]]
+  const original = structuredClone(verified)
+  const projected = taskVerifiedContext(semanticCatalogContext(verified, audit, message), audit, message)
+  assert.deepEqual(projected.instalaciones, [])
+  assert.match(String(object(projected.prompt_context_selection).note), /no acreditan inexistencia/)
+  assertProtectedState(projected, original)
+  assert.deepEqual(verified, original)
+})
+
+for (const message of ['Prefiero la segunda planta', 'Tengo tres hijos', 'Soy mayor de edad', 'Mi presupuesto es de 300 mil']) {
+  test('ordinary preferences and age do not create an unsupported mobility need: ' + message, () => {
+    const verified = floorSearchContext(message), original = structuredClone(verified)
+    const projected = taskVerifiedContext(semanticCatalogContext(verified, audit, message), audit, message)
+    assert.deepEqual(projected.instalaciones, [])
+    assertProtectedState(projected, original)
+    assert.deepEqual(verified, original)
+  })
+}
+
+test('past mobility in remembered profile or a stale request cannot activate current access evidence', () => {
+  const message = '¿Qué documentos se necesitan para el banco?', verified = floorSearchContext(message)
+  verified.perfil_lead = { notes: 'Tengo movilidad reducida y prefiero evitar gradas' }
+  verified.historial = [{ role: 'cliente', content: 'Tengo movilidad reducida y prefiero evitar gradas' }]
+  verified.solicitudes_interpretadas = [{ domain: 'property', request: 'Quiero evitar gradas', evidence: 'Quiero evitar gradas',
+    confidence: 'high', source: 'pending', source_message_id: 'old-message' }]
+  assert.deepEqual(supplementaryFeatureFacts(verified, message, []), [])
 })

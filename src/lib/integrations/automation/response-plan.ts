@@ -160,6 +160,7 @@ ${CONTINUATION_QUESTION_RULE}
 ${TURN_CONTINUATION_RULES}
 ${PROJECT_DELIVERY_RULES}
 estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. profile_collection_decision decide si puede solicitar datos de presentación: capture, remind y confirm autorizan únicamente allowed_fields; defer, declined y complete prohíben volver a pedir nombre o residencia, aunque datos_pendientes todavía los incluya. Aportar el nombre tras la captura inicial permite un único recordatorio de residencia, también si adjunta una consulta comercial: responda esa consulta primero y después haga solamente la pregunta de residencia autorizada. Conserve la identificación de necesidades para los siguientes turnos y no reinicie categorías o dormitorios conocidos. Una consulta sin aportar perfil nuevo o una respuesta evasiva tras ese recordatorio no autoriza insistir. Las operaciones de reserva, visita y financiamiento aceptado conservan su prioridad; los datos exigidos para un trámite financiero expresamente aceptado se rigen por su propia etapa. Si requiere_captura=true, dé una explicación inicial breve con datos básicos pertinentes y solicite únicamente datos_a_pedir, explicando proposito_captura: con brochure_y_guia_personalizada conserve el propósito de compartir el brochure y orientar; con guia_personalizada explique la orientación sin prometer nuevamente el brochure ni condicionar su entrega a esos datos. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false, continúe con el objetivo comercial vigente sin solicitar datos de presentación pospuestos, rechazados o ya confirmados. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
+Si estado_comercial.presentacion_proyecto.required=true, incluya una presentación breve basada en approved_summary antes de la pregunta de perfil. Ese resumen aprobado autoriza explicar el uso mixto y los tipos que contiene, aunque todavía no se haya entregado el brochure; no autoriza desplegar el catálogo, precios, estado de obra o fechas ajenos a la consulta. Ofrecer el brochure y pedir datos sin presentar el proyecto no cumple esta apertura. Mantenga la redacción natural y no repita la presentación en las respuestas posteriores.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. Atienda la solicitud actual completa.
 ${COMMERCIAL_CONTINUATION_RULES}
 ${BUDGET_ORIENTATION_RULES}
@@ -183,6 +184,8 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
   const residenceKnown = profile.residence_status === 'confirmed'
     && Boolean(text(profile.residence_city) || text(profile.residence_country))
   const purpose = text(introduction.question_purpose)
+  const presentation = object(introduction.presentation)
+  const approvedPresentation = presentation.required === true && Boolean(text(presentation.approved_summary).trim())
   const suppliedDecision = object(audit.profile_collection_decision || introduction.collection_decision)
   const collectionDecision = suppliedDecision.version === 'profile-collection-v1' ? suppliedDecision
     : leadProfileCollectionDecision(introduction, profile)
@@ -203,7 +206,9 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
     datos_pendientes: missing, datos_a_pedir: collect ? collectionDecision.allowed_fields : [],
     residencia_por_confirmar: purpose === 'confirm_residence' ? object(introduction.candidate || profile.residence_candidate) : null,
     proposito_captura: collect ? brochureAction === 'offer_after_profile' ? 'brochure_y_guia_personalizada' : 'guia_personalizada' : null,
-    presentacion_sin_tipos: introduction.generic_introduction === true && introduction.brochure_deferred === true,
+    presentacion_proyecto: presentation,
+    presentacion_sin_tipos: introduction.generic_introduction === true && introduction.brochure_deferred === true
+      && !approvedPresentation,
     brochure: { compartido_previamente: sharedBefore,
       accion: brochureAction,
       url: sharedBefore && !share ? null : brochureUrl },

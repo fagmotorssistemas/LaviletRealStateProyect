@@ -6,6 +6,7 @@ import { BROCHURE_URL, brochureDeliveryIntent } from './project-material'
 import { confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { replyQuestions } from './reply-question'
 import { continuationMetadata } from './continuation-question'
+import { generalProjectIntroductionTurn, projectIntroductionForTurn } from './project-introduction-context'
 
 export const PROFILE_INVITATION = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
 const BROCHURE_PURPOSE = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, '
@@ -106,6 +107,19 @@ function genericPropertyOpening(current: string, extracted: Row) {
     && !text(extracted.preferred_category) && !text(property.category)
     && !specificFilters && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length) && !concreteSelector
     && ['none', 'search', ''].includes(text(property.operation))
+}
+/** Reuse the semantic overview decision used by both model projections. The
+ * lexical fallback is only for legacy callers without interpreted requests. */
+function presentationContext(input: LeadIntroductionInput, audit: Row, prior: Row): Row {
+  const info = object(input.projectInfo), extracted = object(input.extracted)
+  const semantics = object(extracted.turn_semantics || info.semantica_turno)
+  const intent = object(audit.resolved_turn_intent || info.contrato_turno)
+  const requests = extracted.requests || semantics.requests || info.solicitudes_interpretadas || intent.requests
+  return { ...info, semantica_turno: semantics, solicitudes_interpretadas: requests,
+    contrato_turno: Object.keys(intent).length ? intent : { objective: semantics.primary_intent, requests },
+    property_context: info.property_context || object(input.summary)._property_context,
+    estado_conversacion: { ...object(info.estado_conversacion), brochure_sent: prior.brochure_sent === true,
+      presentation_sent: prior.presentation_sent === true } }
 }
 function protectedCurrentOperation(audit: Row, extracted: Row) {
   const semantics = object(extracted.turn_semantics), intent = object(audit.resolved_turn_intent)
@@ -243,6 +257,12 @@ export function rememberLeadIntroduction(input: {
   if (!missingFields(profile).length) state.status = 'complete'
   state.collection_status = collectionStatus(profile, state, plan.profile_declined === true)
   state.brochure_sent = previous.brochure_sent === true || brochureDelivered
+  // A rejected/observed finding does not certify that the summary was written.
+  // Only a reviewed pass (or the explicitly disabled review) commits this receipt.
+  const review = object(audit.turn_completeness), semanticReview = object(review.semantic_review)
+  if (object(plan.presentation).required === true
+    && (review.status === 'review_disabled' || review.status === 'checked'
+      || semanticReview.status === 'checked')) state.presentation_sent = true
   state.reminder_count = delivered ? planned.reminder_count || 0 : previous.reminder_count || 0
   state.confirmation_asked = question.id === 'lead_residence_confirmation' || previous.confirmation_asked === true
   state.confirmation_candidate = question.id === 'lead_residence_confirmation'
@@ -336,11 +356,19 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
   if (protectedCurrentOperation(audit, extracted)) return acknowledgeOnly()
   const url = input.brochureUrl || BROCHURE_URL
-  const category = categoryFor(input), overview = generalInformation(input.current, audit) || genericPropertyOpening(input.current, extracted)
+  const introductionInfo = presentationContext(input, audit, prior)
+  const semanticOverview = generalProjectIntroductionTurn(introductionInfo)
+  const hasSemanticRequests = rows(introductionInfo.solicitudes_interpretadas).some(request => request.confidence === 'high')
+    || rows(object(introductionInfo.contrato_turno).requests).some(request => request.confidence === 'high')
+  const category = categoryFor(input), overview = semanticOverview
+    || !hasSemanticRequests && generalInformation(input.current, audit) || genericPropertyOpening(input.current, extracted)
+  const approvedPresentation = semanticOverview ? projectIntroductionForTurn(introductionInfo) : null
+  const presentationText = text(object(approvedPresentation).summary) || PROJECT_INTRODUCTION
   if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
   const materialRequested = material.requested
   const deliver = pending || suppliedProfile || materialRequested || missing.length === 0 || declined
+  const firstPresentation = overview && !pending && prior.presentation_sent !== true
   const candidate = object(profile.residence_candidate)
   const candidatePlace = [text(candidate.city), text(candidate.country)].filter(Boolean).join(', ')
   const needsConfirmation = profile.residence_status === 'pending_confirmation' && Boolean(candidatePlace)
@@ -358,7 +386,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   if (!deliver) {
     question = profileQuestion(missing, prior.brochure_sent === true)
     purpose = questionPurpose(missing)
-    result = join(overview ? PROJECT_INTRODUCTION : categoryIntroduction(input, category) || withoutLastQuestion(base), question)
+    result = join(overview && prior.presentation_sent !== true ? presentationText : categoryIntroduction(input, category) || withoutLastQuestion(base), question)
     state = { ...prior, version: 3, status: 'pending', reminder_count: 0, brochure_sent: prior.brochure_sent === true,
       category, continuation_reply: commercialContinuation(input, category, overview) }
   } else {
@@ -379,7 +407,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
       if (confirm) { question = `Entiendo que es de ${candidatePlace}. ¿Es también su lugar de residencia actual?`; purpose = 'confirm_residence' }
       else { question = profileQuestion(missing, true); purpose = questionPurpose(missing); if (asked) reminderCount += 1 }
     }
-    const contextual = onlyProfile ? '' : overview && !pending ? PROJECT_INTRODUCTION : base
+    const contextual = onlyProfile ? '' : overview && !pending && prior.presentation_sent !== true ? presentationText : base
     result = join(remind ? withoutLastQuestion(contextual) : contextual, brochure, remind ? question : onlyProfile || overview ? continuation : '')
     state = { ...prior, version: 3, status: remind ? 'pending' : 'complete', reminder_count: reminderCount,
       brochure_sent: deliverBrochure || prior.brochure_sent === true, category: text(prior.category) || category, continuation_reply: continuation,
@@ -399,7 +427,11 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   return { reply: result, state, applied: true, brochureDeferred,
     audit: { ...audit, profile_collection_decision: collectionDecision, brochure_sent: deliverBrochure || prior.brochure_sent === true, profile_introduction: { stage, question, brochure_deferred: brochureDeferred,
       collection_decision: collectionDecision,
-      brochure_required: deliverBrochure, brochure_url: url, generic_introduction: overview && !deliver,
+      brochure_required: deliverBrochure, brochure_url: url, generic_introduction: overview && !deliver && prior.presentation_sent !== true,
+      presentation: { required: firstPresentation,
+        approved_summary: firstPresentation ? text(object(approvedPresentation).summary) || null : null,
+        source: firstPresentation ? text(object(approvedPresentation).source) || null : null,
+        content_kind: approvedPresentation && firstPresentation ? 'approved_business_summary' : 'basic_project_summary' },
       brochure_previously_sent: prior.brochure_sent === true,
       missing_fields: missing, reminder_count: reminderCount, residence_meaning: 'current_residence', profile_declined: declined,
       profile_state: profile, question_purpose: purpose, candidate: needsConfirmation ? { ...candidate } : null,
@@ -415,7 +447,8 @@ APERTURA Y PERFIL DEL LEAD
 - full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si la decisión autoriza pedir full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden únicamente los datos autorizados, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla.
 - declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
 - Si name_acknowledgement tiene contenido, incluya «Mucho gusto, Nombre» usando ese nombre verificado, una sola vez. Es un reconocimiento del nombre recién declarado, no una cortesía opcional ni un saludo que deba suprimirse. No añada saludos adicionales.
-- Si generic_introduction=true, presente brevemente La Vilet y su ubicación, y solicite los datos pendientes. Puede describir de forma breve el sector donde se ubica con información verificada; por ejemplo, que Puertas del Sol es una zona residencial describe la ubicación, no los tipos de inmuebles en venta. Todavía no presente los tipos de inmuebles que ofrece el proyecto, ni describa su combinación o usos residenciales/comerciales. La restricción es de significado: sustituir suites, departamentos, penthouses o locales por expresiones como «unidades residenciales y espacios comerciales» sigue adelantando las opciones. Esa presentación corresponde a la continuación después de los datos. No añada una segunda pregunta comercial. Las recomendaciones generales de explicar el concepto o la comodidad del proyecto no autorizan adelantar esta etapa.
+- Si presentation.required=true, responda la consulta general inicial con una presentación breve del proyecto antes de la pregunta de perfil. Ofrecer el brochure y pedir los datos, sin describir el proyecto, no atiende esa consulta. presentation.approved_summary contiene el resumen aprobado y autoriza su concepto, tipos generales y cantidades; conserve esos hechos con redacción natural sin convertirlos en ofertas de catálogo, fichas, precios, etapa de obra o fechas. Esta presentación no se repite después ni se impone en consultas concretas o múltiples.
+- Si generic_introduction=true y no existe presentation.approved_summary, use la presentación básica breve de La Vilet y su ubicación. Todavía no enumere tipos de inmuebles ni sus usos residenciales/comerciales, tampoco mediante paráfrasis; esa oferta corresponde a la continuación posterior. Con el resumen aprobado sí se permite explicar el concepto mixto y las categorías que incluye como descripción general del proyecto. En ambos casos conserve la única pregunta de perfil pendiente, sin una segunda pregunta comercial.
 
 - Si brochure_deferred=true, no adjunte todavía el brochure: se prometió para el siguiente intercambio. Si brochure_required=true, conserve el enlace verificado. Una petición directa del brochure se atiende sin exigir datos.
 - Si question_purpose=confirm_residence y brochure_deferred=true, confirme primero si el lugar declarado es su residencia actual y deje el brochure para el siguiente intercambio. Si el brochure ya se compartió o se atiende una petición directa, no prometa enviarlo después de confirmar un dato ni presente la residencia como requisito para recibirlo: explique la pregunta por la guía personalizada. Si el lead no responde a la aclaración o rehúsa sus datos, continúe atendiendo su consulta sin reiterarla ni retener el material indefinidamente.
@@ -447,7 +480,8 @@ export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
       return new RegExp(`\\b(?:vive|reside|viviendo|su residencia (?:actual )?(?:es|esta))\\s+(?:actualmente\\s+)?(?:en\\s+)?${escaped}\\b`).test(statements)
     })) issues.push('lead_profile_unconfirmed_residence')
   }
-  if (plan.generic_introduction === true && /\b(?:suites?|departamentos?|penthouses?|locales? comerciales?)\b/.test(normalized(reply))) issues.push('lead_profile_categories_premature')
+  if (plan.generic_introduction === true && !text(object(plan.presentation).approved_summary)
+    && /\b(?:suites?|departamentos?|penthouses?|locales? comerciales?)\b/.test(normalized(reply))) issues.push('lead_profile_categories_premature')
   if (plan.brochure_deferred === true && reply.includes(text(plan.brochure_url) || BROCHURE_URL)) issues.push('lead_profile_brochure_premature')
   if (plan.brochure_required === true && !reply.includes(text(plan.brochure_url) || BROCHURE_URL)) issues.push('lead_profile_brochure_missing')
   return issues
@@ -457,27 +491,50 @@ export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
  * The system resolves IDs against the actual draft; it does not guess synonyms.
  */
 export function leadIntroductionReviewSchema(auditRaw: unknown, referencesRaw: unknown): { properties: Row; required: string[] } {
-  if (object(object(auditRaw).profile_introduction).generic_introduction !== true) return { properties: {}, required: [] }
+  const plan = object(object(auditRaw).profile_introduction), presentation = object(plan.presentation)
+  if (plan.generic_introduction !== true && presentation.required !== true) return { properties: {}, required: [] }
   const ids = rows(referencesRaw).map(row => text(row.id)).filter(Boolean)
-  return { properties: { opening_property_type_sentence_ids: { type: 'array', maxItems: ids.length,
-    description: 'CONTROL DE APERTURA ACTIVO. Seleccione los IDs de todas las oraciones que expliquen qué tipos de inmuebles ofrece el proyecto, también descripciones de usos residenciales/comerciales sin nombres de categorías. Presentar unidades residenciales y espacios comerciales sí cuenta. Ubicación, bienvenida y describir el sector como residencial no presentan tipos de inmuebles y no cuentan. Use [] únicamente si no presenta tipos. La veracidad de la oferta y pedir los datos después no eximen este control. Esta es la única salida para señalar tipos prematuros: no duplique ese motivo en operational_goal_preserved, review_issues o claims; el sistema aplicará la decisión comercial.',
-    items: { type: 'string', ...(ids.length ? { enum: ids } : {}) } } }, required: ['opening_property_type_sentence_ids'] }
+  const properties: Row = {}, required: string[] = []
+  const sentenceIds = (description: string) => ({ type: 'array', maxItems: ids.length, description,
+    items: { type: 'string', ...(ids.length ? { enum: ids } : {}) } })
+  if (plan.generic_introduction === true) {
+    properties.opening_property_type_sentence_ids = sentenceIds(text(presentation.approved_summary)
+      ? 'CONTROL DE APERTURA CON RESUMEN APROBADO. El concepto mixto, categorías generales y cantidades de presentation.approved_summary están autorizados como presentación del proyecto y NO son tipos prematuros. Seleccione solo oraciones que adelanten ofertas de catálogo o fichas fuera de ese resumen. Use [] si no hay ninguna. La verdad factual se revisa por separado. Registre este motivo únicamente en este campo, sin duplicarlo en operational_goal_preserved, review_issues o claims.'
+      : 'CONTROL DE APERTURA ACTIVO. Seleccione los IDs de todas las oraciones que expliquen qué tipos de inmuebles ofrece el proyecto, también descripciones de usos residenciales/comerciales sin nombres de categorías. Presentar unidades residenciales y espacios comerciales sí cuenta. Ubicación, bienvenida y describir el sector como residencial no presentan tipos de inmuebles y no cuentan. Use [] únicamente si no presenta tipos. La veracidad de la oferta y pedir los datos después no eximen este control. Esta es la única salida para señalar tipos prematuros: no duplique ese motivo en operational_goal_preserved, review_issues o claims; el sistema aplicará la decisión comercial.')
+    required.push('opening_property_type_sentence_ids')
+  }
+  if (presentation.required === true) {
+    properties.opening_project_presentation_sentence_ids = sentenceIds('PRESENTACIÓN INICIAL OBLIGATORIA. Seleccione las oraciones del borrador que describen el proyecto con los hechos autorizados de presentation.approved_summary, o la presentación básica cuando no hay resumen. Evalúe su significado, sin exigir copia literal ni una frase concreta. Una bienvenida, oferta de brochure o pregunta de nombre/residencia por sí sola NO describe el proyecto. Use [] si falta esa presentación. El sistema aplicará la omisión comercial; no duplique este motivo en operational_goal_preserved o review_issues.')
+    required.push('opening_project_presentation_sentence_ids')
+  }
+  return { properties, required }
 }
 
 export function leadIntroductionReviewIssues(reviewRaw: unknown, auditRaw: unknown, referencesRaw: unknown): Row[] {
-  if (object(object(auditRaw).profile_introduction).generic_introduction !== true) return []
-  const ids = object(reviewRaw).opening_property_type_sentence_ids
+  const plan = object(object(auditRaw).profile_introduction), presentation = object(plan.presentation)
+  if (plan.generic_introduction !== true && presentation.required !== true) return []
   const references = new Map(rows(referencesRaw).map(row => [text(row.id), text(row.text)]))
-  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !references.has(id))) {
-    return [{ code: 'invalid_opening_stage_review', kind: 'review_metadata', owner: 'system', repair_owner: 'reviewer',
-      field: 'opening_property_type_sentence_ids',
-      instruction: 'Revise la apertura del mismo borrador. Seleccione únicamente IDs de oraciones_borrador que introduzcan tipos de inmuebles o sus usos mediante nombres o paráfrasis; use [] si no hay ninguna. No reescriba el mensaje.' }]
+  const review = object(reviewRaw), issues: Row[] = []
+  const fields = leadIntroductionReviewSchema(auditRaw, referencesRaw).required
+  for (const field of fields) {
+    const ids = review[field]
+    if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !references.has(id))) {
+      issues.push({ code: 'invalid_opening_stage_review', kind: 'review_metadata', owner: 'system', repair_owner: 'reviewer', field,
+        instruction: 'Revise la apertura del MISMO borrador según la descripción de '+field+'. Seleccione únicamente IDs de oraciones_borrador; use [] si no hay ninguna que cumpla ese criterio. Respete la autorización del resumen aprobado. No reescriba el mensaje.' })
+    } else if (field === 'opening_project_presentation_sentence_ids' && !ids.length) {
+      issues.push({ code: 'lead_project_presentation_missing', kind: 'commercial_content', check: 'operational_goal_preserved',
+        owner: 'reviewer', validation_owner: 'system', repair_owner: 'writer',
+        reason: 'Falta describir el proyecto en la consulta general inicial; ofrecer el brochure y solicitar perfil no responde esa consulta.',
+        instruction: 'Conserve la pregunta de perfil y añada antes una presentación breve usando el resumen aprobado del proyecto; si no está disponible, conserve la presentación básica verificada. No añada fichas, precios, fechas ni otra pregunta.', presentation })
+    } else if (field === 'opening_property_type_sentence_ids') {
+      issues.push(...[...new Set(ids)].map(id => ({ code: 'lead_profile_categories_premature', kind: 'commercial_content',
+        check: 'operational_goal_preserved', source: 'draft', sentence_id: id, fragment: references.get(id),
+        owner: 'reviewer', validation_owner: 'system', repair_owner: 'writer',
+        reason: 'La oración adelanta ofertas de catálogo fuera de la presentación autorizada del proyecto.',
+        instruction: 'Retire únicamente la oferta prematura. Conserve el resumen aprobado o la presentación básica breve y la pregunta de los datos pendientes.' })))
+    }
   }
-  return [...new Set(ids)].map(id => ({ code: 'lead_profile_categories_premature', kind: 'commercial_content',
-    check: 'operational_goal_preserved', source: 'draft', sentence_id: id, fragment: references.get(id),
-    owner: 'reviewer', validation_owner: 'system', repair_owner: 'writer',
-    reason: 'La oración presenta tipos de inmuebles antes de la etapa prevista para ofrecer opciones.',
-    instruction: 'Retire la presentación de tipos de inmuebles, también sus paráfrasis. Conserve una presentación breve del proyecto y su ubicación, y la pregunta de los datos pendientes.' }))
+  return issues
 }
 
 /** Concrete instructions for a commercial repair, separate from metadata repair. */
@@ -485,6 +542,7 @@ export function leadIntroductionRepairs(issues: string[], auditRaw: unknown): Ro
   const plan = object(object(auditRaw).profile_introduction)
   if (!Object.keys(plan).length) return []
   const instructions: Record<string, string> = {
+    lead_project_presentation_missing: 'Añada una presentación breve del proyecto que atienda la consulta general inicial. Use presentation.approved_summary si está disponible, con redacción natural; no basta ofrecer brochure ni solicitar datos. Conserve la única pregunta de perfil y no añada ofertas de catálogo, precios, estado de obra ni fechas.',
     lead_profile_categories_premature: 'Elimine la enumeración y cualquier presentación de tipos de inmuebles de esta apertura, también si usa sinónimos o describe sus usos. No basta con cambiar suites, departamentos, penthouses y locales por «unidades residenciales y espacios comerciales». Presente brevemente el proyecto y su ubicación; conserve la pregunta de los datos pendientes. La presentación de opciones corresponde al siguiente intercambio.',
     lead_profile_question_missing: 'Incluya la pregunta de perfil exigida por la etapa, solicitando solamente los datos pendientes y explicando el propósito de brochure y guía personalizada. Para confirm_residence confirme el lugar candidato, sin pedir otra ciudad desde cero.',
     lead_profile_question_not_authorized: 'Retire la solicitud o confirmación de datos de presentación: su captura está pospuesta, rechazada o completa en profile_collection_decision. Conserve la respuesta a la consulta actual y continúe identificando las necesidades del lead según la decisión comercial vigente; no sustituya ese paso por nombre o residencia.',
@@ -496,8 +554,8 @@ export function leadIntroductionRepairs(issues: string[], auditRaw: unknown): Ro
   }
   return issues.filter(issue => instructions[issue]).map(issue => ({ code: issue, owner: 'system', repair_owner: 'writer',
     target: 'commercial_draft', instruction: instructions[issue], question_purpose: plan.question_purpose,
-    missing_fields: plan.missing_fields || [], candidate: plan.candidate || null }))
+    missing_fields: plan.missing_fields || [], candidate: plan.candidate || null, presentation: plan.presentation || null }))
 }
 
 // Legacy structured reviewer only; never part of writer instructions.
-export const LEAD_INTRODUCTION_REVIEW_RULES = "- REVISOR: cuando generic_introduction=true, haga primero la comprobación de apertura. Lea cada oración de oraciones_borrador y pregúntese si explica qué tipos de espacios ofrece el proyecto al cliente. Si lo hace, seleccione su ID en opening_property_type_sentence_ids, aunque use una descripción general y no nombres de categorías. «Ofrecemos unidades residenciales modernas y espacios comerciales» SÍ presenta tipos; «La Vilet está en Puertas del Sol, Cuenca, un sector residencial consolidado» NO los presenta. Use [] solo si ninguna oración presenta esa oferta. Que los tipos sean reales, que la presentación sea breve o que después pida los datos no permite omitir sus IDs. Registre este hallazgo EXCLUSIVAMENTE en opening_property_type_sentence_ids: el sistema aplicará su efecto comercial. No duplique este motivo en operational_goal_preserved ni en review_issues, y no cambie claims a unsupported por estar fuera de etapa; revise su verdad factual por separado. operational_goal_preserved sigue comprobando los demás objetivos, como los datos pendientes o las acciones. Fuera de esta etapa no aplique la restricción de tipos."
+export const LEAD_INTRODUCTION_REVIEW_RULES = "- REVISOR: cuando generic_introduction=true, compruebe la apertura según presentation. Con approved_summary, su concepto mixto, tipos generales y cantidades están autorizados como presentación y NO cuentan como oferta prematura; seleccione en opening_property_type_sentence_ids solo ofertas de catálogo ajenas a ese resumen. Sin resumen aprobado, los tipos o usos residenciales/comerciales adelantados sí cuentan, incluso mediante paráfrasis. Use [] si no hay oferta prematura. Cuando presentation.required=true, seleccione en opening_project_presentation_sentence_ids las oraciones que realmente describen el proyecto. Una bienvenida, ofrecer brochure o solicitar perfil por sí solo no responde la consulta general; use [] si falta la presentación. Evalúe significado, nunca coincidencia literal. Registre estos hallazgos exclusivamente en sus campos de IDs: el sistema aplicará su efecto comercial. No duplique el motivo en operational_goal_preserved ni en review_issues, y revise por separado la verdad factual de claims. Los demás objetivos, datos pendientes y acciones siguen comprobándose normalmente. Fuera de esta etapa no imponga una presentación ni restricción de tipos."

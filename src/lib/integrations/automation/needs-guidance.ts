@@ -6,6 +6,7 @@ export const CONTEXTUAL_NEEDS_WRITER_RULES = `NECESIDADES PERSONALES: use hechos
 
 export const CONTEXTUAL_NEEDS_GUIDANCE = `ORIENTACIÓN SOBRE NECESIDADES PERSONALES
 Relacione las situaciones del cliente (familia, edad, movilidad, mascotas o muebles) con características pertinentes y verificadas de las opciones que están revisando. Puede razonar y explicar ventajas o limitaciones con lenguaje prudente; no se limite a repetir la ficha. Distinga hechos del proyecto, declaraciones del cliente, hipótesis ilustrativas y conclusiones condicionadas. Una edad no demuestra movilidad reducida; hijos o familiares no determinan el total de habitantes ni los dormitorios exigidos; mascotas no acreditan permisos del proyecto. No convierta estas inferencias en filtros confirmados, selección de unidad, reserva, cita o consentimiento financiero.
+Si el cliente busca evitar gradas o expresa una necesidad de movilidad, relacione esa necesidad con ascensores, rampas u otras condiciones de acceso que estén verificadas, sin enumerar amenidades ajenas a su consulta. La existencia de ascensores no demuestra que todo el trayecto sea accesible ni permite prometer que no tendrá que subir ninguna grada. No invente accesos o servicios cuando falte evidencia ni añada advertencias generales a una elección ordinaria. Una preferencia por plantas bajas no selecciona una planta exacta; conserve la propuesta y la pregunta comercial pendiente.
 Para camas, muebles, autos o circulación, la superficie total del inmueble no demuestra que un objeto quepa en una habitación o parqueadero. Tampoco convierta los m² de una zona en largo y ancho. Una estimación espacial necesita medidas pertinentes de la zona y del objeto, distribución y obstáculos conocidos; distinga una comparación de medidas de una confirmación de cabida. Use razonamiento cualitativo si faltan datos. Las medidas típicas varían: si emplea un ejemplo, identifíquelo expresamente como supuesto ilustrativo, nunca como medida del cliente o del proyecto. No invente cifras para completar una operación.
 Puede explicar cálculos sencillos con operandos identificables en razonamiento_contextual: indique qué se está calculando, sus medidas y unidades, y presente el resultado como estimación condicionada cuando corresponda. Un área calculada no es la superficie publicada del inmueble, ni prueba capacidad, accesibilidad o cumplimiento de una norma. Conserve exactas las cifras oficiales. No calcule tasas, cuotas, rentabilidad, descuentos ni condiciones comerciales a partir de supuestos: siguen sus fuentes y procedimientos autorizados.
 Si falta la medida exacta, explique concretamente qué no puede comprobar. Compartir brochure o tour no acredita acceso a planos, cotas ni haberlos examinado. Solo proponga revisar documentos disponibles para esa unidad según la evidencia; en otro caso puede ofrecer orientación opcional del equipo en la oficina habilitada sin prometer planos, medidas, una cita ni acceso a obra o viviendas terminadas. Una duda de distribución no significa indecisión ni solicitud de asesor; no derive automáticamente ni inicie la coordinación sin aceptación.
@@ -37,4 +38,20 @@ export function needsSupplementaryFeatures(verified: Row): boolean {
       const quantity = object(value)
       return quantity.confidence === 'high' && quantity.role === 'evaluation'
     })
+}
+
+const normalizeNeed = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+/** Select verified access facts for a current practical need, even when the
+ * extractor only recorded a search/floor filter. This never creates a
+ * preference, a floor number or an accessibility guarantee. History and
+ * summaries are deliberately excluded from the fallback. */
+export function supplementaryFeatureFacts(verified: Row, current: string, matched: Row[]): Row[] {
+  const facts = Array.isArray(verified.instalaciones) ? verified.instalaciones.map(object) : []
+  if (needsSupplementaryFeatures(verified)) return facts
+  const mobilityNeed = /\b(?:gradas?|escaleras?|escalones?|ascensores?|elevadores?|rampas?)\b|movilidad\s+(?:reducida|limitada)|silla\s+de\s+ruedas|\bandador\b|(?:cuesta|dificultad|problemas?|dificil).{0,35}(?:caminar|subir|bajar)|(?:caminar|subir|bajar).{0,35}(?:cuesta|dificultad|problemas?|dificil)/.test(normalizeNeed(current))
+  if (!mobilityNeed) return matched
+  const accessFact = /\b(?:ascensores?|elevadores?|rampas?|escaleras?|escalones?)\b|accesib|acceso\s+(?:sin\s+(?:gradas|escalones)|a\s+nivel)|sin\s+barreras/
+  return facts.filter(fact => matched.includes(fact) || accessFact.test(normalizeNeed(
+    Object.values(fact).filter(value => typeof value === 'string').join(' '))))
 }
