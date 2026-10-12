@@ -1088,6 +1088,7 @@ export async function updateProject(
 // ─── Leads ──────────────────────────────────────────────────
 interface ListLeadsParams {
   tenantId: string
+  sort?: 'actividad' | 'creado'
   tenantIds?: string[]
   projectId?: string
   status?: LeadStatus
@@ -1115,7 +1116,11 @@ export async function listLeads(supabase: SupabaseClient, params: ListLeadsParam
     .from('leads')
     .select('*', { count: 'exact' })
     .in('tenant_id', tenantIds)
-    .order('created_at', { ascending: false })
+
+  if (params.sort !== 'creado') {
+    query = query.order('last_activity_at', { ascending: false, nullsFirst: false })
+  }
+  query = query.order('created_at', { ascending: false })
 
   if (params.assignedTo === UNASSIGNED_ASSIGNEE) query = query.is('assigned_to', null)
   else if (params.assignedTo) query = query.eq('assigned_to', params.assignedTo)

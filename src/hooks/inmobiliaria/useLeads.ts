@@ -9,6 +9,7 @@ import { listTeamProfilesAction } from '@/app/inmobiliaria/leads/actions'
 import type { Lead, LeadStatus, LeadTemperature, TeamProfile } from '@/types/inmobiliaria'
 
 interface Filters {
+  sort: 'actividad' | 'creado'
   status: string
   temperature: string
   search: string
@@ -27,6 +28,7 @@ export function useLeads() {
   const pageSize = 25
   const [total, setTotal] = useState(0)
   const [filters, setFilters] = useState<Filters>({
+    sort: 'actividad',
     status: '',
     temperature: '',
     search: '',
@@ -63,6 +65,7 @@ export function useLeads() {
       const res = await listLeads(supabase, {
         tenantId: tenantIds[0],
         tenantIds,
+        sort: filters.sort,
         status: (filters.status || undefined) as LeadStatus | undefined,
         temperature: (filters.temperature || undefined) as LeadTemperature | undefined,
         search: filters.search || undefined,
@@ -110,7 +113,7 @@ export function useLeads() {
   }
 
   const resetFilters = () => {
-    setFilters({ status: '', temperature: '', search: '', assignedTo: '', dateFrom: '', dateTo: '' })
+    setFilters({ sort: 'actividad', status: '', temperature: '', search: '', assignedTo: '', dateFrom: '', dateTo: '' })
     setPage(1)
   }
 

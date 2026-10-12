@@ -1,2 +1,4 @@
 # Preserve interactive PDFs byte for byte; line-ending conversion breaks offsets.
 *.pdf -text -diff
+*.ts text eol=lf
+*.tsx text eol=lf

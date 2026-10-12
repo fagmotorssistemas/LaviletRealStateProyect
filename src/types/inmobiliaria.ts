@@ -299,6 +299,8 @@ export interface Lead {
   financing: boolean
   assigned_to: string | null
   source: string | null
+  last_activity_at: string | null
+  last_activity_source: 'showroom' | 'whatsapp' | 'solicitud' | 'crm' | null
   resume: string | null
   created_at: string
   updated_at: string

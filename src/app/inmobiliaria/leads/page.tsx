@@ -129,7 +129,7 @@ export default function LeadsPage() {
           }}
         >
           <Select
-            label="Fecha"
+            label="Creado"
             options={[
               { value: 'all', label: 'Todo' },
               { value: 'today', label: 'Hoy' },
@@ -146,6 +146,15 @@ export default function LeadsPage() {
               setDatePreset(next)
               applyDatePreset(next)
             }}
+          />
+          <Select
+            label="Ordenar por"
+            options={[
+              { value: 'actividad', label: 'Actividad reciente' },
+              { value: 'creado', label: 'Fecha de creación' },
+            ]}
+            value={filters.sort}
+            onChange={(e) => updateFilter('sort', e.target.value)}
           />
           {(datePreset === 'exact' || datePreset === 'custom') && (
             <>
