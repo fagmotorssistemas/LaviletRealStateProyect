@@ -3018,7 +3018,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
   // Al cambiar acabado o luz, reubicar al mismo ambiente (no mezclar con otro combo).
   const galeriaRoomKeyRef = useRef<string | null>(null)
+  const galeriaVariantRef = useRef({ finish: galleryFinishSlug, light })
   useEffect(() => {
+    const variantChanged =
+      galeriaVariantRef.current.finish !== galleryFinishSlug ||
+      galeriaVariantRef.current.light !== light
+    galeriaVariantRef.current = { finish: galleryFinishSlug, light }
     if (viewMode === 'galeria' && galleryOpenSalaRef.current) {
       if (galeriaImages.length === 0) return
       galleryOpenSalaRef.current = false
@@ -3030,6 +3035,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       if (lead?.roomSlug && lead.roomSlug !== room) setRoom(lead.roomSlug)
       return
     }
+    if (variantChanged) return
     const current = galeriaImages[Math.min(galeriaIndex, Math.max(galeriaImages.length - 1, 0))]
     if (!current?.id) return
     galeriaRoomKeyRef.current = current.roomSlug ?? current.id.split(':')[0] ?? current.id
@@ -3037,7 +3043,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       setRoom(current.roomSlug)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar de slide
-  }, [galeriaIndex, galeriaImages, viewMode])
+  }, [galeriaIndex, galeriaImages, viewMode, galleryFinishSlug, light])
   useEffect(() => {
     if (galeriaRoomKeyRef.current || galeriaImages.length === 0) return
     const first = galeriaImages[0]
