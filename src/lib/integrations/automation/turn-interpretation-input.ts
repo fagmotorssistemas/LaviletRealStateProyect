@@ -169,7 +169,7 @@ export function interpretationInput(input: Row, current: string): Row {
     ...(proposal ? { propuesta_pendiente: proposal } : {}),
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
-    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts', '_visit_dialogue']),
+    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts', '_financing_entry', '_visit_dialogue']),
       // The previous objective/question describe a completed interpretation,
       // not this turn. Keep referents and unresolved goals, with the actual
       // pending question supplied separately above.

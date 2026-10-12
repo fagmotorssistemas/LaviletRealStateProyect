@@ -1,17 +1,14 @@
 import { object, text, type Row } from './data'
-import { catalogQuery, filterCatalog } from './catalog-dialogue'
-import { confirmedInterpretationMemory } from './interpretation-memory'
+import { catalogQuery, filterCatalog, partitionCatalog } from './catalog-dialogue'
 import { leadBudget } from './budget-state'
+import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy, BUDGET_EVALUATION_VERSION } from './budget-evaluation'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 
 /** Absence of an update never erases an accepted declaration. Ambiguous new
  * declarations do supersede the old amount for comparisons, without guessing. */
 export function effectiveTurnBudget(verified: Row): Row {
-  const current = object(object(verified.semantica_turno).budget || object(verified.contrato_turno).budget)
-  if (current.status && current.status !== 'not_discussed') return { ...current, source: 'current_lead_statement' }
-  const remembered = object(confirmedInterpretationMemory({ _interpretation_memory: verified.hechos_confirmados }).budget)
-  return Object.keys(remembered).length ? { ...remembered, source: 'confirmed_lead_memory' } : current
+  return leadBudget(verified)
 }
 
 export const BUDGET_CONTINUATION_RULES = `La continuación del presupuesto es una obligación comercial, con redacción libre. Aplique presupuesto_del_turno.continuation: presente opciones verificadas que alcancen; si solo hay alternativas, explique qué cambia sin sustituir la selección del cliente; si no alcanza y hay entidades autorizadas, ofrezca revisar las alternativas de financiamiento y acompañarle en el proceso. Un brochure no sustituye esa orientación. Respete una negativa actual al financiamiento. Ofrecer revisión no promete aprobación, cuotas, entrada mínima, préstamo directo ni un trámite ya iniciado. Si faltan precios o la búsqueda es parcial, limite la conclusión al alcance comprobado; no declare que no existen opciones en todo el proyecto. Si el importe es entrada, cuota o ambiguo, no lo compare como precio total ni lo multiplique por mil. Interprete cualquier formulación equivalente; no exija palabras exactas.`
@@ -43,7 +40,8 @@ export function budgetForCommercialPlan(assessment: Row, plan: Row): Row {
   if (!plan.action) return assessment
   const alternativesRequested = plan.action === 'present_affordable_alternatives'
     || plan.presentation === 'affordable_alternatives'
-  return { ...assessment, continuation: 'commercial_next_step',
+  const guidance = object(plan.budget_guidance)
+  return { ...assessment, ...(guidance.version === BUDGET_EVALUATION_VERSION ? guidance : {}), continuation: 'commercial_next_step',
     continuation_instruction: budgetContinuationInstruction({ continuation: 'commercial_next_step' }),
     alternatives: alternativesRequested ? assessment.alternatives : [],
     commercial_plan_action: plan.action }
@@ -82,20 +80,40 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
     return { status: budget.status, amount: budget.amount ?? null, evidence: budget.evidence,
       continuation, continuation_instruction: budgetContinuationInstruction({ continuation }) }
   }
-  if (!['amount', 'maximum_total'].includes(text(budget.status)) || budget.confidence !== 'high' || typeof budget.amount !== 'number'
+  if (budget.status === 'amount' && budget.confidence === 'high') return {
+    ...evaluateBudgetOptions({ budget, units: [], pricesAuthorized: false, membershipComplete: false }),
+    budget_source: budget.source, evidence: budget.evidence, continuation: 'clarify_budget',
+    continuation_instruction: budgetContinuationInstruction({ continuation: 'clarify_budget' }),
+    mention_allowed: true, mention_required: true,
+  }
+  if (budget.status !== 'maximum_total' || budget.confidence !== 'high' || typeof budget.amount !== 'number'
     || !Number.isFinite(budget.amount) || budget.amount <= 0 || !text(budget.evidence)) return null
   const result = object(audit.catalog_results)
   const query = catalogQuery(audit.catalog_query || object(verified.property_context).query || object(verified.semantica_turno).property)
-  const raw = audit.verified_catalog === true ? result.units : filterCatalog(rows(verified.catalogo), query)
-  const units = (Array.isArray(raw) ? raw.map(object) : []).filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
+  const physicalQuery = catalogQuery({ ...query,
+    requirements: rows(query.requirements).filter(requirement => requirement.field !== 'published_commercial_price') })
+  const context = object(verified.property_context)
+  const selectedIds = Array.isArray(context.selected_ids) ? context.selected_ids.map(text).filter(Boolean) : []
+  const scopedIds = query.scope === 'selected' ? selectedIds
+    : query.scope === 'offered' && Array.isArray(context.offered_ids) ? context.offered_ids.map(text).filter(Boolean)
+      : query.scope === 'comparison' && Array.isArray(context.comparison_ids) ? context.comparison_ids.map(text).filter(Boolean) : undefined
+  const fullCatalog = Array.isArray(verified.catalogo_verificacion) ? rows(verified.catalogo_verificacion) : null
+  const scopedCatalog = audit.verified_catalog === true && !fullCatalog && Array.isArray(result.units)
+    ? rows(result.units) : rows(verified.catalogo)
+  const partition = partitionCatalog(fullCatalog || scopedCatalog, physicalQuery, scopedIds)
+  const excludedCategories = Array.isArray(context.excluded_categories) ? context.excluded_categories : []
+  const units = partition.units.filter(unit => !excludedCategories.includes(unit.category)
+    && (!selectedIds.length || selectedIds.includes(text(unit.id))))
   const authorized = object(verified.politica_comercial).precios_autorizados === true
-  const prices = authorized ? units.filter(unit => typeof unit.published_commercial_price === 'number'
-    && Number.isFinite(unit.published_commercial_price) && unit.published_commercial_price > 0) : []
-  const complete = audit.verified_catalog === true ? object(verified.catalog_read).complete !== false && result.complete === true
-    && Array.isArray(result.unknown_unit_ids) && result.unknown_unit_ids.length === 0
-    : object(verified.catalog_read).complete === true
-  const matching = prices.filter(unit => Number(unit.published_commercial_price) <= Number(budget.amount))
-  const priceComplete = authorized && complete && prices.length === units.length
+  const read = object(verified.catalog_verification_read || verified.catalog_read)
+  const membershipComplete = fullCatalog ? read.complete === true
+    : audit.verified_catalog === true ? read.complete !== false && result.complete === true
+      && Array.isArray(result.unknown_unit_ids) && result.unknown_unit_ids.length === 0 : read.complete === true
+  const evaluation = evaluateBudgetOptions({ budget, units, pricesAuthorized: authorized, membershipComplete,
+    unknownUnitIds: [...partition.unknown.filter(unit => !excludedCategories.includes(unit.category)).map(unit => text(unit.id)),
+      ...(!fullCatalog && Array.isArray(result.unknown_unit_ids) ? result.unknown_unit_ids.map(text) : [])] })
+  const matching = rows(evaluation.prices).filter(unit => (evaluation.matching_unit_ids as string[]).includes(text(unit.unit_id)))
+  const priceComplete = evaluation.price_evidence_complete === true
   const group = query.group || (query.category === 'local' ? 'commercial' : query.category ? 'residential' : null)
   const excluded = object(object(verified.semantica_turno).property).excluded_categories
   // Compare authorized alternatives without changing the selected unit or relaxing requirements.
@@ -105,23 +123,18 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
       && unit.published_commercial_price <= Number(budget.amount)) : []
   const partners = Array.isArray(object(verified.financiamiento).partners)
     ? (object(verified.financiamiento).partners as unknown[]).map(text).filter(Boolean) : []
-  const clarifyBudgetBasis = !!currentDeclaration && budget.status === 'amount' && !matching.length
-    && !alternatives.length && priceComplete && prices.length > 0 && !financeAccepted
-  const continuation = financeAccepted ? 'continue_property_selection' : clarifyBudgetBasis ? partners.length && !financeDeclined ? 'offer_financing' : 'explain_budget_gap'
+  const continuation = financeAccepted ? 'continue_property_selection'
     : matching.length ? 'present_affordable_options' : alternatives.length ? 'present_affordable_alternatives'
     : priceComplete && units.length ? partners.length && !financeDeclined ? 'offer_financing' : 'explain_budget_gap'
       : !priceComplete ? 'clarify_available_information' : 'clarify_requirements'
-  return { amount: budget.amount, currency: 'USD', budget_source: budget.source, evidence: budget.evidence,
-    clarify_budget_basis: clarifyBudgetBasis,
+  const mention = budgetMentionPolicy(verified, !financeAccepted && priceComplete && units.length > 0 && !matching.length)
+  return { ...evaluation, currency: 'USD', budget_source: budget.source, evidence: budget.evidence,
+    clarify_budget_basis: false, claim_contract: budgetClaimContract(evaluation),
+    mention_policy: mention, mention_allowed: mention.allowed, mention_required: mention.required,
     query: audit.catalog_query || null, scope: audit.verified_catalog === true ? 'current_query' : 'available_context',
-    status: !authorized ? 'prices_not_authorized' : matching.length ? 'matching_options'
-      : !complete || prices.length !== units.length ? 'incomplete_prices'
-        : !units.length ? 'no_matching_features' : 'below_available_prices',
-    price_evidence_complete: priceComplete, candidate_unit_ids: units.map(unit => unit.id),
-    matching_unit_ids: matching.map(unit => unit.id),
     alternatives, financing_partners: partners, continuation,
     continuation_instruction: budgetContinuationInstruction({ continuation }),
-    prices: prices.map(unit => ({ unit_id: unit.id, published_commercial_price: unit.published_commercial_price })),
-    minimum_price: priceComplete && prices.length ? Math.min(...prices.map(unit => Number(unit.published_commercial_price))) : null,
-    instruction: 'Atienda explícitamente el presupuesto junto con las características antes de proponer otra elección. Compare únicamente los precios autorizados de estas unidades. No declare que no existen opciones dentro del presupuesto si faltan precios o la búsqueda es incompleta. Si el importe se destina a entrada en lugar del valor total, debe aclararlo el cliente; no lo suponga ni prometa financiación. Mantenga redacción libre y cifras exactas.' }
+    instruction: mention.required === true
+      ? 'Atienda la consulta actual de presupuesto con la evaluación del conjunto pertinente. No extienda una coincidencia parcial a los tipos fuera del importe ni afirme ausencia global con precios o miembros desconocidos. Mantenga redacción libre y cifras exactas.'
+      : 'Use la evaluación internamente para orientar la selección. Un presupuesto recordado no obliga a mencionar dinero, repetir precios ni su condición en una consulta que no los requiere.' }
 }

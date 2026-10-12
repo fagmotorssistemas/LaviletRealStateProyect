@@ -1,8 +1,8 @@
 'use server'
 
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
-import { listProjectPrices, saveCommercialUnitPrice, saveLaunchPriceVisibility } from '@/services/unitPrices.service'
-import { launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
+import { listProjectPrices, saveCommercialUnitPrice, saveLaunchPriceVisibility, saveReferentialPriceNotice } from '@/services/unitPrices.service'
+import { launchPricesVisible, referentialPriceNoticeEnabled } from '@/lib/inmobiliaria/unitPrices'
 
 async function projectSession(projectId: string) {
   await assertAdmin()
@@ -21,12 +21,18 @@ export async function loadUnitPricesAction(projectId: string) {
     client.from('project_automation_config').select('mode').eq('project_id', projectId).eq('tenant_id', tenantId).maybeSingle(),
   ])
   if (config.error) throw new Error(config.error.message)
-  return { units, mode: config.data?.mode || 'lanzamiento', launchVisible: launchPricesVisible(project.policies_json), projectUpdatedAt: project.updated_at as string }
+  return { units, mode: config.data?.mode || 'lanzamiento', launchVisible: launchPricesVisible(project.policies_json),
+    referentialNoticeEnabled: referentialPriceNoticeEnabled(project.policies_json), projectUpdatedAt: project.updated_at as string }
 }
 
 export async function saveLaunchPriceVisibilityAction(params: { projectId: string; visible: boolean; expectedUpdatedAt: string }) {
   const { client, tenantId, project } = await projectSession(params.projectId)
   return saveLaunchPriceVisibility(client, { ...params, tenantId }, project)
+}
+
+export async function saveReferentialPriceNoticeAction(params: { projectId: string; enabled: boolean; expectedUpdatedAt: string }) {
+  const { client, tenantId, project } = await projectSession(params.projectId)
+  return saveReferentialPriceNotice(client, { ...params, tenantId }, project)
 }
 
 export async function saveUnitPriceAction(params: { projectId: string; unitId: string; price: string; expectedUpdatedAt: string }) {

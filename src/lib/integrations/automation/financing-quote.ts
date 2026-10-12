@@ -3,18 +3,24 @@ import { currentGuidanceSource, type FinancingGuidance } from '@/lib/inmobiliari
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { selectedFinancingUnit } from './financing-stage'
+import { simpleFinancingAcceptance } from './financing-invitation'
 
 export const FINANCING_QUOTE_SCHEMA = { type: 'object', additionalProperties: false,
   properties: { requested: { type: 'boolean' }, before_application: { type: 'boolean' }, evidence: { type: 'string' },
     years: { type: ['number', 'null'] }, years_evidence: { type: 'string' } },
   required: ['requested', 'before_application', 'evidence', 'years', 'years_evidence'] }
-export const FINANCING_QUOTE_EXTRACTION_RULES = `financing_quote identifica consultas informativas sobre entrada, cuota, tasa, porcentaje financiable o plazo, incluso sin signos de pregunta y con faltas de escritura. requested=true exige evidence literal actual. before_application=true cuando quiere conocer cifras antes de decidir o solo pide orientación; un «sí me interesa saber más» no inicia revisión. En ese caso financing_consent=null. Si autoriza explícitamente iniciar la evaluación y además pide cifras, before_application=false. years es el plazo pedido, solo con years_evidence literal actual; no infiera un plazo desde edad, antigüedad laboral ni valores monetarios. Preguntar por JEP no elige JEP; «prefiero JEP» sí conserva la elección.`
+export const FINANCING_QUOTE_EXTRACTION_RULES = `financing_quote identifica consultas informativas sobre entrada, cuota, tasa, porcentaje financiable o plazo, incluso sin signos de pregunta y con faltas de escritura. requested=true exige evidence literal actual de esa consulta. Una respuesta afirmativa simple a la invitación de continuar el proceso, como «sí me parece bien» o «continuemos con JEP», no pide cifras ni explicación: requested=false y before_application=false. Una declaración de entrada tampoco es una consulta por sí sola. Conserve las consultas adicionales si mezcla aceptación y preguntas. before_application=true cuando quiere conocer cifras antes de decidir o solo pide orientación; un «sí me interesa saber más» no inicia revisión. En ese caso financing_consent=null. Si autoriza explícitamente iniciar la evaluación y además pide cifras, before_application=false. years es el plazo pedido, solo con years_evidence literal actual; no infiera un plazo desde edad, antigüedad laboral ni valores monetarios. Preguntar por JEP no elige JEP; «prefiero JEP» sí conserva la elección.`
 
 export type FinancingInquiry = { requested: boolean; beforeApplication: boolean; evidence: string; years: number | null }
 export function financingQuoteInquiry(extracted: Row, current: string): FinancingInquiry {
   const raw = object(extracted.financing_quote), message = normalized(current)
   const literal = (value: unknown) => !!text(value).trim() && current.normalize('NFKC').toLowerCase().includes(text(value).trim().normalize('NFKC').toLowerCase())
-  const grounded = raw.requested === true && literal(raw.evidence)
+  const answer = object(object(extracted.turn_semantics).answer_to_previous)
+  const acceptanceOnly = answer.question_id === 'financing_invitation' && answer.kind === 'affirmative'
+    && answer.confidence === 'high' && literal(answer.evidence) && simpleFinancingAcceptance(current)
+  // A literal yes can be valid evidence of acceptance, but cannot also prove a
+  // quotation inquiry. Keep mixed questions and conditional decisions intact.
+  const grounded = raw.requested === true && literal(raw.evidence) && !acceptanceOnly
   // Compatibility with existing extractors: a question/request, never a declared contribution.
   const fallback = /\b(?:entrada|cuotas?|tasa|porcentaje|plazo|mensualidad)\b/.test(message)
     && /\b(?:cuanto|cual|como|aproximad\w*|estimad\w*|quisiera saber|quiero saber|puede indicar|podria indicar|me informa|necesito saber)\b/.test(message)

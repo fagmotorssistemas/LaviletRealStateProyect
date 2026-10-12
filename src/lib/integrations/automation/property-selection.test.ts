@@ -137,17 +137,25 @@ describe('property selection journey', () => {
   })
 
   it('requires a selected unit and a budget answer before financing intake', () => {
-    const withoutUnit = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite' } }), 'Quiero financiamiento')
+    const withoutUnit = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite', purchase_purpose: 'vivir' } }), 'Quiero financiamiento')
     assert.match(withoutUnit, /presupuesto total aproximado/i)
     assert.doesNotMatch(withoutUnit, /cédula|ingresos|qué entidad/i)
 
     const withoutBudget = financingPrerequisiteReply(baseInfo({ lead: { preferred_category: 'suite', unit_id: suite210.id } }), 'Quiero financiamiento')
     assert.match(withoutBudget, /presupuesto total aproximado/i)
 
+    const confirmed = { budget: { status: 'maximum_total', amount: 100000, confidence: 'high', evidence: 'Mi presupuesto total es 100 mil' } }
+    const withoutEntry = financingPrerequisiteReply(baseInfo({ lead: { unit_id: suite210.id }, hechos_confirmados: confirmed,
+      financiamiento: { journey: { accepted: true }, partners: ['Cooperativa JEP'] } }), 'Sí, quiero iniciar la revisión')
+    assert.match(withoutEntry, /monto.*entrada inicial/i)
+    assert.doesNotMatch(withoutEntry, /presupuesto total|cédula|qué entidad/i)
+
     const ready = financingPrerequisiteReply(baseInfo({ lead: {
       preferred_category: 'suite', unit_id: suite210.id, budget: 100000,
       behavior_signals: { sdr: { presupuesto_texto: 'Tengo 100 mil dólares' } },
-    } }), 'Sí, quiero iniciar la revisión')
+    }, hechos_confirmados: confirmed, financiamiento: { journey: { accepted: true }, partners: ['Cooperativa JEP'] },
+      financing_amounts: { down_payment: { amount: 30000, evidence: 'Tengo 30 mil para la entrada' } },
+    }), 'Sí, quiero iniciar la revisión')
     assert.equal(ready, '')
   })
 })

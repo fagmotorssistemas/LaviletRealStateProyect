@@ -15,6 +15,7 @@ export const questionIds = [
   'financing_invitation',
   'financing_partner',
   'financing_data',
+  'financing_down_payment',
   'property_purpose',
   'visit_invitation',
   'visit_destination',
@@ -308,8 +309,10 @@ export function pendingQuestionFromReply(reply: string): Row {
   let act: string | undefined
   const asksName = /\b(?:su nombre|tu nombre|como (?:se llama|te llamas)|con (?:que|cual) nombre|con quien (?:tenemos|tengo) el gusto)\b/.test(value)
   const asksResidence = /\bresid(?:e|es|en|ir)\b|\b(?:su|tu|lugar de) residencia\b|\bresidencia (?:actual|habitual)\b|\b(?:donde|en que (?:ciudad|pais|lugar)).*\bviv(?:e|es|en|ir)\b/.test(value)
-  const unitReferent = /\b(?:unidades?|departamentos?|suites?|penthouses?|local(?:es)?)\s*(?:numero\s*)?(?:lc[- ]?)?\d{1,4}\b(?!\s*(?:dormitorios?|habitaciones?|cuartos?|banos?|metros?|m2))/.test(normalized(reply))
+  const unitReferent = /\b(?:unidad(?:es)?|departamentos?|suites?|penthouses?|local(?:es)?)\s*(?:numero\s*)?(?:lc[- ]?)?\d{1,4}\b(?!\s*(?:dormitorios?|habitaciones?|cuartos?|banos?|metros?|m2))/.test(normalized(reply))
   if (asksName || asksResidence) id = asksName && asksResidence ? 'lead_profile' : asksName ? 'lead_profile_name' : 'lead_profile_residence'
+  else if (/\b(?:que|cual) (?:entidad|banco|cooperativa)\b/.test(value)
+    || /\b(?:prefiere|elige|escoge)\b/.test(value) && /\bpichincha\b.*\bjep\b|\bjep\b.*\bpichincha\b/.test(value)) id = 'financing_partner'
   else if (/visita|cita|recibirle|visitarnos|conocer el proyecto/.test(value)
     && /que dia|cual dia|fecha|que hora|horario|cuando/.test(value)) id = 'visit_date_time'
   else if (/visita|cita|visitarnos|conocer el proyecto|conocerlo en persona/.test(value)
@@ -317,6 +320,8 @@ export function pendingQuestionFromReply(reply: string): Row {
   else if ((/presupuesto total|monto total|valor total|toda la compra/.test(value)
     && /entrada|capital inicial|aporte inicial/.test(value))
     || /(?:ese|este|el) (?:monto|importe|dinero|valor).*(?:corresponde|destinad|para|es).*(?:entrada|capital inicial)/.test(value)) id = 'budget_kind'
+  else if (/\b(?:que monto|cuanto|cuanta cantidad|que cantidad)\b/.test(value)
+    && /\b(?:entrada|aporte propio|aportacion propia)\b/.test(value)) id = 'financing_down_payment'
   else if (/presupuesto|cuanto.*(?:invertir|dispone|cuenta|entrada|capital)|capital aproximado|monto disponible|capital inicial|entrada/.test(value)) id = 'budget_amount'
   else if (/vivir.*invertir|invertir.*vivir|residencia.*inversion|inversion.*residencia/.test(value)) id = 'property_purpose'
   else if (floorInvitationTarget(question) !== null) { id = 'property_requirements'; act = 'explore_alternatives' }

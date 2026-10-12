@@ -5,6 +5,7 @@ import { normalized } from './sdr-rules'
  * consent. Questions that offer two monetary roles deliberately stay open. */
 export function budgetQuestionBasis(raw: unknown): 'total_budget' | 'down_payment' | null {
   const question = object(raw)
+  if (question.id === 'financing_down_payment') return 'down_payment'
   if (question.id !== 'budget_amount') return null
   const value = normalized(text(question.question))
   const total = /\b(?:presupuesto|monto|importe|valor|capital)\s+total\b|\btotal\s+(?:para|de)\s+(?:la\s+)?compra\b/.test(value)

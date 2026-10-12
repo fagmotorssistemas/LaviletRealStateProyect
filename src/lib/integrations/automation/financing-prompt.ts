@@ -1,6 +1,7 @@
 import { object, type Row } from './data'
 import { FINANCING_IDENTITY_RULES } from './financing-identity'
 import { FINANCING_AMOUNTS_RULES } from './financing-amounts'
+import { FINANCING_ENTRY_RULES } from './financing-entry'
 
 /** The full output contract still accepts every domain. The selected intake
  * state changes instruction density, never what the customer may ask next. */
@@ -21,7 +22,8 @@ Si pregunta_pendiente.id=financing_partner, «prefiero JEP» responde kind=value
 Perfil: full_name es nombre de presentación; profile_evidence cita la declaración actual. Residencia describe dónde vive, no origen ni destino; no infiera país/ciudad. Rechazo y confirmación de residencia se separan en residence_response/residence_confirmation. Nombre o empleo no seleccionan una unidad. Datos laborales requieren declaración actual, no invente desde la ocupación ni copie ingresos del historial.
 No confunda visita del proyecto con otra cita. Fechas y horas requieren evidence actual, conserve visit_preference, visit_intent y solicitudes adicionales. Reserva: request inicia una petición de separación, information pregunta condiciones, declined rechaza; ninguna confirma una reserva. requested_advisor, opt_out y consent_granted requieren action_evidence literal actual de ese permiso. Aceptar ayuda financiera no pide asesor. Una baja de mensajes es global. Temas ajenos pertenecen a other; cortesía a courtesy.
 ${FINANCING_IDENTITY_RULES}
-${FINANCING_AMOUNTS_RULES}`
+${FINANCING_AMOUNTS_RULES}
+${FINANCING_ENTRY_RULES}`
 
 export const FINANCING_COLLECTION_WRITER_RULES = `Redacte naturalmente en español, con el tono indicado, usando exclusivamente los hechos autorizados y el trámite actual. Devuelva reply, requests y question conforme al esquema; requests usa los IDs de referencias_solicitud y acredita lo efectivamente respondido. question describe la pregunta que realmente hace.
 Cumpla obligaciones_del_turno y financing_collection.collection_allowed. Con collection_allowed=false conserve el estado y solicite únicamente requested_fields: si consent_required=true, pregunte si desea iniciar la revisión antes de pedir nombres legales, cédula, empleo o ingresos. Elegir JEP, Banco Pichincha u otra entidad no concede ese consentimiento. Tampoco solicite corregir un documento entregado antes de la aceptación. Con collection_allowed=true comunique un documento incompleto/incorrecto si lo hubo y solicite el siguiente dato pendiente; no elija otro campo. El nombre de presentación no confirma identidad legal. Se admiten nombres/apellidos legales únicos confirmados; nunca solicite RUC. No repita cédulas ni otros documentos. Responda dudas adicionales antes de retomar la captura; no atribuya al banco requisitos internos.

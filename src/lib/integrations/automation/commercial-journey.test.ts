@@ -186,7 +186,8 @@ test('50k family case offers financing; bueno continuemos returns to property se
 test('financing intake requires a chosen unit and budget answer, not necessarily a number', () => {
   for (const [status, allowed] of [['not_discussed', false], ['amount_pending', false], ['no_defined_budget', true], ['declines_to_disclose', true]] as const) {
     const data = info({ status, confidence: 'high', evidence: status })
-    data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true } }
+    data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true },
+      entry: { status: 'not_defined', amount: null, evidence: 'Todavía no tengo definida la entrada', source_message_id: 'entry-answer' } }
     assert.equal(financingStage(data).collection_allowed, allowed, status)
     assert.equal(Boolean(financingPrerequisiteReply(data, 'continuemos')), !allowed, status)
   }

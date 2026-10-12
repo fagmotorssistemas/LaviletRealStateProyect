@@ -10,6 +10,7 @@ import { normalizedPropertyQuery } from './turn-semantics'
 import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
 import { isPassivePurchaseEvidence } from './purchase-evidence'
+import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy } from './budget-evaluation'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -112,8 +113,10 @@ export function purchaseReadiness(info: Row): Row {
   const priceKnown = object(info.politica_comercial).precios_autorizados === true && Number.isFinite(price) && price > 0
   // Review results are operational facts supplied by staff, never LLM output.
   const reviewedCoverage = financingAccepted && reviewedFinancingCovers(info, unit)
+  const comparison = evaluateBudgetOptions({ budget, units: unit ? [unit] : [],
+    pricesAuthorized: priceKnown, membershipComplete: !!unit })
   const cash = !!unit && priceKnown && budget.confidence === 'high'
-    && (budget.status === 'maximum_total' && Number(budget.amount) >= price
+    && (comparison.universal_affordability_allowed === true
       || budget.status === 'sufficient_for_selected_unit' && budget.unit_id === unit.id)
   return { selected_unit_id: unit?.id || null, selected_unit_number: unit?.unit_number || null,
     budget, financing_accepted: financingAccepted, price: priceKnown ? price : null,
@@ -205,11 +208,13 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const physicalCandidates = physicalPartition.units.filter(unit => !excluded.has(text(unit.category)))
   const physicalCategories = Object.keys(labels).filter(type => physicalCandidates.some(unit => unit.category === type))
   const assessmentCandidates = selected ? physicalCandidates.filter(unit => unit.id === selected) : physicalCandidates
-  const priced = authorizedPrices ? assessmentCandidates.filter(unit => typeof unit.published_commercial_price === 'number'
-    && Number.isFinite(unit.published_commercial_price) && unit.published_commercial_price > 0) : []
-  const affordable = comparable ? priced.filter(unit => Number(unit.published_commercial_price) <= amount!) : []
-  const complete = object(info.catalog_verification_read || info.catalog_read).complete === true
-    && !physicalPartition.unknown.some(unit => !excluded.has(text(unit.category))) && priced.length === assessmentCandidates.length
+  const evaluation = evaluateBudgetOptions({ budget, units: assessmentCandidates, pricesAuthorized: authorizedPrices,
+    membershipComplete: object(info.catalog_verification_read || info.catalog_read).complete === true,
+    unknownUnitIds: physicalPartition.unknown.filter(unit => !excluded.has(text(unit.category))
+      && (!selected || unit.id === selected)).map(unit => text(unit.id)), scopeKnown })
+  const affordableIds = new Set(ids(evaluation.matching_unit_ids))
+  const affordable = assessmentCandidates.filter(unit => affordableIds.has(text(unit.id)))
+  const complete = evaluation.complete === true
   // Reading or comparing the same options is not a new budget decision. Track
   // the actual inventory and its verification, not transient query operations.
   const scopeKey = createHash('sha256').update(JSON.stringify({ selected: selected || null,
@@ -219,17 +224,13 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const currentBudget = object(object(info.semantica_turno).budget)
   const currentBudgetDeclaration = currentBudget.confidence === 'high' && currentBudget.status !== 'not_discussed' && !!text(currentBudget.evidence).trim()
   const scopeChanged = state.budget_scope_key !== scopeKey
+  const comparisonRequired = comparable && complete && assessmentCandidates.length > 0 && !affordable.length && !accepted
+    && (currentBudgetDeclaration || scopeChanged)
+  const mentionPolicy = budgetMentionPolicy(info, comparisonRequired)
   budgetGuidance = {
-    status: !comparable ? 'not_comparable' : !authorizedPrices ? 'prices_not_authorized'
-      : !complete ? 'incomplete_prices' : !assessmentCandidates.length ? 'no_matching_features'
-        : affordable.length ? 'matching_options' : 'below_available_prices',
-    coverage: !comparable || !complete || !assessmentCandidates.length ? 'unknown'
-      : affordable.length === assessmentCandidates.length ? 'all' : affordable.length ? 'some' : 'none',
-    amount, complete, scope_key: scopeKey,
-    candidate_unit_ids: assessmentCandidates.map(unit => text(unit.id)), matching_unit_ids: affordable.map(unit => text(unit.id)),
-    prices: priced.map(unit => ({ unit_id: unit.id, published_commercial_price: unit.published_commercial_price })),
-    comparison_required: comparable && complete && assessmentCandidates.length > 0 && !affordable.length && !accepted
-      && (currentBudgetDeclaration || scopeChanged),
+    ...evaluation, scope_key: scopeKey, claim_contract: budgetClaimContract(evaluation),
+    comparison_required: comparisonRequired, mention_allowed: mentionPolicy.allowed, mention_required: mentionPolicy.required,
+    mention_policy: mentionPolicy,
     instruction: comparable && currentBudgetDeclaration && affordable.length
       ? 'Puede reconocer brevemente que hay alternativas dentro del importe para el alcance conocido. No afirme que cumplen necesidades aún desconocidas ni que le alcanza para todo. No enumere precios o unidades por declarar presupuesto; continúe con la única pregunta pendiente.'
       : 'Use el presupuesto recordado para orientar. No repita importes ni condiciones de precios sin una consulta actual o una diferencia indispensable. Conserve preferencias y requisitos; una cifra aproximada no es un máximo rígido.',
@@ -341,8 +342,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const partners = ids(finance.partners)
   const financeDeclined = object(finance.journey).status === 'declined'
   const insufficient = budget.status === 'insufficient_for_selected_unit' && (!budget.unit_id || budget.unit_id === selected)
-    || budget.status === 'maximum_total' && Number(budget.amount) > 0
-       && (Number(readiness.price) > Number(budget.amount) || budgetGuidance.status === 'below_available_prices')
+    || budgetGuidance.status === 'below_available_prices'
   const entryNeedsFinancing = budget.status === 'initial_capital' && Number(budget.amount) > 0
     && (!selected || Number(readiness.price) > Number(budget.amount))
   if (!accepted && partners.length && (requestedFinance || !passive && !financeDeclined
@@ -354,7 +354,14 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   if (!accepted && insufficient && (financeDeclined || !partners.length))
     return plan('leave_open', 'Responda la consulta y explique únicamente la diferencia comprobada para las opciones que le interesan. Conserve sus necesidades, preferencias y presupuesto; no insista con financiamiento rechazado, no sustituya por opciones incompatibles ni prometa una solución inexistente. No añada una pregunta obligatoria de elección de inmuebles fuera del importe.')
   if (selected && passive) return plan('leave_open', 'Responda la consulta solicitada sobre la unidad conocida. No convierta una consulta informativa en presupuesto, financiamiento, reserva ni visita.')
-  if (accepted && selected && readiness.can_offer_reservation !== true) return plan('continue_financing', stage.instruction ? text(stage.instruction) : 'Continúe con el siguiente dato financiero pendiente; no repita la aceptación ni ofrezca reserva mientras no exista revisión favorable.')
+  if (accepted && selected && readiness.can_offer_reservation !== true) {
+    if (stage.stage === 'clarify_budget') return { ...plan(kindQuestion ? 'clarify_budget_kind' : 'ask_budget',
+      text(stage.instruction), text(stage.question), kindQuestion ? 'budget_kind' : 'budget_amount'),
+      question_act: 'budget' }
+    if (stage.stage === 'clarify_entry') return { ...plan('clarify_financing_down_payment', text(stage.instruction),
+      text(stage.question), 'financing_down_payment'), question_act: 'financing' }
+    return plan('continue_financing', stage.instruction ? text(stage.instruction) : 'Continúe con el siguiente dato financiero pendiente; no repita la aceptación ni ofrezca reserva mientras no exista revisión favorable.')
+  }
   if (selected && readiness.can_offer_reservation === true && profileDone) {
     if (ids(state.reservation_declined_ids).includes(selected)) {
       if (!visitDeclined && state.visit_offered !== true && visitPolicy.allowSuggestions) return {

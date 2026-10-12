@@ -19,6 +19,15 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
     : [{ source: 'context', units: rows(verified.catalogo) }]
   sources.push({ source: 'budget_alternatives', units: rows(object(verified.presupuesto_del_turno).alternatives) })
   const proposed = object(verified.siguiente_paso_comercial)
+  const budgetEvaluation = object(proposed.budget_guidance || verified.presupuesto_del_turno)
+  const budgetQuery = object(object(verified.property_context).query || audit.catalog_query)
+  const budgetPhysicalQuery = { ...budgetQuery, requirements: rows(budgetQuery.requirements)
+    .filter(requirement => requirement.field !== 'published_commercial_price') }
+  if (budgetEvaluation.comparable === true) {
+    const candidateIds = new Set(Array.isArray(budgetEvaluation.candidate_unit_ids) ? budgetEvaluation.candidate_unit_ids : [])
+    sources.push({ source: 'budget_candidates', units: rows(Array.isArray(verified.catalogo_verificacion)
+      ? verified.catalogo_verificacion : verified.catalogo).filter(unit => candidateIds.has(unit.id)) })
+  }
   if (proposed.action === 'clarify_requirements') {
     const alternativeIds = new Set(Array.isArray(proposed.alternative_unit_ids) ? proposed.alternative_unit_ids : [])
     sources.push({ source: 'requirement_alternatives', units: rows(Array.isArray(verified.catalogo_verificacion) ? verified.catalogo_verificacion : verified.catalogo)
@@ -84,8 +93,13 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
     const result = object(audit.catalog_results)
     const queryScope = source === 'query' ? { query_scope: catalogFactScope(object(audit.catalog_query), [], audit.catalog_excluded_categories),
       complete_for_query: result.complete === true && Array.isArray(result.unknown_unit_ids) && !result.unknown_unit_ids.length,
-      unit_count: sourceUnits.length } : {}
+      unit_count: sourceUnits.length } : source === 'budget_candidates'
+        ? { complete_for_query: budgetEvaluation.membership_complete === true, covers: 'physical_budget_comparison_candidates',
+          query_scope: catalogFactScope(budgetPhysicalQuery) } : {}
     addGroup(`${source}:all`, units.filter(unit => ids.has(text(unit.id))), { source_scope: source, category: null, ...queryScope })
+    if (source === 'budget_candidates') for (const category of new Set(sourceUnits.map(unit => text(unit.category)).filter(Boolean)))
+      addGroup(`${source}:${category}`, units.filter(unit => ids.has(text(unit.id)) && unit.category === category),
+        { source_scope: source, category, ...queryScope })
     if (source === 'requirement_alternatives') for (const category of new Set(sourceUnits.map(unit => text(unit.category)).filter(Boolean))) {
       const members = units.filter(unit => ids.has(text(unit.id)) && unit.category === category)
       const sharedSpaces = members.length && members.every(unit => Array.isArray(unit.spaces))

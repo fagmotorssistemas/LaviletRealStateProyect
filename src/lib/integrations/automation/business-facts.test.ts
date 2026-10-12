@@ -12,7 +12,7 @@ import { OpenAIRequestError } from './openai-request'
 import { turnEvidence } from './turn-evidence'
 import { FINANCING_PROCESS_RULES, financingCollectionActive } from './financing-guidance'
 
-const budget = { status: 'amount', amount: 100000, confidence: 'high', evidence: 'perdon 100000' }
+const budget = { status: 'maximum_total', amount: 100000, confidence: 'high', evidence: 'perdon 100000' }
 const units = [{ id: 'local-1', unit_number: 'L1', category: 'local', published_commercial_price: 145000, is_published: true, status: 'disponible' },
   { id: 'suite-1', unit_number: 'S1', category: 'suite', published_commercial_price: 210000, is_published: true, status: 'disponible' }]
 const fact = (kind: string, value: number, subject_id: string | null = 'local-1', statement = 'Faltan 45000 para el local.'): Row => ({

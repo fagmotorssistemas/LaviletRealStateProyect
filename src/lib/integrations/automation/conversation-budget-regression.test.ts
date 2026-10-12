@@ -82,7 +82,7 @@ function semantics(message = current, operator = 'gte', upper: number | null = n
       filters: { bedrooms: 2, bedrooms_operator: operator, bedrooms_upper: upper },
       filter_evidence: { bedrooms: message, bedrooms_operator: message, bedrooms_upper: upper === null ? '' : message } },
     housing_quantities: [{ dimension: 'bedrooms', role: 'requirement', values: upper ? [2, upper] : [2], confidence: 'high', evidence: message, count_basis: 'unspecified' }],
-    budget: { status: 'amount', amount: 50000, confidence: 'high', evidence: message },
+    budget: { status: 'maximum_total', amount: 50000, confidence: 'high', evidence: message },
   } }, message, { id: 'property_floor' })
 }
 function turn() {
@@ -132,7 +132,7 @@ test('catalogue evidence preserves authorized prices and budget assessment never
   assert.ok(rows(object(hiddenRoute.audit.catalog_results).units).every(row => !('published_commercial_price' in row)))
   assert.deepEqual(turnBudgetAssessment(hidden, hiddenRoute.audit)?.prices, [])
   const affordable = { ...verified, semantica_turno: { ...verified.semantica_turno,
-    budget: { status: 'amount', confidence: 'high', amount: 185000, evidence: '185000 dólares' } } }
+    budget: { status: 'maximum_total', confidence: 'high', amount: 185000, evidence: '185000 dólares' } } }
   assert.deepEqual(turnBudgetAssessment(affordable, route.audit)?.matching_unit_ids, ['d304', 'd404'])
 })
 

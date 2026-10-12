@@ -3,11 +3,12 @@ import { CATALOG_NUMBER_FIELDS, requirementMatch } from './catalog-request'
 import { DISCOUNT_NUMBER_FIELDS, DISCOUNT_FACT_UNITS, DISCOUNT_REFERENCE_RULES, discountReferenceEvidence } from './discount-evidence'
 import { claimWithinCatalogScope } from './catalog-fact-scope'
 import { CONTEXTUAL_CALCULATION_SCHEMA, CONTEXTUAL_REASONING_RULES, contextualCalculationCheck, groundedResultQuantityPresent, type ResultUnit, type ContextualReasoningEvidence } from './contextual-reasoning'
+import { evaluateBudgetOptions } from './budget-evaluation'
 
 const fields = ['published_commercial_price', 'area_internal_m2', 'area_exterior_m2', 'bedrooms', 'bathrooms_full',
   'area_total_m2', 'floor_number', 'category', 'availability_status', 'status', 'unit_number', 'unit_count', 'amount', ...DISCOUNT_NUMBER_FIELDS]
 export const OTHER_FINANCIAL_CALCULATION_FIELDS = ['amount', 'published_commercial_price', ...DISCOUNT_NUMBER_FIELDS]
-const kinds = ['catalog_value', 'catalog_absence', 'lead_budget', 'budget_difference', 'other_calculation']
+const kinds = ['catalog_value', 'catalog_absence', 'lead_budget', 'budget_difference', 'budget_coverage', 'other_calculation']
 const relations = ['eq', 'gt', 'gte', 'lt', 'lte', 'range']
 export const businessFactSchema: Row = {
   type: 'object', additionalProperties: false,
@@ -42,7 +43,7 @@ En facts extraiga las afirmaciones verificables que realmente aparecen en borrad
 catalog_value identifica el inmueble o grupo exacto de fuentes_autorizadas, su field y valor afirmado. lead_budget usa field=amount. budget_difference identifica la unidad o grupo cuyo precio se compara con presupuesto_confirmado y field=published_commercial_price; value es la diferencia afirmada, NO el precio. Use other_calculation si la operación tiene otra fórmula o base: revísela semánticamente sin inventar operandos.
 lead_budget representa exclusivamente el importe declarado, con relation=eq y subject_id=null: «tengo 200 mil» es amount=200000, eq. Para comprobar «los precios superan su presupuesto» use catalog_value del grupo de precios, relation=gt y value=el presupuesto; nunca compare el presupuesto consigo mismo. No copie como statement una frase del cliente que no aparece en el borrador. Un catalog_value requiere el ID de su unidad/grupo, incluso para dormitorios, baños o superficies; null no identifica el sujeto.
 Respete el alcance: rangos usan grupos con aggregation=range, relation=range y ambos extremos. «Desde» usa el mínimo del grupo; «superan» es gt, no gte. Una afirmación de mínimo/máximo exacto usa el grupo min/max pertinente y relation=eq. No convierta una comparación general en una reserva.
-Si se refiere a opciones dentro del presupuesto, use el grupo budget_matching correspondiente y no el grupo global de la categoría. Una lista de ejemplos se verifica por sus unidades, no como mínimo y máximo universal. Si no puede representar fielmente el subconjunto afirmado, solicite aclaración de la ficha; no invente una referencia global.
+Para «estas opciones se ajustan al presupuesto», «todos los departamentos alcanzan» u otra suficiencia afirmada, extraiga budget_coverage con field=published_commercial_price, value=el presupuesto total confirmado y relation=lte. subject_id y scope identifican el conjunto DESCRITO por el borrador: mencionar departamentos y penthouses y decir «estas opciones» incluye ambos, no solo los asequibles. Para una categoría use su grupo completo pertinente. Para ejemplos identificados use las unidades. Solo use basis=budget_matching cuando el mensaje delimita expresamente el subconjunto de opciones dentro del importe; no reduzca el sujeto para hacer verdadera una afirmación universal. Cada grupo descrito conserva su propia evaluación. «Fuera del presupuesto» usa budget_coverage y relation=gt. Si no puede representar fielmente el subconjunto afirmado, repare la ficha; no invente una referencia global. Un rango de precios exclusivamente de alternativas asequibles sí usa el grupo budget_matching correspondiente.
 scope identifica las condiciones del conjunto que realmente describe la afirmación. Para «locales de la primera planta alta» use category=local y filters=[{field:floor_number,operator:eq,value:1,upper_value:null}], aunque subject_id sea el grupo general de locales. El código recalcula el rango sobre esos miembros. Para un rango sin restricción adicional use scope=null. No añada filtros para hacer coincidir una cifra, ni use el precio afirmado como filtro salvo que el TEXTO delimite expresamente un presupuesto. Una afirmación sobre una planta no se contrasta contra los extremos de todas las plantas.
 unit identifica USD, m2, count o text. Dormitorios, baños, plantas y cantidades de unidades usan count. «Cuatro departamentos de tres dormitorios» contiene dos datos distintos: unit_count=4 y bedrooms=3; extraiga ambos si están afirmados. unit_count necesita scope explícito y se refiere al conjunto AFIRMADO, nunca a una ficha individual ni al número de ejemplos enviados. scope.basis distingue inventory (grupos catalog_inventory), query (complete_query/task_query), alternatives (alternativas propuestas), budget_matching y subject (otro conjunto identificado). scope.group distingue viviendas/residential de locales/commercial. No atribuya los totales del proyecto a una búsqueda filtrada. query_scope son las condiciones del grupo calculadas por el sistema: un conjunto vacío de cinco dormitorios no prueba que el inventario general ni las alternativas estén vacíos. Si un total solo está en una descripción narrativa, revíselo semánticamente; no lo convierta en la cantidad de una búsqueda ni contradiga las fichas actuales.
 Para «no disponemos de viviendas de cinco dormitorios» use catalog_absence, field=unit_count, value=0, relation=eq, unit=count y scope con el grupo y las condiciones de esa ausencia; NO bedrooms=5 como atributo positivo ni dormitorios=0. La ausencia requiere un conjunto completo y sin datos desconocidos para esos filtros. Una ausencia con más condiciones no demuestra ausencia fuera de ellas. Respete complete_for_query: una lectura parcial o fichas sin el dato no prueban cero. No suponga que una entrada o cuota es presupuesto total. Otras negaciones y condiciones que no se representan fielmente con estos campos se revisan semánticamente; no las transforme en hechos afirmativos.
@@ -114,7 +115,7 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
       if (scope.group != null && !['residential', 'commercial'].includes(text(scope.group)))
         return unknown('El ámbito necesita identificar viviendas o locales sin mezclar sus inventarios.')
       const basisOf = (row: Row | undefined) => row?.source_scope === 'catalog_inventory' ? 'inventory'
-        : ['complete_query', 'task_query', 'query'].includes(text(row?.source_scope)) ? 'query'
+        : ['complete_query', 'task_query', 'query', 'budget_candidates'].includes(text(row?.source_scope)) ? 'query'
           : ['requirement_alternatives', 'alternatives', 'budget_alternatives'].includes(text(row?.source_scope)) ? 'alternatives'
             : row?.source_scope === 'budget_matching' ? 'budget_matching' : 'subject'
       // Repair a cross-scope group reference only when the declared domain
@@ -191,6 +192,31 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
       expected = budget.amount; source = { budget }
     } else {
       if (!subject) return unknown('La unidad o grupo no está identificado entre las fuentes del turno.')
+      const budgetComparison = fact.kind === 'budget_coverage' || fact.kind === 'catalog_value'
+        && fact.field === 'published_commercial_price' && ['gt', 'gte', 'lt', 'lte'].includes(text(fact.relation))
+        && numeric(budget.amount) && equal(fact.value, budget.amount)
+      if (budgetComparison) {
+        if (fact.field !== 'published_commercial_price' || !['gt', 'gte', 'lt', 'lte'].includes(text(fact.relation))
+          || budget.status !== 'maximum_total' || budget.confidence !== 'high' || !numeric(budget.amount)
+          || !equal(fact.value, budget.amount)) return unknown('La suficiencia requiere presupuesto total confirmado y una comparación del precio, no entrada ni cuota.', false)
+        if (subject.source_scope === 'budget_matching' && scope.basis !== 'budget_matching')
+          return unknown('La afirmación no identifica expresamente el subconjunto asequible; no puede sustituir el conjunto descrito por coincidencias de presupuesto.')
+        const memberIds = Array.isArray(subject.member_ids) ? subject.member_ids.map(text) : [text(subject.id)]
+        const members = units.filter(unit => memberIds.includes(text(unit.id)))
+        const evaluation = evaluateBudgetOptions({ budget, units: members, pricesAuthorized: true,
+          membershipComplete: members.length === memberIds.length
+            && (!Array.isArray(subject.member_ids) || subject.complete_for_query === true) })
+        if (evaluation.complete !== true || !members.length) return unknown('La afirmación universal requiere todos los miembros del conjunto y sus precios verificados.', false)
+        // Compare all members, never a min endpoint chosen to hide a penthouse.
+        const fits = text(fact.relation) === 'lte' ? evaluation.coverage === 'all'
+          : text(fact.relation) === 'lt' ? members.every(unit => Number(unit.published_commercial_price) < Number(budget.amount))
+            : text(fact.relation) === 'gt' ? (evaluation.outside_unit_ids as string[]).length === members.length
+              : members.every(unit => Number(unit.published_commercial_price) >= Number(budget.amount))
+        return { index, fact, status: fits ? 'verified' : 'contradiction', expected: evaluation,
+          source: { subject_id: subject.id, member_ids: memberIds, scope: subject.scope, budget_evaluation: evaluation },
+          reason: fits ? 'La comparación se cumple para todos los miembros del conjunto afirmado.'
+            : 'La suficiencia afirmada no se cumple para todas las unidades o categorías que describe.' }
+      }
       if (fact.kind === 'budget_difference') {
         if (fact.field !== 'published_commercial_price') return unknown('La diferencia requiere el precio de la unidad o grupo.')
         if (!['amount', 'maximum_total'].includes(text(budget.status)) || budget.confidence !== 'high'
@@ -249,12 +275,14 @@ const isDerivedCalculation = (fact: Row) => fact.field === 'derived_value' || fa
 
 export function factFindings(checks: FactCheck[]): Row[] {
   return checks.filter(check => check.status === 'contradiction' || check.status === 'unverified'
-    && (isDerivedCalculation(check.fact) || check.fact.kind === 'catalog_absence' || check.fact.kind === 'catalog_value' && check.fact.field === 'unit_count')).map(check => ({ category: 'hard_fact',
+    && (isDerivedCalculation(check.fact) || check.fact.kind === 'budget_coverage' || check.fact.kind === 'catalog_absence' || check.fact.kind === 'catalog_value' && check.fact.field === 'unit_count')).map(check => ({ category: 'hard_fact',
     statement: check.fact.statement, reason: check.reason,
     authoritative_fact: JSON.stringify({ expected: check.expected, source: check.source,
       ...(check.status === 'unverified' ? isDerivedCalculation(check.fact)
         ? { calculation_status: 'unconfirmed', instruction: 'Corrija o retire el cálculo; explique las medidas que faltan. No convierta el resultado en un atributo del inmueble ni una garantía física.' }
-        : { count_status: 'unconfirmed', instruction: 'No afirme una cantidad exacta ni ausencia; explique el límite de verificación. No sustituya datos desconocidos por cero.' } : {}) }), owner: 'system' }))
+        : check.fact.kind === 'budget_coverage'
+          ? { budget_coverage_status: 'unconfirmed', instruction: 'Limite la afirmación de suficiencia al conjunto con miembros y precios comprobados; no convierta una coincidencia parcial ni precios desconocidos en “todas”.' }
+          : { count_status: 'unconfirmed', instruction: 'No afirme una cantidad exacta ni ausencia; explique el límite de verificación. No sustituya datos desconocidos por cero.' } : {}) }), owner: 'system' }))
 }
 
 export function availableAssistance(verified: Row): Row {

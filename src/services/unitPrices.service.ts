@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { launchPricesVisible, parseCommercialPrice, withLaunchPricesVisibility, type UnitPriceRow } from '../lib/inmobiliaria/unitPrices'
+import { launchPricesVisible, parseCommercialPrice, referentialPriceNoticeEnabled, withLaunchPricesVisibility, withReferentialPriceNotice, type UnitPriceRow } from '../lib/inmobiliaria/unitPrices'
 
 const columns = 'id,unit_number,category,floor_number,bedrooms,area_internal_m2,published_commercial_price,is_published,status,updated_at'
 export async function saveLaunchPriceVisibility(client: SupabaseClient, params: {
@@ -16,6 +16,22 @@ export async function saveLaunchPriceVisibility(client: SupabaseClient, params: 
   if (error) throw new Error(error.message)
   if (!data) throw new Error(conflict)
   return { launchVisible: launchPricesVisible(data.policies_json), projectUpdatedAt: data.updated_at as string }
+}
+
+export async function saveReferentialPriceNotice(client: SupabaseClient, params: {
+  projectId: string; tenantId: string; enabled: boolean; expectedUpdatedAt: string
+}, project: { policies_json: unknown; updated_at: string }) {
+  if (!params.projectId || !params.tenantId || typeof params.enabled !== 'boolean'
+    || !params.expectedUpdatedAt || !Number.isFinite(Date.parse(params.expectedUpdatedAt))) throw new Error('Vuelva a cargar el proyecto antes de guardar la aclaración de precios.')
+  const conflict = 'La configuración del proyecto cambió. Actualice antes de guardar la aclaración de precios.'
+  if (project.updated_at !== params.expectedUpdatedAt) throw new Error(conflict)
+  const { data, error } = await client.from('projects').update({
+    policies_json: withReferentialPriceNotice(project.policies_json, params.enabled), updated_at: new Date().toISOString(),
+  }).eq('id', params.projectId).eq('tenant_id', params.tenantId).eq('updated_at', params.expectedUpdatedAt)
+    .select('policies_json,updated_at').maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error(conflict)
+  return { referentialNoticeEnabled: referentialPriceNoticeEnabled(data.policies_json), projectUpdatedAt: data.updated_at as string }
 }
 
 export async function listProjectPrices(client: SupabaseClient, projectId: string, tenantId: string) {

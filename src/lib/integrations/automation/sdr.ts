@@ -26,7 +26,7 @@ import { passiveSalesCopy } from './commercial-engagement'
 import { openingWritingRules } from './response-openings'
 import { MAX_REPLY_CHARACTERS } from './response-plan'
 import { responseContentScope, projectContentForWriter, RESPONSE_CONTENT_SCOPE_RULES } from './response-content-scope'
-import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
+import { botPricingPolicy, launchPricesVisible, referentialPriceNoticeEnabled } from '@/lib/inmobiliaria/unitPrices'
 import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
 import { TURN_INTENT_RULES } from './turn-intent'
 import { priceFinancingReply } from './financing'
@@ -127,6 +127,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     posicionamiento_proyecto: PROJECT_POSITIONING,
     politica_comercial: { precios_autorizados: pricesAllowed && catalog.some(u => Number(u.published_commercial_price) > 0),
       precios_aproximados: pricing.approximate,
+      aviso_precios_referenciales: referentialPriceNoticeEnabled(projectData.policies_json),
       describir_disponibilidad_publicada: true, garantizar_disponibilidad_sin_reserva: false,
       confirmar_visita_sin_resultado: false, agendar_llamadas: false },
     alcance_producto: 'La Vilet ofrece suites, departamentos y locales comerciales en Cuenca; no casas independientes.',

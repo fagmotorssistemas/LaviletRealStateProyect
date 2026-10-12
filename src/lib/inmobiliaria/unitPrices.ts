@@ -29,6 +29,16 @@ export function withLaunchPricesVisibility(policies: unknown, visible: boolean) 
   return { ...previous, bot_pricing: { ...record(previous.bot_pricing), launch_prices_visible: visible } }
 }
 
+/** Existing projects retain the current notice until an administrator disables it. */
+export function referentialPriceNoticeEnabled(policies: unknown): boolean {
+  return record(record(policies).bot_pricing).referential_notice_enabled !== false
+}
+
+export function withReferentialPriceNotice(policies: unknown, enabled: boolean) {
+  const previous = record(policies)
+  return { ...previous, bot_pricing: { ...record(previous.bot_pricing), referential_notice_enabled: enabled } }
+}
+
 export function botPricingPolicy(mode: string, launchVisible = false) {
   return { visible: mode === 'preventa' || (mode === 'lanzamiento' && launchVisible), approximate: mode === 'lanzamiento' && launchVisible }
 }

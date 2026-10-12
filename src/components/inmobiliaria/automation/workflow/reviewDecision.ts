@@ -33,6 +33,7 @@ export function reviewObligationLabel(value: unknown) {
     profile_collection: 'Recoger los datos pendientes con el propósito de brochure y guía personalizada',
     brochure_sequence: 'Ofrecer o entregar el brochure según la etapa', business_scope: 'Respetar el alcance de La Vilet',
     opening_scope: 'Respetar la presentación inicial sin tipos de inmuebles', price_conditions: 'Conservar las condiciones del precio',
+    price_notice_disabled: 'Omitir la aclaración automática de precios desactivada',
     current_operation: 'Respetar el objetivo y la operación del turno',
     location_scope: 'Enviar solo la ubicación permitida en este turno',
     visit_dialogue: 'Continuar la visita con el destino y consentimiento correctos',

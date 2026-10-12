@@ -4,6 +4,7 @@ import { needsPropertyPurpose } from './conversation-next-step'
 import { turnContinuation } from './turn-continuation'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
 import { LAUNCH_PRICE_COMPARISON_RULE } from './launch-price-policy'
+import { referentialPriceNoticeRequired, REFERENTIAL_PRICE_NOTICE_RULES } from './price-conditions'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { PROJECT_TRUTH_RULES } from './project-truth'
 import { LOCATION_DISCLOSURE_RULES } from './location-policy'
@@ -110,8 +111,10 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
       ? 'Atienda la relación del presupuesto con los precios y mencione el financiamiento si corresponde. La única pregunta en esta apertura solicita nombre y residencia; no añada todavía aceptación financiera ni preferencias.'
       : journey.action ? 'Atienda los hechos del presupuesto y continúe según commercial_next_step: ' + text(journey.instruction)
         : budgetContinuationInstruction(object(verified.presupuesto_del_turno)) })
-  if (policy.precios_aproximados === true) obligations.push({ id: 'price_conditions',
-    instruction: 'Si el borrador comunica precios, preserve su carácter referencial vigente y posibilidad de cambio según politica_comercial, con cualquier redacción equivalente. No exija mencionar lanzamiento ni otra etapa para cumplir el aviso; la etapa no decide la condición. Respete las políticas publicadas aplicables. Si no comunica precios, esta obligación está cumplida.' })
+  if (referentialPriceNoticeRequired(policy)) obligations.push({ id: 'price_conditions',
+    instruction: REFERENTIAL_PRICE_NOTICE_RULES + ' Si no comunica precios, esta obligación está cumplida.' })
+  else if (policy.aviso_precios_referenciales === false) obligations.push({ id: 'price_notice_disabled',
+    instruction: REFERENTIAL_PRICE_NOTICE_RULES })
   if (contract.decisiones_protegidas === true || audit.action || audit.visit_result || audit.reservation
     || audit.progressive_selection || audit.post_tour_continuation
     || Array.isArray(contract.datos_requeridos) && contract.datos_requeridos.length) obligations.push({ id: 'current_operation',

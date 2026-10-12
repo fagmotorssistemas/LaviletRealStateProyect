@@ -798,8 +798,18 @@ export function rememberInterpretedTurn(previous: Row, current: string, extracte
   if (extracted.preferred_category) facts.categoria = extracted.preferred_category
   if (extracted.purchase_purpose) facts.proposito = extracted.purchase_purpose
   if (object(extracted.household).confidence === 'high') facts.household = extracted.household
+  const amounts = semantics.financing_amounts || extracted.financing_amounts
+  const statements = Array.isArray(amounts) ? amounts.map(object) : []
+  const entryAnswer = object(semantics.answer_to_previous).question_id === 'financing_down_payment'
+    || object(previous._pending_question).id === 'financing_down_payment'
+  const totalUpdated = statements.some(statement => statement.role === 'total_budget' || statement.replaces_role === 'total_budget')
+  // Answering the separate entry question must not overwrite the commercial
+  // budget or turn an undefined entry into an undefined purchase budget.
+  const separateEntry = entryAnswer && !totalUpdated
+  const memorySemantics = separateEntry ? { ...semantics, budget: { status: 'not_discussed' } } : semantics
+  const memoryExtracted = separateEntry ? { ...extracted, qualification: { ...object(extracted.qualification), presupuesto_texto: null } } : extracted
   return { ...previous, solicitud_actual: current.slice(0, 1200), datos_confirmados: facts,
-    _financing_amounts: financingAmounts(object(previous._financing_amounts), semantics.financing_amounts || extracted.financing_amounts, current),
-    _interpretation_memory: rememberInterpretationFacts(previous, current, extracted, semantics),
+    _financing_amounts: financingAmounts(object(previous._financing_amounts), amounts, current),
+    _interpretation_memory: rememberInterpretationFacts(previous, current, memoryExtracted, memorySemantics),
     _turn_contract: CONVERSATION_CONTRACT_VERSION }
 }

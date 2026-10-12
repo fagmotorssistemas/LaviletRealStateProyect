@@ -47,6 +47,7 @@ import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
 import { financingCollection, financingReadyForHandoff, personalDataFragments } from './financing-intake'
 import { financingIdentity } from './financing-identity'
 import { financingAmounts, financingBalance } from './financing-amounts'
+import { rememberFinancingEntry } from './financing-entry'
 import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
 import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
 import { commercialMemory, isProjectInformationRequest, rememberCommercialReply, projectInformationChoiceReply, projectInformationReply, projectOverviewReply } from './commercial-experience'
@@ -629,7 +630,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   propertyTurn = reference
   currentSemantics = turnSemantics
   const unresolvedPropertyScope = businessScope.uncertain || businessScope.kind === 'out_of_scope'
-  summary = { ...rememberInterpretedTurn(previousSummary, originalTurn, unresolvedPropertyScope
+  summary = { ...rememberInterpretedTurn({ ...previousSummary, _pending_question: pendingQuestion }, originalTurn, unresolvedPropertyScope
     ? { ...extracted, preferred_category: null, purchase_purpose: null } : extracted, unresolvedPropertyScope ? {} : turnSemantics),
     _turn_intent: turnIntent,
     _unit_reference: minimalTurn || unresolvedPropertyScope ? previousSummary._unit_reference || {} : reference.memory,
@@ -656,12 +657,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
   summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, text(state.ultima_respuesta))
   summary._financing_amounts = financingAmounts(object(previousSummary._financing_amounts), extracted.financing_amounts, current)
+  summary._financing_entry = rememberFinancingEntry(object(previousSummary._financing_entry), current, extracted, pendingQuestion, activeLast.externalId)
   const financeSelection = { lead, catalogo: turnCatalog, referencia_unidad: reference, property_context: reference.context,
-    semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
+    semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory,
+    financing_amounts: summary._financing_amounts, financing_entry: summary._financing_entry }
   const financingAccepted = financingStage({ ...financeSelection,
     financiamiento: { ...finance, journey: summary._financing_journey } }).accepted === true
   const financingDataTurn = !quoteInquiry.beforeApplication && financingAccepted && !!selectedFinancingUnit(financeSelection)
-    && (financingPartnerAnswer(extracted, financeInput)
+    && (pendingQuestion.id === 'financing_down_payment' || financingPartnerAnswer(extracted, financeInput)
       || ['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
       || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
       || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null))
@@ -802,7 +805,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
       p_purchase_purpose: extracted.purchase_purpose, p_unit_id: unitId }))
     lead = { ...lead, ...declarations }
-    const facts = qualifiedFacts(object(extracted.qualification), current)
+    const qualification = { ...object(extracted.qualification) }
+    if (pendingQuestion.id === 'financing_down_payment') {
+      // The commercial qualification follows the same role-preserving memory
+      // as planning; a separate entry answer must not replace its budget text.
+      qualification.presupuesto_texto = object(object(summary._interpretation_memory).qualification).presupuesto_texto || null
+    }
+    const facts = qualifiedFacts(qualification, current)
     const categoryChanged = previousCategory && lead.preferred_category !== previousCategory
     if (categoryChanged && !unitId && reference.reason === 'category_change') { reference.matches = []; summary._unit_reference = {} }
     if (Object.keys(facts).length || categoryChanged) {
@@ -1185,7 +1194,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       let financePrerequisiteAudit: Row = {}
       if (financeTurn && !financeAnswer) {
         const selectionInfo = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
-          financiamiento: { ...finance, journey: summary._financing_journey }, referencia_unidad: reference, property_context: reference.context,
+          financiamiento: { ...finance, journey: summary._financing_journey, entry: summary._financing_entry, amounts: summary._financing_amounts }, referencia_unidad: reference, property_context: reference.context,
           semantica_turno: turnSemantics, hechos_confirmados: summary._interpretation_memory }
         financePrerequisite = financingPrerequisiteReply(selectionInfo, current)
         if (financePrerequisite && commercialJourneyPlan(selectionInfo).action === 'select_property') {
@@ -1204,7 +1213,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       }
       // A question about a product is not an application or consent to collect personal data.
       let fin: Row = {}, financeFailure = ''
-      if (financeTurn && !financeAnswer && !financePrerequisite && !financeReviewComplete) {
+      if (financeTurn && !financeAnswer && !financePrerequisite && !financeReviewComplete
+        && financingStage({ ...financeSelection, financiamiento: { ...finance, journey: summary._financing_journey } }).collection_allowed === true) {
         if (financingAccepted && selectedFinancingUnit({ ...financeSelection, lead })) extracted.financing_consent = true
         const identity = object(summary._financing_identity)
         const partnerForCollection = financeInput.partner || rememberedFinancingPartner(summary._financing_journey, finance.partners)
@@ -1380,7 +1390,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (text(deliveredTour.unit_number) && text(deliveredTour.url) && reply.includes(text(deliveredTour.url))
     && !finalNotice && !handoffNotice && !/^(?:visit|financing|advisor|price_and_visit)/.test(text(audit.source))) {
     const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), historial: context.historial,
-      semantica_turno: turnSemantics, financiamiento: { ...finance, journey: summary._financing_journey }, memoria_comercial: memory,
+      semantica_turno: turnSemantics, financiamiento: { ...finance, journey: summary._financing_journey, entry: summary._financing_entry, amounts: summary._financing_amounts }, memoria_comercial: memory,
       property_context: propertyTurn.context, referencia_unidad: propertyTurn, recorrido_comercial: summary._commercial_journey,
       hechos_confirmados: summary._interpretation_memory }
     const unit = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).find(row => text(row.unit_number) === text(deliveredTour.unit_number)) || {}
@@ -1493,7 +1503,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       ...(audit.verified_catalog === true ? {
         catalogo: object(audit.catalog_results).units, catalog_results: audit.catalog_results, catalog_query: audit.catalog_query } : {}) }
     // The map URL is not a suggestion the writer may add opportunistically.
-    info.financiamiento = { ...object(info.financiamiento), journey: summary._financing_journey }
+    info.financiamiento = { ...object(info.financiamiento), journey: summary._financing_journey, entry: summary._financing_entry, amounts: summary._financing_amounts }
     audit.brochure_url = text(info.brochure_url) || BROCHURE_URL
     info.financing_amounts = summary._financing_amounts
     info.financing_balance = financingBalance(object(summary._financing_amounts), selectedFinancingUnit(info), object(info.politica_comercial).precios_autorizados === true)

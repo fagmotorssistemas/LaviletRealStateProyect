@@ -2,6 +2,14 @@ import { object, type Row } from './data'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 
 export const REFERENTIAL_PRICE_NOTICE = 'Estos son los precios referenciales vigentes y pueden cambiar.'
+
+/** Notice visibility never changes the commercial nature or disclosure permission of a price. */
+export function referentialPriceNoticeRequired(policyInput: unknown): boolean {
+  const policy = object(policyInput)
+  return policy.precios_aproximados === true && policy.aviso_precios_referenciales !== false && policy.precios_autorizados !== false
+}
+
+export const REFERENTIAL_PRICE_NOTICE_RULES = `AVISO AUTOMÁTICO DE PRECIOS: si politica_comercial.precios_aproximados=true y aviso_precios_referenciales no es false, al comunicar precios conserve su carácter referencial vigente y posibilidad de cambio con cualquier formulación equivalente. No exija mencionar lanzamiento ni otra etapa para cumplir el aviso. La etapa por sí sola no decide ese aviso; no la añada por costumbre. Si aviso_precios_referenciales=false, no añada automáticamente la aclaración «son referenciales y pueden cambiar» ni una equivalente. Ese ajuste solo controla el aviso rutinario: no cambia los precios, su naturaleza aproximada, sus permisos de publicación ni las condiciones comerciales verificadas. Si el cliente pregunta expresamente por vigencia, cambios o condiciones, responda esa consulta con los hechos y políticas disponibles; nunca deduzca que el precio es fijo o está garantizado por tener el aviso desactivado.`
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 
@@ -40,7 +48,7 @@ function completeNotice(reply: string): boolean {
 /** Prepare a policy-owned qualifier BEFORE reviewing the complete message. */
 export function ensureReferentialPriceConditions(reply: string, verified: Row, audit: Row = {}): { reply: string; applied: boolean } {
   const policy = object(verified.politica_comercial)
-  if (!reply.trim() || policy.precios_aproximados !== true || policy.precios_autorizados === false
+  if (!reply.trim() || !referentialPriceNoticeRequired(policy)
     || !disclosedPurchasePrice(reply, verified, audit) || completeNotice(reply)) return { reply, applied: false }
   // Keep the customer's next decision at the end of the message, including a
   // preceding bridge. Never append a new commercial question or change amounts.

@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants'
 import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 import { listProjects } from '@/services/inmobiliaria.service'
-import { loadUnitPricesAction, saveUnitPriceAction, saveLaunchPriceVisibilityAction } from '@/app/inmobiliaria/automatizacion/precios/actions'
+import { loadUnitPricesAction, saveUnitPriceAction, saveLaunchPriceVisibilityAction, saveReferentialPriceNoticeAction } from '@/app/inmobiliaria/automatizacion/precios/actions'
 import { botPriceStatus, parseCommercialPrice, type UnitPriceRow } from '@/lib/inmobiliaria/unitPrices'
 import { normalizeUnitCategory, type Project } from '@/types/inmobiliaria'
 import { formatCurrency } from '@/lib/utils'
@@ -29,6 +29,8 @@ export function UnitPricesView() {
   const [mode, setMode] = useState('lanzamiento')
   const [launchVisible, setLaunchVisible] = useState(false)
   const [savedLaunchVisible, setSavedLaunchVisible] = useState(false)
+  const [referentialNoticeEnabled, setReferentialNoticeEnabled] = useState(true)
+  const [savedReferentialNoticeEnabled, setSavedReferentialNoticeEnabled] = useState(true)
   const [projectUpdatedAt, setProjectUpdatedAt] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('todos')
@@ -63,6 +65,7 @@ export function UnitPricesView() {
       if (!active) return
       setUnits(data.units); setMode(data.mode)
       setLaunchVisible(data.launchVisible); setSavedLaunchVisible(data.launchVisible); setProjectUpdatedAt(data.projectUpdatedAt)
+      setReferentialNoticeEnabled(data.referentialNoticeEnabled); setSavedReferentialNoticeEnabled(data.referentialNoticeEnabled)
       setDrafts(Object.fromEntries(data.units.map(unit => [unit.id, unit.published_commercial_price == null ? '' : String(unit.published_commercial_price)])))
     }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los precios') })
       .finally(() => { if (active) setLoading(false) })
@@ -74,7 +77,8 @@ export function UnitPricesView() {
     catch { return true }
   }
   const visibilityDirty = launchVisible !== savedLaunchVisible
-  const dirty = units.some(changed) || visibilityDirty
+  const noticeDirty = referentialNoticeEnabled !== savedReferentialNoticeEnabled
+  const dirty = units.some(changed) || visibilityDirty || noticeDirty
   const changeProject = (value: string) => {
     if (dirty) { toast.error('Guarde los cambios pendientes o pulse Descartar cambios antes de cambiar de proyecto.'); return }
     setProjectId(value)
@@ -82,6 +86,7 @@ export function UnitPricesView() {
   const discard = () => {
     setDrafts(Object.fromEntries(units.map(unit => [unit.id, unit.published_commercial_price == null ? '' : String(unit.published_commercial_price)])))
     setLaunchVisible(savedLaunchVisible)
+    setReferentialNoticeEnabled(savedReferentialNoticeEnabled)
   }
   const saveVisibility = async () => {
     setSaving('visibility')
@@ -90,6 +95,16 @@ export function UnitPricesView() {
       setLaunchVisible(updated.launchVisible); setSavedLaunchVisible(updated.launchVisible); setProjectUpdatedAt(updated.projectUpdatedAt)
       toast.success('Visibilidad de precios guardada')
     } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar la visibilidad') }
+    finally { setSaving('') }
+  }
+  const saveNotice = async () => {
+    setSaving('notice')
+    try {
+      const updated = await saveReferentialPriceNoticeAction({ projectId, enabled: referentialNoticeEnabled, expectedUpdatedAt: projectUpdatedAt })
+      setReferentialNoticeEnabled(updated.referentialNoticeEnabled); setSavedReferentialNoticeEnabled(updated.referentialNoticeEnabled)
+      setProjectUpdatedAt(updated.projectUpdatedAt)
+      toast.success('Aclaración automática de precios guardada')
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar la aclaración de precios') }
     finally { setSaving('') }
   }
   const save = async (unit: UnitPriceRow) => {
@@ -125,15 +140,23 @@ export function UnitPricesView() {
       ]} />
       <div className={styles.notice}>
         <strong>{mode === 'preventa' ? 'El bot puede informar los precios guardados' : 'Decida si anuncia precios durante Lanzamiento'}</strong>
-        <p>{mode === 'preventa' ? 'El bot informa el precio guardado sin la aclaración de lanzamiento. Solo usa unidades publicadas y disponibles.' : 'Si habilita la visibilidad, el bot presenta los precios guardados como aproximados y aclara que pueden cambiar durante Lanzamiento. Si la desactiva, no informa esos valores.'} <Link href="/inmobiliaria/automatizacion/reglas" className="underline underline-offset-4">Ver reglas</Link></p>
+        <p>{mode === 'preventa' ? 'El bot informa el precio guardado según las condiciones comerciales vigentes. Solo usa unidades publicadas y disponibles.' : 'Si habilita la visibilidad, el bot puede informar los precios guardados como aproximados. Si la desactiva, no informa esos valores. La aclaración automática se configura por separado.'} <Link href="/inmobiliaria/automatizacion/reglas" className="underline underline-offset-4">Ver reglas</Link></p>
         <div className="flex flex-wrap items-center justify-between gap-4 py-3">
           <label className="flex items-center gap-3 font-medium" htmlFor="launch-price-visibility">
             <input id="launch-price-visibility" type="checkbox" className="h-5 w-5 accent-[#34412d]" checked={launchVisible} disabled={!!saving} aria-describedby="launch-price-help" onChange={event => setLaunchVisible(event.target.checked)} />
-            Mostrar precios aproximados en Lanzamiento<SettingsHelp title="Visibilidad de precios en lanzamiento" configures="Permite informar los precios publicados durante lanzamiento." usedByBot="Si está habilitado, comunica valores referenciales que pueden cambiar. En preventa rige el modo comercial correspondiente; no altera el precio de las unidades." applies="Solo durante lanzamiento y para unidades publicadas y disponibles." saving="Guarde con Guardar visibilidad. Cambiar la casilla sin guardar no cambia las próximas respuestas; no modifica la fase ni el avance de obra." />
+            Mostrar precios aproximados en Lanzamiento<SettingsHelp title="Visibilidad de precios en lanzamiento" configures="Permite informar los precios publicados durante lanzamiento." usedByBot="Si está habilitado, puede comunicar los valores aproximados. La aclaración automática tiene su propio ajuste; en preventa rigen las condiciones comerciales correspondientes." applies="Solo durante lanzamiento y para unidades publicadas y disponibles." saving="Guarde con Guardar visibilidad. Cambiar la casilla sin guardar no cambia las próximas respuestas; no modifica la fase ni el avance de obra." />
           </label>
           <Button size="sm" disabled={!!saving || !visibilityDirty} onClick={() => void saveVisibility()}><Save size={14} />{saving === 'visibility' ? 'Guardando…' : 'Guardar visibilidad'}</Button>
         </div>
         <p id="launch-price-help">Este ajuste solo se aplica durante Lanzamiento y no cambia la fase del proyecto.{visibilityDirty ? ' La visibilidad tiene cambios sin guardar.' : ''}</p>
+        <div className="flex flex-wrap items-center justify-between gap-4 py-3">
+          <label className="flex items-center gap-3 font-medium" htmlFor="referential-price-notice">
+            <input id="referential-price-notice" type="checkbox" className="h-5 w-5 accent-[#34412d]" checked={referentialNoticeEnabled} disabled={!!saving} aria-describedby="referential-price-notice-help" onChange={event => setReferentialNoticeEnabled(event.target.checked)} />
+            Mostrar aclaración automática de precios referenciales<SettingsHelp title="Aclaración automática de precios" configures="Añade el aviso de que los precios referenciales pueden cambiar cuando se comunican valores aproximados." usedByBot="Al desactivarlo, omite ese aviso rutinario. Si el lead pregunta por vigencia o cambios, responde con las condiciones reales." applies="Independiente de mostrar precios y de la etapa comercial. No vuelve fijos los precios ni cambia sus importes." saving="Guarde con Guardar aclaración. La casilla sin guardar no afecta las próximas respuestas." example="Aviso: Estos son los precios referenciales vigentes y pueden cambiar." />
+          </label>
+          <Button size="sm" disabled={!!saving || !noticeDirty} onClick={() => void saveNotice()}><Save size={14} />{saving === 'notice' ? 'Guardando…' : 'Guardar aclaración'}</Button>
+        </div>
+        <p id="referential-price-notice-help">{savedReferentialNoticeEnabled ? 'El aviso automático está activado para los precios aproximados.' : 'El aviso automático está desactivado. Las consultas sobre vigencia o cambios se siguen respondiendo.'}{noticeDirty ? ' Hay cambios sin guardar en la aclaración.' : ''}</p>
         <p>Ingrese el precio total de venta de cada unidad en USD. Este dato es el mismo del inventario; no modifica el costo por m². Deje el campo vacío y guarde para retirar el precio comercial.</p>
       </div>
       <section className={styles.panel} aria-label="Edición de precios comerciales">

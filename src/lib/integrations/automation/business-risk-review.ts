@@ -7,6 +7,7 @@ import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { CONVERSATION_BRIDGE_RULES } from './turn-continuation'
 import { PROJECT_TRUTH_RULES } from './project-truth'
 import { continuationQuestionProperties, CONTINUATION_QUESTION_RULE } from './continuation-question'
+import { REFERENTIAL_PRICE_NOTICE_RULES } from './price-conditions'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -53,14 +54,17 @@ export function businessRiskSchemaForSources(units: Row[], groups: Row[]): Row {
   }).map(row => text(row.id)).filter(Boolean))]
   const properties = object(businessFactSchema.properties)
   const scopedSchema = (object(properties.scope).anyOf as Row[]).find(row => row.type === 'object')!
-  const variants = ['catalog_value', 'catalog_absence', 'lead_budget', 'budget_difference', 'other_calculation'].flatMap<Row>(kind => {
+  const variants = ['catalog_value', 'catalog_absence', 'lead_budget', 'budget_difference', 'budget_coverage', 'other_calculation'].flatMap<Row>(kind => {
     const variant = {
       ...businessFactSchema, properties: { ...properties, kind: { type: 'string', enum: [kind] },
-        ...(kind === 'catalog_value' || kind === 'catalog_absence' || kind === 'budget_difference' ? {
+        ...(kind === 'catalog_value' || kind === 'catalog_absence' || kind === 'budget_difference' || kind === 'budget_coverage' ? {
           subject_id: { type: 'string', enum: [...(kind === 'catalog_absence' ? groupIds : kind === 'budget_difference' ? valueIds : sourceIds), 'unresolved'], description: 'ID de la fuente para este sujeto y alcance. unresolved solo si no hay respaldo: señale el hallazgo comercial correspondiente.' },
         } : {}),
         ...(kind === 'catalog_absence' ? { field: { type: 'string', enum: ['unit_count'] }, relation: { type: 'string', enum: ['eq'] },
           scope: scopedSchema, value: { type: 'number', enum: [0] }, upper_value: { type: 'null' }, unit: { type: 'string', enum: ['count'] } } : {}),
+        ...(kind === 'budget_coverage' ? { field: { type: 'string', enum: ['published_commercial_price'] },
+          relation: { type: 'string', enum: ['gt', 'gte', 'lt', 'lte'] }, value: { type: 'number' },
+          upper_value: { type: 'null' }, unit: { type: 'string', enum: ['USD'] } } : {}),
         ...(kind === 'other_calculation' ? { field: { type: 'string', enum: OTHER_FINANCIAL_CALCULATION_FIELDS },
           unit: { type: 'string', enum: ['USD', 'percent'] } } : {}),
         ...(kind === 'lead_budget' ? { field: { type: 'string', enum: ['amount'] }, relation: { type: 'string', enum: ['eq'] },
@@ -124,6 +128,7 @@ Devuelva únicamente el JSON del esquema. verdict=pass exige findings=[]. verdic
 ${PROJECT_TRUTH_RULES}
 ${BUSINESS_FACT_RULES}
 ${PROJECT_DELIVERY_RULES}
+${REFERENTIAL_PRICE_NOTICE_RULES}
 ${FINANCING_PROCESS_RULES}
 ${ASSISTANCE_RULES}`
 
@@ -175,6 +180,8 @@ export function businessRiskContext(input: {
       ...(input.audit.catalog_summary ? { resumen_catalogo: overview ? catalogOverviewSummary(input.audit.catalog_summary) : input.audit.catalog_summary } : {}),
       otros_hechos_y_politicas: sources, enlaces_permitidos: input.allowedLinks,
       presupuesto_del_turno: input.verified.presupuesto_del_turno || null,
+      contrato_afirmaciones_presupuesto: object(object(input.verified.siguiente_paso_comercial).budget_guidance).claim_contract
+        || object(input.verified.presupuesto_del_turno).claim_contract || null,
       presupuesto_confirmado: effectiveTurnBudget(input.verified),
       razonamiento_contextual: input.verified.razonamiento_contextual || null,
       etapa_financiamiento: input.verified.etapa_financiamiento || null,

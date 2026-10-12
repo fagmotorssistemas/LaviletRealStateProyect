@@ -1,5 +1,5 @@
 import { applyTurnGreeting, CONVERSATION_WRITING_STYLE_RULES } from './conversation-style'
-import { ensureReferentialPriceConditions } from './price-conditions'
+import { ensureReferentialPriceConditions, REFERENTIAL_PRICE_NOTICE_RULES } from './price-conditions'
 import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues, reconcileContinuationMetadata } from './continuation-validation'
 import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { turnContinuationIssues } from './turn-continuation'
@@ -453,13 +453,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   // never repopulate the filtered query, pricing pool or model unit examples.
   const inventoryValidationUnits = Array.isArray(input.verified.catalogo_verificacion)
     ? input.verified.catalogo_verificacion.map(object) : []
-  // Current production contracts share task evidence. Legacy claim-ID reviews
-  // still need their full evidence inventory unless their retrieval route
-  // explicitly opted into projection; do not silently change that contract.
-  if (input.audit?.business_risk_review_enabled === true || object(input.verified.catalog_search).embeddingsEnabled === true)
-    input = { ...input, verified: taskVerifiedContext(input.verified, input.audit || {}, input.current) }
-  const catalogEvidence = turnEvidence(input.verified, input.audit)
-  input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
+  // Decisions use the canonical snapshot. A task projection may omit the
+  // catalogue for a financial explanation; that is never evidence of absence.
   let budgetAssessment = turnBudgetAssessment(input.verified, input.audit || {})
   if (budgetAssessment) input = { ...input, verified: { ...input.verified, presupuesto_del_turno: budgetAssessment } }
   if (input.verified.recorrido_comercial) {
@@ -480,6 +475,12 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   input = { ...input, verified: { ...input.verified, alcance_contenido_turno: contentScope, location_disclosure: scopedLocationPolicy },
     audit: { ...input.audit, response_content_scope: contentScope, location_disclosure: scopedLocationPolicy } }
   if (budgetAssessment) recordBudgetDecision(budgetAssessment)
+  const canonicalVerified = input.verified
+  // Compact only after deciding the next step and the scope of its facts.
+  if (input.audit?.business_risk_review_enabled === true || object(input.verified.catalog_search).embeddingsEnabled === true)
+    input = { ...input, verified: taskVerifiedContext(input.verified, input.audit || {}, input.current) }
+  const catalogEvidence = turnEvidence(input.verified, input.audit)
+  input = { ...input, verified: { ...input.verified, catalogo: catalogEvidence.units } }
   const originalBase = input.baseReply
   const adaptiveContinuation = commercialContinuationSources.has(text(input.audit?.source))
   if (adaptiveContinuation) input = { ...input, preserveOperationalQuestion: false }
@@ -492,7 +493,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   if (groundedPrice) input = { ...input, baseReply: input.audit?.profile_introduction ? originalBase : [verifiedQuote!.reply, ...urls(originalBase).filter(url => !verifiedQuote!.reply.includes(url))].join(' '), preserveOperationalQuestion: false,
     verified: { ...input.verified, respuesta_precio_verificada: verifiedQuote!.reply },
     audit: { ...input.audit, price_evidence: evidence, price_grounded: true } }
-  const sharedEvidence = addTaskQueryEvidence(turnEvidence(input.verified, input.audit, groundedPrice ? verifiedQuote!.units : []), input.verified)
+  const sharedEvidence = addTaskQueryEvidence(turnEvidence(canonicalVerified, input.audit, groundedPrice ? verifiedQuote!.units : []), canonicalVerified)
   const modelEvidence = taskModelEvidence(sharedEvidence, input.verified)
   if (input.verified.prompt_context_selection) input = { ...input, verified: { ...input.verified,
     prompt_context_selection: { ...object(input.verified.prompt_context_selection), included_unit_count: modelEvidence.units.length,
@@ -579,8 +580,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const contentApproved = semanticReview.status === 'checked'
       && object(semanticReview.acceptance).content_approved !== false
     const questionIssues = continuationMetadataIssues(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
-    const questionUsable = (writerMetadataRecovery.corrected === true || !observedMetadataIssues.some(issue => issue.startsWith('question:')))
-      && validContinuationMetadata(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
+    const questionUsable = !replyQuestionText(reply)
+      || validContinuationMetadata(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
     const passed = guardIssues.length === 0 && contentApproved
     const observedStatus = reason === 'review_unavailable' ? 'unavailable' : reason !== 'completed' ? reason
       : !contentApproved ? 'rejected_review' : guardIssues.length ? 'rejected_guard' : 'checked'
@@ -592,7 +593,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       final_validation: { passed, policy: 'observation_only',
         issues: guardIssues, validated_text: reply, details: catalogCheck.details || [], enforcement: false },
       transport_validation: { passed: true, policy: 'nonempty_and_length' },
-      follow_up: { usable: questionUsable, source: 'validated_writer', warnings: questionIssues,
+      follow_up: { usable: questionUsable, source: 'actual_delivered_question', warnings: questionIssues,
         writer_metadata_observations: observedMetadataIssues },
       question: observedWriterQuestion, question_metadata_recovery: writerMetadataRecovery, requests: observedRequests, writer_contract: writerContract,
       commercial_journey: input.verified.siguiente_paso_comercial, commercial_continuation: continuationAudit(),
@@ -694,14 +695,19 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       : turnWritingRules(input.current, memory)
     if (input.audit?.semantic_review_enabled === true && !context.contrato_redaccion.decisiones_protegidas) writingRules += '\nLas cifras de opciones secundarias no son obligatorias si no responden a la consulta actual. Redacte frases naturales y priorice la respuesta solicitada. No infiera mayor precio por superficie ni exclusividad. Preserve enlaces requeridos, acciones confirmadas y datos necesarios; no invente el resultado de una consulta ausente.'
     if (isCategoryOverview(input.audit || {})) writingRules += '\nPuede orientar con categorías y diferencias verificadas sin enumerar fichas ni superficies por obligación. Elija una continuación útil a la consulta actual, sin reabrir preferencias resueltas.'
-    if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use la cotización verificada del turno, no los precios antiguos del historial. Conserve moneda y condiciones comerciales vigentes, incluyendo que pueden cambiar.'
+    if (groundedPrice) writingRules += '\nEl precio se volvió a consultar para la categoría/unidades del mensaje actual. price_evidence contiene las relaciones verificadas unidad-precio. Use la cotización verificada del turno, no los precios antiguos del historial. Conserve moneda y condiciones comerciales vigentes. ' + REFERENTIAL_PRICE_NOTICE_RULES
       + (input.verified.siguiente_paso_comercial ? ' Conserve el siguiente paso vigente indicado en siguiente_paso_comercial; una cotización no lo sustituye por una invitación a detalles.'
         : input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection cuando no haya un recorrido vigente que lo sustituya; puede reformularla.'
         : ' Las invitaciones adicionales son opcionales; la pregunta del siguiente paso vigente sigue siendo obligatoria si continuacion_del_turno.required=true. No afirme que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
     if (input.verified.prompt_context_selection) writingRules += '\n' + (object(input.verified.prompt_context_selection).version === 'task-context-v1' ? TASK_CONTEXT_RULES : SEMANTIC_OPENING_RULE)
-    if (budgetAssessment) writingRules += '\nPRESUPUESTO ACTUAL: contexto_verificado.presupuesto_del_turno contiene el importe interpretado y su comparación con los precios autorizados de la búsqueda. Responda ese punto junto con las características solicitadas, dentro del alcance comprobado. El presupuesto orienta la búsqueda y no demuestra adecuación a necesidades desconocidas. Si es suficiente para revisar opciones, continúe brevemente con la necesidad pendiente sin enumerar precios ni decir que le alcanza para todo. Si está por debajo de todas las compatibles verificadas, explique la diferencia con calma y siga la oferta autorizada de financiamiento sin garantía. Una enumeración de plantas o una pregunta de preferencia no responde a una consulta actual de si el presupuesto alcanza. Si falta información, explique la limitación concreta en reply; marcar missing_fact en requests no la comunica al cliente. No invente precios, créditos, descuentos ni una derivación realizada.'
-    if (budgetAssessment) writingRules += '\n' + (object(input.verified.siguiente_paso_comercial).action === 'introduction'
+    if (budgetAssessment) writingRules += '\nPRESUPUESTO: contexto_verificado.presupuesto_del_turno contiene la evaluación común por unidades y categorías. claim_contract limita cada afirmación al conjunto que describe; solo permite afirmar universalidad comprobada por código. ' + (budgetAssessment.mention_required === true
+      ? 'Responda la relación necesaria con el presupuesto junto con las características solicitadas; si faltan precios, explique el límite de esa comparación. '
+      : 'Use esa evaluación para orientar internamente; no repita dinero ni una comparación que el mensaje actual no requiere. ')
+      + 'El presupuesto no selecciona un inmueble ni acredita necesidades desconocidas. Conserve cifras, permisos y el único siguiente paso. No invente créditos, descuentos ni gestiones realizadas.'
+    if (budgetAssessment) writingRules += '\n' + (budgetAssessment.mention_required !== true
+      ? 'Retome únicamente siguiente_paso_comercial, sin añadir una pregunta de presupuesto o financiamiento por disponer de una cifra histórica.'
+      : object(input.verified.siguiente_paso_comercial).action === 'introduction'
       ? 'Responda el presupuesto y mencione financiamiento si corresponde, pero la única pregunta de esta apertura es nombre y residencia según profile_introduction.'
       : input.verified.siguiente_paso_comercial ? 'Para continuar después de atender el presupuesto, siga únicamente siguiente_paso_comercial. No añada otra invitación de la respuesta base ni reabra pasos contestados. Sin un monto comparable, no invente una comparación con los precios.'
         : budgetContinuationInstruction(budgetAssessment))
@@ -788,7 +794,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const unreviewed = unreviewedWriterReply(reply)
       const deliveredQuestion = { ...object(candidate.question), ...continuationMetadata(candidate.question), text: replyQuestionText(reply) }
       const recoveredQuestion = reconcileContinuationMetadata(deliveredQuestion, reply, input.verified.siguiente_paso_comercial)
-      const questionUsable = validContinuationMetadata(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial)
+      const questionUsable = !replyQuestionText(reply) || validContinuationMetadata(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial)
       return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [],
         audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
           response_content_scope: contentScope, requests: coverageRows(candidate.requests, input.current, [], writerRequestRefs) || [],

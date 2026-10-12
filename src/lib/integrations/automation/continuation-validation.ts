@@ -4,6 +4,7 @@ import { replyQuestionText } from './reply-question'
 import { continuationMetadata } from './continuation-question'
 import { pendingQuestionFromReply } from './turn-semantics'
 import { categoryInvitationTarget } from './category-offer'
+import { operationalFinancingInvitation } from './financing-invitation'
 
 /** A bounded recognition of the emitted question; an unknown paraphrase remains
  * unknown rather than receiving the planned meaning automatically. */
@@ -11,6 +12,8 @@ export function actualContinuation(reply: string): Row {
   const question = replyQuestionText(reply), value = normalized(question)
   if (!question) return {}
   const inferred = pendingQuestionFromReply(reply)
+  if (operationalFinancingInvitation(reply)) return { id: 'financing_invitation', act: 'financing', question }
+  if (inferred.id === 'financing_down_payment') return inferred
   const name = /\b(?:su nombre|tu nombre|como (?:se llama|te llamas)|con (?:que|cual) nombre|con quien (?:tenemos|tengo) el gusto)\b/.test(value)
   const residence = /\bresid(?:e|es|en|ir)\b|\b(?:su|tu|lugar de) residencia\b|\bresidencia (?:actual|habitual)\b|\b(?:donde|en que (?:ciudad|pais|lugar)).*\bviv(?:e|es|en|ir)\b/.test(value)
   if (name || residence) return { id: name && residence ? 'lead_profile' : name ? 'lead_profile_name'
@@ -31,7 +34,7 @@ function matchingMeaning(a: Row, b: Row) {
 function purposeMatches(id: string, purpose: string) {
   if (id.startsWith('lead_')) return purpose === 'collect_lead_profile'
   if (id === 'financing_partner') return ['choose_financing_partner', 'collect_financing_required'].includes(purpose)
-  if (id === 'financing_data') return purpose === 'collect_financing_required'
+  if (id === 'financing_data' || id === 'financing_down_payment') return purpose === 'collect_financing_required'
   if (id === 'brochure_offer') return purpose === 'offer_verified_material'
   if (id.startsWith('visit_')) return ['coordinate_visit', 'permission_to_continue'].includes(purpose)
   if (['financing_invitation', 'reservation_invitation'].includes(id)) return purpose === 'permission_to_continue'
@@ -76,12 +79,12 @@ export function reconcileContinuationMetadata(raw: unknown, reply: string, planR
   if (!id || !text(actual.act)) return { question: row, corrected: false, original_issues: original }
   const purpose = id.startsWith('lead_') ? 'collect_lead_profile'
     : id === 'financing_partner' ? 'choose_financing_partner'
-    : id === 'financing_data' ? 'collect_financing_required'
+    : id === 'financing_data' || id === 'financing_down_payment' ? 'collect_financing_required'
     : id === 'brochure_offer' ? 'offer_verified_material'
     : id.startsWith('visit_') ? 'coordinate_visit'
     : ['financing_invitation', 'reservation_invitation'].includes(id) ? 'permission_to_continue'
     : id === 'budget_kind' ? 'clarify_request' : 'choose_property'
-  const role = id.startsWith('lead_') || id === 'financing_data' ? 'required_collection'
+  const role = id.startsWith('lead_') || id === 'financing_data' || id === 'financing_down_payment' ? 'required_collection'
     : id === 'budget_kind' ? 'necessary_clarification' : 'optional_continuation'
   const question = { ...row, text: text(actual.question), purpose, role,
     missing_datum: role === 'optional_continuation' ? '' : id,

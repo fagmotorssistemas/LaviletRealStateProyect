@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createClient } from '@supabase/supabase-js'
-import { botPriceStatus, botPricingPolicy, launchPricesVisible, parseCommercialPrice } from '../lib/inmobiliaria/unitPrices'
-import { listProjectPrices, saveCommercialUnitPrice, saveLaunchPriceVisibility } from './unitPrices.service'
+import { botPriceStatus, botPricingPolicy, launchPricesVisible, parseCommercialPrice, referentialPriceNoticeEnabled } from '../lib/inmobiliaria/unitPrices'
+import { listProjectPrices, saveCommercialUnitPrice, saveLaunchPriceVisibility, saveReferentialPriceNotice } from './unitPrices.service'
 
 const client = (fetcher: typeof fetch) => createClient('https://example.supabase.co', 'test-key', {
   auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: fetcher },
@@ -121,4 +121,41 @@ test('a stale version, wrong visibility type, permission failure or racing write
   await assert.rejects(saveLaunchPriceVisibility(noRequests, { ...params, visible: 'true' as unknown as boolean }, project), /cargar/)
   await assert.rejects(saveLaunchPriceVisibility(client(async () => json(null)), { ...params, visible: true }, project), /cambió/)
   await assert.rejects(saveLaunchPriceVisibility(client(async () => new Response(JSON.stringify({ message: 'permission denied' }), { status: 403 })), { ...params, visible: true }, project), /permission denied/)
+})
+
+test('the notice defaults on without changing price visibility or commercial nature', () => {
+  for (const policies of [undefined, null, {}, [], { bot_pricing: { referential_notice_enabled: 'false' } }])
+    assert.equal(referentialPriceNoticeEnabled(policies), true)
+  const policies = { bot_pricing: { launch_prices_visible: true, referential_notice_enabled: false } }
+  assert.equal(referentialPriceNoticeEnabled(policies), false)
+  assert.deepEqual(botPricingPolicy('lanzamiento', launchPricesVisible(policies)), { visible: true, approximate: true })
+})
+
+test('notice changes preserve visibility and unrelated policies with tenant and version scoping', async () => {
+  const before = { forma_pago: { original: true }, bot_pricing: { launch_prices_visible: true, another_setting: 7 } }
+  const project = { updated_at: params.expectedUpdatedAt, policies_json: before }
+  for (const enabled of [false, true]) {
+    const db = client(async (input, init) => {
+      const url = new URL(String(input)), body = JSON.parse(String(init?.body))
+      assert.equal(init?.method, 'PATCH')
+      assert.equal(url.searchParams.get('tenant_id'), 'eq.tenant-a')
+      assert.equal(url.searchParams.get('id'), 'eq.project-a')
+      assert.equal(url.searchParams.get('updated_at'), 'eq.' + params.expectedUpdatedAt)
+      assert.deepEqual(Object.keys(body).sort(), ['policies_json', 'updated_at'])
+      assert.deepEqual(body.policies_json, { ...before, bot_pricing: { ...before.bot_pricing, referential_notice_enabled: enabled } })
+      return json(body)
+    })
+    assert.equal((await saveReferentialPriceNotice(db, { ...params, enabled }, project)).referentialNoticeEnabled, enabled)
+  }
+  assert.deepEqual(project.policies_json, before, 'Preparing a change does not mutate the loaded policy object.')
+})
+
+test('notice toggles reject stale, invalid, unauthorized and concurrent saves', async () => {
+  const project = { updated_at: params.expectedUpdatedAt, policies_json: {} }
+  const noRequests = client(async () => { assert.fail('Invalid or stale input must not write') })
+  await assert.rejects(saveReferentialPriceNotice(noRequests, { ...params, enabled: false }, { ...project, updated_at: '2026-09-14T00:00:00Z' }), /cambió/)
+  await assert.rejects(saveReferentialPriceNotice(noRequests, { ...params, enabled: 'false' as unknown as boolean }, project), /cargar/)
+  await assert.rejects(saveReferentialPriceNotice(noRequests, { ...params, enabled: false, tenantId: '' }, project), /cargar/)
+  await assert.rejects(saveReferentialPriceNotice(client(async () => json(null)), { ...params, enabled: false }, project), /cambió/)
+  await assert.rejects(saveReferentialPriceNotice(client(async () => new Response(JSON.stringify({ message: 'permission denied' }), { status: 403 })), { ...params, enabled: false }, project), /permission denied/)
 })

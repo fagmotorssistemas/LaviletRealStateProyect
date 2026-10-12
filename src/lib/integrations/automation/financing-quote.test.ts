@@ -135,6 +135,42 @@ test('semantic quote interpretation supports different wording, but stale eviden
   assert.equal(financingQuoteInquiry({ financing_quote: raw }, 'prefiero jep').requested, false)
 })
 
+test('the reported simple acceptance is not turned into quotation orientation by a spurious quote flag', () => {
+  for (const current of ['si me parece bien', 'Sí, continuemos con JEP', 'bueno continuemos']) {
+    const extracted = { financing_consent: true,
+      financing_quote: { requested: true, before_application: true, evidence: current, years: null, years_evidence: '' },
+      turn_semantics: { primary_intent: 'answer_previous', primary_evidence: current, confidence: 'high',
+        answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: current, confidence: 'high' } } }
+    const result = financingQuoteInquiry(extracted, current)
+    assert.equal(result.requested, false, current)
+    assert.equal(result.beforeApplication, false, current)
+    assert.equal(result.evidence, '')
+    assert.equal(result.years, null)
+    const previous = '¿Desea que continuemos con el proceso de financiamiento por este chat?'
+    assert.equal(financingInputs(extracted, current, previous, { partners, current: {} },
+      { kind: 'unverified_offer', reply: previous }).consent, true, current)
+  }
+})
+
+test('actual mixed, informational and conditional financial questions retain quotation orientation', () => {
+  for (const current of ['Sí, pero antes quisiera saber cuánto sería la cuota',
+    'Sí, continuemos con JEP, ¿cuánto sería la entrada?',
+    'Sí, solo si me aseguran la aprobación; quisiera saber cuánto pagaría al mes',
+    'Sí, me interesa saber más']) {
+    const extracted = { financing_consent: true,
+      financing_quote: { requested: true, before_application: true, evidence: current, years: null, years_evidence: '' },
+      turn_semantics: { primary_intent: 'ask_financing', primary_evidence: current, confidence: 'high',
+        answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: current, confidence: 'high' } } }
+    assert.equal(financingQuoteInquiry(extracted, current).requested, true, current)
+    assert.equal(financingQuoteInquiry(extracted, current).beforeApplication, true, current)
+    assert.equal(financingInputs(extracted, current, '¿Desea iniciar la revisión financiera?', { partners, current: {} }).consent, null, current)
+  }
+  const current = 'si me parece bien'
+  const stale = { financing_quote: { requested: true, evidence: current }, turn_semantics: {
+    answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: 'Sí, inicie la revisión', confidence: 'high' } } }
+  assert.equal(financingQuoteInquiry(stale, current).requested, true, 'A stale acceptance receipt cannot suppress a current interpreted request.')
+})
+
 test('orientation supersedes repeated credit invitations and uses server estimates as auditable facts', () => {
   const info = { ...fixture(), financing_quote: financingQuoteContext(fixture(), inquiry), recorrido_comercial: {} }
   assert.equal(commercialJourneyPlan(info).action, 'financing_orientation')

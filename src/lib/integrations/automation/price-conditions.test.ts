@@ -105,3 +105,18 @@ test('existing published commercial conditions remain intact when adding the gen
   assert.ok(result.reply.endsWith('¿Desea revisar esta opción?'))
   assert.ok(result.reply.includes(REFERENTIAL_PRICE_NOTICE))
 })
+
+test('an explicitly disabled automatic notice is not appended to quoted prices or repeated comparisons', () => {
+  const noNotice = { ...verified, politica_comercial: { ...verified.politica_comercial, aviso_precios_referenciales: false } }
+  for (const reply of ['El departamento cuesta $250,000.',
+    'Con ese presupuesto, los penthouses parten de $539,900. ¿Desea revisar alternativas?']) {
+    assert.deepEqual(ensureReferentialPriceConditions(reply, noNotice), { reply, applied: false })
+  }
+})
+
+test('disabled automation preserves an explicit answer about changing prices and published conditions', () => {
+  const reply = 'El departamento cuesta $250,000. Sí, el valor puede cambiar. El beneficio confirmado aplica hasta el 31 de octubre.'
+  assert.deepEqual(ensureReferentialPriceConditions(reply, { ...verified,
+    politica_comercial: { ...verified.politica_comercial, aviso_precios_referenciales: false },
+    politicas_negocio: [{ policy_content: 'El beneficio confirmado aplica hasta el 31 de octubre.' }] }), { reply, applied: false })
+})

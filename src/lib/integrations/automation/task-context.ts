@@ -34,8 +34,11 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const budget = object(object(verified.semantica_turno).budget)
   const effectiveBudget = leadBudget(verified)
   const newBudget = budget.confidence === 'high' && ['amount', 'maximum_total'].includes(text(budget.status))
+  const journey = object(verified.siguiente_paso_comercial)
+  const selectionRequired = source === 'financing_selection_required'
+    || journey.action === 'select_property' && ['property_category', 'property_floor', 'unit_choice'].includes(text(journey.question_id))
   const financeOnly = collectionOnly || finance && !domains.has('property') && !domains.has('visit')
-    && source !== 'financing_selection_required' && !newBudget
+    && !selectionRequired && !newBudget
   const generalPrice = source === 'unit_price' && !rows(verified.referencia_unidad && object(verified.referencia_unidad).matches).length
     && !rows(object(verified.property_context).selected_ids).length
   const catalogRequest = object(semantics.catalog_request || verified.catalog_request)
@@ -88,7 +91,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     && !rows(catalogRequest.semantic_preferences).length && !text(catalogRequest.semantic_preferences).trim()
     && !Object.keys(object(semantics.household)).length
   const task = source === 'clarify_previous_choice' ? 'clarify_choice'
-    : financeOnly ? 'financing' : source === 'financing_selection_required' ? 'property_selection'
+    : financeOnly ? 'financing' : selectionRequired ? 'property_selection'
       : generalPrice ? 'price_summary' : overview ? 'project_overview' : categoryOverview ? 'category_overview' : broadInformation ? 'catalog_overview'
         : domains.size > 1 || requests.length > 1 ? 'multiple_requests' : 'property'
   const result = withProjectIntroductionForTurn(verified)

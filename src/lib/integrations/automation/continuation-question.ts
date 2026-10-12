@@ -25,7 +25,7 @@ export function continuationMetadata(raw: unknown): Row {
 
 const same = (a: unknown, b: unknown) => text(a).replace(/\s+/g, ' ').trim().toLocaleLowerCase() === text(b).replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 const ids = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
-const collectionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation', 'financing_data'])
+const collectionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation', 'financing_data', 'financing_down_payment'])
 /** Semantic metadata can identify a question without carrying its referent.
  * Combine only receipts for that same emitted question and meaning; an empty
  * semantic receipt must not hide the catalogue receipt's verified scope. */
@@ -48,7 +48,7 @@ function purposeSupports(id: unknown, purpose: unknown) {
   if (!purpose) return true // Delivered legacy questions have no metadata sheet.
   if (text(id).startsWith('lead_')) return purpose === 'collect_lead_profile'
   if (id === 'financing_partner') return purpose === 'choose_financing_partner' || purpose === 'collect_financing_required'
-  if (id === 'financing_data') return purpose === 'collect_financing_required'
+  if (id === 'financing_data' || id === 'financing_down_payment') return purpose === 'collect_financing_required'
   if (id === 'brochure_offer') return purpose === 'offer_verified_material'
   if (text(id).startsWith('visit_')) return purpose === 'coordinate_visit' || purpose === 'permission_to_continue'
   if (['financing_invitation', 'reservation_invitation'].includes(text(id))) return purpose === 'permission_to_continue'

@@ -32,7 +32,8 @@ test('asking total approximate budget is an amount question; choosing total vers
   }
   assert.equal(budgetQuestionBasis(totalQuestion), 'total_budget')
   assert.equal(pendingQuestionFromReply('¿Ese monto corresponde a su presupuesto total para la compra o al dinero disponible para la entrada?').id, 'budget_kind')
-  assert.equal(pendingQuestionFromReply('¿De cuánto dispone para la entrada?').id, 'budget_amount')
+  assert.equal(pendingQuestionFromReply('¿De cuánto dispone para la entrada?').id, 'financing_down_payment')
+  assert.equal(budgetQuestionBasis({ id: 'financing_down_payment', question: '¿De cuánto dispone para la entrada?' }), 'down_payment')
   assert.equal(budgetQuestionBasis({ id: 'budget_amount', question: '¿De cuánto dispone para la entrada?' }), 'down_payment')
   assert.equal(budgetQuestionBasis({ id: 'budget_amount', question: '¿Qué presupuesto tiene?' }), null)
   assert.equal(budgetQuestionBasis({ id: 'budget_amount', question: '¿Es presupuesto total o entrada?' }), null)

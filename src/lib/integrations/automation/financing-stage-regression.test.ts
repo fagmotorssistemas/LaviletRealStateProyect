@@ -183,7 +183,8 @@ test('recorded acceptance with a follow-up question stays in financing instead o
   assert.match(financingPrerequisiteReply(pending, fixture.message), /vivir o como inversión/)
   journey = financingJourney(journey, { consent: null }, 'choosing')
   const selected = { ...pending, property_context: { query, selected_ids: ['p602'] },
-    referencia_unidad: { matches: [units[4]], query: { ...query, operation: 'select' } }, financiamiento: { ...finance, journey } }
+    referencia_unidad: { matches: [units[4]], query: { ...query, operation: 'select' } }, financiamiento: { ...finance, journey },
+    financing_amounts: { down_payment: { amount: 100000, evidence: 'Tengo 100 mil para la entrada' } } }
   assert.equal(canResumeFinancing(selected, journey, {}), true)
   assert.equal(financingStage(selected).collection_allowed, true)
   assert.equal(selectedFinancingUnit(selected)?.id, 'p602')
@@ -214,7 +215,8 @@ test('actual property resolution resumes accepted financing only after choosing,
       primary_evidence: message, confidence: 'high', property: { operation, category: 'penthouse',
         reference_kind: 'explicit', unit_numbers: ['602'], evidence: message, confidence: 'high' } })
     const verified = { ...info(), referencia_unidad: reference, property_context: reference.context,
-      financiamiento: { ...finance, journey } }
+      financiamiento: { ...finance, journey }, financing_amounts: {
+        down_payment: { amount: 100000, evidence: 'Tengo 100 mil para la entrada' } } }
     assert.equal(canResumeFinancing(verified, journey, {}), resume, message)
     assert.equal(financingStage(verified).collection_allowed, resume, message)
     if (resume) assert.equal(financingPrerequisiteReply(verified, message), '')
@@ -236,8 +238,8 @@ test('a new budget compares only residential requirements; financial continuatio
   assert.equal(turnBudgetAssessment({ ...input, financiamiento: { ...finance, journey: { accepted: true } } }, { source: 'financing_selection_required' }), null)
   const ambiguous = turnBudgetAssessment({ ...changed,
     semantica_turno: { budget: { status: 'amount', amount: 100000, confidence: 'high', evidence: '100 mil' } } }, {})!
-  assert.equal(ambiguous.continuation, 'offer_financing')
-  assert.match(String(ambiguous.continuation_instruction), /entidades autorizadas/)
+  assert.equal(ambiguous.continuation, 'clarify_budget')
+  assert.match(String(ambiguous.continuation_instruction), /total.*entrada/)
   assert.equal(result.continuation, 'offer_financing', 'An explicit total limit does not need the same clarification.')
 })
 
