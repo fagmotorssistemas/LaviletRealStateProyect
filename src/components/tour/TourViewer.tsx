@@ -19,6 +19,7 @@ import {
   Columns2,
   Calculator,
   Compass,
+  EllipsisVertical,
   FileText,
   Hand,
   Images,
@@ -4521,9 +4522,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                     }}
                   className="tour-fab"
                   aria-expanded={viewingCommonArea ? undefined : mobilePanel === 'nav'}
-                  aria-label={t(viewingCommonArea ? 'Volver a los pisos' : 'Pisos')}
+                  aria-label={t(viewingCommonArea ? 'Volver a los pisos' : 'Más opciones')}
                   >
-                  {viewingCommonArea ? <ArrowLeft size={18} strokeWidth={2.25} /> : <Layers size={18} strokeWidth={2.25} />}
+                  {viewingCommonArea ? <ArrowLeft size={18} strokeWidth={2.25} /> : <EllipsisVertical size={18} strokeWidth={2.25} />}
                   </button>
                 {!viewingCommonArea && mobilePanel === 'nav' ? (
                   <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
