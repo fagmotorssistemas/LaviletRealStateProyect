@@ -7,7 +7,7 @@ import QRCode from 'qrcode'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
-export function QrShareButton({ number, className }: { number: string; className?: string }) {
+export function QrShareButton({ number, className, iconOnly = false }: { number: string; className?: string; iconOnly?: boolean }) {
   const { t, locale } = useTourLanguage()
   const [open, setOpen] = useState(false)
   const [src, setSrc] = useState('')
@@ -42,13 +42,14 @@ export function QrShareButton({ number, className }: { number: string; className
           setOpen(true)
         }}
         onPointerDown={(event) => event.stopPropagation()}
+        aria-label={iconOnly ? 'Código QR' : undefined}
         className={
           className ??
           'inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[#BDA27E] bg-[#f7f3ee] px-3 text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase'
         }
       >
         <QrCode size={16} strokeWidth={1.75} />
-        QR
+        {!iconOnly ? 'QR' : null}
       </button>
       {open && host
         ? createPortal(

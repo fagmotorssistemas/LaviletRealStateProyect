@@ -750,12 +750,19 @@ export function TourFichaDrawer({
                       type="button"
                       disabled={pdfBusy}
                       onClick={() => void onDownloadPdf()}
-                      className="tour-ficha-pdf flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
+                      className="tour-ficha-pdf flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-[#BDA27E] px-4 text-[11px] font-semibold tracking-[0.08em] whitespace-nowrap text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
                     >
-                      <Download size={14} strokeWidth={2} />
-                      {t(pdfBusy ? 'Generando…' : 'Descargar PDF')}
+                      <Download size={14} strokeWidth={2} className="shrink-0" />
+                      <span className="truncate">
+                        <span className="max-[360px]:hidden">{t(pdfBusy ? 'Generando…' : 'Descargar PDF')}</span>
+                        <span className="min-[361px]:hidden">{pdfBusy ? '…' : 'PDF'}</span>
+                      </span>
                     </button>
-                    <QrShareButton number={unit.unit_number} />
+                    <QrShareButton
+                      number={unit.unit_number}
+                      iconOnly
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#2B1A18]/12 bg-white text-[#2B1A18]"
+                    />
                     <button
                       type="button"
                       onClick={() => void onShare()}
