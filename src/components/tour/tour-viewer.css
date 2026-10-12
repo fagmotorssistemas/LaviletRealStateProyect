@@ -1550,8 +1550,9 @@ html.tour-phone-preview .tour-ficha-tile {
 @media (max-width: 900px) and (min-height: 501px) {
   .tour-root:not(.is-plan-shell) .tour-ficha-sheet.tour-modal-sheet {
     left: var(--edge-left) !important;
-    right: auto !important;
-    width: min(22.5rem, calc(100% - var(--edge-left) - var(--edge-right) - clamp(56px, 5vw, 84px) - 1.15rem)) !important;
+    right: var(--edge-right) !important;
+    width: auto !important;
+    max-width: none !important;
     bottom: calc(var(--edge-bottom) + var(--fab) + 0.55rem) !important;
   }
 

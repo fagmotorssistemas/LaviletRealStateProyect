@@ -188,12 +188,12 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
           })
         }}
         className={cn(
-          'tour-floor-peek origin-bottom-right bg-[#1a1714] ring-1 ring-white/20 transition-[width,transform,box-shadow] duration-300 ease-out',
+          'tour-floor-peek origin-bottom-right ring-1 ring-white/20 transition-[width,transform,box-shadow] duration-300 ease-out',
           grown
-            ? 'w-72 translate-y-[-8px] scale-105 overflow-hidden rounded-2xl shadow-[0_22px_50px_rgba(0,0,0,0.55)] sm:w-80 sm:translate-y-[-12px] sm:scale-110'
+            ? 'w-72 translate-y-[-8px] scale-105 overflow-hidden rounded-2xl bg-[#1a1714] shadow-[0_22px_50px_rgba(0,0,0,0.55)] sm:w-80 sm:translate-y-[-12px] sm:scale-110'
             : coarsePointer
-              ? 'inline-flex h-11 items-center gap-1.5 rounded-full px-3 shadow-[0_8px_24px_rgba(0,0,0,0.35)]'
-              : 'w-28 overflow-hidden rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.35)] sm:w-32',
+              ? "relative inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3.5 py-1.5 shadow-md backdrop-blur-sm before:absolute before:-inset-2 before:content-['']"
+              : 'w-28 overflow-hidden rounded-2xl bg-[#1a1714] shadow-[0_8px_24px_rgba(0,0,0,0.35)] sm:w-32',
         )}
         style={grown || !coarsePointer ? { aspectRatio: `${planW} / ${planH}` } : undefined}
         aria-label={t(`Ubicación en ${floor != null ? floorPlanLevelLabel(floor) : 'piso'} · Unidad ${unit.unit_number}`)}
@@ -201,7 +201,7 @@ export function TourFloorLocationPeek({ unit }: TourFloorLocationPeekProps) {
       >
         {coarsePointer && !grown ? (
           <>
-            <MapPin size={15} strokeWidth={1.75} className="shrink-0 text-[#E8D9C0]" aria-hidden />
+            <MapPin size={13} strokeWidth={1.75} className="shrink-0 text-[#E8D9C0]" aria-hidden />
             <span className="text-[11px] font-semibold tracking-wide whitespace-nowrap text-white">
               {t('Piso')} {floor != null ? floorPlanLevelShort(floor) : ''}
             </span>

@@ -4460,7 +4460,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <button
                 type="button"
                 onClick={() => {
-                  setFichaExpanded(false)
+                  setFichaExpanded(true)
                   setSimulatorOpen(false)
                   setFichaOpen(true)
                 }}
@@ -4548,7 +4548,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   <button
                     type="button"
                           onClick={() => {
-                            setFichaExpanded(false)
+                            setFichaExpanded(true)
                             setSimulatorOpen(false)
                             setFichaOpen(true)
                             setMobilePanel(null)
