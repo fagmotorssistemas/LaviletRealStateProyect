@@ -216,7 +216,7 @@ export function CompraComparisonView({
       <div
         className="rounded-xl px-3.5 py-4 text-white sm:px-5 sm:py-6"
         style={{
-          background: 'linear-gradient(135deg, #1a2744 0%, #2a3f66 55%, #BDA27E 100%)',
+          background: 'linear-gradient(135deg, #1a2744 0%, #2a3f66 100%)',
         }}
       >
         <h3 className="text-lg font-semibold leading-snug sm:text-[22px]">

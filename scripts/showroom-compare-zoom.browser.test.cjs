@@ -34,7 +34,7 @@ async function main() {
     if (photo) {
       const [w, h] = photos[Number(photo[1])]
       res.setHeader('Content-Type', 'image/svg+xml')
-      return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#648788"/><rect x="4" y="4" width="${w - 8}" height="${h - 8}" stroke="white" stroke-width="8" fill="none"/></svg>`)
+      return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${Number(photo[1]) === 0 ? '#eee5d7' : '#252321'}"/><rect x="4" y="4" width="${w - 8}" height="${h - 8}" stroke="white" stroke-width="8" fill="none"/></svg>`)
     }
     res.setHeader('Content-Type', req.url === '/bundle.js' ? 'text/javascript' : 'text/html; charset=utf-8')
     res.end(req.url === '/bundle.js' ? fs.readFileSync(path.join(dir, 'bundle.js')) : `<meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/bundle.js"></script>`)
@@ -94,6 +94,10 @@ async function main() {
       for (const button of await page.locator('.tour-zoom-btn, .tour-gallery-arrow').all()) {
         assert.ok(await button.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}), 'comparison control is not covered')
       }
+      const back = page.getByRole('button', { name: 'Volver a la unidad 101' })
+      const backBox = await back.boundingBox()
+      const zoomBoxes = await Promise.all((await page.locator('.tour-zoom-btn').all()).map(el=>el.boundingBox()))
+      assert.ok(zoomBoxes.every(box=>box.x+box.width<=backBox.x || box.y+box.height<=backBox.y), 'back button does not cover B zoom')
       await settle(1)
       await contain()
       await page.setViewportSize({ width: height, height: width })
@@ -111,6 +115,15 @@ async function main() {
       await surface.dispatchEvent('pointermove', { pointerId: 2, pointerType: 'touch', clientX: 150, clientY: 160 })
       assert.ok((await geometry()).w < large.w - 1, 'pinch shrinks image')
       await surface.dispatchEvent('pointercancel', { pointerId: 1 })
+      const slider = page.getByRole('slider', { name: 'Comparar unidades' })
+      for (let n = 0; n < 19; n++) await slider.press('ArrowRight')
+      assert.equal(Number(await slider.getAttribute('aria-valuenow')), 88)
+      for (const button of await page.locator('[data-tour-comparator] .tour-gallery-arrow, [data-tour-comparator] .tour-zoom-btn').all()) {
+        assert.ok(await button.evaluate(el => {
+          const rect = el.getBoundingClientRect()
+          return el.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+        }), 'B controls remain reachable at the narrowest split')
+      }
       await page.locator('#toggle').click()
       await page.locator('#toggle').click()
       await settle(1)

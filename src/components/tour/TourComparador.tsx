@@ -285,11 +285,11 @@ export function TourComparador({
   }, [setSplitFromClientX])
 
   return (
-    <div ref={rootRef} className="pointer-events-none absolute inset-0 z-[125]">
+    <div ref={rootRef} data-tour-comparator className="pointer-events-none absolute inset-0 z-[125]">
       {/* Capa B — solo con unidad elegida (evita media pantalla blanca) */}
       {!waitingForB ? (
         <div
-          className="pointer-events-auto absolute inset-y-0"
+          className="tour-compare-pane pointer-events-auto absolute inset-y-0"
           style={{ left: `${splitClamped}%`, right: 0 }}
         >
           {showPanoB ? (
@@ -402,7 +402,7 @@ export function TourComparador({
       <button
         type="button"
         onClick={onClose}
-        className="tour-fab pointer-events-auto absolute bottom-[var(--edge-bottom)] left-[var(--edge-left)] z-[34]"
+        className="tour-fab pointer-events-auto absolute bottom-[var(--edge-bottom)] right-[var(--edge-right)] z-[34]"
         aria-label={
           t(unitA
             ? `Volver a la unidad ${unitA.unit_number}`

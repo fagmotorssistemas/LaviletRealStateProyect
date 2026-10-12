@@ -155,6 +155,10 @@ a[x-apple-data-detectors] {
   right: var(--edge-right);
 }
 
+.tour-compare-pane {
+  container-type: inline-size;
+}
+
 .tour-zoom-row {
   position: absolute;
   left: var(--edge-left);
@@ -164,6 +168,29 @@ a[x-apple-data-detectors] {
   flex-direction: row;
   align-items: center;
   gap: var(--fab-gap);
+}
+
+@container (max-width: 116px) {
+  .tour-gallery-arrow--prev,
+  .tour-gallery-arrow--next {
+    left: 50%;
+    right: auto;
+    transform: translate(-50%, -50%);
+  }
+
+  .tour-gallery-arrow--prev {
+    top: 30%;
+  }
+
+  .tour-gallery-arrow--next {
+    top: 45%;
+  }
+
+  .tour-zoom-row {
+    left: 50%;
+    flex-direction: column;
+    transform: translateX(-50%);
+  }
 }
 
 .tour-unit-pin {
@@ -971,6 +998,10 @@ html.tour-is-force-landscape body {
   gap: var(--fab-gap);
   padding-left: var(--edge-left);
   padding-right: var(--edge-right);
+}
+
+.tour-root:has([data-tour-comparator]) [data-showroom-toolbar] {
+  z-index: 135;
 }
 
 /* Pisos (izquierda) y modos (derecha) en la misma línea, bajo la barra. */

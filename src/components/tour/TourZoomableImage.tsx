@@ -70,7 +70,12 @@ export function TourZoomableImage({ src, alt }: { src: string; alt: string }) {
         className={`absolute object-cover transition-opacity duration-300 ${slot === buffers.front ? 'opacity-100' : 'opacity-0'}`}
         style={fitStill(box, aspects[url] || 1.6, effective)?.style} />
     })}
-    <div className="absolute bottom-3 left-2 right-2 z-[5] flex flex-wrap justify-center gap-2" onPointerDown={(event) => event.stopPropagation()}>
+    <div
+      className={`absolute z-[5] flex flex-wrap justify-center gap-2 ${box.w < 170
+        ? 'bottom-[calc(var(--fab)+var(--edge-bottom)+var(--fab-gap))] left-1 right-1'
+        : 'bottom-3 left-2 right-[calc(var(--fab)+var(--edge-right)+var(--fab-gap))]'}`}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <button type="button" className="tour-zoom-btn" aria-label={t('Acercar')} disabled={effective >= 0.99} onClick={() => change(effective + 0.12)}><Plus size={18} /></button>
       <button type="button" className="tour-zoom-btn" aria-label={t('Alejar')} disabled={effective <= min + 0.01} onClick={() => change(effective - 0.12)}><Minus size={18} /></button>
     </div>

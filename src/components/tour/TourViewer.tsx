@@ -270,8 +270,8 @@ function CrossfadeStill({
     const el = rootRef.current
     if (!el) return
     const sync = () => {
-      const rect = el.getBoundingClientRect()
-      setBox({ w: rect.width, h: rect.height })
+      // Layout dimensions stay stable while the gallery fade animates its transform.
+      setBox({ w: el.clientWidth, h: el.clientHeight })
     }
     sync()
     const obs = new ResizeObserver(sync)
@@ -3883,17 +3883,20 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       <div
         className={cn(
           'tour-layer-fade tour-still-layer absolute inset-0 z-10 overflow-hidden select-none',
+          isComparador && compareUnitB && 'tour-compare-pane',
           showStill || tourCover ? 'is-on' : 'pointer-events-none is-off',
           tourCover && !showStill && 'pointer-events-none',
           viewMode === 'tour' && 'is-handoff',
           viewMode !== 'tour' && stillItems.length > 1 && 'touch-pan-y',
         )}
         style={
-          (isComparador && compareUnitB) || isFinishCompare
+          isComparador && compareUnitB
+            ? { width: `${Math.max(12, Math.min(88, compareSplit))}%` }
+            : isFinishCompare
             ? {
                 clipPath: `inset(0 ${Math.max(
                   12,
-                  Math.min(88, 100 - (isFinishCompare ? finishCompareSplit : compareSplit)),
+                  Math.min(88, 100 - finishCompareSplit),
                 )}% 0 0)`,
               }
             : undefined
@@ -3957,7 +3960,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               aria-label={t('Alejar')}
-              disabled={galleryZoom <= galleryZoomMin + 0.01}
+              disabled={galleryZoom <= galleryZoomMin + 0.001}
               onClick={() =>
                 setGalleryZoom((value) =>
                   Math.max(galleryZoomMin, Math.round((value - 0.25) * 100) / 100),
@@ -3987,17 +3990,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         {viewMode === 'galeria' && !viewingCommonArea && stillItems[stillIndex]?.label ? (
           <div
             className={cn(
-              'pointer-events-none absolute bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[3] flex justify-center px-3',
-              !(isComparador && compareUnitB) && 'inset-x-0',
+              'pointer-events-none absolute inset-x-0 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] z-[3] flex justify-center px-3',
             )}
-            style={
-              isComparador && compareUnitB
-                ? {
-                    left: 0,
-                    width: `${Math.max(12, Math.min(88, compareSplit))}%`,
-                  }
-                : undefined
-            }
           >
             <div className="max-w-[min(100%,18rem)] truncate rounded-full bg-black/45 px-3.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.04em] text-white shadow-md ring-1 ring-white/20 backdrop-blur-sm sm:text-[12px]">
               {t(stillItems[stillIndex]?.label.replace(/\s+\d+$/u, '').trim())}
