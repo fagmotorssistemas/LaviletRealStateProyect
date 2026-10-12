@@ -3,6 +3,7 @@ import { replyQuestions } from './reply-question'
 import { normalizedPendingQuestion, pendingQuestionFromReply, questionActs, questionIds } from './turn-semantics'
 import { categoryInvitationTarget } from './category-offer'
 import { deliveredFinancingEntryReference } from './financing-entry'
+import { operationalReservationInvitation, reservationInvitationUnitNumbers } from './reservation-invitation'
 
 /** Shared by writer and reviewer. Meaning belongs to the emitted CTA, not the plan. */
 export const continuationQuestionProperties = {
@@ -108,6 +109,19 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   const result = normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
     target_ids: matching.target_ids ?? scoped.target_ids ?? pending.target_ids,
     candidate_ids: matching.candidate_ids ?? scoped.candidate_ids ?? pending.candidate_ids }, catalog)
+  if (result.id === 'reservation_invitation') {
+    if (!operationalReservationInvitation(reply)) return {}
+    const mentioned = reservationInvitationUnitNumbers(reply)
+    const targets = ids(result.target_ids)
+    const numberKey = (value: unknown) => text(value).toLowerCase().replace(/^lc[- ]*/, 'lc-').replace(/^(lc-)?0+(?=\d)/, '$1')
+    const expected = text(object(plan.readiness).selected_unit_number)
+    if (mentioned.length && expected && (mentioned.length !== 1 || mentioned[0] !== numberKey(expected))) return {}
+    if (mentioned.length && catalog) {
+      const actualTargets = catalog.filter(unit => mentioned.includes(numberKey(unit.unit_number))).map(unit => text(unit.id))
+      if (actualTargets.length !== mentioned.length || targets.length !== actualTargets.length
+        || targets.some(id => !actualTargets.includes(id))) return {}
+    }
+  }
   if (result.id === 'financing_down_payment') {
     const reference = deliveredFinancingEntryReference(reply, object(plan.question_amount_reference || matching.amount_reference || pending.amount_reference))
     if (reference) result.amount_reference = reference

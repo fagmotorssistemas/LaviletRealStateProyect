@@ -31,7 +31,7 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const previous = object(input.previous), property = object(input.semantics.property)
   const answer = object(input.semantics.answer_to_previous), pending = object(input.pendingQuestion)
   const confidentIntent = input.semantics.confidence === 'high' && !['', 'other'].includes(text(input.semantics.primary_intent))
-  const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current), input.current)
+  const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current, pending, answer), input.current)
   const reconciledRequest = reconciledInformationRequest(input, reservation)
   const requests = (reconciledRequest ? [reconciledRequest] : input.requests).map(request => {
     const proof = text(request.evidence).trim(), permission = text(reservation.evidence).trim()

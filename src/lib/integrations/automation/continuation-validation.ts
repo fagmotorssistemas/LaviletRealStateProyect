@@ -5,12 +5,15 @@ import { continuationMetadata } from './continuation-question'
 import { pendingQuestionFromReply } from './turn-semantics'
 import { categoryInvitationTarget } from './category-offer'
 import { operationalFinancingInvitation } from './financing-invitation'
+import { operationalReservationInvitation } from './reservation-invitation'
 
 /** A bounded recognition of the emitted question; an unknown paraphrase remains
  * unknown rather than receiving the planned meaning automatically. */
 export function actualContinuation(reply: string): Row {
   const question = replyQuestionText(reply), value = normalized(question)
   if (!question) return {}
+  if (/\bo\b/.test(value) && /\b(?:reserva|reservar|separacion|separar)\b/.test(value)
+    && /\b(?:visita|cita|financiamiento|credito)\b/.test(value)) return {}
   const inferred = pendingQuestionFromReply(reply)
   if (operationalFinancingInvitation(reply)) return { id: 'financing_invitation', act: 'financing', question }
   if (inferred.id === 'financing_down_payment') return inferred
@@ -58,6 +61,8 @@ export function continuationMetadataIssues(raw: unknown, reply: string, plan: un
   // A tag alone must not turn vague feedback into choosing a known unit.
   if (semantic.continuation_id === 'unit_choice' && semantic.continuation_act === 'confirm_unit'
     && (actual.id !== 'unit_choice' || actual.act !== 'confirm_unit')) issues.push('question_metadata_confirmation_not_in_text')
+  if (semantic.continuation_id === 'reservation_invitation' && !operationalReservationInvitation(reply))
+    issues.push('question_metadata_reservation_not_in_text')
   // A legal financing-name collection is not the introductory profile exchange.
   const financingCollection = row.continuation_id === 'financing_data' && (expected.action === 'current_operation' || expected.action === 'continue_financing')
   if (actual.id && !financingCollection && !matchingMeaning(actual, { id: semantic.continuation_id, act: semantic.continuation_act }))

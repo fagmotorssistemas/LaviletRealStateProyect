@@ -853,6 +853,34 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.selected_ids = unitIds(ranked); context.comparison_ids = []; context.offered_ids = unitIds(ranked)
     return result(ranked, 'relative_selection', true)
   }
+  const currentIntent = text(object(semantics).primary_intent)
+  const operationalContinuation = ['request_reservation', 'ask_reservation', 'ask_financing', 'request_visit', 'discuss_budget'].includes(currentIntent)
+    || currentIntent === 'answer_previous' && ['reservation', 'financing', 'budget', 'visit'].includes(text(pending.act))
+  const selectedInformation = ['ask_price', 'project_information', 'answer_previous', 'other'].includes(currentIntent)
+    && (semantic.query_scope === 'selected' || semantic.reference_kind === 'followup')
+  const selectedSubject = fromIds(previousSelectedIds)
+  const selectedCodes = catalogRaw.filter(unit => previousSelectedIds.includes(text(unit.id))).map(unit => code(unit.unit_number))
+  // A repeated category is descriptive context in an operational or unit
+  // information turn, not a new choice. Resolve the already chosen subject
+  // without changing the current action or interpreting it as fresh consent.
+  const preservesSelectedSubject = previousSelectedIds.length > 0 && semanticValid
+    && object(semantics).confidence === 'high' && (operationalContinuation || selectedInformation)
+    && !semanticOperation && !groupChanged && !selector && !hasCurrentFilters && !currentRequirements.length
+    && !categoryPreference && !excluded.length && (!category || category === previousCategory)
+    && selectedSubject.every(unit => !category || unit.category === category)
+    && (semanticNumbers.every(number => selectedCodes.includes(code(number)))
+      || selectedSubject.length !== previousSelectedIds.length && !currentUnitMention)
+  if (preservesSelectedSubject) {
+    const complete = selectedSubject.length === previousSelectedIds.length
+    const ambiguousSelection = previousSelectedIds.length > 1
+    query.operation = 'none'; query.scope = 'selected'; query.selector = null
+    context.selected_ids = previousSelectedIds
+    context.reference_resolution = { source: 'confirmed_selection', requested_ids: previousSelectedIds,
+      resolved_ids: unitIds(selectedSubject), status: !complete ? 'unavailable' : ambiguousSelection ? 'ambiguous' : 'resolved' }
+    return { ...result(selectedSubject, !complete ? 'selected_context_unavailable' : ambiguousSelection ? 'ambiguous' : 'remembered',
+      false, !complete || ambiguousSelection),
+      ...(!complete ? { clarification: 'La unidad elegida ya no aparece disponible. ¿Le gustaría revisar las opciones actuales?' } : {}) }
+  }
   if (category || excluded.length) {
     if (activePreferenceTransition && query.scope === 'offered' && category) {
       const candidates = fromIds(context.offered_ids).filter(unit => unit.category === category && !excluded.includes(text(unit.category)))

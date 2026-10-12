@@ -141,7 +141,8 @@ function introductionFixture() {
   const input = { current, baseReply: plan.reply, audit: plan.audit,
     verified: { brochure_url: BROCHURE_URL, project: 'La Vilet, proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, con privacidad y comodidad.' } }
   const candidate = { reply: plan.reply, requests: [covered(current)], question }
-  const review = { ...approved, opening_property_type_sentence_ids: [], claims: [{ fragment: plan.reply, subject: 'Presentación verificada y solicitud de perfil', polarity: 'affirmation',
+  const review = { ...approved, opening_property_type_sentence_ids: [], opening_project_presentation_sentence_ids: ['S2'],
+    claims: [{ fragment: plan.reply, subject: 'Presentación verificada y solicitud de perfil', polarity: 'affirmation',
     verdict: 'supported', evidence: 'Información del proyecto y plan de presentación', evidence_source: 'verified_context' }] }
   return { current, plan, input, candidate, review }
 }
@@ -260,7 +261,10 @@ test('the real writer keeps the initial residence invitation, purpose and deferr
 test('premature categories are repaired and a removed profile purpose is blocked by the real writer pipeline', async () => {
   const { input, candidate, review } = introductionFixture()
   const premature = { ...candidate, reply: `Tenemos suites, departamentos, penthouses y locales comerciales. ${PROFILE_INVITATION}` }
-  const stageReview = { ...review, claims: [], factual_values: [], opening_property_type_sentence_ids: ['S1'] }
+  // Final preparation adds a welcome as S1. The catalogue offer is S2 and
+  // supplies no authorized opening presentation; both must be repaired.
+  const stageReview = { ...review, claims: [], factual_values: [], opening_property_type_sentence_ids: ['S2'],
+    opening_project_presentation_sentence_ids: [] }
   const repaired = await completeTurnReply(input, model(premature, stageReview, candidate, review).generate)
   assert.equal(repaired.audit.status, 'checked')
   assert.equal(repaired.audit.repair_attempts.length, 1)

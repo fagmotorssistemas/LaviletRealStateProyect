@@ -1,4 +1,5 @@
-import type { Row } from './data'
+import { object, type Row } from './data'
+import { operationalReservationInvitation, simpleReservationAcceptance, reservationInvitationUnitNumbers, explicitReservationAction } from './reservation-invitation'
 
 const value = (input: unknown) => typeof input === 'string' ? input : ''
 const normalize = (input: unknown) => value(input).toLocaleLowerCase('es').replace(/\s+/g, ' ').trim()
@@ -52,7 +53,8 @@ export function reservationPermission(reservation: Row, current: string): Row {
   })
   const conditionProof = permissionText(literalProof)
   const conditionalProof = /\b(?:solo si|siempre que|a condicion de|dependiendo de|cuando se confirme|hasta que)\b/.test(conditionProof)
-    || /\bsi\s+(?!(?:quiero|quisiera|deseo|acepto|autorizo|necesito|me interesa|me gustar[ií]a|por favor|claro|correcto|de acuerdo)\b)\S/.test(literalProof)
+    || !simpleReservationAcceptance(literalProof)
+      && /\bsi\s+(?!(?:quiero|quisiera|deseo|acepto|autorizo|necesito|me interesa|me gustar[ií]a|por favor|claro|correcto|de acuerdo)\b)\S/.test(literalProof)
     || /\b(?:primero|antes de)\b[^.!?;]{0,100}\b(?:conocer|revisar|confirmar|evaluar|saber|ver)\b/.test(conditionProof)
   // A prerequisite in another message of the same batch is equally binding.
   // Plain questions about a price do not imply a condition on their own.
@@ -75,6 +77,7 @@ export function reservationRequest(reservation: Row, messages: { externalId: str
   if (reservation.kind !== 'request' || reservation.confidence !== 'high') return null
   const evidence = value(reservation.evidence).trim()
   if (!evidence) return null
+  if (!reservation.accepted_invitation && !explicitReservationAction(evidence)) return null
   const persisted = [...new Map(messages.filter(message => message.externalId && normalize(message.text)).map(message => [message.externalId, message])).values()]
   let combined = ''
   const spans = persisted.map(message => {
@@ -94,6 +97,16 @@ export function reservationRequest(reservation: Row, messages: { externalId: str
   const available = catalog.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
   const mentioned = available.filter(unit => unitMentioned(combined, value(unit.unit_number)))
   const selectedUnits = selected.filter(unit => available.some(candidate => candidate.id === unit.id))
+  // Server-derived acceptance must retain the invitation's exact verified
+  // target. A stale selection cannot redirect the customer's yes elsewhere.
+  if (reservation.accepted_invitation) {
+    const invitation = object(reservation.accepted_invitation)
+    const targets = Array.isArray(invitation.target_ids) ? invitation.target_ids.map(value).filter(Boolean) : []
+    if (!operationalReservationInvitation(value(invitation.question)) || targets.length !== 1
+      || selectedUnits.length !== 1 || selectedUnits[0].id !== targets[0]) return null
+    const mentioned = reservationInvitationUnitNumbers(value(invitation.question))
+    if (mentioned.length && (mentioned.length !== 1 || mentioned[0] !== unitKey(value(selectedUnits[0].unit_number)))) return null
+  }
   const explicitUnit = /\b(?:unidad|depart\w*|apart\w*|suite|penthouse|local(?: comercial)?|el|la)\s*(?:n[uú]mero\s*)?(?:lc[- ]*)?\d{1,4}(?!\d)/i.test(combined)
   const canResolveSelection = selectedUnits.length === 1 && mentioned.length === 0 && !explicitUnit
   // A stated but unknown unit must never silently become a previously selected unit.

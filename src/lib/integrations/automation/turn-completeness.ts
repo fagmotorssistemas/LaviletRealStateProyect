@@ -50,7 +50,8 @@ import { replyQuestionText } from './reply-question'
 import { continuationMetadata, continuationQuestionProperties, CONTINUATION_QUESTION_RULE } from './continuation-question'
 import { progressiveQuestionObservations, PROGRESSIVE_OPTIONS_RULES } from './progressive-options'
 import { TURN_INTENT_RULES, turnIntentIssues } from './turn-intent'
-import { isCategoryOverview, validateCatalogReply } from './catalog-dialogue'
+import { isCategoryOverview, validateCatalogReply, budgetRecommendationBase } from './catalog-dialogue'
+import { budgetRecommendationPresentation } from './budget-presentation'
 import { pendingTurnReply } from './delivery-integrity'
 import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 import { projectQuantityEvidence, validateProjectQuantities, withoutSupportedQuantities } from './project-quantities'
@@ -468,6 +469,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       delete input.audit!.post_tour_continuation
     }
   }
+  const recommendationBase = budgetRecommendationBase(input.verified, input.audit || {})
+  if (recommendationBase) input = { ...input, baseReply: recommendationBase,
+    audit: { ...input.audit, budget_recommendation_presentation: budgetRecommendationPresentation(input.verified) } }
   const contentScope = responseContentScope(input.current, input.verified, input.audit || {})
   const scopedLocationPolicy = { ...object(input.verified.location_disclosure),
     general_location_allowed: object(object(contentScope.topics).general_location).allowed === true,
@@ -585,9 +589,15 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     guardIssues.push(...reviewerMetadataIssues.filter(issue => !guardIssues.includes(issue)))
     const contentApproved = semanticReview.status === 'checked'
       && object(semanticReview.acceptance).content_approved !== false
-    const questionIssues = continuationMetadataIssues(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
+    const reviewedQuestion = object(semanticReview.question)
+    const reviewedQuestionValid = ['checked', 'rejected'].includes(text(semanticReview.status))
+      && validContinuationMetadata(reviewedQuestion, reply, input.verified.siguiente_paso_comercial)
+    const recovery = reconcileContinuationMetadata(reviewedQuestionValid ? reviewedQuestion : observedWriterQuestion,
+      reply, input.verified.siguiente_paso_comercial)
+    const deliveredQuestion = recovery.question
+    const questionIssues = continuationMetadataIssues(deliveredQuestion, reply, input.verified.siguiente_paso_comercial)
     const questionUsable = !replyQuestionText(reply)
-      || validContinuationMetadata(observedWriterQuestion, reply, input.verified.siguiente_paso_comercial)
+      || validContinuationMetadata(deliveredQuestion, reply, input.verified.siguiente_paso_comercial)
     const passed = guardIssues.length === 0 && contentApproved
     const observedStatus = reason === 'review_unavailable' ? 'unavailable' : reason !== 'completed' ? reason
       : !contentApproved ? 'rejected_review' : guardIssues.length ? 'rejected_guard' : 'checked'
@@ -601,7 +611,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       transport_validation: { passed: true, policy: 'nonempty_and_length' },
       follow_up: { usable: questionUsable, source: 'actual_delivered_question', warnings: questionIssues,
         writer_metadata_observations: observedMetadataIssues },
-      question: observedWriterQuestion, question_metadata_recovery: writerMetadataRecovery, requests: observedRequests, writer_contract: writerContract,
+      question: deliveredQuestion, question_metadata_recovery: { ...writerMetadataRecovery,
+        delivered_source: reviewedQuestionValid ? 'validated_reviewer' : recovery.corrected ? 'actual_question' : 'writer',
+        delivered_recovery: recovery }, requests: observedRequests, writer_contract: writerContract,
       commercial_journey: input.verified.siguiente_paso_comercial, commercial_continuation: continuationAudit(),
       resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
       text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,

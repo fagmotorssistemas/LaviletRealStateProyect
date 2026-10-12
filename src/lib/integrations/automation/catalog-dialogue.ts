@@ -9,6 +9,7 @@ import { verifiedAbsenceReply } from './catalog-absence'
 import { requirementMatch, catalogNumber } from './catalog-request'
 import { unitModelDelivery } from './unit-model'
 import { leadBudget } from './budget-state'
+import { budgetRecommendationPresentation } from './budget-presentation'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
 export type CatalogQuery = {
@@ -415,6 +416,17 @@ function alternativeOverview(units: Row[], includeFloorDetails = true) {
   return { reply, groups }
 }
 
+/** Align the draft after planning; never narrow the canonical catalogue audit. */
+export function budgetRecommendationBase(info: Row, audit: Row = {}): string | null {
+  if (audit.source && audit.source !== 'catalog_search') return null
+  const presentation = budgetRecommendationPresentation(info)
+  if (!presentation) return null
+  const wanted = new Set(ids(presentation.unit_ids))
+  const units = rows(info.catalogo).filter(unit => wanted.has(text(unit.id)))
+  if (units.length !== wanted.size) return null
+  return `${alternativeOverview(units, false).reply} ${text(object(info.siguiente_paso_comercial).question)}`.trim()
+}
+
 function groupedCharacteristics(units: Row[], comparison = compareCatalog(units)) {
   return comparison.groups.map(group => {
     const members = units.filter(unit => group.unit_ids.includes(text(unit.id)))
@@ -507,6 +519,20 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     pending_question: { id: 'none', act: 'other', question: '', target_ids: [], candidate_ids: [] } }
   const respond = (reply: string, audit: Row = {}) => ({ reply, audit: { ...baseAudit, ...audit } })
   const question = (id: string, act: string, value: string, targets: Row[] = [], candidatesForQuestion = units) => ({ id, act, question: value, target_ids: unitIds(targets), candidate_ids: unitIds(candidatesForQuestion) })
+  const budgetPresentation = budgetRecommendationPresentation(info)
+  const recommendedBase = budgetRecommendationBase(info, baseAudit)
+  if (recommendedBase && budgetPresentation) {
+    const recommendedIds = new Set(ids(budgetPresentation.unit_ids))
+    const recommended = units.filter(unit => recommendedIds.has(text(unit.id)))
+    if (recommended.length === recommendedIds.size) {
+      const next = text(object(info.siguiente_paso_comercial).question)
+      return respond(recommendedBase, { offered_unit_ids: unitIds(recommended), budget_presentation: budgetPresentation,
+        alternative_presentation: { kind: 'category_overview', groups: alternativeOverview(recommended, false).groups },
+        pending_question: question('property_category', 'choose_category', next, [], recommended),
+        progressive_selection: { stage: 'choose_category', question: next, candidate_ids: unitIds(recommended), criteria: query.filters,
+          reason: 'budget_matching_recommendation_before_category' } })
+    }
+  }
   if ((query.operation === 'compare' && (units.length < 2 || missingIds.length > 0 || reference.needsClarification === true))
     || ['details', 'select'].includes(query.operation) && (!units.length || missingIds.length > 0)) {
     const next = text(reference.clarification) || (query.operation === 'compare'

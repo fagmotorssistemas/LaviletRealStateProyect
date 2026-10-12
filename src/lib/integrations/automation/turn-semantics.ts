@@ -9,6 +9,7 @@ import { budgetAmountForCurrentTurn } from './turn-interpretation-input'
 import { deliveredFinancingEntryReference } from './financing-entry'
 import { isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
 import { floorEvidence, floorInvitationTarget } from './floor-evidence'
+import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction } from './reservation-invitation'
 import { categoryInvitationTarget } from './category-offer'
 
 export const questionIds = [
@@ -291,14 +292,28 @@ export function propertyFiltersWithQuantityMeaning(rawFilters: unknown, semantic
 }
 
 /** Current, typed model evidence authorizes a request to start; catalogue and execution validate the result separately. */
-export function normalizedReservation(raw: unknown, current: string): Row {
+export function normalizedReservation(raw: unknown, current: string, pendingRaw?: unknown, answerRaw?: unknown): Row {
   const reservation = object(raw)
   const evidence = literalEvidence(reservation.evidence, current)
   const valid = reservation.confidence === 'high' && !!evidence && reservationKinds.has(text(reservation.kind)) && reservation.kind !== 'none'
-  return valid ? { kind: text(reservation.kind), evidence, confidence: 'high',
+  const result: Row = valid ? { kind: text(reservation.kind), evidence, confidence: 'high',
     unit_numbers: Array.isArray(reservation.unit_numbers)
       ? [...new Set(reservation.unit_numbers.map(text).filter(code => /^(?:LC-?)?\d{1,4}$/i.test(code)))].slice(0, 12) : [],
   } : { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' }
+  const pending = normalizedPendingQuestion(pendingRaw), answer = object(answerRaw)
+  const answerEvidence = literalEvidence(answer.evidence, current)
+  // Rebuild this proof from the caller's delivered question and current typed
+  // answer every time; never preserve a model-supplied accepted_invitation.
+  if (['none', 'request'].includes(text(result.kind)) && pending.id === 'reservation_invitation'
+    && pending.act === 'reservation' && operationalReservationInvitation(text(pending.question))
+    && answer.question_id === pending.id && answer.kind === 'affirmative' && answer.confidence === 'high'
+    && answerEvidence && simpleReservationAcceptance(current)
+    && Array.isArray(pending.target_ids) && pending.target_ids.length === 1) {
+    return { kind: 'request', evidence: answerEvidence, confidence: 'high', unit_numbers: [],
+      accepted_invitation: { question: pending.question, target_ids: [...pending.target_ids] } }
+  }
+  return result.kind === 'request' && !explicitReservationAction(text(result.evidence))
+    ? { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' } : result
 }
 
 /**
@@ -317,6 +332,7 @@ export function pendingQuestionFromReply(reply: string): Row {
   if (asksName || asksResidence) id = asksName && asksResidence ? 'lead_profile' : asksName ? 'lead_profile_name' : 'lead_profile_residence'
   else if (/\b(?:que|cual) (?:entidad|banco|cooperativa)\b/.test(value)
     || /\b(?:prefiere|elige|escoge)\b/.test(value) && /\bpichincha\b.*\bjep\b|\bjep\b.*\bpichincha\b/.test(value)) id = 'financing_partner'
+  else if (operationalReservationInvitation(reply)) id = 'reservation_invitation'
   else if (/visita|cita|recibirle|visitarnos|conocer el proyecto/.test(value)
     && /que dia|cual dia|fecha|que hora|horario|cuando/.test(value)) id = 'visit_date_time'
   else if (/visita|cita|visitarnos|conocer el proyecto|conocerlo en persona/.test(value)
@@ -357,20 +373,26 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const primaryEvidence = literalEvidence(data.primary_evidence, current)
   const extractedPrimaryIntent = data.confidence === 'high' && primaryEvidence && primaryIntents.has(text(data.primary_intent))
     ? text(data.primary_intent) : 'other'
-  const reservation = normalizedReservation(data.reservation, current)
-  const reservationIntent = reservation.kind === 'request' ? 'request_reservation' : reservation.kind === 'information' ? 'ask_reservation' : null
-  const primaryIntent = reservationIntent || (['request_reservation', 'ask_reservation'].includes(extractedPrimaryIntent) ? 'other' : extractedPrimaryIntent)
-  const decisions: Row[] = []
-  if (reservationIntent && reservationIntent !== extractedPrimaryIntent) decisions.push({ code: 'current_reservation_takes_priority',
-    extractor_intent: extractedPrimaryIntent, canonical_intent: reservationIntent, source: 'reservation', evidence: reservation.evidence })
-  if (!reservationIntent && ['request_reservation', 'ask_reservation'].includes(extractedPrimaryIntent)) decisions.push({ code: 'reservation_intent_without_current_action_evidence',
-    extractor_intent: extractedPrimaryIntent, canonical_intent: primaryIntent, source: 'reservation' })
-
   const answer = object(data.answer_to_previous)
   const answerEvidence = literalEvidence(answer.evidence, current)
   let answerQuestionId = answer.confidence === 'high' && answerEvidence && pendingId
     && text(answer.question_id) === pendingId && answerKinds.has(text(answer.kind)) && answer.kind !== 'none'
     ? pendingId : ''
+  const reservation = normalizedReservation(data.reservation, current, pending, answer)
+  const decisions: Row[] = []
+  // A validated affirmative belongs to its delivered operational invitation.
+  // Merely liking a unit, accepting details, an ambiguous alternative, or a
+  // conditional answer cannot initiate this handoff. Inventory is checked later.
+  if (reservation.accepted_invitation) {
+    decisions.push({ code: 'delivered_reservation_invitation_accepted', source: 'answer_to_previous',
+      evidence: answerEvidence, target_ids: pending.target_ids })
+  }
+  const reservationIntent = reservation.kind === 'request' ? 'request_reservation' : reservation.kind === 'information' ? 'ask_reservation' : null
+  const primaryIntent = reservationIntent || (['request_reservation', 'ask_reservation'].includes(extractedPrimaryIntent) ? 'other' : extractedPrimaryIntent)
+  if (reservationIntent && reservationIntent !== extractedPrimaryIntent) decisions.push({ code: 'current_reservation_takes_priority',
+    extractor_intent: extractedPrimaryIntent, canonical_intent: reservationIntent, source: 'reservation', evidence: reservation.evidence })
+  if (!reservationIntent && ['request_reservation', 'ask_reservation'].includes(extractedPrimaryIntent)) decisions.push({ code: 'reservation_intent_without_current_action_evidence',
+    extractor_intent: extractedPrimaryIntent, canonical_intent: primaryIntent, source: 'reservation' })
 
   const budget = object(data.budget)
   const budgetEvidence = literalEvidence(budget.evidence, current)

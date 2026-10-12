@@ -8,6 +8,7 @@ import { leadBudget } from './budget-state'
 import { turnEvidence } from './turn-evidence'
 import { proposalInformationContext } from './commercial-journey'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
+import { budgetRecommendationPresentation } from './budget-presentation'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const hasValues = (value: unknown): boolean => value != null && value !== false && value !== ''
@@ -160,6 +161,9 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   const query = object(proposalInformationalTurn ? proposalInformation.query : object(verified.property_context).query)
   const filtered = filterCatalog(units, catalogQuery(query), proposalInformationalTurn
     ? (Array.isArray(proposalInformation.resolved_ids) ? proposalInformation.resolved_ids.map(text) : []) : undefined)
+  const budgetPresentation = selection.task !== 'multiple_requests' && !proposalInformationalTurn
+    ? budgetRecommendationPresentation(verified) : null
+  const recommendationIds = new Set(Array.isArray(budgetPresentation?.unit_ids) ? budgetPresentation.unit_ids.map(text) : [])
   const property = object(verified.property_context)
   const relatedIds = new Set([
     ...rows(object(verified.presupuesto_del_turno).alternatives).map(unit => text(unit.id)),
@@ -178,6 +182,7 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   // An incompatible search needs complete ranges/categories to explain the
   // mismatch, not all 65 floor plans. Preserve explicitly related units.
   if (clarifyRequirements && !proposalInformationalTurn) units = units.filter(unit => relatedIds.has(text(unit.id)))
+  if (budgetPresentation) units = units.filter(unit => recommendationIds.has(text(unit.id)))
   const included = new Set(units.map(u => text(u.id)))
   const matchingIds = new Set(filtered.map(u => text(u.id)))
   const roleOf = (unit: Row) => matchingIds.has(text(unit.id)) ? 'current_query'
@@ -189,6 +194,8 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     && evidence.groups.some(group => group.source_scope === 'complete_query' && group.unit_count === 0)
   const seen = new Set<string>()
   let groups = evidence.groups.filter(group => {
+    if (budgetPresentation && (!Array.isArray(group.member_ids) || !group.member_ids.length
+      || group.member_ids.some(id => !recommendationIds.has(text(id))))) return false
     if (group.source_scope === 'catalog_inventory' && !needsInventory) return false
     if (proposalInformationalTurn && selection.task !== 'multiple_requests' && (!Array.isArray(group.member_ids) || !group.member_ids.length
       || group.member_ids.some(id => !included.has(text(id))))) return false
@@ -258,9 +265,13 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     model_scope: { task: selection.task, listed_unit_count: 0, evidence_unit_count: evidence.units.length,
       query, note: 'Presentación general de los tipos de espacio consultados. Los grupos se calcularon sobre todas las coincidencias; se omitieron fichas y listas de identificadores. Use las categorías y dormitorios para orientar y formular el siguiente paso. No atribuya distribuciones internas a partir de este resumen.' } } as T
   }
-  return { ...evidence, units: units.map(unit => ({ ...compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true), query_role: roleOf(unit) })),
+  return { ...evidence,
+    ...(budgetPresentation ? { query_result_ids: [...included], alternative_ids: [], presentation_scope: budgetPresentation } : {}),
+    units: units.map(unit => ({ ...compactCatalogUnit(unit, object(verified.politica_comercial).precios_autorizados === true), query_role: roleOf(unit) })),
     groups, model_scope: { task: selection.task, listed_unit_count: units.length, evidence_unit_count: evidence.units.length,
-      query, matching_unit_ids: [...matchingIds], related_unit_ids: [...relatedIds].filter(id => !matchingIds.has(id)),
+      query, matching_unit_ids: [...matchingIds].filter(id => !budgetPresentation || included.has(id)),
+      related_unit_ids: [...relatedIds].filter(id => !matchingIds.has(id) && (!budgetPresentation || included.has(id))),
+      ...(budgetPresentation ? { presentation_scope: budgetPresentation } : {}),
       ...(proposalInformationalTurn ? { original_requirement_query: proposalInformation.original_query, alternative_acceptance: 'pending',
         unknown_unit_ids: proposalUnknownIds, missing_unit_ids: proposalMissingIds,
         reference_complete: proposalInformation.complete === true, reference_resolved_unit_ids: [...proposalReferenceIds] } : {}),

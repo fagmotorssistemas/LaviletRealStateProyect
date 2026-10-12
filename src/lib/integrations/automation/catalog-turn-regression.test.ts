@@ -15,7 +15,7 @@ import profileFixture from './fixtures/extractor-profile-turn.json'
 
 // Sanitized regression: an exterior-local search followed by a residential
 // requirement. Identifiers are synthetic; no lead profile or production writes.
-const message = 'Bueno busco algo de mínimo 3 cuartos y en los pisos superiores, tengo un presupuesto de unos 200 mil.'
+const message = 'Bueno busco algo de mínimo 3 cuartos y en los pisos superiores, tengo un presupuesto total de unos 200 mil.'
 const requirement = (field: string, operator: string, value: number, strength = 'required'): Row => ({
   field, operator, value, upper_value: null, strength, evidence: field === 'bedrooms' ? 'mínimo 3 cuartos' : 'pisos superiores',
 })
@@ -32,18 +32,20 @@ const prior = { _property_context: { preference_category: 'local', offered_ids: 
   query: { group: 'commercial', category: 'local', operation: 'search', scope: 'catalog', filters: {},
     requirements: [{ ...requirement('area_exterior_m2', 'gt', 0), evidence: 'espacio exterior' }] } } }
 
-function interpreted() {
+function interpreted(current = message) {
   const raw: Row = structuredClone(profileFixture)
-  raw.catalog_request = req
+  const request = { ...req, evidence: current }
+  raw.catalog_request = request
   const semantics = object(raw.turn_semantics), property = object(semantics.property)
-  Object.assign(semantics, { primary_intent: 'project_information', primary_evidence: message,
+  Object.assign(semantics, { primary_intent: 'project_information', primary_evidence: current,
     housing_quantities: [{ dimension: 'bedrooms', values: [3], role: 'requirement', count_basis: 'unspecified', confidence: 'high', evidence: 'mínimo 3 cuartos' }],
-    budget: { status: 'amount', amount: 200000, confidence: 'high', evidence: 'presupuesto de unos 200 mil' } })
-  Object.assign(property, { group: null, category: null, operation: 'search', query_scope: 'catalog', evidence: message,
+    budget: { status: current === message ? 'maximum_total' : 'amount', amount: 200000, confidence: 'high',
+      evidence: current === message ? 'presupuesto total de unos 200 mil' : 'presupuesto de unos 200 mil' } })
+  Object.assign(property, { group: null, category: null, operation: 'search', query_scope: 'catalog', evidence: current,
     filters: { ...object(property.filters), bedrooms: 3, bedrooms_operator: 'gte', bedrooms_required: true, floor_number: 1 },
     filter_evidence: { ...object(property.filter_evidence), bedrooms: 'mínimo 3 cuartos', bedrooms_operator: 'mínimo 3 cuartos',
       bedrooms_required: 'mínimo 3 cuartos', floor_number: 'pisos superiores' } })
-  return { ...normalizeTurnSemantics(raw, message), catalog_request: req }
+  return { ...normalizeTurnSemantics(raw, current), catalog_request: request }
 }
 
 test('bedroom follow-up replaces commercial context and respects minimum plus floor preference on both routes', async () => {
@@ -72,10 +74,26 @@ test('bedroom follow-up replaces commercial context and respects minimum plus fl
     assert.doesNotMatch(result.reply, /local comercial|LC01/)
     const budget = turnBudgetAssessment(info, result.audit)!
     assert.equal(budget.continuation, 'offer_financing', 'Insufficient amount offers financing without assuming it is a down payment.')
-    assert.equal(budget.clarify_budget_basis, true)
+    assert.equal(budget.clarify_budget_basis, false)
     assert.equal(budget.minimum_price, 250000)
     assert.deepEqual(budget.matching_unit_ids, [])
   }
+})
+
+test('an ambiguous amount asks its role before offering financing and never becomes a down payment', () => {
+  const current = message.replace('presupuesto total', 'presupuesto'), semantics = interpreted(current)
+  const resolved = resolvePropertyTurn(units, current, prior, [], semantics)
+  const info: Row = { catalogo: units, catalogo_verificacion: units, catalog_read: { complete: true },
+    semantica_turno: semantics, property_context: resolved.context, referencia_unidad: resolved,
+    politica_comercial: { precios_autorizados: true }, financiamiento: { partners: ['Entidad autorizada'] } }
+  const draft = catalogDialogueReply(info, current)!
+  const assessment = turnBudgetAssessment(info, draft.audit)!
+  assert.equal(object(semantics.budget).status, 'amount')
+  assert.equal(assessment.continuation, 'clarify_budget')
+  assert.equal(assessment.comparable, false, 'the amount is not compared as a total budget before its role is known')
+  assert.equal(assessment.amount, 200000)
+  assert.equal(object(object(info.financing_amounts).down_payment).amount, undefined)
+  assert.equal(object(resolved.query.filters).bedrooms, 3)
 })
 
 test('typed numeric bounds and unknown measurements behave identically on normal and optimized queries', () => {
