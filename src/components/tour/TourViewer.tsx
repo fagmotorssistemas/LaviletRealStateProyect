@@ -25,6 +25,7 @@ import {
   Layers,
   Heart,
   Landmark,
+  LayoutGrid,
   Menu,
   Mic,
   Plus,
@@ -4302,7 +4303,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               aria-haspopup="menu"
               aria-label={t("Abrir modos de vista")}
             >
-              <Menu size={18} strokeWidth={2.25} />
+              <LayoutGrid size={18} strokeWidth={2.25} />
             </button>
             {mobilePanel === 'modes' ? (
               <div
