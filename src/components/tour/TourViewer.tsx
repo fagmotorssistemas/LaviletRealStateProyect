@@ -4746,8 +4746,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           onClose={() => {
             setFichaOpen(false)
             setFichaExpanded(false)
-            setSelectedUnitId(null)
-            writeUnitQueryParam(null)
+            if (!showUnitChrome) {
+              setSelectedUnitId(null)
+              writeUnitQueryParam(null)
+            }
           }}
           contained={embedded && !immersive}
           expanded={fichaExpanded}
