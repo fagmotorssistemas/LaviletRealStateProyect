@@ -8,7 +8,8 @@ import { object, text, type Row } from './data'
 import { budgetQuestionBasis } from './budget-question-context'
 import { interpretationConsistencyIssues } from './interpretation-consistency'
 import { isolateHistoricalBudget } from './historical-budget-isolation'
-import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence } from './purchase-evidence'
+import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence, isAssetOnlyPurposeEvidence } from './purchase-evidence'
+import { resolveFinancingEntryReference } from './financing-entry'
 import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_SCHEMA } from './turn-semantics'
 import { isGreetingOnly, normalized } from './sdr-rules'
@@ -231,6 +232,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let raw: Row = {}, promptRevision: string | null = null
   const historicalFields = new Set<string>()
   const reconcile = (value: Row) => {
+    value = resolveFinancingEntryReference(value, readable, normalizedPendingQuestion(input.pregunta_pendiente))
     value = reconcileMonetaryInterpretation(value, readable)
     const result = reconcileHistoricalInterpretation(reconcilePassivePropertyMemory(reconcileFinancingReference(value, input, readable), input), readable, object(input.resumen))
     result.fields.forEach(field => historicalFields.add(field))
@@ -244,7 +246,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let isolatedProperty = false
   let isolatedBudget = false
   const validationIssues = (value: Row) => [...new Set([
-    ...interpretationSourceIssues(value, readable, pending), ...interpretationConsistencyIssues(value, readable),
+    ...interpretationSourceIssues(value, readable, pending, normalizedPendingQuestion(input.pregunta_pendiente)), ...interpretationConsistencyIssues(value, readable),
   ])]
   if (method === 'model') {
     // Interpretation is shared by both retrieval routes. The feature switch
@@ -380,6 +382,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
  * no promotion of outside fragments into operational evidence. */
 function normalizeInterpretation(input: Row, raw: Row, readable: string, method: TurnInterpretation['method'], promptRevision: string | null): TurnInterpretation {
   const actionMessage = Object.hasOwn(input, 'mensaje_accion') ? text(input.mensaje_accion) : readable
+  raw = resolveFinancingEntryReference(raw, actionMessage, normalizedPendingQuestion(input.pregunta_pendiente))
   const lastQuestion = text(input.ultima_pregunta) || text(object(object(input.resumen)._last_operational_step).reply)
   const extracted = normalizeEvents(raw, actionMessage, /(?:n[uú]mero|d[ií]gitos?).*(?:c[eé]dula)|c[eé]dula.*(?:n[uú]mero|d[ií]gitos?)/i.test(lastQuestion), input.pregunta_pendiente)
   const actions = evidencedActions(raw, actionMessage, lastQuestion || text(object(input.pregunta_pendiente).question))
@@ -526,6 +529,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   const purposeQuote = text(object(raw.declaration_evidence).purchase_purpose)
   if (raw.purchase_purpose && (isPassivePurchaseEvidence(purposeQuote)
     || isPassiveProfilePurposeEvidence(raw, input.pregunta_pendiente, purposeQuote)
+    || isAssetOnlyPurposeEvidence(raw, input.pregunta_pendiente, purposeQuote)
     || isGeneralProjectOverviewWithoutPurchaseScope(raw, actionMessage))) {
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'purchase_purpose_from_passive_source']

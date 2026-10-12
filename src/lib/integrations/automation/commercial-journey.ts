@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
-import { selectedFinancingUnit } from './financing-stage'
+import { selectedFinancingUnit, financingStage } from './financing-stage'
 import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers } from './budget-state'
 import { catalogQuery, filterCatalog, partitionCatalog, catalogRequirementAlternative, alternativeFloorQuestion,
   canOfferLowerFloorBedrooms, catalogLowerFloorBedroomAlternative } from './catalog-dialogue'
@@ -135,7 +135,8 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const category = text(commercialSelectionCategory(info))
   const interest = declaredCommercialInterest(info), purpose = interest.purpose
   const profileDone = !!text(profile.full_name) && !!text(profile.residence_city || profile.residence_country)
-  const stage = object(info.etapa_financiamiento), accepted = readiness.financing_accepted === true
+  const stage = Object.keys(object(info.etapa_financiamiento)).length ? object(info.etapa_financiamiento) : financingStage(info)
+  const accepted = readiness.financing_accepted === true
   const selected = text(readiness.selected_unit_id)
   const policy = object(info.politica_visitas), sales = object(info._sales_memory)
   const visitDeclined = state.visit_declined === true || sales.visit_declined === true
@@ -307,11 +308,23 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     && !filterCatalog(planningCatalog, physicalQuery, scopedIds).some(unit => !excluded.has(text(unit.category)))) return clarifyRequirements()
 
   const kindQuestion = budgetKindQuestion(budget)
+  if (accepted && stage.stage === 'clarify_budget' && kindQuestion) return {
+    ...plan('clarify_budget_kind', text(stage.instruction), kindQuestion, 'budget_kind'), question_act: 'budget',
+  }
+  // Financing acceptance changes the funding path, not physical availability
+  // or consent to adjust a requirement. Clarify those decisions first; once
+  // compatible options exist, entry precedes category/floor/unit selection.
+  if (accepted && stage.stage === 'clarify_entry') return {
+    ...plan('clarify_financing_down_payment', text(stage.instruction), text(stage.question), 'financing_down_payment'),
+    question_act: 'financing',
+    ...(stage.question_amount_reference ? { question_amount_reference: stage.question_amount_reference } : {}),
+  }
+
   const budgetDeferred = ids(object(info.memoria_comercial).deferred_fields).includes('presupuesto')
     && budget.source !== 'current_lead_statement'
   if (!selected && !interest.known)
-    return plan('discover_use', 'Presente brevemente las categorías disponibles y pregunte vivienda o comercio.', '¿Busca una vivienda o un local para su negocio?', 'property_category')
-  if (!passive && budget.answered !== true && !budgetDeferred) return {
+    return plan('discover_use', 'Pregunte vivienda o local comercial sin dar por hecho uso personal ni negocio propio. Tipo de inmueble y finalidad son datos separados; una vivienda puede ser para vivir o arrendar.', '¿Le interesa una vivienda o un local comercial?', 'property_category')
+  if (!accepted && !passive && budget.answered !== true && !budgetDeferred) return {
     ...plan('ask_budget', selected
       ? 'Conserve la unidad de interés y responda la consulta actual. Recupere únicamente el presupuesto total aproximado que falta, sin reabrir tipo o planta ni repetir la ficha ya presentada.'
       : 'Ya conocemos qué busca. Responda cualquier consulta actual y pregunte únicamente el presupuesto total aproximado antes de dormitorios, tipo, planta o unidades. No enumere opciones ni precios por esta pregunta. Un sí sin monto requiere preguntar cuánto; sin presupuesto definido o ante negativa continúe con las características.',
@@ -323,7 +336,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     'El monto fue declarado, pero no su significado. Responda la consulta y aclare si es presupuesto total o dinero para la entrada. No vuelva a pedir la cifra, no compare su suficiencia con el precio ni ofrezca financiamiento o reserva antes de esa aclaración.',
     kindQuestion, 'budget_kind')
   if (!selected && purpose && !category && !selectionQuery.group)
-    return plan('discover_use', 'El propósito de inversión y la situación del presupuesto están conocidos, pero inversión no identifica vivienda o local. Aclare ese alcance antes de comparar importes; no deduzca una categoría.', '¿Le interesa una vivienda o un local comercial para invertir?', 'property_category')
+    return plan('discover_use', 'El propósito de inversión y la situación del presupuesto están conocidos, pero inversión no identifica vivienda o local. Aclare ese alcance antes de comparar importes; conserve el propósito sin deducir una categoría ni dar por hecho uso propio.', '¿Le interesa una vivienda o un local comercial?', 'property_category')
 
   const currentSemantics = object(info.semantica_turno), currentAnswer = object(currentSemantics.answer_to_previous)
   const currentPreference = object(currentSemantics.property), currentFilters = object(currentPreference.filters)
@@ -347,7 +360,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     && (!selected || Number(readiness.price) > Number(budget.amount))
   if (!accepted && partners.length && (requestedFinance || !passive && !financeDeclined
     && (state.financing_offered !== true || currentBudgetDeclaration || scopeChanged) && (insufficient || entryNeedsFinancing))) {
-    const result = plan('offer_financing', `${insufficient ? 'Explique con calma que los precios de las opciones compatibles comprobadas están por encima del presupuesto total indicado, sin rechazar al lead ni enumerar todo el catálogo. ' : ''}Explique brevemente que podemos ayudarle a analizar financiamiento con las entidades autorizadas y pregunte únicamente si desea continuar por este chat. ${selected ? 'Conserve la unidad elegida; no pida confirmarla otra vez ni reabra otras opciones.' : 'Si acepta, primero se identificará una unidad de interés con sus necesidades conocidas; no pida entidad, cédula, empleo ni ingresos antes de elegirla.'}${entryNeedsFinancing ? ' La cantidad conocida es entrada prevista, no presupuesto total ni fondos verificados; el saldo y sus condiciones requieren evaluación. No vuelva a preguntar el papel de ese importe.' : ''} No ofrezca contactos ni otros proyectos. No rechace al lead por el presupuesto. No prometa aprobación ni que el crédito cubrirá la diferencia. Una orientación o consulta de requisitos no autoriza recopilar datos financieros.`,
+    const result = plan('offer_financing', `${insufficient ? 'Explique con calma que los precios de las opciones compatibles comprobadas están por encima del presupuesto total indicado, sin rechazar al lead ni enumerar todo el catálogo. ' : ''}Explique brevemente que podemos ayudarle a analizar financiamiento con las entidades autorizadas y pregunte únicamente si desea continuar por este chat. ${selected ? 'Conserve la unidad elegida; no pida confirmarla otra vez ni reabra otras opciones.' : 'Si acepta, primero se aclarará la entrada disponible solo si falta y después se elegirá una unidad de interés con sus necesidades conocidas. Conserve la entidad si la menciona voluntariamente; no pida entidad, cédula, empleo ni ingresos antes de elegir la unidad.'}${entryNeedsFinancing ? ' La cantidad conocida es entrada prevista, no presupuesto total ni fondos verificados; el saldo y sus condiciones requieren evaluación. No vuelva a preguntar el papel de ese importe.' : ''} No ofrezca contactos ni otros proyectos. No rechace al lead por el presupuesto. No prometa aprobación ni que el crédito cubrirá la diferencia. Una orientación o consulta de requisitos no autoriza recopilar datos financieros.`,
       '¿Desea que continuemos con el proceso de financiamiento?', 'financing_invitation')
     return { ...result, financing_offer_allowed: true }
   }
@@ -358,8 +371,6 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     if (stage.stage === 'clarify_budget') return { ...plan(kindQuestion ? 'clarify_budget_kind' : 'ask_budget',
       text(stage.instruction), text(stage.question), kindQuestion ? 'budget_kind' : 'budget_amount'),
       question_act: 'budget' }
-    if (stage.stage === 'clarify_entry') return { ...plan('clarify_financing_down_payment', text(stage.instruction),
-      text(stage.question), 'financing_down_payment'), question_act: 'financing' }
     return plan('continue_financing', stage.instruction ? text(stage.instruction) : 'Continúe con el siguiente dato financiero pendiente; no repita la aceptación ni ofrezca reserva mientras no exista revisión favorable.')
   }
   if (selected && readiness.can_offer_reservation === true && profileDone) {
@@ -388,7 +399,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   if (!purpose && !passive && !exploringAlternatives) return plan('discover_purpose', 'Pregunte el uso que aún falta sin repetir el tipo de espacio.', category === 'local' ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?' : '¿Lo busca para vivir o como inversión?', 'property_purpose')
   const bedroomCondition = rows(selectionQuery.requirements).some(requirement => requirement.field === 'bedrooms')
   if (category !== 'local' && category !== 'suite' && !bedroomCondition && !filters.bedrooms && !(Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) && !lead.preferred_bedrooms)
-    return plan('discover_bedrooms', 'Use la familia conocida, pero no convierta personas en dormitorios. Pregunte cuántos necesita.', '¿Cuántos dormitorios necesita?', 'property_bedrooms')
+    return plan('discover_bedrooms', 'Use la familia conocida, pero no convierta personas en dormitorios. Reconozca brevemente su respuesta y pregunte cuántos necesita, sin repetir dimensiones o fichas ya entregadas ni enumerar categorías por rutina. Retome una medida solo si la consulta actual la solicita o una comparación la requiere.', '¿Cuántos dormitorios necesita?', 'property_bedrooms')
   const selection = plan('select_property', accepted
     ? 'Ya aceptó financiamiento: retome las opciones con las preferencias conocidas hasta elegir una unidad concreta. No repita que no alcanza, no pida otra aceptación, cédula ni datos laborales. No exija elegir una planta si ya la conoce.'
     : 'Ayude a comparar y elegir una unidad concreta con las preferencias conocidas. No vuelva a pedir datos ya respondidos.')

@@ -4,6 +4,7 @@ import { focusedNumericMentions } from './focused-numeric-syntax'
 import { monetaryInterpretationIssues } from './financing-amounts'
 import { leadProfileSourceIssues } from './lead-profile'
 import { budgetQuestionBasis } from './budget-question-context'
+import { confirmedFinancingEntryReference } from './financing-entry'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -22,6 +23,17 @@ const activeChoice = (value: unknown, absent: string) => hasValue(value) && valu
 export function budgetAmountWithLiteralQuantity(value: unknown, evidence: string): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
   return focusedNumericMentions(evidence).some(mention => mention.value === value) ? value : null
+}
+
+/** An actual affirmation can confirm the amount of our delivered entry
+ * proposal. This exception never supplies money from an unrelated memory. */
+export function budgetAmountForCurrentTurn(raw: Row, current: string, pending: Row = {}): number | null {
+  const budget = object(object(raw.turn_semantics).budget)
+  const amount = budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence))
+  if (amount !== null) return amount
+  const confirmation = confirmedFinancingEntryReference(raw, current, pending)
+  return confirmation && budget.status === 'initial_capital' && budget.amount === confirmation.amount
+    && text(budget.evidence).trim() === text(confirmation.evidence).trim() ? confirmation.amount as number : null
 }
 
 /** A passive echo of the same known category/group is not a new declaration.
@@ -186,7 +198,7 @@ export function interpretationInput(input: Row, current: string): Row {
 }
 
 /** Source integrity, never a dictionary interpreting the customer's vocabulary. */
-export function interpretationSourceIssues(raw: Row, current: string, pending: Row[] = []): string[] {
+export function interpretationSourceIssues(raw: Row, current: string, pending: Row[] = [], pendingQuestion: Row = {}): string[] {
   raw = normalizeInactiveInterpretation(raw)
   const semantics = object(raw.turn_semantics), property = object(semantics.property), budget = object(semantics.budget)
   const requests = rows(raw.requests)
@@ -202,7 +214,7 @@ export function interpretationSourceIssues(raw: Row, current: string, pending: R
   const issues = evidence.flatMap(([key, value]) => !text(value).trim() ? [`missing_current_evidence:${key}`]
     : !matches(value, current) ? [`non_current_evidence:${key}`] : [])
   if (['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
-    && budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) === null) issues.push('invalid_budget_amount')
+    && budgetAmountForCurrentTurn(raw, current, pendingQuestion) === null) issues.push('invalid_budget_amount')
   issues.push(...monetaryInterpretationIssues(raw, current))
   issues.push(...leadProfileSourceIssues(raw, current))
   return issues

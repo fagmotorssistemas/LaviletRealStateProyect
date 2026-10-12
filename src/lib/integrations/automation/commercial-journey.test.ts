@@ -45,11 +45,12 @@ function residentialSelection(): Row {
     { ...unit, id: 'local', category: 'local', bedrooms: null },
   ]
   data.property_context = { selected_ids: [], excluded_categories: [], query: { group: 'residential', category: null, filters: { bedrooms: 3 } } }
-  data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true } }
+  data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true },
+    entry: { status: 'not_defined', evidence: 'Todavía no sé cuánto pondría de entrada', source_message_id: 'entry-answer' } }
   return data
 }
 
-test('accepting financing keeps both compatible residential categories in the next question', () => {
+test('accepted financing with an answered entry keeps both compatible residential categories in the next question', () => {
   const data = residentialSelection(), next = commercialJourneyPlan(data)
   assert.equal(next.action, 'select_property')
   assert.equal(next.question_id, 'property_category')
@@ -164,7 +165,7 @@ for (const [budget, action] of [
   if (action !== 'offer_financing') assert.equal(plan.financing_offer_allowed, false)
 })
 
-test('50k family case offers financing; bueno continuemos returns to property selection without another rejection', () => {
+test('50k family case asks entry after acceptance then resumes property selection without another rejection', () => {
   const data = info(money(50000), false)
   data.presupuesto_del_turno = turnBudgetAssessment(data, {})
   const offer = commercialJourneyPlan(data)
@@ -178,9 +179,14 @@ test('50k family case offers financing; bueno continuemos returns to property se
   delete data.presupuesto_del_turno
   assert.equal(turnBudgetAssessment(data, { source: 'financing_selection_required' }), null)
   const next = commercialJourneyPlan(data)
-  assert.equal(next.action, 'select_property')
-  assert.match(String(next.instruction), /No repita que no alcanza/)
+  assert.equal(next.action, 'clarify_financing_down_payment')
+  assert.match(String(next.question), /presupuesto de \$50\.000.*entrada inicial/)
   assert.equal(next.financing_offer_allowed, false)
+  object(data.financiamiento).entry = { status: 'amount', amount: 50000, evidence: 'Sí, ese monto para la entrada', source_message_id: 'entry-confirmed' }
+  data.etapa_financiamiento = financingStage(data)
+  const selection = commercialJourneyPlan(data)
+  assert.equal(selection.action, 'select_property')
+  assert.match(String(selection.instruction), /No repita que no alcanza/)
 })
 
 test('financing intake requires a chosen unit and budget answer, not necessarily a number', () => {
@@ -371,7 +377,7 @@ test('declined or deferred budget discovery does not ask the amount or meaning a
 test('an accepted financial operation is preserved and an ambiguous amount cannot authorize a cash reservation', () => {
   const data = info({ status: 'amount', amount: 600000, confidence: 'high', evidence: 'Cuento con ese dinero' })
   data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true }, current: { explicit_consent: true } }
-  assert.equal(commercialJourneyPlan(data).action, 'continue_financing')
+  assert.equal(commercialJourneyPlan(data).action, 'clarify_budget_kind')
   assert.equal(purchaseReadiness(data).can_offer_reservation, false)
   assert.equal(commercialJourneyPlan(data, { action: 'collecting', source: 'financing_handoff' }).action, 'current_operation')
 })

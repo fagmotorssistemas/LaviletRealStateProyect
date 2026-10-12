@@ -2,6 +2,7 @@ import { object, text, type Row } from './data'
 import { replyQuestions } from './reply-question'
 import { normalizedPendingQuestion, pendingQuestionFromReply, questionActs, questionIds } from './turn-semantics'
 import { categoryInvitationTarget } from './category-offer'
+import { deliveredFinancingEntryReference } from './financing-entry'
 
 /** Shared by writer and reviewer. Meaning belongs to the emitted CTA, not the plan. */
 export const continuationQuestionProperties = {
@@ -42,6 +43,8 @@ function matchingReceiptScope(candidates: Row[]): Row {
   if (queries.length) result.proposed_query = new Set(queries.map(query => JSON.stringify(query))).size === 1 ? queries[0] : {}
   const residences = candidates.map(candidate => object(candidate.residence_candidate)).filter(candidate => Object.keys(candidate).length)
   if (residences.length) result.residence_candidate = new Set(residences.map(candidate => JSON.stringify(candidate))).size === 1 ? residences[0] : null
+  const amounts = candidates.map(candidate => object(candidate.amount_reference)).filter(candidate => Object.keys(candidate).length)
+  if (amounts.length) result.amount_reference = new Set(amounts.map(candidate => JSON.stringify(candidate))).size === 1 ? amounts[0] : null
   return result
 }
 function purposeSupports(id: unknown, purpose: unknown) {
@@ -105,6 +108,10 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   const result = normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
     target_ids: matching.target_ids ?? scoped.target_ids ?? pending.target_ids,
     candidate_ids: matching.candidate_ids ?? scoped.candidate_ids ?? pending.candidate_ids }, catalog)
+  if (result.id === 'financing_down_payment') {
+    const reference = deliveredFinancingEntryReference(reply, object(plan.question_amount_reference || matching.amount_reference || pending.amount_reference))
+    if (reference) result.amount_reference = reference
+  }
   if (result.id === 'unit_choice' && !ids(result.target_ids).length && !ids(result.candidate_ids).length
     && pendingQuestionFromReply(reply).id !== 'unit_choice') return {}
   return result

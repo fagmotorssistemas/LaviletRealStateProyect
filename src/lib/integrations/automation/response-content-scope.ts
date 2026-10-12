@@ -6,7 +6,7 @@ import { asksUnitPrice } from './price-reply'
 
 export const RESPONSE_CONTENT_SCOPE_VERSION = 'response-content-scope-v1'
 export const RESPONSE_CONTENT_SCOPE_WRITER_RULE = 'Cumpla response_content_scope y obligaciones_del_turno; los datos disponibles no autorizan contenido ajeno al turno.'
-export const RESPONSE_CONTENT_SCOPE_RULES = 'PERTINENCIA DEL CONTENIDO: response_content_scope distingue información que corresponde comunicar en ESTE turno de hechos disponibles para verificarla. allowed=true permite atender ese aspecto, pero no demuestra su veracidad ni obliga a enumerar su ficha. allowed=false impide introducir ese aspecto por costumbre, aunque sea verdadero o figure en el historial. Responda todas las solicitudes actuales y las pendientes todavía sin atender, conserve la pregunta comercial vigente y los permisos existentes. Una respuesta de categoría, dormitorios, planta, unidad o perfil no solicita precios ni una nueva presentación. Los precios consultados y las comparaciones indispensables del presupuesto conservan su exactitud y las condiciones comerciales verificadas. El aviso rutinario de precios referenciales y posibilidad de cambio se añade solo cuando politica_comercial.aviso_precios_referenciales no es false y precios_aproximados=true; apagarlo no impide responder consultas expresas de vigencia o cambios ni convierte el precio en fijo. Esa condición no obliga a narrar la etapa comercial ni el avance de obra. Una ubicación ya compartida no autoriza repetirla. Las restricciones físicas limitan promesas de acceso o representaciones digitales; cuando construction_status se permite solo por esa excepción, explique únicamente el límite pertinente, sin una ficha de obra. La falta de medidas solo corresponde a una consulta de cabida o accesibilidad: no añada una advertencia ni una oferta de asesoría a una selección ordinaria. El revisor comprueba tanto respaldo factual como pertinencia: un hecho verdadero fuera de este alcance incumple la obligación del turno, no es una preferencia de estilo. No elimine la respuesta válida ni cambie selecciones, consentimientos o el siguiente paso para corregir contenido adicional.'
+export const RESPONSE_CONTENT_SCOPE_RULES = 'PERTINENCIA DEL CONTENIDO: response_content_scope distingue información que corresponde comunicar en ESTE turno de hechos disponibles para verificarla. allowed=true permite atender ese aspecto, pero no demuestra su veracidad ni obliga a enumerar su ficha. allowed=false impide introducir ese aspecto por costumbre, aunque sea verdadero o figure en el historial. Responda todas las solicitudes actuales y las pendientes todavía sin atender, conserve la pregunta comercial vigente y los permisos existentes. Una respuesta de categoría, dormitorios, planta, unidad o perfil no solicita precios ni una nueva presentación. Los precios consultados y las comparaciones indispensables del presupuesto conservan su exactitud y las condiciones comerciales verificadas. El aviso rutinario de precios referenciales y posibilidad de cambio se añade solo cuando politica_comercial.aviso_precios_referenciales no es false y precios_aproximados=true; apagarlo no impide responder consultas expresas de vigencia o cambios ni convierte el precio en fijo. Esa condición no obliga a narrar la etapa comercial ni el avance de obra. Una ubicación ya compartida no autoriza repetirla. Las restricciones físicas limitan promesas de acceso o representaciones digitales; cuando construction_status se permite solo por esa excepción, explique únicamente el límite pertinente, sin una ficha de obra. La falta de medidas solo corresponde a una consulta de cabida o accesibilidad: no añada una advertencia ni una oferta de asesoría a una selección ordinaria. El revisor comprueba tanto respaldo factual como pertinencia: un hecho verdadero fuera de este alcance incumple la obligación del turno, no es una preferencia de estilo. No elimine la respuesta válida ni cambie selecciones, consentimientos o el siguiente paso para corregir contenido adicional.' + "\nPRESENTACIÓN SEGÚN EL TURNO: cumpla response_content_scope.property_presentation. En discovery_brief avance a presupuesto o dormitorios sin recitar áreas, plantas o fichas; esa decisión no autoriza repetir características históricas. En general_categories, si enumera tipos residenciales incluya las categorías disponibles verificadas, sin fichas ni medidas. En una recomendación por presupuesto puede limitarse a unidades compatibles sin añadir los tipos fuera del importe, pero no generalice el precio de una unidad a toda su categoría. relevant_details conserva las medidas a petición del lead o para una comparación pertinente. El revisor comprueba el propósito del contenido con el mismo contrato, sin exigir cifras omitidas que no se pidieron."
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const normalized = (value: string) => value.normalize('NFKC').toLowerCase()
@@ -16,6 +16,44 @@ const requestIdentity = (request: Row) => JSON.stringify([request.request, reque
   text(request.source) || 'current', request.source === 'pending' ? request.source_message_id : null])
 const positive = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value > 0
 const topic = (allowed: boolean, reason: string): Row => ({ allowed, reason: allowed ? reason : 'not_requested_in_this_turn' })
+
+/** The next discovery question does not require another catalogue recital.
+ * A real feature/fit request or comparison keeps detailed evidence available. */
+function propertyPresentation(verified: Row, audit: Row, requested: Set<string>, grounded: Row[]): Row {
+  const semantics = object(verified.semantica_turno), context = object(verified.property_context)
+  const query = object(context.query), journey = object(verified.siguiente_paso_comercial || audit.commercial_journey)
+  const featuresRequested = ['property_features', 'spatial_fit', 'accessibility', 'visualization']
+    .some(name => requested.has(name))
+  const comparisonRequested = grounded.some(request => request.domain === 'property')
+    && (object(semantics.catalog_request).purpose === 'compare' || object(semantics.property).operation === 'compare')
+  const legacyDetails = !grounded.some(request => Array.isArray(request.topics))
+    && grounded.some(request => request.domain === 'property')
+    && object(semantics.catalog_request).purpose === 'details' && object(semantics.property).operation === 'details'
+  const detailsRequested = featuresRequested || comparisonRequested || legacyDetails
+  const discovery = ['ask_budget', 'discover_bedrooms', 'ask_bedrooms'].includes(text(journey.action)) && !detailsRequested
+  const broadCategories = !discovery && !detailsRequested && audit.source === 'catalog_search'
+    && semantics.primary_intent === 'project_information' && query.operation === 'search'
+    && query.group === 'residential' && !query.category && !query.selector
+    && (!query.scope || query.scope === 'catalog')
+    && !['specific', 'followup', 'comparison'].includes(text(object(semantics.property).reference_kind))
+    && !rows(object(semantics.catalog_request).requirements).length
+    && !rows(object(semantics.catalog_request).semantic_preferences).length
+    && !Object.values(object(query.filters)).some(value =>
+      value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
+    && !rows(query.requirements).length && !rows(context.selected_ids).length
+    && !text(object(journey.budget_guidance).status)
+  const kind = discovery ? 'discovery_brief' : broadCategories ? 'general_categories' : 'relevant_details'
+  const catalog = rows(Array.isArray(verified.catalogo_verificacion) ? verified.catalogo_verificacion : verified.catalogo)
+  const categories = ['suite', 'departamento', 'penthouse'].filter(category => catalog.some(unit =>
+    unit.category === category && unit.is_published !== false && (!unit.status || unit.status === 'disponible')))
+  return { kind, dimensions_allowed: !discovery && !broadCategories,
+    available_residential_categories: categories,
+    instruction: discovery
+      ? 'Reconozca brevemente la respuesta y avance a la pregunta pendiente. No recite áreas, plantas o fichas; no hace falta enumerar categorías.'
+      : broadCategories
+        ? 'Si enumera la oferta residencial general, incluya las categorías disponibles verificadas, sin fichas ni medidas. No omita penthouses por el precio de otra unidad.'
+        : 'Use solo las características útiles para la solicitud o comparación actual. No repita dimensiones ya entregadas sin un propósito en este turno. Las recomendaciones pueden centrarse en unidades que cumplen necesidades y presupuesto.' }
+}
 
 /** Sources and permissions are not cumulative disclosure instructions. This
  * pure projection reads only current evidence and genuine unanswered requests. */
@@ -103,7 +141,8 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
     || object(audit.unit_model).delivery_required === true || object(audit.brochure_intent).requested === true
   const legacyEvaluation = !hasCurrentTypedTopics && rows(semantics.housing_quantities).some(quantity => quantity.confidence === 'high'
     && quantity.role === 'evaluation' && literal(quantity.evidence, current))
-  return { version: RESPONSE_CONTENT_SCOPE_VERSION, topics: {
+  return { version: RESPONSE_CONTENT_SCOPE_VERSION,
+    property_presentation: propertyPresentation(verified, audit, requested, grounded), topics: {
     project_intro: topic(initialOverview, 'approved_initial_overview'),
     general_location: topic(initialOverview || locationRequested || inPersonConfirmation,
       initialOverview ? 'approved_initial_overview' : locationRequested ? 'location_request' : 'verified_in_person_confirmation'),
@@ -139,6 +178,7 @@ const interpretationKeys = new Set(['historial', 'history', 'historial_reciente'
 const catalogRecordKeys = new Set(['catalogo', 'catalogo_verificacion', 'units', 'groups', 'unidades', 'grupos',
   'hechos_disponibles', 'hechos_protegidos', 'protected_facts'])
 const numericFactKeys = new Set(['project_facts', 'hechos_con_cantidades', 'factual_values', 'project_values'])
+const dimensionFields = new Set(['area_internal_m2', 'area_exterior_m2', 'area_total_m2'])
 
 /** Select writer evidence, not private data or outgoing text. Reviewers and
  * internal calculations must continue using their original verified snapshot.
@@ -152,6 +192,7 @@ export function projectContentForWriter(raw: Row, scope?: Row): Row {
   const generalLocation = object(topics.general_location).allowed === true
   const exactLocation = object(topics.exact_location).allowed === true
   const introduction = object(topics.project_intro).allowed === true
+  const dimensions = object(activeScope.property_presentation).dimensions_allowed !== false
   const disclosure = object(raw.location_disclosure || object(raw.contexto_verificado).location_disclosure)
   const address = exactLocation && disclosure.address_allowed !== false
   const map = exactLocation && disclosure.map_allowed !== false
@@ -159,9 +200,11 @@ export function projectContentForWriter(raw: Row, scope?: Row): Row {
     if (Array.isArray(value)) return value.filter(entry => {
       const item = object(entry)
       if (!prices && (catalogRecordKeys.has(key) || key === 'groups' || key === 'grupos')) {
-        return item.metric !== 'published_commercial_price' && item.field !== 'published_commercial_price'
-          && item.source_scope !== 'price_quote' && !text(item.id).startsWith('group:price_quote:')
+        if (item.metric === 'published_commercial_price' || item.field === 'published_commercial_price'
+          || item.source_scope === 'price_quote' || text(item.id).startsWith('group:price_quote:')) return false
       }
+      if (!dimensions && (catalogRecordKeys.has(key) || numericFactKeys.has(key))
+        && (dimensionFields.has(text(item.metric)) || dimensionFields.has(text(item.field)))) return false
       return prices || !numericFactKeys.has(key) || !purchasePriceFields.has(text(item.field))
     }).map(entry => clone(entry, key, catalogRecord || catalogRecordKeys.has(key)))
     if (!value || typeof value !== 'object') return value
@@ -173,6 +216,7 @@ export function projectContentForWriter(raw: Row, scope?: Row): Row {
       // Delivery fingerprints are for continuity, not model evidence. Their
       // serialized snapshots may contain prices hidden in this writer turn.
       if (field === 'budget_scope_key' || key === 'budget_guidance' && field === 'scope_key') return false
+      if (!dimensions && dimensionFields.has(field)) return false
       if (!prices && (purchasePriceFields.has(field) || priceEvidenceKeys.has(field) && source[field] != null
         || key === 'early_purchase_discount' && quoteAmountFields.has(field)
         || catalogRecord && ['price', 'commercial_price'].includes(field))) return false

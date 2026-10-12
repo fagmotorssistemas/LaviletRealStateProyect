@@ -5,7 +5,8 @@ import { normalized } from './sdr-rules'
 import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
 import { normalizeCatalogRequest } from './catalog-request'
 import { replyQuestions } from './reply-question'
-import { budgetAmountWithLiteralQuantity } from './turn-interpretation-input'
+import { budgetAmountForCurrentTurn } from './turn-interpretation-input'
+import { deliveredFinancingEntryReference } from './financing-entry'
 import { isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
 import { floorEvidence, floorInvitationTarget } from './floor-evidence'
 import { categoryInvitationTarget } from './category-offer'
@@ -178,10 +179,13 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   const validIds = catalog ? new Set(catalog.map(unit => text(unit.id))) : null
   const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.map(text).filter(id => id && (!validIds || validIds.has(id))))] : []
   const proposedQuery = ['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(text(row.act)) ? normalizedPropertyQuery(row.proposed_query) : {}
+  const entryReference = id === 'financing_down_payment'
+    ? deliveredFinancingEntryReference(text(object(row.amount_reference).question_source), object(row.amount_reference)) : null
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id === 'reservation_invitation' ? 'reservation' : id === 'brochure_offer' ? 'material'
     : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
   question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids),
+  ...(entryReference ? { amount_reference: entryReference } : {}),
   ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }
 
@@ -317,6 +321,7 @@ export function pendingQuestionFromReply(reply: string): Row {
     && /que dia|cual dia|fecha|que hora|horario|cuando/.test(value)) id = 'visit_date_time'
   else if (/visita|cita|visitarnos|conocer el proyecto|conocerlo en persona/.test(value)
     && /gustaria|desea|quiere|coordin|agend|animaria/.test(value)) id = 'visit_invitation'
+  else if (/\b(?:destinaria|destinarias|aportaria|aportarias|utilizaria|usaria)\b.*\b(?:ese|este|el|esa|esta)\s+(?:monto|importe|dinero|cantidad)\b.*\bentrada\b/.test(value)) id = 'financing_down_payment'
   else if ((/presupuesto total|monto total|valor total|toda la compra/.test(value)
     && /entrada|capital inicial|aporte inicial/.test(value))
     || /(?:ese|este|el) (?:monto|importe|dinero|valor).*(?:corresponde|destinad|para|es).*(?:entrada|capital inicial)/.test(value)) id = 'budget_kind'
@@ -371,7 +376,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const budgetEvidence = literalEvidence(budget.evidence, current)
   const budgetStatus = budget.confidence === 'high' && budgetEvidence && budgetStatuses.has(text(budget.status))
     && budget.status !== 'not_discussed' ? text(budget.status) : 'not_discussed'
-  const amount = budgetAmountWithLiteralQuantity(budget.amount, budgetEvidence)
+  const amount = budgetAmountForCurrentTurn(object(raw), current, pending)
   const property = object(data.property)
   const propertyEvidence = literalEvidence(property.evidence, current)
   const propertyConfident = property.confidence === 'high' && !!propertyEvidence

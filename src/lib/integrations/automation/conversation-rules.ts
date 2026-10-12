@@ -3,7 +3,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { financingDocument } from './financing-identity'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
-import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence } from './purchase-evidence'
+import { isAssetOnlyPurposeEvidence, isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence } from './purchase-evidence'
 const events = new Set<string>(EXTRACTED_CONVERSATION_EVENTS)
 
 export const VISIT_PREFERENCE_EXTRACTION_RULES = `
@@ -90,6 +90,7 @@ export function normalizeEvents(raw: unknown, message: string, awaitingDocument 
   const category = supported('preferred_category') && !passiveSource(evidence.preferred_category)
     && (PROPERTY_CATEGORIES as readonly string[]).includes(text(data.preferred_category)) ? data.preferred_category : null
   const purpose = supported('purchase_purpose') && !passiveSource(evidence.purchase_purpose)
+    && !isAssetOnlyPurposeEvidence(data, pendingQuestion, evidence.purchase_purpose)
     && ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(data.purchase_purpose)) ? data.purchase_purpose : null
   return {
     events: chosenEvents.filter(e => (e !== 'declared_unit_type' || category) && (e !== 'declared_purchase_purpose' || purpose)),

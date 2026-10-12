@@ -288,6 +288,10 @@ test('operations and accepted financing retain their authorization through the n
   for (const audit of [{ source: 'visit_intake' }, { source: 'advisor_handoff' }, { financing_collection: { next_question: 'Cédula pendiente' } }, { reservation: { kind: 'request' } }])
     assert.equal(commercialJourneyPlan(data, audit).action, 'current_operation')
   data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true } }
+  const entry = commercialJourneyPlan(data)
+  assert.equal(entry.question_id, 'financing_down_payment')
+  assert.equal(entry.financing_offer_allowed, false)
+  object(data.financiamiento).entry = { status: 'not_defined', evidence: 'Todavía no tengo definida la entrada', source_message_id: 'entry-answer' }
   const plan = commercialJourneyPlan(data)
   assert.equal(plan.question_id, 'property_category')
   assert.equal(plan.financing_offer_allowed, false)

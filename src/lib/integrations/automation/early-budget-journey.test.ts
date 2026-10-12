@@ -47,7 +47,8 @@ test('unknown use is discovered first; investment asks budget then asset scope b
   object(data.semantica_turno).budget = { status: 'maximum_total', amount: 10000, evidence: 'Diez mil', confidence: 'high' }
   const next = commercialJourneyPlan(data)
   assert.equal(next.action, 'discover_use')
-  assert.match(String(next.question), /vivienda.*local.*invertir/)
+  assert.equal(next.question, '¿Le interesa una vivienda o un local comercial?')
+  assert.equal(object(data.lead).purchase_purpose, 'invertir')
   assert.equal(object(next.budget_guidance).status, 'not_comparable')
   assert.equal(next.financing_offer_allowed, false)
 })
@@ -63,8 +64,14 @@ test('below the complete residential minimum offers analysis without treating ch
   assert.equal(financingStage(data).collection_allowed, false)
   object(data.financiamiento).journey = { accepted: true }
   const accepted = commercialJourneyPlan(data)
-  assert.equal(accepted.action, 'discover_bedrooms')
+  assert.equal(accepted.action, 'clarify_financing_down_payment')
+  assert.equal(accepted.question_id, 'financing_down_payment')
   assert.equal(accepted.financing_offer_allowed, false)
+  assert.equal(financingStage(data).collection_allowed, false)
+  object(data.financiamiento).entry = { status: 'not_defined', evidence: 'Todavía no sé cuánto poner de entrada', source_message_id: 'entry-answer' }
+  const resumed = commercialJourneyPlan(data)
+  assert.equal(resumed.action, 'discover_bedrooms')
+  assert.equal(resumed.financing_offer_allowed, false)
   assert.equal(financingStage(data).collection_allowed, false)
 })
 

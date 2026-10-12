@@ -138,7 +138,10 @@ test('investment without an asset choice cannot acquire housing scope from an in
   data.hechos_confirmados = { budget: { status: 'maximum_total', amount: 600000, evidence: 'Tengo 600000 para la compra', confidence: 'high' } }
   const plan = commercialJourneyPlan(data)
   assert.equal(plan.action, 'discover_use')
-  assert.match(String(plan.question), /vivienda.*local.*invertir/)
+  assert.equal(plan.question, '¿Le interesa una vivienda o un local comercial?')
+  assert.equal(plan.question_id, 'property_category')
+  assert.equal(object(data.lead).purchase_purpose, 'invertir', 'The neutral asset question preserves the declared investment purpose')
+  assert.equal(commercialSelectionQuery(data).group, null, 'A purpose still cannot select a housing or commercial asset')
   assert.equal(object(plan.budget_guidance).status, 'not_comparable')
 })
 

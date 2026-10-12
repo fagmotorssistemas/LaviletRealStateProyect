@@ -178,9 +178,9 @@ test('recorded acceptance with a follow-up question stays in financing instead o
   pending.hechos_confirmados = { ...object(pending.hechos_confirmados), property: {
     group: 'residential', category: null, filters: { bedrooms: 3 },
     confidence: 'high', evidence: 'Busco una vivienda de tres dormitorios' } }
-  assert.equal(financingStage(pending).stage, 'select_property')
+  assert.equal(financingStage(pending).stage, 'clarify_entry')
   assert.equal(financingStage(pending).collection_allowed, false)
-  assert.match(financingPrerequisiteReply(pending, fixture.message), /vivir o como inversión/)
+  assert.match(financingPrerequisiteReply(pending, fixture.message), /entrada inicial/)
   journey = financingJourney(journey, { consent: null }, 'choosing')
   const selected = { ...pending, property_context: { query, selected_ids: ['p602'] },
     referencia_unidad: { matches: [units[4]], query: { ...query, operation: 'select' } }, financiamiento: { ...finance, journey },
@@ -317,16 +317,18 @@ test('financing orientation and accepted review have different current obligatio
   const explain = { ...original, etapa_financiamiento: financingStage(original) }
   const orientation = reviewObligations({ source: 'financing_question' }, explain, {})
   assert.ok(orientation.some(o => o.id === 'financing_orientation'))
-  const accepted = { ...original, financiamiento: { ...finance, journey: { accepted: true } } }
+  const accepted = { ...original, financiamiento: { ...finance, journey: { accepted: true },
+    entry: { status: 'not_defined', evidence: 'Todavía no sé cuánto pondría', source_message_id: 'entry-answer' } } }
   const selecting = reviewObligations({ source: 'financing_selection_required' },
     { ...accepted, etapa_financiamiento: financingStage(accepted) }, {})
   assert.ok(selecting.some(o => o.id === 'financing_property_first'))
   assert.ok(!selecting.some(o => o.id === 'financing_orientation'))
 })
 
-test('acceptance pipeline asks for property selection in the first draft with shared review stage and no repeated budget goal', async () => {
+test('accepted financing with answered entry asks property selection with shared review stage and no repeated budget goal', async () => {
   const original = info()
-  original.financiamiento = { ...finance, journey: { accepted: true, source_message_id: 'acceptance' } }
+  original.financiamiento = { ...finance, journey: { accepted: true, source_message_id: 'acceptance' },
+    entry: { status: 'not_defined', evidence: 'Todavía no sé cuánto pondría', source_message_id: 'entry-answer' } }
   original.etapa_financiamiento = financingStage(original)
   const calls: string[] = [], failures: string[] = []
   const reply = 'Retomemos las viviendas de tres dormitorios para elegir la unidad que le interesa y después continuar el financiamiento. ¿Prefiere comparar departamentos o penthouses?'

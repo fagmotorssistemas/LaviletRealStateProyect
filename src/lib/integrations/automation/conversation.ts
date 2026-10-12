@@ -663,11 +663,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     financing_amounts: summary._financing_amounts, financing_entry: summary._financing_entry }
   const financingAccepted = financingStage({ ...financeSelection,
     financiamiento: { ...finance, journey: summary._financing_journey } }).accepted === true
-  const financingDataTurn = !quoteInquiry.beforeApplication && financingAccepted && !!selectedFinancingUnit(financeSelection)
-    && (pendingQuestion.id === 'financing_down_payment' || financingPartnerAnswer(extracted, financeInput)
+  const financingEntryAnswer = financingAccepted && pendingQuestion.id === 'financing_down_payment'
+  const financingDataTurn = !quoteInquiry.beforeApplication && financingAccepted && (financingEntryAnswer || !!selectedFinancingUnit(financeSelection)
+    && (financingPartnerAnswer(extracted, financeInput)
       || ['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
       || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
-      || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null))
+      || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null)))
   const resumeFinancing = !quoteInquiry.beforeApplication && (canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
     || financingAccepted && !!selectedFinancingUnit(financeSelection) && leadBudget(financeSelection).answered === true
       && declaredBudget.confidence === 'high' && declaredBudget.status !== 'not_discussed'

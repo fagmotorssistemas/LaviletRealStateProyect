@@ -53,7 +53,7 @@ function questionMetadata(plan: Row, audit: Row) {
 }
 
 for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
-  test('general opening, origin, residence and real housing purpose keep the discovery order: '+mode, async () => {
+  test('general opening, origin, residence and housing interest keep the discovery order without assuming purpose: '+mode, async () => {
     let summary: Row = {}, lead: Row = {}
     const history: Row[] = []
     const messages = [
@@ -170,7 +170,11 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
         assert.equal(object(object(object(writer.response_content_scope).topics).purchase_prices).allowed, false)
       }
       if (index === 3) {
-        assert.equal(lead.purchase_purpose, 'vivir')
+        assert.equal(lead.purchase_purpose, undefined, 'A housing interest can be personal use or investment')
+        assert.equal(interpretation.extracted.purchase_purpose, null)
+        assert.equal(object(interpretation.semantics.property).group, 'residential')
+        assert.equal(resolved.query.group, 'residential')
+        assert.equal(text(object(confirmedInterpretationMemory(summary).qualification).proposito), '')
         assert.match(reply, /presupuesto total aproximado/)
         assert.doesNotMatch(reply, /dormitorios|planta|250000|100000/)
       }

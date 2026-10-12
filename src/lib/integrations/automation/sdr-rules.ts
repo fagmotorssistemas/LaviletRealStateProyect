@@ -50,7 +50,7 @@ function discoveryQuestion(key: string, question: string) {
 
 export function nextDiscoveryQuestion(lead: Row): { key: string; question: string; purpose: string } {
   const sdr = object(object(lead.behavior_signals).sdr), category = text(lead.preferred_category)
-  if (!category) return discoveryQuestion('categoria', '¿Está buscando una vivienda o un local para su negocio?')
+  if (!category) return discoveryQuestion('categoria', '¿Le interesa una vivienda o un local comercial?')
   if (!lead.purchase_purpose) return discoveryQuestion('proposito', category === 'local'
     ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?'
     : '¿Lo busca para vivir o como inversión?')

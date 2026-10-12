@@ -70,4 +70,34 @@ export function isPassiveProfilePurposeEvidence(raw: unknown, pendingRaw: unknow
   return acknowledgement || profileQuotes.some(profileQuote => normalized(text(profileQuote)) === quote)
 }
 
-export const PURCHASE_EVIDENCE_RULES = `SEPARE PERFIL, FINALIDAD Y BÚSQUEDA: residencia actual, origen y destino de compra son datos distintos. «Sí, yo vivo en Cuenca» declara o confirma residencia; no declara purchase_purpose=vivir, no genera declared_purchase_purpose ni elige property.group=residential. Un sí a nombre o residencia responde únicamente a esa pregunta. «Vivo en Cuenca y busco una vivienda para invertir» sí aporta residencia y una intención inmobiliaria independiente: conserve ambas con sus citas propias, sin borrar la finalidad conocida. purchase_purpose identifica cómo pretende usar lo que compre; property.group identifica si busca vivienda o comercio; ninguno se completa sólo porque el proyecto ofrece viviendas. «Saludos, quiero información por favor» es información general del proyecto: group/category=null, operation=none, sin finalidad de compra. Una consulta general no elige vivienda, inversión ni local y no borra preferencias reales ya confirmadas. Extraiga únicamente las novedades del mensaje actual; la memoria conserva las decisiones anteriores.`
+const assetScopeTerms = new Set(('vivienda viviendas residencial residenciales casa casas suite suites departamento departamentos apartamento apartamentos penthouse penthouses local locales comercial comerciales dormitorio dormitorios habitacion habitaciones cuarto cuartos').split(' '))
+const assetScopeWords = new Set(('yo nosotros nosotras me mi mis para de del la las el los un una unos unas algo tipo tipos unidad unidades y o tambien mas menos con sin en este esta eso esa esos esas lo le si no por favor gracias buenos dias buenas tardes noches hola saludos claro bueno entiendo entendido perfecto busco buscamos buscar buscando quiero queremos quisiera quisieramos deseo deseamos necesito necesitamos prefiero preferimos interesa interesan interesado interesada estamos estoy seria es son sea comprar compra adquirir adquirirlo tenemos tengo disponible disponibles opciones opcion cuantos cuantas dos tres cuatro cinco seis uno primera segunda tercera cuarta quinta sexta planta plantas piso pisos baja bajo bajos alta alto altos minimo minima minimos maximo maxima maximos al').split(' '))
+
+/** An asset, category or physical requirement is not the intended use of a
+ * purchase. Reject only demonstrably scope-only citations; independent use
+ * clauses remain with the semantic interpreter, including ordinary wording
+ * outside an enumerated list of purpose phrases. */
+export function isAssetOnlyPurposeEvidence(raw: unknown, pendingRaw: unknown, evidence: unknown): boolean {
+  const quote = normalized(text(evidence))
+  if (!quote) return false
+  const data = object(raw), answer = object(object(data.turn_semantics).answer_to_previous), pending = object(pendingRaw)
+  // "Second home" is an intended-use description in the domain contract,
+  // whereas "second floor" is only a physical requirement. Do not mistake
+  // the former for an ordinal plus an otherwise neutral asset word.
+  if (data.purchase_purpose === 'segunda_vivienda' && /\bsegunda vivienda\b/.test(quote)) return false
+  const categoryAnswer = pending.id === 'property_category' && answer.question_id === pending.id
+    && answer.confidence === 'high' && normalized(text(answer.evidence)) === quote
+    && ['affirmative', 'negative', 'value'].includes(text(answer.kind))
+  // The model may cite a whole mixed message. Strip only independently passive
+  // profile clauses, never a real future-use clause in the same declaration.
+  const scope = quote.split(/\s+(?:y|pero|ademas|tambien)\s+/)
+    .filter(clause => !isPassivePurchaseEvidence(clause)).join(' ')
+  const words = scope.split(' ')
+  // A category-only acknowledgement can bind to the offered asset, but cannot
+  // additionally accept personal occupancy or a business/investment purpose.
+  const acknowledgement = categoryAnswer && /^(?:(?:si|no|claro|correcto|exacto|asi es|de acuerdo|esta bien|me parece bien|perfecto)\s*)+$/.test(quote)
+  return acknowledgement || words.some(word => assetScopeTerms.has(word))
+    && words.every(word => assetScopeTerms.has(word) || assetScopeWords.has(word) || /^\d+$/.test(word))
+}
+
+export const PURCHASE_EVIDENCE_RULES = `SEPARE PERFIL, FINALIDAD Y BÚSQUEDA: residencia actual, origen y destino de compra son datos distintos. «Sí, yo vivo en Cuenca» declara o confirma residencia; no declara purchase_purpose=vivir, no genera declared_purchase_purpose ni elige property.group=residential. Un sí a nombre o residencia responde únicamente a esa pregunta. «Vivo en Cuenca y busco una vivienda para invertir» sí aporta residencia y una intención inmobiliaria independiente: conserve ambas con sus citas propias, sin borrar la finalidad conocida. purchase_purpose identifica el uso futuro declarado de lo que compre; property.group identifica vivienda o comercio y property.category su tipología. Esos datos son independientes: «busco algo para vivienda» sólo identifica residential; «busco un local comercial» sólo identifica commercial/local, sin asumir vivir ni negocio propio. Inversión no elige vivienda o comercio. Asigne finalidad sólo con una declaración actual de uso o respuesta inequívoca a la pregunta REAL de finalidad, nunca por categoría, dimensiones, residencia o por lo que ofrece el proyecto. «Vivienda para vivir», «comprar para arrendarlo» y «local para mi negocio» sí declaran sus usos respectivos; buscar alquiler para usarlo no es comprar para arrendar a terceros. Una respuesta elíptica conserva el objeto de la pregunta pendiente: un sí a vivienda/local no responde también para qué la usará. Ante grupo conocido y finalidad no declarada, purchase_purpose=null y no genere declared_purchase_purpose; la memoria conserva una finalidad anterior confirmada. «Saludos, quiero información por favor» es información general del proyecto: group/category=null, operation=none, sin finalidad de compra. Una consulta general no elige vivienda, inversión ni local y no borra preferencias reales ya confirmadas. Extraiga únicamente las novedades del mensaje actual; la memoria conserva las decisiones anteriores.`

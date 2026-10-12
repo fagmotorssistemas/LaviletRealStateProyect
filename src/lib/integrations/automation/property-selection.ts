@@ -359,6 +359,9 @@ export function propertySelectionReply(info: Row, current: string): { reply: str
 }
 
 export function financingPrerequisiteReply(info: Row, current: string) {
+  const stage = financingStage(info)
+  if (stage.stage === 'clarify_budget') return budgetKindQuestion(leadBudget(info)) || budgetQuestion(info)
+  if (stage.stage === 'clarify_entry') return text(stage.question)
   const unit = selectedFinancingUnit(info)
   const category = currentCategory(info, current)
   const budget = budgetFromInfo(info, current)
@@ -375,8 +378,5 @@ export function financingPrerequisiteReply(info: Row, current: string) {
     return `Podemos ayudarle con el financiamiento. Primero necesitamos elegir la ${category === 'suite' ? 'suite' : category === 'departamento' ? 'unidad' : 'opción'} concreta sobre la que se realizará la evaluación. ${floor != null ? '¿Cuál de las unidades que revisamos le interesa?' : '¿En qué planta le gustaría buscar?'}`
   }
   if (leadBudget(info).answered !== true) return budgetQuestion(info)
-  const stage = financingStage(info)
-  if (stage.stage === 'clarify_budget') return budgetKindQuestion(leadBudget(info)) || budgetQuestion(info)
-  if (stage.stage === 'clarify_entry') return text(stage.question)
   return ''
 }

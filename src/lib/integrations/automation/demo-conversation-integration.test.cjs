@@ -19,7 +19,8 @@ function extractionFixture(input, invalid = false) {
   raw.turn_semantics.answer_to_previous = { question_id: null, kind: 'none', evidence: '', confidence: 'high' }
   if (current === 'Algo para vivienda') {
     // This is the production-shaped extraction that exposed the opening gap:
-    // current evidence declares a purpose although broad intent is "other".
+    // the model overreads a housing interest as personal use. Normalization
+    // keeps residential interest without inventing a purchase purpose.
     raw.purchase_purpose = 'vivir'
     raw.declaration_evidence.purchase_purpose = current
     raw.turn_semantics.property.group = 'residential'
@@ -40,6 +41,12 @@ function extractionFixture(input, invalid = false) {
     raw.turn_semantics.budget = { status: 'maximum_total', amount: 300000, evidence: current, confidence: 'high' }
     raw.financing_amounts = [{ role: 'total_budget', amount: 300000, evidence: current, replaces_role: null }]
     raw.qualification.presupuesto_texto = current
+  } else if (current === 'La quiero para arrendarla') {
+    raw.turn_semantics.primary_intent = 'answer_previous'
+    raw.turn_semantics.answer_to_previous = { question_id: 'property_purpose', kind: 'value', evidence: current, confidence: 'high' }
+    raw.purchase_purpose = 'invertir'
+    raw.declaration_evidence.purchase_purpose = current
+    raw.events = ['declared_purchase_purpose']
   } else {
     raw.requests = [{ request: current, domain: 'property', evidence: current, confidence: 'high' }]
   }
@@ -175,6 +182,10 @@ async function conversationHarness({ current, messages, extractionFails = false,
             proposed = 'Gracias. '+journey.question
             lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Presupuesto total',
               next_decision: 'Identificar los dormitorios necesarios.', continuation_id: 'budget_amount', continuation_act: 'budget' }
+          } else if (journey.action === 'discover_purpose') {
+            proposed = 'Gracias. '+journey.question
+            lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Finalidad de la compra',
+              next_decision: 'Orientar la vivienda según el uso declarado.', continuation_id: 'property_purpose', continuation_act: 'choose_category' }
           } else {
             proposed = 'Gracias. ¿Cuántos dormitorios necesita?'
             lastQuestion = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Dormitorios',
@@ -345,15 +356,15 @@ test('normal and observation keep the same greeting, profile capture, one reside
   }
 })
 
-test('normal and observation extract a total budget after the profile and continue bedrooms without repeating budget or brochure', async () => {
-  const messages = ['Hola', 'Algo para vivienda', 'Me llamo Carlos', 'Vivo en Cuenca', 'Unos 300 mil para la compra']
+test('normal and observation preserve housing interest, total budget and explicit investment before bedrooms without repeating known data', async () => {
+  const messages = ['Hola', 'Algo para vivienda', 'Me llamo Carlos', 'Vivo en Cuenca', 'Unos 300 mil para la compra', 'La quiero para arrendarla']
   const startedAt = Date.now()
   const normal = await conversationHarness({ messages, startedAt, observationOnly: false, reviewRejects: false })
   const demo = await conversationHarness({ messages, startedAt, observationOnly: true, reviewRejects: false })
   for (const execution of [normal, demo]) {
     for (const turn of execution.turns)
       assert.equal(turn.result?.action, 'accepted', turn.current+': '+(turn.failure?.original?.stack || turn.failure?.stack))
-    const [greeting, interest, named, resident, budget] = execution.turns
+    const [greeting, interest, named, resident, budget, purpose] = execution.turns
     assert.equal(greeting.receipt.args.p_tool_calls.source, 'minimal_greeting')
     assert.equal(interest.summary._pending_question.id, 'lead_profile')
     assert.equal(named.summary._pending_question.id, 'lead_profile_residence')
@@ -362,16 +373,24 @@ test('normal and observation extract a total budget after the profile and contin
     assert.equal(budget.extractionCalls, 1)
     assert.equal(budget.summary._interpretation_memory.budget.status, 'maximum_total')
     assert.equal(budget.summary._interpretation_memory.budget.amount, 300000)
-    assert.equal(budget.summary._interpretation_memory.budget.evidence, messages.at(-1))
+    assert.equal(budget.summary._interpretation_memory.budget.evidence, messages[4])
     assert.equal(budget.summary._financing_amounts.total_budget.amount, 300000)
     assert.equal(budget.summary._lead_profile.full_name, 'Carlos')
     assert.equal(budget.summary._lead_profile.residence_city, 'Cuenca')
     assert.equal(budget.summary._lead_introduction.reminder_count, 1)
-    assert.equal(budget.summary._pending_question.id, 'property_bedrooms')
-    assert.match(budget.receipt.args.p_content, /cuántos dormitorios/i)
+    assert.equal(budget.summary._pending_question.id, 'property_purpose')
+    assert.match(budget.receipt.args.p_content, /vivir.*inversión/i)
     assert.doesNotMatch(budget.receipt.args.p_content, /presupuesto|entrada|su nombre|reside/i)
     assert.equal(budget.receipt.args.p_content.includes(BROCHURE_URL), false)
     assert.equal(budget.summary._financing_journey?.accepted, undefined)
+    assert.equal(budget.summary.datos_confirmados.proposito, undefined)
+    assert.equal(purpose.summary.datos_confirmados.proposito, 'invertir')
+    assert.equal(purpose.summary._pending_question.id, 'property_bedrooms')
+    assert.match(purpose.receipt.args.p_content, /cuántos dormitorios/i)
+    assert.doesNotMatch(purpose.receipt.args.p_content, /presupuesto|entrada|su nombre|reside|vivir.*inversión/i)
+    assert.equal(purpose.receipt.args.p_content.includes(BROCHURE_URL), false)
+    assert.equal(purpose.summary._interpretation_memory.budget.amount, 300000)
+    assert.equal(purpose.summary._financing_amounts.total_budget.amount, 300000)
     assert.deepEqual(execution.extractorInputs.map(raw => raw.mensaje_actual), messages.slice(1))
   }
   for (let index = 0; index < messages.length; index++) {

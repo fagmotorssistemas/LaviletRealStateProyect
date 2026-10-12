@@ -118,6 +118,11 @@ test('accepted financing keeps the penthouse scope and never reuses a cash gap a
   object(info.property_context).query = { group: 'residential', category: 'penthouse', operation: 'search', filters: { bedrooms: 3 } }
   object(info.property_context).category_preference = { category: 'penthouse', confirmed: true }
   info.financiamiento = { partners: ['Cooperativa JEP'], journey: { accepted: true, status: 'accepted' } }
+  const entry = commercialJourneyPlan(info)
+  assert.equal(entry.action, 'clarify_financing_down_payment')
+  assert.equal(entry.financing_offer_allowed, false)
+  object(info.financiamiento).entry = { status: 'amount', amount: 400000,
+    evidence: 'Sí, esos 400 mil serían para la entrada', source_message_id: 'entry-confirmation' }
   const plan = commercialJourneyPlan(info)
   assert.equal(plan.action, 'select_property')
   assert.equal(object(plan.budget_guidance).comparison_required, false)

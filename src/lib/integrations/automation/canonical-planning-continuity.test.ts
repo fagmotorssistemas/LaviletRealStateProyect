@@ -5,7 +5,12 @@ import { completeTurnReply } from './turn-completeness'
 import { withResponseReviewPolicy } from './response-review-policy'
 import { deliveredPendingQuestion } from './continuation-question'
 import { financingInputs } from './financing'
-import { rememberInterpretedTurn } from './turn-interpretation'
+import { interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
+import { rememberFinancingEntry } from './financing-entry'
+import { commercialJourneyPlan } from './commercial-journey'
+import { financingStage, rememberedFinancingPartner } from './financing-stage'
+import { normalizedPendingQuestion } from './turn-semantics'
+import profileFixture from './fixtures/extractor-profile-turn.json'
 
 const demo = { enabled: true, observationOnly: true, updatedAt: null }
 const pass = { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: null }
@@ -18,7 +23,7 @@ const units = [
 const wrong = { purpose: 'none', role: 'necessary_clarification', missing_datum: '', next_decision: 'Elegir unidad',
   continuation_id: 'none', continuation_act: 'choose_unit' }
 
-test('accepted JEP plans property selection with canonical inventory before compacting financial context', async () => {
+test('accepted JEP with known entry plans property selection with canonical inventory before compacting financial context', async () => {
   const reply = 'Podemos continuar con JEP. La unidad 602 tiene dos baños y la 605 tiene tres. ¿Cuál de estas unidades le gustaría revisar?'
   let writer: Row = {}
   const result = await withResponseReviewPolicy(demo, () => completeTurnReply({
@@ -28,6 +33,7 @@ test('accepted JEP plans property selection with canonical inventory before comp
       catalogo: units, catalogo_verificacion: units, catalog_read: { complete: true }, catalog_verification_read: { complete: true },
       recorrido_comercial: {}, politica_comercial: { precios_autorizados: true },
       hechos_confirmados: { budget: { status: 'maximum_total', amount: 400000, evidence: 'Mi presupuesto total es 400 mil', confidence: 'high' } },
+      financing_amounts: { down_payment: { amount: 200000, evidence: 'Puedo poner 200 mil de entrada' } },
       property_context: { query: { group: 'residential', category: 'penthouse', operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } },
         selected_ids: [], category_preference: { category: 'penthouse', confirmed: true } },
       financiamiento: { partners: ['Cooperativa JEP'], journey: { accepted: true, status: 'accepted',
@@ -52,6 +58,71 @@ test('accepted JEP plans property selection with canonical inventory before comp
   assert.equal(result.reply, reply)
   assert.equal(object(result.audit.follow_up).usable, true, JSON.stringify({ question: result.audit.question,
     follow_up: result.audit.follow_up, recovery: result.audit.question_metadata_recovery }))
+})
+
+for (const [mode, policy] of [
+  ['normal', { enabled: true, observationOnly: false, updatedAt: null }],
+  ['demonstration', demo],
+  ['disabled', { enabled: false, observationOnly: false, updatedAt: null }],
+] as const) test('the delivered entry proposal binds a yes before property selection without replacing total budget or lender: '+mode, async () => {
+  const total = { status: 'maximum_total', amount: 400000, evidence: 'Mi presupuesto total es 400 mil', confidence: 'high' }
+  const data: Row = {
+    recorrido_comercial: {},
+    lead: { purchase_purpose: 'vivir', preferred_category: 'penthouse' },
+    catalogo: units, catalogo_verificacion: units, catalog_read: { complete: true }, catalog_verification_read: { complete: true },
+    hechos_confirmados: { budget: total }, financing_amounts: { total_budget: total },
+    property_context: { query: { group: 'residential', category: 'penthouse', operation: 'search', filters: { bedrooms: 3 } },
+      selected_ids: [], category_preference: { category: 'penthouse', confirmed: true } },
+    financiamiento: { partners: ['Cooperativa JEP'], journey: { accepted: true, status: 'accepted',
+      partner_preference: { name: 'Cooperativa JEP', evidence: 'Sí, continuemos con JEP', source_message_id: 'accepted-jep' } } },
+    semantica_turno: { primary_intent: 'ask_financing', budget: { status: 'not_discussed' } },
+  }
+  const planned = commercialJourneyPlan(data)
+  assert.equal(planned.action, 'clarify_financing_down_payment')
+  const reply = String(planned.question)
+  const result = await withResponseReviewPolicy(policy, () => completeTurnReply({ current: 'Sí, continuemos con JEP',
+    baseReply: reply, verified: data, audit: { source: 'financing_question', semantic_review_enabled: true, business_risk_review_enabled: true },
+  }, async (_rules, _raw, _schema, _image, _file, _tone, task) => task === 'review' ? pass : {
+    reply, question: { purpose: 'collect_financing_required', role: 'necessary_clarification', missing_datum: 'Entrada inicial',
+      next_decision: 'Definir entrada', continuation_id: 'financing_down_payment', continuation_act: 'financing' }, requests: [],
+  }))
+  const receipt = deliveredPendingQuestion(result.reply, { metadata: result.audit.question, plan: result.audit.commercial_journey })
+  assert.equal(receipt.id, 'financing_down_payment')
+  assert.equal(object(receipt.amount_reference).amount, 400000, JSON.stringify({ phase: 'first receipt', receipt, plan: result.audit.commercial_journey, reply: result.reply }))
+  assert.equal(object(normalizedPendingQuestion(receipt).amount_reference).amount, 400000, JSON.stringify({ phase: 'normalize receipt', receipt }))
+  const receiptAgain = deliveredPendingQuestion(result.reply, { metadata: result.audit.question, candidates: [receipt] })
+  assert.equal(object(receiptAgain.amount_reference).amount, 400000, JSON.stringify({ receiptAgain, receipt, metadata: result.audit.question }))
+  const current = 'Sí, ese monto'
+  const raw: Row = structuredClone(profileFixture)
+  raw.full_name = raw.residence_city = raw.residence_country = null
+  raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
+  raw.requests = [{ domain: 'financing', request: 'Confirmar entrada', evidence: current, confidence: 'high' }]
+  raw.financing_amounts = []
+  object(raw.qualification).presupuesto_texto = null
+  const semantics = object(raw.turn_semantics)
+  semantics.primary_intent = 'answer_previous'; semantics.primary_evidence = current
+  semantics.answer_to_previous = { question_id: receipt.id, kind: 'affirmative', evidence: current, confidence: 'high' }
+  semantics.budget = { status: 'not_discussed', amount: null, evidence: '', confidence: 'high' }
+  const previous = { _pending_question: receipt, _financing_amounts: { total_budget: total }, _interpretation_memory: { budget: total } }
+  let calls = 0
+  const interpreted = await interpretConversationTurn({ mensaje_actual: current, resumen: previous, pregunta_pendiente: receipt }, {
+    activePrompt: async () => '', aiJson: async () => { calls++; return raw },
+  })
+  assert.equal(calls, 1)
+  const summary = rememberInterpretedTurn(previous, current, interpreted.extracted, interpreted.semantics)
+  const entry = rememberFinancingEntry({}, current, interpreted.extracted, receipt, 'entry-confirmation')
+  assert.equal(entry.amount, 400000, JSON.stringify({ phase: 'remember entry', entry, extracted: interpreted.extracted }))
+  assert.equal(object(object(summary._financing_amounts).total_budget).amount, 400000, 'total budget retained')
+  assert.equal(object(object(summary._financing_amounts).down_payment).amount, 400000, 'entry remembered')
+  data.financing_amounts = summary._financing_amounts
+  object(data.financiamiento).entry = entry
+  data.semantica_turno = interpreted.semantics
+  const resumed = commercialJourneyPlan(data)
+  assert.equal(resumed.action, 'select_property')
+  assert.equal(resumed.question_id, 'unit_choice')
+  assert.equal(resumed.financing_offer_allowed, false)
+  assert.equal(financingStage(data).collection_allowed, false, 'Entry alone cannot start collecting personal data without a unit.')
+  assert.equal(rememberedFinancingPartner(object(object(data.financiamiento).journey), ['Cooperativa JEP']), 'Cooperativa JEP')
 })
 
 for (const verdict of ['block', 'unavailable']) test('demonstration preserves an actual financing invitation despite writer metadata and review findings: '+verdict, async () => {
