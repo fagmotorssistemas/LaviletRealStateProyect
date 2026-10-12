@@ -217,7 +217,7 @@ function CrossfadeStill({
   const [box, setBox] = useState({ w: 0, h: 0 })
   const panRef = useRef(0)
   const scaleRef = useRef(1)
-  const dragRef = useRef<{ x: number; pan: number; moved: boolean; over: number } | null>(null)
+  const dragRef = useRef<{ x: number; y: number; startedAt: number; pan: number; moved: boolean; over: number } | null>(null)
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null)
   const framed = lateralPan && portrait && !contain && box.h > 32
@@ -306,7 +306,7 @@ function CrossfadeStill({
 
   const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!framed && !landscapeCover) return
-    event.stopPropagation()
+    if (framed) event.stopPropagation()
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (pointersRef.current.size >= 2) {
       const pts = [...pointersRef.current.values()]
@@ -322,7 +322,7 @@ function CrossfadeStill({
       return
     }
     if (!framed) return
-    dragRef.current = { x: event.clientX, pan: panRef.current, moved: false, over: 0 }
+    dragRef.current = { x: event.clientX, y: event.clientY, startedAt: performance.now(), pan: panRef.current, moved: false, over: 0 }
   }
 
   const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -360,7 +360,11 @@ function CrossfadeStill({
     const drag = dragRef.current
     dragRef.current = null
     if (!drag?.moved) return
-    if (drag.over > 48) onStep?.(-1)
+    const dx = event.clientX - drag.x
+    const dy = event.clientY - drag.y
+    if (Math.abs(dx) >= 72 && Math.abs(dx) > Math.abs(dy) * 1.2 && performance.now() - drag.startedAt < 450) {
+      onStep?.(dx < 0 ? 1 : -1)
+    } else if (drag.over > 48) onStep?.(-1)
     else if (drag.over < -48) onStep?.(1)
   }
 
@@ -1220,36 +1224,53 @@ async function leaveTourFullscreen() {
 }
 
 function useSwipePages(enabled: boolean, count: number, onStep: (delta: -1 | 1) => void) {
-  const startRef = useRef<{ x: number; y: number } | null>(null)
+  const startRef = useRef<{ id: number; x: number; y: number } | null>(null)
+  const activeRef = useRef(new Set<number>())
+  const blockedRef = useRef(false)
   const onStepRef = useRef(onStep)
   onStepRef.current = onStep
 
   useEffect(() => {
     if (!enabled || count < 2) return
     const finish = (event: PointerEvent) => {
+      const wasSingle = activeRef.current.size === 1 && activeRef.current.has(event.pointerId)
+      activeRef.current.delete(event.pointerId)
       const start = startRef.current
       startRef.current = null
-      if (!start) return
+      const blocked = blockedRef.current
+      if (activeRef.current.size === 0) blockedRef.current = false
+      if (!wasSingle || blocked || start?.id !== event.pointerId) return
       const dx = event.clientX - start.x
       const dy = event.clientY - start.y
       if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.2) return
       onStepRef.current(dx < 0 ? 1 : -1)
     }
-    const cancel = () => {
+    const cancel = (event: PointerEvent) => {
+      activeRef.current.delete(event.pointerId)
       startRef.current = null
+      if (activeRef.current.size === 0) blockedRef.current = false
     }
     window.addEventListener('pointerup', finish)
     window.addEventListener('pointercancel', cancel)
     return () => {
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', cancel)
+      activeRef.current.clear()
+      blockedRef.current = false
+      startRef.current = null
     }
   }, [count, enabled])
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (!enabled || count < 2 || event.button !== 0) return
-      startRef.current = { x: event.clientX, y: event.clientY }
+      activeRef.current.add(event.pointerId)
+      if (activeRef.current.size > 1) {
+        startRef.current = null
+        blockedRef.current = true
+        return
+      }
+      if (!blockedRef.current) startRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
     },
     [count, enabled],
   )

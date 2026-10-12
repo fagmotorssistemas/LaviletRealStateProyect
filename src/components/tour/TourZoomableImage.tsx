@@ -7,14 +7,12 @@ import { fitStill } from '@/lib/tour/stillFit'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 /** Independently measured gallery pane, including when the comparison divider moves. */
-export function TourZoomableImage({ src, alt }: { src: string; alt: string }) {
+export function TourZoomableImage({ src, alt, onStep }: { src: string; alt: string; onStep?: (delta: -1 | 1) => void }) {
   const { t } = useTourLanguage()
   const root = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ w: 0, h: 0 })
   const [aspects, setAspects] = useState<Record<string, number>>({})
-  const [selection, setSelection] = useState({ src, zoom: 1 })
-  if (selection.src !== src) setSelection({ src, zoom: 1 })
-  const zoom = selection.src === src ? selection.zoom : 1
+  const [zoom, setZoom] = useState(1)
   const buffers = useDualBuffer(src)
   const front = buffers.assigned[buffers.front]
   const fit = fitStill(box, aspects[front || src] || 1.6, zoom)
@@ -22,7 +20,8 @@ export function TourZoomableImage({ src, alt }: { src: string; alt: string }) {
   const effective = zoom <= min + 0.01 ? min : Math.max(min, zoom)
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const pinch = useRef<{ distance: number; zoom: number } | null>(null)
-  const change = (value: number) => setSelection({ src, zoom: Math.max(min, Math.min(1, value)) })
+  const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null)
+  const change = (value: number) => setZoom(Math.max(min, Math.min(1, value)))
   useEffect(() => {
     const element = root.current
     if (!element) return
@@ -35,6 +34,7 @@ export function TourZoomableImage({ src, alt }: { src: string; alt: string }) {
   useEffect(() => {
     pointers.current.clear()
     pinch.current = null
+    swipeStart.current = null
   }, [src])
   const release = (id: number) => {
     pointers.current.delete(id)
@@ -44,6 +44,9 @@ export function TourZoomableImage({ src, alt }: { src: string; alt: string }) {
     onPointerDown={(event) => {
       if (event.button !== 0) return
       event.currentTarget.setPointerCapture(event.pointerId)
+      swipeStart.current = pointers.current.size === 0 && event.pointerType === 'touch'
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+        : null
       pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
       const [a, b] = [...pointers.current.values()]
       if (a && b) pinch.current = { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), zoom: effective }
@@ -54,9 +57,24 @@ export function TourZoomableImage({ src, alt }: { src: string; alt: string }) {
       const [a, b] = [...pointers.current.values()]
       if (a && b && pinch.current) change(pinch.current.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.current.distance)
     }}
-    onPointerUp={(event) => release(event.pointerId)}
-    onPointerCancel={(event) => release(event.pointerId)}
-    onLostPointerCapture={(event) => release(event.pointerId)}>
+    onPointerUp={(event) => {
+      const start = swipeStart.current
+      const singlePointer = pointers.current.size === 1
+      swipeStart.current = null
+      release(event.pointerId)
+      if (!onStep || !singlePointer || start?.id !== event.pointerId) return
+      const dx = event.clientX - start.x
+      const dy = event.clientY - start.y
+      if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.2) onStep(dx < 0 ? 1 : -1)
+    }}
+    onPointerCancel={(event) => {
+      swipeStart.current = null
+      release(event.pointerId)
+    }}
+    onLostPointerCapture={(event) => {
+      swipeStart.current = null
+      release(event.pointerId)
+    }}>
     {front ? (
       // eslint-disable-next-line @next/next/no-img-element
       <img

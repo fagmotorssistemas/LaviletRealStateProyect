@@ -310,7 +310,14 @@ export function TourComparador({
           ) : (
             <div className="relative h-full bg-[#14110e]">
               {activePreview ? (
-                <TourZoomableImage src={activePreview.url} alt={t(activePreview.label)} />
+                <TourZoomableImage
+                  key={unitB?.id ?? 'b'}
+                  src={activePreview.url}
+                  alt={t(activePreview.label)}
+                  onStep={previewsB.length > 1
+                    ? (delta) => onPreviewIndexB((previewIndexB + delta + previewsB.length) % previewsB.length)
+                    : undefined}
+                />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white/50">
                   {t(sceneControlsB?.finish ? 'No disponible para este acabado' : ' Sin imágenes para esta tipología ')}</div>

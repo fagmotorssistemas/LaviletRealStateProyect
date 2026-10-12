@@ -62,6 +62,14 @@ async function main() {
         }, index)
         await page.waitForTimeout(450)
       }
+      await settle(0)
+      const swipeSurface = image().locator('..')
+      await swipeSurface.evaluate(el => { el.setPointerCapture = () => {} })
+      await swipeSurface.dispatchEvent('pointerdown', { pointerId: 31, pointerType: 'touch', button: 0, clientX: 220, clientY: 160 })
+      await swipeSurface.dispatchEvent('pointerup', { pointerId: 31, pointerType: 'touch', button: 0, clientX: 110, clientY: 162 })
+      await settle(1)
+      await page.getByRole('button', { name: 'Imagen anterior' }).click()
+      await settle(0)
       const contain = async () => {
         for (let n = 0; n < 12 && await out.isEnabled(); n++) await out.click()
         assert.ok(await out.isDisabled(), 'Alejar reaches its lower bound')
@@ -73,14 +81,18 @@ async function main() {
         assert.ok(Math.abs(g.y + g.h / 2 - g.by - g.bh / 2) < 1, 'image centered vertically')
         return g
       }
-      for (const index of [0, 1, 2, 0]) {
+      for (const [position, index] of [0, 1, 2, 0].entries()) {
         await settle(index)
-        assert.ok(await out.isEnabled(), 'Alejar available from initial cover')
-        assert.ok(await inside.isDisabled(), 'initial zoom is cover')
-        const before = await geometry()
-        assert.ok(before.w >= before.bw - 1 && before.h >= before.bh - 1, 'initial image covers container')
-        await out.click()
-        assert.ok((await geometry()).w < before.w - 1, 'Alejar visibly shrinks image')
+        if (position === 0) {
+          assert.ok(await out.isEnabled(), 'Alejar available from initial cover')
+          assert.ok(await inside.isDisabled(), 'initial zoom is cover')
+          const before = await geometry()
+          assert.ok(before.w >= before.bw - 1 && before.h >= before.bh - 1, 'initial image covers container')
+          await out.click()
+          assert.ok((await geometry()).w < before.w - 1, 'Alejar visibly shrinks image')
+        } else {
+          assert.ok(await inside.isEnabled(), 'zoom remains reduced after changing B photo')
+        }
         const small = await contain()
         const backdrop = page.locator('.tour-compare-pane img[aria-hidden="true"]').first()
         assert.equal(await backdrop.getAttribute('src'), `/photo-${index}.svg`, 'letterbox backdrop follows the visible photo')
@@ -90,7 +102,7 @@ async function main() {
         for (let n = 0; n < 12 && await inside.isEnabled(); n++) await inside.click()
         assert.ok(await inside.isDisabled(), 'Acercar reaches cover bound')
         await contain()
-        // Next image always starts at cover, including a cached buffer.
+        // Keep the reduced zoom when moving to the next photo, including a cached buffer.
         await page.getByRole('button', { name: 'Imagen siguiente' }).click()
       }
       // Buttons must remain reachable alongside gallery arrows, caption and finish controls.
