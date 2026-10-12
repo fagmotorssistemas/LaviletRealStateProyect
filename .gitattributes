@@ -2,3 +2,4 @@
 *.pdf -text -diff
 *.ts text eol=lf
 *.tsx text eol=lf
+*.sql text eol=lf

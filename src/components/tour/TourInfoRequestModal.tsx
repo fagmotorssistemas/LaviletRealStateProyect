@@ -260,7 +260,7 @@ export function TourInfoRequestModal({
           ) : knownPhone ? (
             <div className="mt-6 space-y-4 text-sm text-[#2B1A18]">
               <p>{t('¿Quieres que el asesor también te cuente sobre')} {subject}?</p>
-              <button type="button" disabled={pending} onClick={() => void sendRequest({ phone: knownPhone, motivo: 'informacion' })} className="tour-modal-submit flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase disabled:opacity-60">
+              <button type="button" disabled={pending} onClick={() => void sendRequest({ phone: knownPhone, motivo: MOTIVOS[0].label })} className="tour-modal-submit flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase disabled:opacity-60">
                 {t(pending ? 'Enviando…' : 'Sí, solicitar información')}
               </button>
             </div>

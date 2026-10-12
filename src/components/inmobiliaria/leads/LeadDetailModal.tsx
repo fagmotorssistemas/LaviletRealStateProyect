@@ -709,14 +709,17 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                               <div className="flex-1 border border-[#2B1A18]/12 bg-[#fcfbf9] p-4">
                                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                   <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
-                                    {interaction.type}
+                                    {interaction.type === 'showroom_solicitud'
+                                      ? 'Solicitud del showroom'
+                                      : INTERACTION_TYPE_OPTIONS.find((option) => option.value === interaction.type)?.label
+                                        ?? interaction.type.replaceAll('_', ' ').replace(/^./, (letter) => letter.toLocaleUpperCase('es'))}
                                   </span>
                                   <span className="text-xs text-slate-400">{formatDateTime(interaction.created_at)}</span>
                                   {interaction.responsible?.full_name && (
                                     <span className="text-xs text-slate-400">• {interaction.responsible.full_name}</span>
                                   )}
                                 </div>
-                                <p className="text-sm text-slate-700">{interaction.content}</p>
+                                <p className="text-sm text-slate-700 whitespace-pre-line">{interaction.content}</p>
                               </div>
                             </div>
                           )

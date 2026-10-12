@@ -57,6 +57,7 @@ export type AppointmentRequestType = 'new_appointment' | 'reschedule'
 export type InteractionType =
   | 'llamada'
   | 'whatsapp'
+  | 'showroom_solicitud'
   | 'visita'
   | 'propuesta'
   | 'seguimiento'
