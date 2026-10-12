@@ -4505,16 +4505,26 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <>
                   <button
                     type="button"
-                    onClick={() =>
-                    setMobilePanel((value) => (value === 'nav' ? null : 'nav'))
-                    }
+                    onClick={() => {
+                      if (viewingCommonArea) {
+                        setShellMode('plan')
+                        setViewMode('planos-3d')
+                        setFichaOpen(false)
+                        setTerminacionesFocus(false)
+                        setCompareOpen(false)
+                        setFinishCompareOpen(false)
+                        setMobilePanel(null)
+                      } else {
+                        setMobilePanel((value) => (value === 'nav' ? null : 'nav'))
+                      }
+                    }}
                   className="tour-fab"
-                  aria-expanded={mobilePanel === 'nav'}
+                  aria-expanded={viewingCommonArea ? undefined : mobilePanel === 'nav'}
                   aria-label={t(viewingCommonArea ? 'Volver a los pisos' : 'Pisos')}
                   >
                   {viewingCommonArea ? <ArrowLeft size={18} strokeWidth={2.25} /> : <Layers size={18} strokeWidth={2.25} />}
                   </button>
-                {mobilePanel === 'nav' ? (
+                {!viewingCommonArea && mobilePanel === 'nav' ? (
                   <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
                   <button
                     type="button"
