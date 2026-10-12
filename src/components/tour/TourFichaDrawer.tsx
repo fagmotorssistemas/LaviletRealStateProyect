@@ -428,7 +428,7 @@ export function TourFichaDrawer({
           <motion.div
             aria-hidden="true"
             className={cn(
-              'pointer-events-none z-[60] bg-transparent',
+              'tour-ficha-backdrop pointer-events-none z-[60] bg-[#14110e]/20 backdrop-blur-[6px]',
               contained ? 'absolute inset-0' : 'fixed inset-0',
             )}
             initial={reduceMotion ? false : { opacity: 0 }}
