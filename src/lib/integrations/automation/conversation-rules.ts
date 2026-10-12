@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
@@ -34,7 +35,7 @@ const timePattern = /^(?:misma hora|mismo horario|(?:a las? )?(?:[01]?[0-9]|2[0-
 export function normalizedVisitPreference(raw: unknown, message: string): Row | null {
   const preference = object(raw)
   const evidence = text(preference.evidence).trim()
-  if (preference.confidence !== 'high' || !evidence || evidence.length > 240) return null
+  if (!acceptedExtractorConfidence(preference.confidence) || !evidence || evidence.length > 240) return null
   const normalizedEvidence = normalized(evidence)
   const normalizedMessage = normalized(message)
   if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
@@ -48,7 +49,7 @@ export function normalizedVisitPreference(raw: unknown, message: string): Row | 
   const canonicalText = [dateText, timeText].filter(Boolean).join(' ')
   if (canonicalText.length > 160) return null
   return { evidence, date_text: dateText || null, time_text: timeText || null, location_type: locationType,
-    canonical_text: canonicalText || null, confidence: 'high' }
+    canonical_text: canonicalText || null, confidence: preference.confidence }
 }
 
 export function normalizedVisitIntent(raw: unknown, message: string): Row | null {
@@ -56,7 +57,7 @@ export function normalizedVisitIntent(raw: unknown, message: string): Row | null
   const kind = text(intent.kind)
   const evidence = text(intent.evidence).trim()
   if (!['request_visit', 'accept_visit_preference', 'visit_information', 'decline_visit', 'visit_status', 'none'].includes(kind)
-    || intent.confidence !== 'high' || !evidence || evidence.length > 240) return null
+    || !acceptedExtractorConfidence(intent.confidence) || !evidence || evidence.length > 240) return null
   const normalizedEvidence = normalized(evidence)
   const normalizedMessage = normalized(message)
   if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
@@ -69,7 +70,7 @@ export function normalizedVisitIntent(raw: unknown, message: string): Row | null
   if (!compatiblePurposes[kind].includes(purpose)) return null
   const target = ['project', 'other', 'unspecified'].includes(text(intent.target)) ? text(intent.target) : 'unspecified'
   const destination = ['office', 'site', 'work_area', 'model', 'completed_unit', 'building'].includes(text(intent.destination)) ? text(intent.destination) : null
-  return { kind, purpose, target, destination, evidence, confidence: 'high' }
+  return { kind, purpose, target, destination, evidence, confidence: intent.confidence }
 }
 
 export function normalizeEvents(raw: unknown, message: string, awaitingDocument = false, pendingQuestion?: unknown): Row {

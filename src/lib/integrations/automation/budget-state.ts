@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 
@@ -7,7 +8,7 @@ export function leadBudget(info: Row): Row {
   const current = object(object(info.semantica_turno).budget || object(info.contrato_turno).budget)
   const confirmed = confirmedInterpretationMemory({ _interpretation_memory: info.hechos_confirmados })
   const saved = object(confirmed.budget)
-  const isCurrent = current.confidence === 'high' && current.status && current.status !== 'not_discussed'
+  const isCurrent = acceptedExtractorConfidence(current.confidence) && current.status && current.status !== 'not_discussed'
   const declared = isCurrent ? current : saved
   const currentAmounts = Array.isArray(object(info.semantica_turno).financing_amounts)
     ? object(info.semantica_turno).financing_amounts as Row[]

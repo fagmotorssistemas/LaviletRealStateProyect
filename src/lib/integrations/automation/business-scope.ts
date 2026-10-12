@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
@@ -43,7 +44,7 @@ function hasConcreteOutsideSubject(value: string) {
 // the domain interpretation never authorizes an action on its own.
 export function reconcilePropertyScope(decision: BusinessScopeDecision, current: string, requests: Row[]) {
   if (decision.kind !== 'neutral' || decision.outside_evidence && decision.confidence !== 'low') return decision
-  const grounded = requests.filter(request => request.confidence === 'high'
+  const grounded = requests.filter(request => acceptedExtractorConfidence(request.confidence)
     && text(request.evidence).trim().length > 0
     && current.normalize('NFKC').toLowerCase().includes(text(request.evidence).normalize('NFKC').toLowerCase()))
   if (grounded.some(request => request.domain === 'other')
@@ -202,7 +203,7 @@ export async function reconcileConversationScope(decision: BusinessScopeDecision
   const reconciled = reconcilePropertyScope(decision, current, requests)
   if (reconciled !== decision) return reconciled
   if (decision.ambiguous_price_reference || (!decision.uncertain && decision.kind !== 'out_of_scope')) return decision
-  const groundedProperty = requests.some(request => request.confidence === 'high'
+  const groundedProperty = requests.some(request => acceptedExtractorConfidence(request.confidence)
     && ['property', 'financing', 'visit', 'advisor'].includes(text(request.domain))
     && text(request.evidence).trim() && current.normalize('NFKC').toLowerCase().includes(text(request.evidence).normalize('NFKC').toLowerCase()))
   if (!groundedProperty && !decision.boundary_invalid) return decision

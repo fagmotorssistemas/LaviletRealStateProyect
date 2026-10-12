@@ -36,7 +36,7 @@ import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
 import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
 import { OPERATIONAL_REVIEW_RULES } from './operational-review'
-import { finalWriterContract, FINAL_WRITER_RULES, CATALOG_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues, includeRequiredBrochure, reservationOperationalIssues } from './response-plan'
+import { finalWriterContract, FINAL_WRITER_RULES, CATALOG_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues, includeRequiredBrochure, reservationOperationalIssues, protectInitialProjectPresentation } from './response-plan'
 import { leadIntroductionIssues, leadIntroductionRepairs, leadIntroductionReviewIssues, leadIntroductionReviewSchema, leadProfileQuestionIssues, LEAD_INTRODUCTION_RULES, LEAD_INTRODUCTION_REVIEW_RULES } from './lead-introduction'
 import { confirmedLeadProfile } from './lead-profile'
 import { canRecoverAbsence, verifiedAbsenceReply } from './catalog-absence'
@@ -525,7 +525,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     return completed.reply
   }
   const prepareReply = (reply: string) => completeContinuation(ensureReferentialPriceConditions(
-    applyTurnGreeting(reply, text(input.audit?.writer_greeting)), input.verified, input.audit).reply)
+    applyTurnGreeting(protectInitialProjectPresentation(reply, input.audit || {}, input), text(input.audit?.writer_greeting)), input.verified, input.audit).reply)
   const profileQuestionAudit = { ...input.audit,
     profile_collection_decision: object(writerContract.estado_comercial).profile_collection_decision }
   const profileQuestionContentIssues = (actualQuestion: unknown): Row[] => leadProfileQuestionIssues(actualQuestion, profileQuestionAudit)
@@ -845,7 +845,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     }
     requests = rows || []
     const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
-    const normalizedReply = input.audit?.semantic_review_enabled === true ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply
+    const normalizedReply = protectInitialProjectPresentation(input.audit?.semantic_review_enabled === true
+      ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply, input.audit || {}, input)
     const openedReply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
     opening.applied = openedReply !== normalizedReply
     const brochureReply = includeRequiredBrochure(openedReply, input.audit, input)

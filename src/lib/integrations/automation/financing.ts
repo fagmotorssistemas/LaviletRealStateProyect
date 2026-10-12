@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { db, object, scope, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
@@ -51,8 +52,8 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const currentFinancialRequest = hasFinancingRequest(extracted) && (
     semantics.primary_intent === 'ask_financing' && literal(semantics.primary_evidence)
     || Array.isArray(semantics.requests) && semantics.requests.map(object)
-      .some(request => request.domain === 'financing' && request.confidence === 'high' && literal(request.evidence)))
-  const otherQuestion = pendingAnswer.confidence === 'high' && !!pendingAnswer.question_id
+      .some(request => request.domain === 'financing' && acceptedExtractorConfidence(request.confidence) && literal(request.evidence)))
+  const otherQuestion = acceptedExtractorConfidence(pendingAnswer.confidence) && !!pendingAnswer.question_id
     && !['none', 'financing_invitation'].includes(text(pendingAnswer.question_id))
     || lastStep.kind === 'commercial_question' && lastStep.reply === lastReply
   const asksConsent = !otherQuestion && !acceptsUnitOptions(current, lastReply) && operationalFinancingInvitation(lastReply)
@@ -62,7 +63,7 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const answerEvidence = text(pendingAnswer.evidence).trim()
   const currentAnswer = !!answerEvidence && normalized(current).includes(normalized(answerEvidence))
   const groundedInvitation = asksConsent && pendingAnswer.question_id === 'financing_invitation'
-    && pendingAnswer.confidence === 'high' && currentAnswer
+    && acceptedExtractorConfidence(pendingAnswer.confidence) && currentAnswer
   const semanticAcceptance = groundedInvitation && pendingAnswer.kind === 'affirmative'
     || asksConsent && extracted.financing_consent === true && currentFinancialRequest
   const conditional = /\b(?:solo si|siempre que|a condicion|si me (?:aprueban|aseguran|garantizan))\b/.test(message)
@@ -70,7 +71,7 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
     || (/[?¿]/.test(current) && !semanticAcceptance && !((asksConsent || acceptsFinancialHelp) && explicitHelp))
   const choice = object(extracted.financing_partner_choice)
   const choiceEvidence = text(choice.evidence).trim()
-  const groundedChoice = choice.confidence === 'high' && !!choiceEvidence && choiceEvidence.length <= 500
+  const groundedChoice = acceptedExtractorConfidence(choice.confidence) && !!choiceEvidence && choiceEvidence.length <= 500
     && normalized(current).includes(normalized(choiceEvidence))
   const declined = groundedInvitation && pendingAnswer.kind === 'negative'
     || /^(?:no|ahora no|por ahora no|todavia no|mejor no)\b|\bno (?:quiero|deseo|autorizo|me interesa)\b/.test(message)
@@ -114,7 +115,7 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
     const canonical = context.partners.find(name => normalized(text(choice.name)) === normalized(name)
       || normalized(text(choice.name)) === alias(name))
     const mentionedNow = canonical && (normalized(choiceEvidence).includes(alias(canonical)) || contextualJepTypo && canonical === jep)
-    const acceptsOnlyEntity = pendingAnswer.question_id === 'financing_partner' && pendingAnswer.confidence === 'high'
+    const acceptsOnlyEntity = pendingAnswer.question_id === 'financing_partner' && acceptedExtractorConfidence(pendingAnswer.confidence)
       && pendingAnswer.kind === 'affirmative' && context.partners.filter(name => normalized(lastReply).includes(alias(name))).length === 1
       && canonical && normalized(lastReply).includes(alias(canonical))
     partner = groundedChoice && canonical && (mentionedNow || acceptsOnlyEntity) && choice.kind === 'select' ? canonical : ''
@@ -137,7 +138,7 @@ export function financingPartnerAnswer(extracted: Row, input: { partner?: string
   // answer_to_previous is already bound to the actual pending question by the
   // interpreter. A broad ask_financing label must not discard a lender choice.
   return !!input.partner && answer.question_id === 'financing_partner'
-    && answer.confidence === 'high' && answer.kind === 'value'
+    && acceptedExtractorConfidence(answer.confidence) && answer.kind === 'value'
     && (!informationQuestion || explicitChoice)
 }
 

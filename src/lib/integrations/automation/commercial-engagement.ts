@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isPropertyScopeRedirect } from './sales-subject'
@@ -38,17 +39,17 @@ function currentSalesRefusal(current: string, input: CommercialEngagementTurn): 
   if (!salesRefusal(value)) return false
   const semantics = object(input.semantics), intent = object(input.intent), property = object(semantics.property)
   const requests = (Array.isArray(intent.requests) ? intent.requests : []).map(object)
-  const request = requests.find(row => row.domain === 'property' && row.confidence === 'high'
+  const request = requests.find(row => row.domain === 'property' && acceptedExtractorConfidence(row.confidence)
     && row.source !== 'pending' && !row.source_message_id && currentEvidence(current, row.evidence)
     && !salesRefusal(normalized(text(row.evidence))))
-  const propertyEvidence = property.confidence === 'high' && propertyOperations.has(text(property.operation))
+  const propertyEvidence = acceptedExtractorConfidence(property.confidence) && propertyOperations.has(text(property.operation))
     ? currentEvidence(current, property.evidence) : ''
   const independentEvidence = text(request?.evidence)
     || propertyEvidence && !salesRefusal(normalized(propertyEvidence)) && propertyEvidence
   const answer = object(semantics.answer_to_previous), pending = object(input.pendingQuestion || intent.pending_question)
   const operationalAnswer = ['financing_invitation', 'financing_partner', 'financing_data',
     'visit_invitation', 'visit_destination', 'visit_date_time', 'reservation_invitation'].includes(text(pending.id))
-    && !!replyQuestionText(text(pending.question)) && answer.kind === 'negative' && answer.confidence === 'high'
+    && !!replyQuestionText(text(pending.question)) && answer.kind === 'negative' && acceptedExtractorConfidence(answer.confidence)
     && answer.question_id === pending.id ? normalized(currentEvidence(current, answer.evidence)) : ''
   if (!independentEvidence) {
     // A grounded answer declining the pending workflow keeps the previous
@@ -82,16 +83,16 @@ export function requestedPropertyContinuation(current: string, input: Commercial
   if (currentSalesRefusal(current, input)) return deny('current_sales_refusal')
   const literal = (value: unknown) => currentEvidence(current, value)
   const requests = (Array.isArray(intent.requests) ? intent.requests : []).map(object)
-  const request = requests.find(row => row.domain === 'property' && row.confidence === 'high'
+  const request = requests.find(row => row.domain === 'property' && acceptedExtractorConfidence(row.confidence)
     && row.source !== 'pending' && !row.source_message_id && literal(row.evidence))
-  const evidence = property.confidence === 'high' && propertyOperations.has(text(property.operation)) ? literal(property.evidence) : ''
+  const evidence = acceptedExtractorConfidence(property.confidence) && propertyOperations.has(text(property.operation)) ? literal(property.evidence) : ''
   const filters = object(property.filters)
   const criteria = propertyCategories.has(text(property.category))
     || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0
     || ['bedrooms', 'floor_number', 'min_area_m2', 'max_area_m2', 'bedrooms_upper'].some(key => typeof filters[key] === 'number' && Number.isFinite(filters[key]) && Number(filters[key]) >= 0)
     || Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.some(value => typeof value === 'number' && Number.isInteger(value) && value > 0)
   const propertyPending = propertyQuestions.includes(text(pending.id)) && !!replyQuestionText(text(pending.question))
-  const answerEvidence = answer.confidence === 'high' && answer.question_id === pending.id ? literal(answer.evidence) : ''
+  const answerEvidence = acceptedExtractorConfidence(answer.confidence) && answer.question_id === pending.id ? literal(answer.evidence) : ''
   const sameNegative = propertyPending && answer.kind === 'negative' && answerEvidence
     && (!evidence || normalized(evidence) === normalized(answerEvidence))
   if (sameNegative && !request) return deny('current_property_choice_declined')
@@ -106,12 +107,12 @@ export function requestedPropertyContinuation(current: string, input: Commercial
   const useChoice = ['property_category', 'property_purpose'].includes(text(pending.id))
     && !!replyQuestionText(text(pending.question)) && answer.kind === 'value' && !!answerEvidence
     && ['other', 'answer_previous', 'select_property'].includes(objective)
-    && semantics.confidence === 'high' && property.confidence === 'high'
+    && acceptedExtractorConfidence(semantics.confidence) && acceptedExtractorConfidence(property.confidence)
     && ['residential', 'commercial'].includes(text(property.group)) && !!literal(property.evidence)
     && ['none', 'search'].includes(text(property.operation)) && scope.kind !== 'neutral'
   if (!explicitRequest && !propertyAnswer && !useChoice) return deny('no_current_property_request_or_verified_answer')
-  const renewal = useChoice || explicitRequest && objective === 'select_property' && semantics.confidence === 'high'
-    && property.confidence === 'high' && ['search', 'rank', 'select'].includes(text(property.operation)) && !!evidence && criteria
+  const renewal = useChoice || explicitRequest && objective === 'select_property' && acceptedExtractorConfidence(semantics.confidence)
+    && acceptedExtractorConfidence(property.confidence) && ['search', 'rank', 'select'].includes(text(property.operation)) && !!evidence && criteria
   return { version: 'requested-property-continuation-v1', allowed: true, property_interest_renewed: !!renewal,
     reason: useChoice ? 'current_property_use_choice' : renewal ? 'current_concrete_property_search' : propertyAnswer ? 'current_answer_to_property_question' : 'current_property_information_request',
     objective, evidence: useChoice ? literal(property.evidence) : evidence || text(request?.evidence) || answerEvidence,

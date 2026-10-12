@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { object, text, type Row } from './data'
 import { isGreetingOnly, normalized } from './sdr-rules'
@@ -6,7 +7,8 @@ import { BROCHURE_URL, brochureDeliveryIntent } from './project-material'
 import { confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { replyQuestions } from './reply-question'
 import { continuationMetadata } from './continuation-question'
-import { generalProjectIntroductionTurn, projectIntroductionForTurn } from './project-introduction-context'
+import { configuredProjectIntroduction, generalProjectIntroductionTurn, projectIntroductionForTurn } from './project-introduction-context'
+import { isPassivePurchaseEvidence } from './purchase-evidence'
 
 export const PROFILE_INVITATION = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
 const BROCHURE_PURPOSE = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, '
@@ -56,7 +58,7 @@ function lastQuestion(reply: string) { return reply.match(/¿[^¿?]+\?\s*$/)?.[0
 function withoutLastQuestion(reply: string) { return reply.replace(/\s*¿[^¿?]+\?\s*$/, '').trim() }
 function generalInformation(current: string, audit: Row) {
   return ['project_overview', 'project_information_choice'].includes(text(audit.source))
-    || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches|por favor|me gustaria|quiero|quisiera|necesito|deseo|mas|un poco de|de|del|sobre|el|la|vilet|proyecto)\s+)*(?:informacion|info|informes)(?:\s+(?:general|del|de|proyecto|la|vilet|por favor))*$/.test(normalized(current))
+    || isPassivePurchaseEvidence(current) && /\b(?:informacion|info|informes|detalles)\b/.test(normalized(current))
 }
 function explicitBrochure(current: string) {
   const value = normalized(current)
@@ -73,7 +75,7 @@ function groundedCommercialInterest(current: string, extracted: Row) {
   const semantics = object(extracted.turn_semantics), property = object(semantics.property)
   const purpose = ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(text(extracted.purchase_purpose))
     && currentEvidence(object(extracted.declaration_evidence).purchase_purpose, current)
-  const propertyRequest = property.confidence === 'high' && currentEvidence(property.evidence, current)
+  const propertyRequest = acceptedExtractorConfidence(property.confidence) && currentEvidence(property.evidence, current)
     && ['search', 'details', 'compare', 'rank', 'select'].includes(text(property.operation))
   return { purpose, propertyRequest }
 }
@@ -87,8 +89,8 @@ function interpretedCommercialRequest(current: string, extracted: Row, audit: Ro
   // primary-intent classifier says "other". Memory without current evidence
   // cannot open a new profile exchange.
   return interest.purpose || interest.propertyRequest
-    || semantics.confidence === 'high' && ['ask_price', 'ask_financing', 'discuss_budget', 'select_property', 'project_information', 'ask_reservation'].includes(text(semantics.primary_intent))
-    || requests.map(object).some(request => ['property', 'financing'].includes(text(request.domain)) && request.confidence === 'high')
+    || acceptedExtractorConfidence(semantics.confidence) && ['ask_price', 'ask_financing', 'discuss_budget', 'select_property', 'project_information', 'ask_reservation'].includes(text(semantics.primary_intent))
+    || requests.map(object).some(request => ['property', 'financing'].includes(text(request.domain)) && acceptedExtractorConfidence(request.confidence))
 }
 function genericPropertyOpening(current: string, extracted: Row) {
   const semantics = object(extracted.turn_semantics), property = object(semantics.property)
@@ -103,7 +105,7 @@ function genericPropertyOpening(current: string, extracted: Row) {
   // actual answer for prices, comparisons, dimensions or identified units.
   return (interest.purpose || interest.propertyRequest)
     && ['other', 'project_information', ''].includes(text(semantics.primary_intent))
-    && !requests.some(request => request.confidence === 'high')
+    && !requests.some(request => acceptedExtractorConfidence(request.confidence))
     && !text(extracted.preferred_category) && !text(property.category)
     && !specificFilters && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length) && !concreteSelector
     && ['none', 'search', ''].includes(text(property.operation))
@@ -133,7 +135,7 @@ function protectedCurrentOperation(audit: Row, extracted: Row) {
     || /^(?:visit|advisor|reservation_handoff|financing_handoff)/.test(text(audit.source))
     || Boolean(action && !informationalAction) || audit.registration_verified === true
     || reservation.kind === 'request' || reservation.handoff_verified === true
-    || semantics.confidence === 'high' && ['request_visit', 'request_reservation'].includes(text(semantics.primary_intent))
+    || acceptedExtractorConfidence(semantics.confidence) && ['request_visit', 'request_reservation'].includes(text(semantics.primary_intent))
     || extracted.requested_advisor === true
     || ['out_of_scope', 'mixed', 'uncertain'].includes(text(audit.business_scope))
     || ['out_of_scope', 'mixed'].includes(text(scope.kind)) || scope.uncertain === true
@@ -141,9 +143,9 @@ function protectedCurrentOperation(audit: Row, extracted: Row) {
 export function isProfileOnlyTurn(current: string, extractedRaw: unknown) {
   const extracted = object(extractedRaw), semantics = object(extracted.turn_semantics)
   const currentCommercialIntent = interpretedCommercialRequest(current, extracted, {}) || ['ask_price', 'ask_financing', 'discuss_budget', 'request_visit', 'select_property', 'project_information'].includes(text(semantics.primary_intent))
-    && semantics.confidence === 'high'
+    && acceptedExtractorConfidence(semantics.confidence)
   const budget = object(semantics.budget)
-  return !currentCommercialIntent && !(budget.confidence === 'high' && budget.status !== 'not_discussed')
+  return !currentCommercialIntent && !(acceptedExtractorConfidence(budget.confidence) && budget.status !== 'not_discussed')
     && !concreteRequest(current) && (hasProfileAnswer(extracted.lead_profile) || declinedProfile(current))
 }
 function declinedProfile(current: string) {
@@ -157,7 +159,7 @@ export function hasProfileAnswer(raw: unknown) {
   const profile = object(raw)
   return ['full_name', 'residence_city', 'residence_country'].some(key => text(profile[key]).trim())
     || Object.keys(object(profile.declared_location)).length > 0 || Object.keys(object(profile.residence_confirmation)).length > 0
-    || profile.residence_status === 'declined'
+    || profile.residence_status === 'declined' || object(profile.name_response).status === 'declined'
 }
 
 function nameAcknowledgement(profile: Row, prior: Row) {
@@ -289,7 +291,7 @@ function categoryIntroduction(input: LeadIntroductionInput, category: string) {
   // The introduction may shorten a category presentation, never replace a
   // resolved price/financing/detail answer merely because its wording varies.
   if (object(input.audit).source === 'unit_price'
-    || semantics.confidence === 'high' && !['select_property', 'project_information'].includes(text(semantics.primary_intent))) return ''
+    || acceptedExtractorConfidence(semantics.confidence) && !['select_property', 'project_information'].includes(text(semantics.primary_intent))) return ''
   if (!category || /precio|cuesta|financ|cuota|credito|\d|dormitorio|habitacion|area|metro|tamano|grande|espacio|ampli|plano|visita|entrega|constru|ubicacion|direccion|piscina|terraza|parqueader|incluy|tiene|tienen|hay/.test(normalized(input.current))) return ''
   const units = catalogFor(input).filter(unit => unit.category === category)
   if (!units.length) return ''
@@ -329,6 +331,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
     && profile.residence_status === 'pending_confirmation'
   const asked = profileRequestWasSent(prior)
   const declined = currentProfile.residence_status === 'declined' || profile.residence_status === 'declined'
+    || object(currentProfile.name_response).status === 'declined' || object(profile.name_response).status === 'declined'
     || declinedProfile(input.current) || prior.collection_status === 'declined' || prior.status === 'skipped'
   const deferredDecision = leadProfileCollectionDecision({ question_purpose: 'none', profile_declined: declined,
     collection_reason: declined ? 'profile_declined' : !missing.length ? 'profile_complete'
@@ -358,17 +361,18 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const url = input.brochureUrl || BROCHURE_URL
   const introductionInfo = presentationContext(input, audit, prior)
   const semanticOverview = generalProjectIntroductionTurn(introductionInfo)
-  const hasSemanticRequests = rows(introductionInfo.solicitudes_interpretadas).some(request => request.confidence === 'high')
-    || rows(object(introductionInfo.contrato_turno).requests).some(request => request.confidence === 'high')
+  const hasSemanticRequests = rows(introductionInfo.solicitudes_interpretadas).some(request => acceptedExtractorConfidence(request.confidence))
+    || rows(object(introductionInfo.contrato_turno).requests).some(request => acceptedExtractorConfidence(request.confidence))
   const category = categoryFor(input), overview = semanticOverview
     || !hasSemanticRequests && generalInformation(input.current, audit) || genericPropertyOpening(input.current, extracted)
-  const approvedPresentation = semanticOverview ? projectIntroductionForTurn(introductionInfo) : null
+  const approvedPresentation = semanticOverview ? projectIntroductionForTurn(introductionInfo)
+    : overview && !hasSemanticRequests ? configuredProjectIntroduction(introductionInfo) : null
   const presentationText = text(object(approvedPresentation).summary) || PROJECT_INTRODUCTION
   if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
   const base = withoutBrochure(input.reply, url)
   const materialRequested = material.requested
   const deliver = pending || suppliedProfile || materialRequested || missing.length === 0 || declined
-  const firstPresentation = overview && !pending && prior.presentation_sent !== true
+  const firstPresentation = overview && prior.presentation_sent !== true && prior.brochure_sent !== true
   const candidate = object(profile.residence_candidate)
   const candidatePlace = [text(candidate.city), text(candidate.country)].filter(Boolean).join(', ')
   const needsConfirmation = profile.residence_status === 'pending_confirmation' && Boolean(candidatePlace)

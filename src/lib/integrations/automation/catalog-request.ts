@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { floorEvidence } from './floor-evidence'
 
@@ -29,7 +30,7 @@ const quoted = (value: unknown, current: string) => !!text(value).trim() && text
   && current.normalize('NFKC').toLowerCase().includes(text(value).normalize('NFKC').toLowerCase())
 export function normalizeCatalogRequest(raw: unknown, current: string): Row | null {
   const input = object(raw)
-  if (input.confidence !== 'high' || !purposes.includes(text(input.purpose)) || input.purpose === 'none' || !quoted(input.evidence, current)) return null
+  if (!acceptedExtractorConfidence(input.confidence) || !purposes.includes(text(input.purpose)) || input.purpose === 'none' || !quoted(input.evidence, current)) return null
   if (!Array.isArray(input.requirements) || !Array.isArray(input.semantic_preferences)) return null
   const requirements = input.requirements.map(object).map(requirement => {
     if (requirement.field !== 'floor_number' || requirement.operator !== 'eq') return requirement
@@ -58,7 +59,7 @@ export function normalizeCatalogRequest(raw: unknown, current: string): Row | nu
   if (input.semantic_preferences.some(value => !quoted(value, current))) return null
   if (['range', 'min', 'max'].includes(text(input.purpose)) && !CATALOG_NUMBER_FIELDS.includes(input.metric as typeof CATALOG_NUMBER_FIELDS[number])) return null
   return { version: 'catalog-request-v1', purpose: input.purpose, metric: input.purpose === 'count' ? 'unit_count' : input.metric ?? null,
-    requirements, semantic_preferences: input.semantic_preferences, evidence: input.evidence, confidence: 'high' }
+    requirements, semantic_preferences: input.semantic_preferences, evidence: input.evidence, confidence: input.confidence }
 }
 
 export function catalogRequestStatus(raw: unknown, normalized: Row | null): string {

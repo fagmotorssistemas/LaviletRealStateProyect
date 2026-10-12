@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { projectIntroductionForTurn } from './project-introduction-context'
 import { locationRequestKind } from './visit-location'
@@ -22,6 +23,11 @@ const topic = (allowed: boolean, reason: string): Row => ({ allowed, reason: all
 /** The next discovery question does not require another catalogue recital.
  * A real feature/fit request or comparison keeps detailed evidence available. */
 function propertyPresentation(verified: Row, audit: Row, requested: Set<string>, grounded: Row[], current: string): Row {
+  const opening = object(object(audit.profile_introduction).presentation)
+  const approvedOpening = projectIntroductionForTurn(verified)
+    || (opening.required === true && text(opening.approved_summary) ? opening : null)
+  if (approvedOpening) return { kind: 'approved_summary', dimensions_allowed: false, unit_features_allowed: false,
+    available_residential_categories: [], instruction: 'Presente únicamente el resumen aprobado del proyecto y continúe con la pregunta de perfil prevista. No amplíe esta apertura con unidades, superficies, plantas, amenidades o cifras del catálogo.' }
   const semantics = object(verified.semantica_turno), context = object(verified.property_context)
   const query = object(context.query), journey = object(verified.siguiente_paso_comercial || audit.commercial_journey)
   const intent = object(audit.resolved_turn_intent || verified.contrato_turno)
@@ -38,7 +44,7 @@ function propertyPresentation(verified: Row, audit: Row, requested: Set<string>,
     || rows(intent.required_facts).length > 0
     || ['ask_price', 'ask_reservation', 'ask_financing', 'project_information'].includes(text(semantics.primary_intent))
   const typedProgression = grounded.every(request => Array.isArray(request.topics))
-  const unitConfirmation = answer.kind === 'affirmative' && answer.confidence === 'high'
+  const unitConfirmation = answer.kind === 'affirmative' && acceptedExtractorConfidence(answer.confidence)
     && literal(answer.evidence, current) && answer.question_id === 'unit_choice'
     && pending.id === 'unit_choice' && pending.act === 'confirm_unit'
   const reservationProgression = ['offer_reservation', 'await_reservation'].includes(text(journey.action))
@@ -86,7 +92,7 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
   const pending = rows(verified.consultas_pendientes).filter(message => message.answered !== true
     && !['answered', 'resolved', 'cancelled', 'superseded'].includes(text(message.status)))
   const grounded = requests.filter(request => {
-    if (request.confidence !== 'high' || request.domain === 'courtesy') return false
+    if (!acceptedExtractorConfidence(request.confidence) || request.domain === 'courtesy') return false
     if (request.source !== 'pending') return literal(request.evidence, current)
     return pending.some(message => (!request.source_message_id
       || request.source_message_id === (message.message_id || message.id)) && literal(request.evidence, text(message.content)))
@@ -106,15 +112,15 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
       && asksUnitPrice(text(request.request) || text(request.evidence), true))
   const legacyVerifiedQuote = !hasCurrentTypedTopics && intent.price_request_status !== 'answered'
     && audit.source === 'unit_price' && audit.verified_price_only === true
-    && !(semantics.confidence === 'high' && extractorIntent && extractorIntent !== 'ask_price')
+    && !(acceptedExtractorConfidence(semantics.confidence) && extractorIntent && extractorIntent !== 'ask_price')
     && asksUnitPrice(current, true)
-  const legacyPrice = legacyCanonicalPrice || legacyVerifiedQuote || !hasCurrentTypedTopics && semantics.confidence === 'high' && extractorIntent === 'ask_price'
+  const legacyPrice = legacyCanonicalPrice || legacyVerifiedQuote || !hasCurrentTypedTopics && acceptedExtractorConfidence(semantics.confidence) && extractorIntent === 'ask_price'
     && (literal(semantics.primary_evidence, current)
       || currentGrounded.some(request => request.domain === 'property'))
   const pendingPriceClarification = intent.price_request_status === 'pending'
     && intent.interpretation_source === 'clarification_of_price_request'
   const currentBudget = object(semantics.budget || intent.budget)
-  const declaredTotalBudget = currentBudget.confidence === 'high' && ['amount', 'maximum_total'].includes(text(currentBudget.status))
+  const declaredTotalBudget = acceptedExtractorConfidence(currentBudget.confidence) && ['amount', 'maximum_total'].includes(text(currentBudget.status))
     && positive(currentBudget.amount) && literal(currentBudget.evidence, current)
   const assessment = object(verified.presupuesto_del_turno)
   const currentAssessment = positive(assessment.amount) && literal(assessment.evidence, current)
@@ -140,8 +146,10 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
     && comparisonPrices.every(price => positive(price.published_commercial_price)
       && Number(price.published_commercial_price) > Number(guidance.amount))
   const approvedIntroduction = projectIntroductionForTurn(verified)
+  const opening = object(object(audit.profile_introduction).presentation)
   const initialOverview = !!approvedIntroduction && currentGrounded.some(request => request.domain === 'property')
     && (!hasTypedTopics || currentTopics.has('project_overview'))
+    || opening.required === true && !!text(opening.approved_summary).trim()
   const disclosure = object(verified.location_disclosure || audit.location_disclosure)
   const completed = object(audit.completed_visit_action)
   const result = object(audit.visit_result || verified.resultado_visita)
@@ -160,7 +168,7 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
     && ['coordination', 'preference', 'access_information', 'availability_information'].includes(text(visitPlan.current_kind))
   const digitalException = requested.has('visualization')
     || object(audit.unit_model).delivery_required === true || object(audit.brochure_intent).requested === true
-  const legacyEvaluation = !hasCurrentTypedTopics && rows(semantics.housing_quantities).some(quantity => quantity.confidence === 'high'
+  const legacyEvaluation = !hasCurrentTypedTopics && rows(semantics.housing_quantities).some(quantity => acceptedExtractorConfidence(quantity.confidence)
     && quantity.role === 'evaluation' && literal(quantity.evidence, current))
   return { version: RESPONSE_CONTENT_SCOPE_VERSION,
     property_presentation: propertyPresentation(verified, audit, requested, grounded, current), topics: {
@@ -219,6 +227,7 @@ export function projectContentForWriter(raw: Row, scope?: Row): Row {
   const dimensions = object(activeScope.property_presentation).dimensions_allowed !== false
   const features = object(activeScope.property_presentation).unit_features_allowed !== false
   const progression = object(activeScope.property_presentation).kind === 'progression_brief'
+  const approvedOpening = object(activeScope.property_presentation).kind === 'approved_summary'
   const disclosure = object(raw.location_disclosure || object(raw.contexto_verificado).location_disclosure)
   const address = exactLocation && disclosure.address_allowed !== false
   const map = exactLocation && disclosure.map_allowed !== false
@@ -241,6 +250,11 @@ export function projectContentForWriter(raw: Row, scope?: Row): Row {
     if (source.version === RESPONSE_CONTENT_SCOPE_VERSION || source.id === 'location_scope') return { ...source }
     const isProject = projectSourceKeys.has(key)
     return Object.fromEntries(Object.entries(source).filter(([field]) => {
+      // The approved summary already contains every business fact authorized
+      // for this stage. Do not expose inventory/building facts as extra copy.
+      if (approvedOpening && (catalogRecordKeys.has(field) || numericFactKeys.has(field)
+        || ['instalaciones', 'amenities', 'lugares_cercanos', 'contexto_sector', 'posicionamiento_proyecto'].includes(field))) return false
+      if (approvedOpening && isProject && !['id', 'name', 'title'].includes(field)) return false
       // Delivery fingerprints are for continuity, not model evidence. Their
       // serialized snapshots may contain prices hidden in this writer turn.
       if (field === 'budget_scope_key' || key === 'budget_guidance' && field === 'scope_key') return false

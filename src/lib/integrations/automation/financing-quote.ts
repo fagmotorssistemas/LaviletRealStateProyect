@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { calculateMonthlyPayment, round2 } from '@/lib/financing/calculator'
 import { currentGuidanceSource, type FinancingGuidance } from '@/lib/inmobiliaria/financingGuidance'
 import { object, text, type Row } from './data'
@@ -17,7 +18,7 @@ export function financingQuoteInquiry(extracted: Row, current: string): Financin
   const literal = (value: unknown) => !!text(value).trim() && current.normalize('NFKC').toLowerCase().includes(text(value).trim().normalize('NFKC').toLowerCase())
   const answer = object(object(extracted.turn_semantics).answer_to_previous)
   const acceptanceOnly = answer.question_id === 'financing_invitation' && answer.kind === 'affirmative'
-    && answer.confidence === 'high' && literal(answer.evidence) && simpleFinancingAcceptance(current)
+    && acceptedExtractorConfidence(answer.confidence) && literal(answer.evidence) && simpleFinancingAcceptance(current)
   // A literal yes can be valid evidence of acceptance, but cannot also prove a
   // quotation inquiry. Keep mixed questions and conditional decisions intact.
   const grounded = raw.requested === true && literal(raw.evidence) && !acceptanceOnly

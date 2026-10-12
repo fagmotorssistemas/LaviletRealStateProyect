@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 
 export const BUDGET_EVALUATION_VERSION = 'budget-evaluation-v1'
@@ -13,7 +14,7 @@ export function evaluateBudgetOptions(input: {
   const byId = new Map(input.units.filter(unit => !!text(unit.id)).map(unit => [text(unit.id), unit]))
   const units = [...byId.values()]
   const amount = positive(input.budget.amount) ? input.budget.amount : null
-  const comparable = input.budget.status === 'maximum_total' && input.budget.confidence === 'high'
+  const comparable = input.budget.status === 'maximum_total' && acceptedExtractorConfidence(input.budget.confidence)
     && amount !== null && input.scopeKnown !== false
   const priceKnown = (unit: Row) => input.pricesAuthorized && positive(unit.published_commercial_price)
   const priced = units.filter(priceKnown)
@@ -55,12 +56,12 @@ export function evaluateBudgetOptions(input: {
 export function budgetMentionPolicy(info: Row, indispensableComparison = false): Row {
   const semantics = object(info.semantica_turno || info.contrato_turno)
   const current = object(semantics.budget)
-  const declaration = current.confidence === 'high' && current.status && current.status !== 'not_discussed'
+  const declaration = acceptedExtractorConfidence(current.confidence) && current.status && current.status !== 'not_discussed'
     && !!text(current.evidence).trim()
   const requests = Array.isArray(info.solicitudes_interpretadas || semantics.requests)
     ? (info.solicitudes_interpretadas || semantics.requests) as Row[] : []
   const requested = semantics.primary_intent === 'discuss_budget'
-    || requests.some(request => request.confidence === 'high' && request.domain === 'budget')
+    || requests.some(request => acceptedExtractorConfidence(request.confidence) && request.domain === 'budget')
   return { allowed: !!declaration || requested || indispensableComparison,
     required: requested || indispensableComparison,
     reason: indispensableComparison ? 'indispensable_current_scope_gap' : requested ? 'current_budget_request'

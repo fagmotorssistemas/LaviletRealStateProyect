@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { salesSubject } from './sales-subject'
@@ -16,7 +17,7 @@ export const MATERIAL_REQUEST_RULES = 'material_request interpreta la solicitud 
 /** One material decision shared by opening, routing and the final link contract. */
 export function brochureDeliveryIntent(current: string, history: unknown = [], extracted: Row = {}, pending: Row = {}) {
   const material = object(extracted.material_request), evidence = text(material.evidence).trim()
-  const grounded = material.confidence === 'high' && evidence.length > 0 && evidence.length <= 500
+  const grounded = acceptedExtractorConfidence(material.confidence) && evidence.length > 0 && evidence.length <= 500
     && normalized(current).includes(normalized(evidence))
   const previous = text(rows(history).filter(row => row.role === 'bot').at(-1)?.content)
   const lastQuestion = normalized(replyQuestions(previous).at(-1) || '')
@@ -27,7 +28,7 @@ export function brochureDeliveryIntent(current: string, history: unknown = [], e
   if (grounded && material.kind === 'decline') return { requested: false, reason: 'declined', evidence }
   if (grounded && (material.kind === 'request' || material.kind === 'accept' && offered))
     return { requested: true, reason: material.kind === 'request' ? 'explicit_request' : 'accepted_offer', evidence }
-  if (offered && answer.question_id === 'brochure_offer' && answer.confidence === 'high' && answer.kind === 'affirmative'
+  if (offered && answer.question_id === 'brochure_offer' && acceptedExtractorConfidence(answer.confidence) && answer.kind === 'affirmative'
     && normalized(current).includes(normalized(text(answer.evidence))) && text(answer.evidence).trim())
     return { requested: true, reason: 'accepted_offer', evidence: text(answer.evidence) }
   // Compatibility with earlier contracts. A general request for information

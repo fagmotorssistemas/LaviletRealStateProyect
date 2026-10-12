@@ -2,7 +2,7 @@ import { object, text, type Row } from './data'
 import { replyQuestions } from './reply-question'
 import { normalizedPendingQuestion, pendingQuestionFromReply, questionActs, questionIds } from './turn-semantics'
 import { categoryInvitationTarget } from './category-offer'
-import { deliveredFinancingEntryReference } from './financing-entry'
+import { actualFinancingEntryQuestion, deliveredFinancingEntryReference } from './financing-entry'
 import { operationalReservationInvitation, reservationInvitationUnitNumbers } from './reservation-invitation'
 
 /** Shared by writer and reviewer. Meaning belongs to the emitted CTA, not the plan. */
@@ -63,7 +63,12 @@ function purposeSupports(id: unknown, purpose: unknown) {
 export function deliveredPendingQuestion(reply: string, input: { metadata?: unknown; plan?: unknown; candidates?: Row[] } = {}, catalog?: Row[]): Row {
   const questions = replyQuestions(reply)
   if (!questions.length) return {}
-  const question = questions.join(' '), metadata = object(input.metadata), plan = object(input.plan)
+  const question = questions.join(' '), observedMetadata = object(input.metadata), plan = object(input.plan)
+  // Collection is a fact of the sent text. Incorrect editorial purpose/act
+  // cannot erase this receipt and its single verified monetary referent.
+  const actualEntry = actualFinancingEntryQuestion(reply)
+  const metadata = actualEntry ? { ...observedMetadata, text: actualEntry.question,
+    purpose: 'collect_financing_required', continuation_id: actualEntry.id, continuation_act: actualEntry.act } : observedMetadata
   const semantic = continuationMetadata(metadata)
   if (Object.keys(semantic).length && metadata.text && !same(metadata.text, question)) return {}
   const matchingQuestions = (input.candidates || []).filter(candidate =>

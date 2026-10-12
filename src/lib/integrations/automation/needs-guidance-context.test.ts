@@ -216,8 +216,8 @@ test('a compound initial property and financing question retains features while 
 for (const [name, requestChanges, semanticChanges] of [
   ['financing-only', { domain: 'financing' }, {}],
   ['courtesy-only', { domain: 'courtesy' }, {}],
-  ['unreliable property request', { confidence: 'medium' }, {}],
-  ['unreliable primary intent', {}, { confidence: 'medium' }],
+  ['unreliable property request', { confidence: 'low' }, {}],
+  ['unreliable primary intent', {}, { confidence: 'low' }],
   ['pending request without a current property question', { source: 'pending', source_message_id: 'old-question' }, {}],
   ['request without supporting evidence', { evidence: '' }, {}],
 ] as Array<[string, Row, Row]>) test('initial feature retention excludes ' + name, () => {
@@ -232,6 +232,22 @@ for (const [name, requestChanges, semanticChanges] of [
   assert.deepEqual(projected.instalaciones, [])
   assertProtectedState(projected, original)
   assert.deepEqual(verified, original)
+})
+
+test('medium current property requests and primary intent preserve supplementary features and restrictions without changing commercial state', () => {
+  const message = '¿Cómo es el acceso al edificio?'
+  for (const [intentConfidence, requestConfidence] of [['medium', 'high'], ['high', 'medium'], ['medium', 'medium']]) {
+    const verified = initialInformationContext(message, [
+      { domain: 'property', request: message, evidence: message, confidence: requestConfidence, source: 'current' },
+    ])
+    object(verified.semantica_turno).confidence = intentConfidence
+    const original = structuredClone(verified)
+    assert.equal(needsSupplementaryFeatures(verified), true)
+    const projected = taskVerifiedContext(semanticCatalogContext(verified, audit, message), audit, message)
+    assert.deepEqual(projected.instalaciones, facilities, 'Access conditions remain attached to the verified features')
+    assertProtectedState(projected, original)
+    assert.deepEqual(verified, original, 'Admission does not relabel medium or alter permissions')
+  }
 })
 
 test('the canonical financing domain overrides an identical unreconciled property request', () => {

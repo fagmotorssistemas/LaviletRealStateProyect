@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 
 /** Keep labels as declared, including non-Latin names; normalization is only for evidence checks. */
@@ -26,6 +27,58 @@ export function confirmedLeadName(profileInput: unknown): string {
   return text(confirmedLeadProfile(profileInput).full_name)
 }
 
+/** Explicit absence is different from an omitted required extraction field.
+ * This assessment is semantic; its citation still has to belong to this turn. */
+export function currentProfileNameResponse(raw: Row, current: string): Row | null {
+  const response = object(raw.name_response)
+  if (!['declared', 'not_declared', 'declined', 'uncertain'].includes(text(response.status))
+    || !acceptedExtractorConfidence(response.confidence) || !literal(text(response.evidence), current)) return null
+  return { status: response.status, evidence: text(response.evidence), confidence: response.confidence }
+}
+
+/** A delivered, still-open name request has enough typed context to require an
+ * explicit semantic outcome in the first call. A legacy ID alone cannot force
+ * collection, and residence-only or operational questions keep the neutral schema. */
+export function requiresProfileNameAssessment(input: Row): boolean {
+  const pending = object(input.pregunta_pendiente), profile = object(input.perfil_inicial)
+  const requested = object(object(input.resumen)._lead_introduction)
+  return ['lead_profile', 'lead_profile_name'].includes(text(pending.id)) && pending.act === 'profile'
+    && profile.awaiting === true && Array.isArray(profile.missing) && profile.missing.includes('full_name')
+    && requested.status === 'pending' && requested.request_sent === true
+    && Array.isArray(requested.requested_fields) && requested.requested_fields.includes('full_name')
+    && requested.collection_status !== 'declined'
+    && !confirmedLeadName(profile) && !confirmedLeadName(object(input.resumen)._lead_profile)
+}
+
+/** A missing name in a grounded profile answer deserves a small semantic check,
+ * not another name question or a wholesale re-extraction. This does not parse
+ * names from prose and never treats CRM/history labels as identity evidence. */
+export function needsProfileNameRecovery(raw: Row, current: string, input: Row): boolean {
+  const normalized = normalizeLeadProfile(raw, current, input)
+  if (normalized.full_name || confirmedLeadName(input.perfil_inicial)
+    || confirmedLeadName(object(input.resumen)._lead_profile)) return false
+  const response = currentProfileNameResponse(raw, current)
+  if (response && response.status !== 'declared') return false
+  const pending = object(input.pregunta_pendiente), profile = object(input.perfil_inicial)
+  const requested = object(object(input.resumen)._lead_introduction)
+  const missing = Array.isArray(profile.missing) ? profile.missing : []
+  const nameWasAsked = ['lead_profile', 'lead_profile_name'].includes(text(pending.id))
+    || profile.awaiting === true && missing.includes('full_name')
+      && Array.isArray(requested.requested_fields) && requested.requested_fields.includes('full_name')
+  if (!nameWasAsked) return false
+  const answer = object(object(raw.turn_semantics).answer_to_previous)
+  const currentProfileAnswer = ['lead_profile', 'lead_profile_name'].includes(text(answer.question_id))
+    && answer.question_id === pending.id
+    && answer.kind === 'value' && acceptedExtractorConfidence(answer.confidence) && literal(text(answer.evidence), current)
+  return response?.status === 'declared' || currentProfileAnswer || literal(text(object(raw.profile_evidence).full_name).trim(), current)
+}
+
+export const PROFILE_NAME_RECOVERY_RULES = `
+Interprete solamente si el lead declara su propio nombre en mensaje_actual, incluyendo respuestas directas a la pregunta de perfil suministrada. No extraiga otros datos ni modifique decisiones comerciales.
+Devuelva full_name y profile_evidence.full_name únicamente para una declaración actual de cómo desea ser llamado. No convierta nombres de terceros, ejemplos, citas, lugares, hipótesis, nombres negados, alias de WhatsApp/CRM o mensajes anteriores en su nombre. No se proporciona historial porque esta comprobación solo puede usar el mensaje actual.
+name_response distingue declared, not_declared, declined y uncertain por significado. Use not_declared cuando aporta solamente residencia u otro dato; declined cuando rehúsa dar su nombre. No invente un nombre para completar la pregunta. Cada resultado lleva una cita literal del mensaje actual y su confianza. Para declared, el nombre debe aparecer dentro de profile_evidence.full_name, también literal y actual; en los otros resultados full_name y su evidencia son null.
+`
+
 /** A shared citation can contain either one ambiguous place declaration or
  * several compatible assertions. Only semantic recovery decides which; the
  * provenance check does not inspect residence verbs or guess current residence. */
@@ -43,12 +96,25 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
   const evidence = object(raw.profile_evidence), accepted: Row = { full_name: null, residence_city: null, residence_country: null }
   const values: Row = { full_name: null, residence_city: null, residence_country: null }
   const diagnostics: string[] = []
+  const fieldStatus: Row = {}
+  const nameResponse = currentProfileNameResponse(raw, current)
   const validValue = (value: unknown, quote: unknown) => !!label(value) && literal(text(quote), current) && contains(text(quote), label(value))
   for (const key of ['full_name', 'residence_city', 'residence_country']) {
     const value = label(raw[key]), quote = text(evidence[key]).trim()
+    const proposed = !!text(raw[key]).trim()
+    fieldStatus[key] = { proposed_value_present: proposed, evidence_present: !!quote, accepted: false,
+      reason: !proposed ? 'not_proposed' : !value ? 'invalid_value'
+        : !quote ? 'missing_current_evidence' : !literal(quote, current) ? 'noncurrent_or_invalid_evidence'
+          : 'value_not_in_evidence' }
     if (!value) continue
     if (!validValue(value, quote)) { diagnostics.push(key + '_invalid_provenance'); continue }
+    if (key === 'full_name' && nameResponse && nameResponse.status !== 'declared') {
+      diagnostics.push('full_name_semantic_response_conflict')
+      fieldStatus[key] = { ...object(fieldStatus[key]), reason: 'semantic_response_conflict' }
+      continue
+    }
     values[key] = value; accepted[key] = quote
+    fieldStatus[key] = { ...object(fieldStatus[key]), accepted: true, reason: 'current_literal_declaration' }
   }
   let declared: Row | null = null
   const proposed = object(raw.declared_location), kind = text(proposed.kind), quote = text(proposed.evidence).trim()
@@ -65,6 +131,7 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
     if (values[key] && words(text(values[key])) === words(text(declared[field])) && sharedCitation) {
       values[key] = null; accepted[key] = null
       diagnostics.push(key + '_noncurrent_location_source_conflict')
+      fieldStatus[key] = { ...object(fieldStatus[key]), accepted: false, reason: 'noncurrent_location_source_conflict' }
     }
   }
   let confirmation: Row | null = null
@@ -80,8 +147,8 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
       || (declared.country && words(text(declared.country)) !== words(text(candidate.country))))
   if (text(pending.id) === 'lead_residence_confirmation' && sameCandidate && ['confirm', 'deny'].includes(decision)
     && !contradictsPendingAnswer && !declaredCandidateDiffers
-    && proposedConfirmation.confidence === 'high' && literal(confirmationQuote, current)) {
-    confirmation = { decision, evidence: confirmationQuote, confidence: 'high' }
+    && acceptedExtractorConfidence(proposedConfirmation.confidence) && literal(confirmationQuote, current)) {
+    confirmation = { decision, evidence: confirmationQuote, confidence: proposedConfirmation.confidence }
   }
   // Explicit current residence always wins over an earlier place or a bare confirmation.
   let status = 'unknown', residenceCandidate: Row | null = null
@@ -92,6 +159,7 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
     for (const [key, field] of [['residence_city', 'city'], ['residence_country', 'country']]) {
       if (!label(candidate[field])) continue
       values[key] = candidate[field]; accepted[key] = confirmation.evidence
+      fieldStatus[key] = { ...object(fieldStatus[key]), accepted: true, reason: 'pending_residence_confirmed' }
     }
     status = 'confirmed'; diagnostics.push('residence_candidate_confirmed')
   } else if (confirmation?.decision === 'deny') {
@@ -107,8 +175,12 @@ export function normalizeLeadProfile(raw: Row, current: string, input: Row): Row
   if (text(pending.id) === 'lead_residence_confirmation' && proposedConfirmation.decision && !sameCandidate)
     diagnostics.push('residence_confirmation_target_mismatch')
   if (proposedConfirmation.decision && contradictsPendingAnswer) diagnostics.push('residence_confirmation_answer_mismatch')
+  if (!values.full_name && nameResponse) fieldStatus.full_name = { ...object(fieldStatus.full_name),
+    ...(object(fieldStatus.full_name).reason === 'semantic_response_conflict' ? {} : {
+      reason: nameResponse.status === 'declared' ? 'declared_value_missing_or_invalid' : nameResponse.status }) }
   return { ...values, evidence: accepted, declared_location: declared, residence_candidate: residenceCandidate,
-    residence_confirmation: confirmation, residence_status: status, diagnostics }
+    residence_confirmation: confirmation, residence_status: status, diagnostics, field_status: fieldStatus,
+    ...(nameResponse ? { name_response: nameResponse } : {}) }
 }
 
 /** One durable profile state shared by routing, writing and validation; no guessed geography. */
@@ -163,6 +235,8 @@ export function mergeLeadProfile(previousInput: unknown, incomingInput: unknown,
   result.sources = sources
   result.name_status = confirmedLeadName(result) ? 'confirmed' : 'unconfirmed'
   result.diagnostics = Array.isArray(incoming.diagnostics) ? incoming.diagnostics : []
+  result.field_status = incoming.field_status || {}
+  if (incoming.name_response) result.name_response = incoming.name_response
   return result
 }
 
@@ -172,5 +246,5 @@ residence_city/residence_country contienen solamente residencia ACTUAL inequívo
 "Soy de Cuenca" conserva Cuenca como origen y candidato por confirmar; NO llena residence_city ni residence_country, ni siquiera después de preguntar residencia. "Soy de Cuenca pero vivo en Guayaquil" conserva Cuenca en declared_location y Guayaquil como residence_city con evidencia "vivo en Guayaquil". Si nombra explícitamente la residencia no necesita confirmar el origen. La misma cita clasificada como origen, residencia antigua, temporal, futura o ambigua no puede acreditar simultáneamente residencia actual: cada afirmación debe tener su evidencia propia. Con origen y residencia actual en la misma ciudad, conserve ambos cuando el lead realmente afirma ambos: "Soy de Cuenca y sigo viviendo allí" usa declared_location.evidence="Soy de Cuenca" y profile_evidence.residence_city="Soy de Cuenca y sigo viviendo allí", porque esa cita contiene el lugar y su relación actual; no confunda repetir el origen con afirmar residencia.
 Un país o una ciudad debe aparecer literalmente en su evidencia actual. No infiera país de ciudad, teléfono, nombre, proyecto ni historia. Lugares temporales, deseados, futuros, antiguos o negados no acreditan residencia. Nombre y perfil no eligen un inmueble ni autorizan una cita.
 residence_confirmation solo puede responder pregunta_pendiente.id=lead_residence_confirmation y su residence_candidate, coincidente con perfil_inicial.residence_candidate. Para "sí" o "no" devuelva confirm/deny con evidence actual y confidence; no copie el lugar histórico como una declaración literal nueva. Una corrección explícita de residencia prevalece. Una aceptación de brochure, precio o cita no confirma residencia. Si no es una respuesta inequívoca a esa pregunta, devuelva null.
-full_name es el nombre declarado con que desea ser llamado, no requiere apellidos. profile_evidence contiene evidencia literal actual para cada valor propuesto; no complete valores desde el historial ni invente un nombre del contacto de WhatsApp.
+full_name es el nombre declarado con que desea ser llamado, no requiere apellidos. profile_evidence contiene evidencia literal actual para cada valor propuesto; no complete valores desde el historial ni invente un nombre del contacto de WhatsApp. En un intercambio de perfil, name_response distingue por significado declared, not_declared, declined y uncertain con evidencia literal actual y confianza. No confunda un nombre omitido con not_declared: si afirma su nombre, conserve simultáneamente el valor y su evidencia aunque también aporte residencia. Fuera de ese intercambio puede ser null.
 `

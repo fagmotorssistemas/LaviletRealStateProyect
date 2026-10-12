@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { focusedNumericMentions } from './focused-numeric-syntax'
@@ -60,9 +61,9 @@ export function reconcileQuotedQuantityReferences(raw: Row, input: Row, current:
   const pending = object(input.pregunta_pendiente || context.pending_question)
   const hasKnownOptions = ['offered_ids', 'selected_ids', 'comparison_ids'].some(key => hasValue(context[key]))
     || hasValue(pending.candidate_ids) || hasValue(pending.target_ids)
-  const informational = semantics.confidence === 'high' && text(semantics.primary_evidence).trim() && matches(semantics.primary_evidence, current)
+  const informational = acceptedExtractorConfidence(semantics.confidence) && text(semantics.primary_evidence).trim() && matches(semantics.primary_evidence, current)
     && ['ask_price', 'project_information', 'ask_financing'].includes(text(semantics.primary_intent))
-    && property.confidence === 'high' && text(property.evidence).trim() && matches(property.evidence, current)
+    && acceptedExtractorConfidence(property.confidence) && text(property.evidence).trim() && matches(property.evidence, current)
     && ['details', 'compare'].includes(text(property.operation))
     && ['followup', 'comparison'].includes(text(property.reference_kind))
     && ['offered', 'selected', 'comparison'].includes(text(property.query_scope))
@@ -92,9 +93,9 @@ export function reconcileEchoedBudgetQuestion(raw: Row, input: Row, current: str
   const budgetDeclaration = ['amount_pending', 'no_defined_budget', 'unknown', 'amount', 'maximum_total', 'initial_capital',
     'sufficient_for_selected_unit', 'insufficient_for_selected_unit', 'declines_to_disclose'].includes(text(budget.status))
   if (!text(pending.id).startsWith('budget_') || !text(pending.question).trim()
-    || semantics.confidence !== 'high'
+    || !acceptedExtractorConfidence(semantics.confidence)
     || !text(semantics.primary_evidence).trim() || !matches(semantics.primary_evidence, current)
-    || !budgetDeclaration || budget.confidence !== 'high' || !text(budget.evidence).trim() || !matches(budget.evidence, current)
+    || !budgetDeclaration || !acceptedExtractorConfidence(budget.confidence) || !text(budget.evidence).trim() || !matches(budget.evidence, current)
     || (monetary ? budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) === null : hasValue(budget.amount))) return { raw, fields: [] }
   const exactQuote = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
   const fields: string[] = []
@@ -207,8 +208,8 @@ export function interpretationSourceIssues(raw: Row, current: string, pending: R
   const hasCurrentRequest = requests.some(request => text(request.evidence).trim() && (matches(request.evidence, current)
     || ['property', 'financing'].includes(text(request.domain)) && pending.some(message => matches(request.evidence, text(message.content)))))
   const evidence: [string, unknown][] = hasCurrentRequest ? [] : requests.map((request, index) => [`requests.${index}`, request.evidence])
-  if (semantics.confidence === 'high' && semantics.primary_intent !== 'other') evidence.push(['primary_intent', semantics.primary_evidence])
-  if (property.confidence === 'high') evidence.push(['property', property.evidence])
+  if (acceptedExtractorConfidence(semantics.confidence) && semantics.primary_intent !== 'other') evidence.push(['primary_intent', semantics.primary_evidence])
+  if (acceptedExtractorConfidence(property.confidence)) evidence.push(['property', property.evidence])
   if (budget.status && budget.status !== 'not_discussed') evidence.push(['budget', budget.evidence])
   for (const [index, quantity] of rows(semantics.housing_quantities).entries()) evidence.push([`quantity.${index}`, quantity.evidence])
   const issues = evidence.flatMap(([key, value]) => !text(value).trim() ? [`missing_current_evidence:${key}`]
@@ -291,19 +292,21 @@ export function isolateHistoricalPropertyFromBudget(previous: Row, merged: Row, 
   if (!knownBudgetQuestion || !remaining.length || remaining.some(issue => issue !== 'non_current_evidence:property')) return null
   const certificate = object(repaired.property_turn_use)
   const grounded = (value: unknown) => !!text(value).trim() && matches(value, current)
+  // Discarding a rejected historical property block requires its independent
+  // repair certificate, not merely admission of a current medium declaration.
   if (!['context_only', 'none'].includes(text(certificate.kind)) || certificate.confidence !== 'high'
     || !grounded(certificate.evidence)) return null
   const independentBudget = (raw: Row) => {
     const semantics = object(raw.turn_semantics), budget = object(semantics.budget)
-    return semantics.primary_intent === 'discuss_budget' && semantics.confidence === 'high'
-      && grounded(semantics.primary_evidence) && budget.confidence === 'high' && grounded(budget.evidence)
+    return semantics.primary_intent === 'discuss_budget' && acceptedExtractorConfidence(semantics.confidence)
+      && grounded(semantics.primary_evidence) && acceptedExtractorConfidence(budget.confidence) && grounded(budget.evidence)
       && ['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
       && budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) !== null
   }
   const compatibleRequests = (raw: Row, requireFinance: boolean) => {
     const requests = rows(raw.requests).filter(request => grounded(request.evidence))
-    return (!requireFinance || requests.some(request => request.domain === 'financing' && request.confidence === 'high'))
-      && requests.every(request => ['financing', 'courtesy'].includes(text(request.domain)) && request.confidence === 'high'
+    return (!requireFinance || requests.some(request => request.domain === 'financing' && acceptedExtractorConfidence(request.confidence)))
+      && requests.every(request => ['financing', 'courtesy'].includes(text(request.domain)) && acceptedExtractorConfidence(request.confidence)
         && (!Array.isArray(request.topics) || request.topics.every(topic => topic === 'financing')))
   }
   if (!independentBudget(previous) || !independentBudget(merged)

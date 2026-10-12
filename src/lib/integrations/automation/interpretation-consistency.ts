@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence, type ExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { financingAmountStatements } from './financing-amounts'
 import { normalizeCatalogRequest } from './catalog-request'
@@ -21,18 +22,18 @@ function hasCurrentMonetaryMeaning(raw: Row, current: string): boolean {
 }
 
 function currentRequests(raw: Row, current: string): Row[] {
-  return rows(raw.requests).filter(request => request.confidence === 'high' && grounded(request.evidence, current))
+  return rows(raw.requests).filter(request => acceptedExtractorConfidence(request.confidence) && grounded(request.evidence, current))
 }
 
 function currentProperty(raw: Row, current: string): Row | null {
   const property = object(object(raw.turn_semantics).property)
-  return property.confidence === 'high' && propertyOperations.has(text(property.operation))
+  return acceptedExtractorConfidence(property.confidence) && propertyOperations.has(text(property.operation))
     && grounded(property.evidence, current) ? property : null
 }
 
 function currentAnswer(raw: Row, current: string, pending?: Row): Row | null {
   const answer = object(object(raw.turn_semantics).answer_to_previous)
-  return answer.confidence === 'high' && answerKinds.has(text(answer.kind)) && grounded(answer.evidence, current)
+  return acceptedExtractorConfidence(answer.confidence) && answerKinds.has(text(answer.kind)) && grounded(answer.evidence, current)
     && text(answer.question_id) && answer.question_id !== 'none'
     && (!pending || text(pending.id) && answer.question_id === pending.id) ? answer : null
 }
@@ -53,7 +54,7 @@ function hasIndependentCurrentMeaning(raw: Row, current: string): boolean {
  * or authorize an action, and remains silent for unresolved/financial turns. */
 export function interpretationConsistencyIssues(raw: Row, current: string): string[] {
   const semantics = object(raw.turn_semantics)
-  if (semantics.primary_intent !== 'discuss_budget' || semantics.confidence !== 'high'
+  if (semantics.primary_intent !== 'discuss_budget' || !acceptedExtractorConfidence(semantics.confidence)
     || hasCurrentMonetaryMeaning(raw, current) || !hasIndependentCurrentMeaning(raw, current)) return []
   // Generic financial questions are not monetary declarations, but make a
   // compound interpretation inconclusive. Let the model retain their meaning.
@@ -62,13 +63,14 @@ export function interpretationConsistencyIssues(raw: Row, current: string): stri
   return ['inconsistent_primary_intent:budget']
 }
 
-type Primary = { primary_intent: string; primary_evidence: string; confidence: 'high' }
-const primary = (intent: string, evidence: unknown): Primary => ({ primary_intent: intent,
-  primary_evidence: text(evidence), confidence: 'high' })
+type Primary = { primary_intent: string; primary_evidence: string; confidence: ExtractorConfidence }
+const primary = (intent: string, source: Row): Primary => ({ primary_intent: intent,
+  primary_evidence: text(source.primary_evidence || source.evidence),
+  confidence: acceptedExtractorConfidence(source.confidence) ? source.confidence : 'low' })
 
 function supportedPrimary(raw: Row, current: string, pending: Row, candidate: unknown): Primary | null {
   const semantics = object(candidate)
-  if (semantics.confidence !== 'high' || !grounded(semantics.primary_evidence, current)) return null
+  if (!acceptedExtractorConfidence(semantics.confidence) || !grounded(semantics.primary_evidence, current)) return null
   const intent = text(semantics.primary_intent), property = currentProperty(raw, current)
   const catalog = normalizeCatalogRequest(raw.catalog_request, current)
   const requests = currentRequests(raw, current), answer = currentAnswer(raw, current, pending)
@@ -78,10 +80,10 @@ function supportedPrimary(raw: Row, current: string, pending: Row, candidate: un
     || intent === 'ask_price' && requests.some(request => Array.isArray(request.topics) && request.topics.includes('purchase_price'))
     || intent === 'ask_financing' && requests.some(request => request.domain === 'financing')
     || intent === 'project_information' && (!!property || !!catalog || requests.some(request => request.domain === 'property'))
-    || intent === 'request_visit' && visit.kind === 'request_visit' && visit.confidence === 'high' && grounded(visit.evidence, current)
-    || ['request_reservation', 'ask_reservation'].includes(intent) && reservation.confidence === 'high'
+    || intent === 'request_visit' && visit.kind === 'request_visit' && acceptedExtractorConfidence(visit.confidence) && grounded(visit.evidence, current)
+    || ['request_reservation', 'ask_reservation'].includes(intent) && acceptedExtractorConfidence(reservation.confidence)
       && grounded(reservation.evidence, current) && reservation.kind === (intent === 'request_reservation' ? 'request' : 'information')
-  return supported ? primary(intent, semantics.primary_evidence) : null
+  return supported ? primary(intent, semantics) : null
 }
 
 /** Invoke only after the caller certifies and isolates a context-only budget.
@@ -102,13 +104,13 @@ export function reconcilePrimaryAfterBudgetIsolation(raw: Row, current: string, 
     const propertyRequest = requests.find(request => request.domain === 'property')
     // A selected operation already belongs to the validated block. Merely
     // accepting a proposal or supplying bedrooms never changes it to select.
-    next = property?.operation === 'select' ? primary('select_property', property.evidence)
-      : priceRequest ? primary('ask_price', priceRequest.evidence)
-        : financialRequest ? primary('ask_financing', financialRequest.evidence)
-          : answer ? primary('answer_previous', answer.evidence)
-            : property ? primary('project_information', property.evidence)
-              : propertyRequest ? primary('project_information', propertyRequest.evidence)
-                : catalog ? primary('project_information', catalog.evidence) : null
+    next = property?.operation === 'select' ? primary('select_property', property)
+      : priceRequest ? primary('ask_price', priceRequest)
+        : financialRequest ? primary('ask_financing', financialRequest)
+          : answer ? primary('answer_previous', answer)
+            : property ? primary('project_information', property)
+              : propertyRequest ? primary('project_information', propertyRequest)
+                : catalog ? primary('project_information', catalog) : null
   }
   return next ? { ...raw, turn_semantics: { ...semantics, ...next } } : null
 }

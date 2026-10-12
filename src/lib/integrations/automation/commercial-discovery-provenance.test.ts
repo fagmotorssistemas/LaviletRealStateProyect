@@ -72,8 +72,8 @@ for (const purpose of ['vivir', 'segunda_vivienda', 'negocio', 'invertir'])
     const data = info()
     data.lead = { purchase_purpose: purpose, preferred_category: 'suite' }
     const plan = commercialJourneyPlan(data)
-    assert.equal(plan.action, 'ask_budget')
-    assert.equal(plan.question_id, 'budget_amount')
+    assert.equal(plan.action, purpose === 'invertir' ? 'discover_use' : 'ask_budget')
+    assert.equal(plan.question_id, purpose === 'invertir' ? 'property_category' : 'budget_amount')
     assert.equal(commercialSelectionQuery(data).category, null, 'An unrelated CRM category does not choose the next type')
     assert.equal(commercialSelectionQuery(data).group, purpose === 'invertir' ? null : purpose === 'negocio' ? 'commercial' : 'residential')
   })
@@ -134,7 +134,7 @@ test('investment without an asset choice cannot acquire housing scope from an in
   const data = info()
   data.lead = { purchase_purpose: 'invertir', preferred_category: 'suite' }
   data.property_context = { query: { group: 'residential', category: 'suite' }, selected_ids: [] }
-  assert.equal(commercialJourneyPlan(data).action, 'ask_budget')
+  assert.equal(commercialJourneyPlan(data).action, 'discover_use')
   data.hechos_confirmados = { budget: { status: 'maximum_total', amount: 600000, evidence: 'Tengo 600000 para la compra', confidence: 'high' } }
   const plan = commercialJourneyPlan(data)
   assert.equal(plan.action, 'discover_use')
@@ -159,7 +159,7 @@ test('legacy advanced category decisions retain their scope without reopening in
   data.property_context = { phase: 'choose_floor', query: { category: 'departamento', group: 'residential', filters: { bedrooms: 3 } }, selected_ids: [] }
   assert.equal(commercialJourneyPlan(data).action, 'ask_budget')
   data.hechos_confirmados = { budget: { status: 'maximum_total', amount: 600000, evidence: 'Tengo 600000 para la compra', confidence: 'high' } }
-  assert.equal(commercialJourneyPlan(data).question_id, 'property_purpose', 'A known asset is preserved while its purchase purpose is still missing')
+  assert.equal(commercialJourneyPlan(data).question_id, 'property_floor', 'A known asset continues physical selection without an obligatory purchase-purpose question')
   data.lead = { purchase_purpose: 'vivir' }
   assert.equal(commercialJourneyPlan(data).question_id, 'property_floor')
 })

@@ -250,8 +250,7 @@ test('uncertain, mixed and foreign scope keep independent request domains despit
 
 test('low certainty, genuine other intents and action intents do not receive informational-domain reconciliation', () => {
   for (const [primary_intent, confidence, requestConfidence] of [
-    ['project_information', 'medium', 'high'], ['project_information', 'low', 'high'],
-    ['project_information', 'high', 'medium'], ['project_information', 'high', 'low'],
+    ['project_information', 'low', 'high'], ['project_information', 'high', 'low'],
     ['other', 'high', 'high'], ['request_visit', 'high', 'high'], ['ask_financing', 'high', 'high'],
   ]) {
     const input = informationalContradiction('¿Cómo funciona ese servicio?')
@@ -261,6 +260,22 @@ test('low certainty, genuine other intents and action intents do not receive inf
     assert.equal(result.requests[0].domain, 'other')
     assert.equal(result.scope.kind, 'neutral')
     assert.equal(result.requested_action, null)
+  }
+})
+
+test('medium current informational intent and request reconcile without promoting confidence or authorizing an action', () => {
+  for (const [confidence, requestConfidence] of [['medium', 'high'], ['high', 'medium'], ['medium', 'medium']]) {
+    const input = informationalContradiction('¿Cómo funciona ese servicio?')
+    input.semantics.confidence = confidence
+    input.requests[0].confidence = requestConfidence
+    const original = structuredClone(input)
+    const result = resolveTurnIntent(input)
+    assert.equal(result.requests[0].domain, 'property')
+    assert.equal(result.requests[0].confidence, requestConfidence)
+    assert.equal(result.objective, 'project_information')
+    assert.equal(result.scope.kind, 'property')
+    assert.equal(result.requested_action, null)
+    assert.deepEqual(input, original)
   }
 })
 

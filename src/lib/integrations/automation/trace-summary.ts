@@ -1,3 +1,5 @@
+import { postgresSafeText, preparePostgresJson, truncateUnicode } from './postgres-json'
+
 type Summary = Record<string, unknown>
 
 const internalIdKey = /^(?:id|policy_id|batch_id|batch_event_ids|event_id|event_ids|conversation_id|lead_id|unit_id|unit_ids|candidate_unit_ids|selected_unit_ids|result_unit_ids|reference_unit_ids|target_ids|candidate_ids|focused_ids|offered_ids|comparison_ids)$/
@@ -9,7 +11,7 @@ const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|acce
 /** Audit previews are deliberately smaller than the protected conversation history. */
 export function traceText(value: unknown, max = 360) {
   const content = typeof value === 'string' ? value : ''
-  return content
+  const protectedText = content
     .replace(/https?:\/\/[^\s<>]+/gi, raw => {
       try {
         const url = new URL(raw)
@@ -19,7 +21,8 @@ export function traceText(value: unknown, max = 360) {
     .replace(/\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]+/gi, '[credencial protegida]')
     .replace(/[\w.+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}/g, '[correo protegido]')
     .replace(/(?:\+?\d[\s().-]*){10,}/g, '[dato protegido]')
-    .replace(/\s+/g, ' ').trim().slice(0, max)
+    .replace(/\s+/g, ' ').trim()
+  return truncateUnicode(postgresSafeText(protectedText).value, max)
 }
 
 /** Apply on write and read, including legacy summaries. Never log provider bodies. */
@@ -38,9 +41,10 @@ export function sanitizeTraceSummary(value: unknown): Summary {
     seen.add(input)
     if (Array.isArray(input)) return input.slice(0, 40).map(item => clean(item, depth + 1, key))
     return Object.fromEntries(Object.entries(input).slice(0, 80)
-      .map(([name, item]) => [name.slice(0, 80), clean(item, depth + 1, name)]))
+      .map(([name, item]) => [truncateUnicode(name, 80), clean(item, depth + 1, name)]))
   }
-  return value && typeof value === 'object' && !Array.isArray(value) ? clean(value, 0) as Summary : {}
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? preparePostgresJson(clean(value, 0)).value as Summary : {}
 }
 
 /** Bounded, privacy-filtered writer input; kept separately from abbreviated previews. */
@@ -65,8 +69,9 @@ export function sanitizePromptSnapshot(value: unknown): Summary {
           catch { return raw }
         })
       filtered ||= protectedText !== input
-      const result = protectedText.slice(0, remaining)
-      limited ||= result.length < protectedText.length
+      const safeText = postgresSafeText(protectedText).value
+      const result = truncateUnicode(safeText, remaining)
+      limited ||= result.length < safeText.length
       remaining -= result.length
       return result
     }
@@ -78,11 +83,11 @@ export function sanitizePromptSnapshot(value: unknown): Summary {
     const entries = Object.entries(input)
     if (entries.length > 300) limited = true
     if (Array.isArray(input)) return input.slice(0, 300).map(item => clean(item, depth + 1, key, schema))
-    return Object.fromEntries(entries.slice(0, 300).map(([name, item]) => [name.slice(0, 80), clean(item, depth + 1, name, schema || name === 'response_schema')]))
+    return Object.fromEntries(entries.slice(0, 300).map(([name, item]) => [truncateUnicode(name, 80), clean(item, depth + 1, name, schema || name === 'response_schema')]))
   }
   const result = clean({ instructions: row.instructions, user_prefix: row.user_prefix, data: row.data, response_schema: row.response_schema,
     ...(version ? { capture_version: version, request_parameters: row.request_parameters } : {}) }) as Summary
-  return { ...result, privacy_filtered: filtered, limited: limited || row.limited === true }
+  return preparePostgresJson({ ...result, privacy_filtered: filtered, limited: limited || row.limited === true }).value as Summary
 }
 
 export function traceErrorCode(error: unknown) {

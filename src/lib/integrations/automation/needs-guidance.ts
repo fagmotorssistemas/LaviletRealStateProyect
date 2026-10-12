@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 
 /** The same instructions and code-owned guidance reach every final writer route.
@@ -27,16 +28,16 @@ export function needsSupplementaryFeatures(verified: Row): boolean {
   const requests = [...shared, ...interpreted.filter(value => !sharedIdentities.has(identity(object(value))))].map(object)
   // An initial, interpreted project question can need features the customer
   // cannot name. Preserve their full evidence without creating a preference.
-  const initialInformation = semantics.primary_intent === 'project_information' && semantics.confidence === 'high'
+  const initialInformation = semantics.primary_intent === 'project_information' && acceptedExtractorConfidence(semantics.confidence)
     && property.operation === 'none' && request.purpose === 'none'
-    && requests.some(value => value.domain === 'property' && value.confidence === 'high'
+    && requests.some(value => value.domain === 'property' && acceptedExtractorConfidence(value.confidence)
       && value.source !== 'pending' && !!text(value.evidence).trim())
   return initialInformation || ['details', 'compare'].includes(text(request.purpose))
     || ['details', 'compare'].includes(text(property.operation))
     || Array.isArray(request.semantic_preferences) && request.semantic_preferences.length > 0
     || Array.isArray(semantics.housing_quantities) && semantics.housing_quantities.some(value => {
       const quantity = object(value)
-      return quantity.confidence === 'high' && quantity.role === 'evaluation'
+      return acceptedExtractorConfidence(quantity.confidence) && quantity.role === 'evaluation'
     })
 }
 

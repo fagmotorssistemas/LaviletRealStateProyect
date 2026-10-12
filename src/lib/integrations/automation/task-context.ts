@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { supplementaryFeatureFacts } from './needs-guidance'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
@@ -34,7 +35,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   const collectionOnly = !!audit.financing_collection && !domains.has('visit') && !domains.has('property')
   const budget = object(object(verified.semantica_turno).budget)
   const effectiveBudget = leadBudget(verified)
-  const newBudget = budget.confidence === 'high' && ['amount', 'maximum_total'].includes(text(budget.status))
+  const newBudget = acceptedExtractorConfidence(budget.confidence) && ['amount', 'maximum_total'].includes(text(budget.status))
   const journey = object(verified.siguiente_paso_comercial)
   const selectionRequired = source === 'financing_selection_required'
     || journey.action === 'select_property' && ['property_category', 'property_floor', 'unit_choice'].includes(text(journey.question_id))
@@ -46,8 +47,8 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   // Classification has already been reconciled in the shared turn contract.
   // Catalogue needs and compound requests take precedence over the route.
   const overview = source === 'project_overview' && intent.objective === 'project_information'
-    && semantics.primary_intent === 'project_information' && semantics.confidence === 'high'
-    && requests.length === 1 && requests[0].confidence === 'high' && requests[0].domain === 'property'
+    && semantics.primary_intent === 'project_information' && acceptedExtractorConfidence(semantics.confidence)
+    && requests.length === 1 && acceptedExtractorConfidence(requests[0].confidence) && requests[0].domain === 'property'
     && !finance && (!budget.status || budget.status === 'not_discussed') && effectiveBudget.status === 'not_discussed'
     && !hasValues(intent.required_facts) && !hasValues(intent.subject)
     && !['mixed', 'out_of_scope', 'uncertain', 'clarify_scope'].includes(text(object(intent.scope).kind))
@@ -64,7 +65,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     && !text(object(verified.lead).unit_id)
     && !hasValues(object(verified.referencia_unidad).matches) && object(verified.referencia_unidad).needsClarification !== true
   const broadInformation = !finance && !newBudget && domains.size <= 1 && requests.length === 1 && requests[0].domain === 'property'
-    && (!requests[0].confidence || requests[0].confidence === 'high') && (!semantics.confidence || semantics.confidence === 'high')
+    && (!requests[0].confidence || acceptedExtractorConfidence(requests[0].confidence)) && (!semantics.confidence || acceptedExtractorConfidence(semantics.confidence))
     && (!budget.status || budget.status === 'not_discussed') && effectiveBudget.status === 'not_discussed' && !hasValues(intent.required_facts)
     && !text(object(verified.lead).unit_id)
     && !query.category && !query.group && (!query.operation || ['none', 'search'].includes(text(query.operation)))
@@ -82,7 +83,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   // retain their detailed evidence, even while the next step asks for bedrooms.
   const categoryOverview = source === 'catalog_search' && !finance && !newBudget
     && domains.size === 1 && domains.has('property') && requests.length === 1
-    && requests[0].confidence === 'high' && semantics.confidence === 'high'
+    && acceptedExtractorConfidence(requests[0].confidence) && acceptedExtractorConfidence(semantics.confidence)
     && semantics.primary_intent === 'project_information' && !rows(intent.required_facts).length
     && query.operation === 'search' && !!(query.group || query.category) && !query.selector
     && !hasValues(query.filters) && !rows(query.requirements).length

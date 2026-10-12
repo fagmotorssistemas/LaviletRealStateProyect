@@ -76,9 +76,18 @@ test('commercial code separators, zero padding and common joined residential spe
 
 test('information, declined, unconfident and unevidenced requests cannot execute a handoff', () => {
   const current = 'Quiero separar el 605'
-  for (const extra of [{ kind: 'information' }, { kind: 'declined' }, { kind: 'none' }, { confidence: 'medium' }, { evidence: '' }, { evidence: 'Solicito reservar mañana' }]) {
+  for (const extra of [{ kind: 'information' }, { kind: 'declined' }, { kind: 'none' }, { confidence: 'low' }, { evidence: '' }, { evidence: 'Solicito reservar mañana' }]) {
     assert.equal(reservationRequest(reservation(current, ['605'], extra), [message(current)], catalog, []), null)
   }
+})
+
+test('medium explicit reservation proof selects only the currently requested available unit', () => {
+  const current = 'Quiero separar el 605'
+  const proof = reservation(current, ['605'], { confidence: 'medium' })
+  const result = reservationRequest(proof, [message(current)], catalog, [catalog[0]])
+  assert.deepEqual(result.unit_ids, ['u605'], 'The explicit request does not restore a different previous selection')
+  assert.deepEqual(result.evidence_message_ids, ['m1'])
+  assert.equal(proof.confidence, 'medium')
 })
 
 test('current local negation cannot be cut away from permission, while refusal of a different proposal still permits a new request', () => {

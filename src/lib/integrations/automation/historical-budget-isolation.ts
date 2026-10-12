@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { financingAmountStatements } from './financing-amounts'
@@ -25,7 +26,7 @@ export function reconcileConfirmedBudgetEcho(raw: Row, input: Row, current: stri
     .some(message => contained(budget.evidence, message.content))
     && focusedNumericMentions(text(budget.evidence)).some(mention => mention.value === known.amount)
   if (!monetary.has(text(budget.status)) || !monetary.has(text(known.status))
-    || known.confidence !== 'high' || typeof known.amount !== 'number' || known.amount <= 0
+    || !acceptedExtractorConfidence(known.confidence) || typeof known.amount !== 'number' || known.amount <= 0
     || budget.amount !== known.amount || contained(budget.evidence, current)
     || !(contained(budget.evidence, known.evidence) || historicalQuote)) return { raw, fields: [] }
   // These are conservative vetoes, not vocabulary rules assigning a role.
@@ -36,12 +37,12 @@ export function reconcileConfirmedBudgetEcho(raw: Row, input: Row, current: stri
   const currentPhysicalNumbers = [
     ...rows(catalog?.requirements).filter(requirement => requirement.field !== 'published_commercial_price')
       .flatMap(requirement => [requirement.value, requirement.upper_value]),
-    ...rows(semantics.housing_quantities).filter(quantity => quantity.confidence === 'high' && contained(quantity.evidence, current))
+    ...rows(semantics.housing_quantities).filter(quantity => acceptedExtractorConfidence(quantity.confidence) && contained(quantity.evidence, current))
       .flatMap(quantity => Array.isArray(quantity.values) ? quantity.values : []),
     ...Object.entries(object(object(semantics.property).filters)).filter(([field]) =>
       contained(object(object(semantics.property).filter_evidence)[field], current))
       .flatMap(([, quantity]) => Array.isArray(quantity) ? quantity : [quantity]),
-    ...(object(semantics.property).confidence === 'high' && contained(object(semantics.property).evidence, current)
+    ...(acceptedExtractorConfidence(object(semantics.property).confidence) && contained(object(semantics.property).evidence, current)
       ? (Array.isArray(object(semantics.property).unit_numbers) ? object(semantics.property).unit_numbers as unknown[] : []).map(Number) : []),
   ].filter((number): number is number => typeof number === 'number' && Number.isFinite(number))
   if (/\b(?:presupuest\w*|entrad\w*|capital|credito|prestamo|financ\w*|dolar\w*|dinero|monto|fondos|ahorros|invertir|inversion)\b|[$€£]/.test(value)
@@ -77,6 +78,8 @@ export function isolateHistoricalBudget(previous: Row, merged: Row, repaired: Ro
     && ['non_current_evidence:primary_intent', 'missing_current_evidence:primary_intent'].includes(issue)
   if (!remaining.length || remaining.some(issue => !monetaryIssues.has(issue) && !primaryIssue(issue))) return null
   const certificate = object(repaired.budget_turn_use)
+  // This certificate discards a rejected monetary block during repair; it is
+  // independent of admission of current high/medium extractor declarations.
   if (!['context_only', 'none'].includes(text(certificate.kind)) || certificate.confidence !== 'high'
     || !contained(certificate.evidence, current)) return null
 

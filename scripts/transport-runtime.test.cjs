@@ -60,12 +60,105 @@ test('database maintenance completes even when the global send worker cannot acq
     './delivery-state': { ...require('../src/lib/integrations/automation/delivery-state.ts'), kommoDeliveryBlock: async () => null },
     './visits': { planVisits: async () => { calls.push(['plan']); return 2 }, pendingVisits: async () => { throw Error('SEND_WORKER_NOT_ACQUIRED') } },
     './transport-monitor': { syncTransportIncidents: async () => ({ missing: 0 }) },
+    './reply-registration': { ...require('../src/lib/integrations/automation/reply-registration.ts'),
+      recoverAcceptedReplyRegistrations: async guard => { await guard(); calls.push(['reply_registration_recovery']); return { repaired: 0, unresolved: 0 } } },
   })
   const result = await runAutomation()
   assert.equal(result.reason, 'worker_busy')
   assert.equal(result.maintenance[0].enqueued, 2)
+  assert.deepEqual(result.maintenance[0].reply_registrations, { repaired: 0, unresolved: 0 })
+  assert.equal(calls.filter(([name]) => name === 'reply_registration_recovery').length, 1)
+  assert.ok(calls.findIndex(([name]) => name === 'reply_registration_recovery')
+    < calls.findIndex(([name, args]) => name === 'lv_app_worker_lock' && args.p_action === 'acquire'))
   assert.equal(calls.find(([name]) => name === 'lv_app_finish')[1].p_status, 'completed')
   assert.equal(calls.some(([name]) => name === 'lv_app_claim'), false)
+})
+
+function registrationWorker({ failure, acceptedResult, finishFails = false } = {}) {
+  const calls = []
+  let claimed = false, finishFailurePending = finishFails
+  const registration = require('../src/lib/integrations/automation/reply-registration.ts')
+  const provider = require('../src/lib/integrations/automation/kommo.ts')
+  const { runAutomation } = load('src/lib/integrations/automation/worker.ts', {
+    './config': { assertLive() {}, automationSettings: () => ({ mode: 'live', globalMaintenance: false }) },
+    './data': { ...data, autoConfig: async () => ({ enabled: true, dry_run: false }),
+      db: () => { throw Error('UNEXPECTED_DIRECT_DATABASE_ACCESS') },
+      rpc: async (name, args) => {
+        calls.push({ name, args })
+        if (name === 'lv_app_claim_contact') {
+          if (claimed) return []
+          claimed = true
+          return [{ id: 'input-1', kind: 'inbound', contact_key: '42:100', payload: { kommoId: 42 } }]
+        }
+        if (name === 'lv_app_finish' && finishFailurePending) {
+          finishFailurePending = false
+          throw Error('RPC_LV_APP_FINISH_FAILED')
+        }
+        return true
+      } },
+    './conversation': { processConversation: async () => {
+      calls.push({ name: 'process_conversation' })
+      if (failure) throw failure
+      return acceptedResult
+    } },
+    './generation-recovery': { ...require('../src/lib/integrations/automation/generation-recovery.ts'),
+      recoverGenerationFailure: async () => { calls.push({ name: 'generation_recovery' }); throw Error('UNEXPECTED_RECOVERY_SEND') } },
+    './reply-registration': { ...registration,
+      preserveAcceptedReply: async checkpoint => { calls.push({ name: 'preserve_acceptance', checkpoint }) },
+      recoverAcceptedReplyRegistrations: async () => { throw Error('UNEXPECTED_CONTACT_MAINTENANCE') } },
+    './kommo': { ...provider,
+      launchSalesbot: async () => { calls.push({ name: 'publish' }); throw Error('UNEXPECTED_PROVIDER_PUBLICATION') },
+      setKommoField: async () => { calls.push({ name: 'provider_write' }); throw Error('UNEXPECTED_PROVIDER_WRITE') } },
+    './delivery-state': { ...require('../src/lib/integrations/automation/delivery-state.ts'), kommoDeliveryBlock: async () => null },
+    './nutrition': { cancelNutrition24h: async () => {} },
+    './nutrition-week-one': { cancelNutritionWeekOne: async () => {} },
+    './nutrition-later': { cancelNutritionLater: async () => {} },
+    './visits': { pendingVisits: async () => { throw Error('UNEXPECTED_GLOBAL_VISIT_WORKER') } },
+  })
+  return { calls, run: () => runAutomation('42:100'), registration }
+}
+
+test('known accepted registration failure keeps its checkpoint and never triggers generation recovery or a provider resend', async () => {
+  const { AcceptedReplyRegistrationError } = require('../src/lib/integrations/automation/reply-registration.ts')
+  const { OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')
+  for (const original of [Error('RPC_REGISTER_OUTBOUND_MESSAGE_22P05'), new OpenAIRequestError(503, true, 3)]) {
+    const checkpoint = { id: 'journal-1', key: '__reply_registration__:verified', contact: '42:100',
+      data: { delivery_state: 'accepted', registration_state: 'failed' } }
+    const h = registrationWorker({ failure: new AcceptedReplyRegistrationError(checkpoint, original) })
+    const result = await h.run()
+    const finish = h.calls.find(call => call.name === 'lv_app_finish').args
+    assert.equal(finish.p_status, 'uncertain')
+    assert.equal(finish.p_result.delivery_status, 'accepted')
+    assert.equal(finish.p_result.delivery_uncertain, false)
+    assert.equal(finish.p_result.registration_status, 'pending')
+    assert.equal(finish.p_result.reply_registration_checkpoint, checkpoint.key)
+    assert.equal(finish.p_result.recovery, 'registration_only')
+    assert.equal(finish.p_result.requires_review, true)
+    assert.equal(h.calls.filter(call => call.name === 'preserve_acceptance').length, 1)
+    assert.equal(h.calls.filter(call => call.name === 'process_conversation').length, 1)
+    assert.equal(h.calls.some(call => ['generation_recovery', 'publish', 'provider_write'].includes(call.name)), false)
+    assert.equal(result.results[0].delivery_status, 'accepted')
+    assert.equal(h.calls.at(-1).args.p_action, 'release')
+  }
+})
+
+test('a worker-finish failure after a normal accepted result retains registered delivery proof and its matching checkpoint', async () => {
+  const accepted = { action: 'accepted', delivery_status: 'accepted', registration_status: 'registered',
+    reply_registration_checkpoint: '__reply_registration__:normal-accepted' }
+  const h = registrationWorker({ acceptedResult: accepted, finishFails: true })
+  await h.run()
+  const finishes = h.calls.filter(call => call.name === 'lv_app_finish').map(call => call.args)
+  assert.equal(finishes.length, 2)
+  assert.equal(finishes[0].p_status, 'completed')
+  assert.equal(finishes[1].p_status, 'uncertain')
+  assert.equal(finishes[1].p_result.reason, 'RPC_LV_APP_FINISH_FAILED')
+  assert.equal(finishes[1].p_result.delivery_status, 'accepted')
+  assert.equal(finishes[1].p_result.delivery_uncertain, false)
+  assert.equal(finishes[1].p_result.registration_status, 'registered')
+  assert.equal(finishes[1].p_result.reply_registration_checkpoint, accepted.reply_registration_checkpoint)
+  assert.equal(finishes[1].p_result.recovery, 'registration_only')
+  assert.equal(h.calls.filter(call => call.name === 'process_conversation').length, 1)
+  assert.equal(h.calls.some(call => ['generation_recovery', 'publish', 'provider_write'].includes(call.name)), false)
 })
 
 test('reconciliation requires explicit review and provider evidence, invokes no send helper', async () => {
@@ -99,4 +192,23 @@ test('reconciliation endpoint rejects unreviewed requests and admits reviewed ad
   assert.equal(calls.length, 0)
   assert.equal((await POST(request(body))).status, 200)
   assert.equal(calls.length, 1)
+})
+
+test('sent reconciliation restores missing registration before releasing the contact; a repair failure cannot unlock', async () => {
+  const calls = []
+  let fail = true
+  const { reconcileDeliveryIncident } = load('src/lib/integrations/automation/delivery-state.ts', {
+    './historical-delivery-registration': { repairReviewedDeliveryRegistration: async input => {
+      calls.push(['repair', input])
+      if (fail) throw Error('DELIVERY_REGISTRATION_FULL_TRACE_REQUIRED')
+      return { repaired: true }
+    } },
+    './data': { ...data, rpc: async (name, args) => { calls.push([name, args]); return { reconciled: true, contact_key: '' } } },
+  })
+  const review = { outcome: 'sent', reviewed: true, providerMessageId: 'observed-1', reviewReference: 'Mensaje observado y revisado' }
+  await assert.rejects(reconcileDeliveryIncident('event-1', 'admin-1', review), /FULL_TRACE_REQUIRED/)
+  assert.deepEqual(calls.map(([name]) => name), ['repair'])
+  fail = false
+  await reconcileDeliveryIncident('event-1', 'admin-1', review)
+  assert.deepEqual(calls.map(([name]) => name), ['repair', 'repair', 'lv_app_reconcile_delivery'])
 })

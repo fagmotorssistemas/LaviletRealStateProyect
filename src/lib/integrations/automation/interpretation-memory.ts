@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { financingAmountStatements } from './financing-amounts'
 
@@ -10,7 +11,7 @@ const literal = (quote: unknown, source: unknown) => !!text(quote).trim()
   && text(source).normalize('NFKC').toLowerCase().includes(text(quote).trim().normalize('NFKC').toLowerCase())
 const quantityFields = ['dimension', 'values', 'role', 'count_basis']
 const propertyFields = ['group', 'category', 'excluded_categories', 'filters']
-const validBudget = (budget: Row) => budget.status && budget.status !== 'not_discussed' && budget.confidence === 'high'
+const validBudget = (budget: Row) => budget.status && budget.status !== 'not_discussed' && acceptedExtractorConfidence(budget.confidence)
   && text(budget.evidence).trim() && (!['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
     || typeof budget.amount === 'number' && Number.isFinite(budget.amount) && budget.amount > 0)
 const propertyValue = (row: Row): Row => ({ ...pick(row, propertyFields),
@@ -69,16 +70,16 @@ export function rememberInterpretationFacts(summary: Row, current: string, extra
     }
   }
   if (validBudget(budget) && literal(budget.evidence, current)) {
-    memory.budget = { ...pick(budget, ['status', 'amount', 'evidence']), confidence: 'high' }
+    memory.budget = { ...pick(budget, ['status', 'amount', 'evidence']), confidence: budget.confidence }
     delete memory.budget_revocation
   }
   const propertyHasValues = property.group || property.category || (Array.isArray(property.excluded_categories) && property.excluded_categories.length)
     || Object.keys(object(propertyValue(property).filters)).length
-  if (propertyHasValues && property.confidence === 'high' && literal(property.evidence, current)) {
+  if (propertyHasValues && acceptedExtractorConfidence(property.confidence) && literal(property.evidence, current)) {
     // This is the last declaration, not a reusable search/select operation.
-    memory.property = { ...pick(property, [...propertyFields, 'evidence']), confidence: 'high' }
+    memory.property = { ...pick(property, [...propertyFields, 'evidence']), confidence: property.confidence }
   }
-  const quantities = rows(semantics.housing_quantities).filter(row => row.confidence === 'high' && literal(row.evidence, current))
+  const quantities = rows(semantics.housing_quantities).filter(row => acceptedExtractorConfidence(row.confidence) && literal(row.evidence, current))
   if (quantities.length) {
     const domains = new Set(quantities.map(row => `${row.dimension}:${row.role}`))
     memory.housing_quantities = [...rows(memory.housing_quantities).filter(row => !domains.has(`${row.dimension}:${row.role}`)),
@@ -95,7 +96,7 @@ export function rememberInterpretationFacts(summary: Row, current: string, extra
 export function reconcileHistoricalInterpretation(raw: Row, current: string, summary: Row): { raw: Row; fields: string[] } {
   const known = confirmedInterpretationMemory(summary), semantics = { ...object(raw.turn_semantics) }
   const fields: string[] = []
-  const repeated = (proposed: Row, previous: Row, keys: string[]) => previous.confidence === 'high'
+  const repeated = (proposed: Row, previous: Row, keys: string[]) => acceptedExtractorConfidence(previous.confidence)
     && !literal(proposed.evidence, current) && literal(proposed.evidence, previous.evidence)
     && equal(pick(proposed, keys), pick(previous, keys))
   const budget = object(semantics.budget)

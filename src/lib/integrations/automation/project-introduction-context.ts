@@ -1,5 +1,7 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { normalizedRequestTopics } from './request-topics'
+import { groundedCurrentCategoryExclusions } from './purchase-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const hasValues = (value: unknown): boolean => value != null && value !== false && value !== ''
@@ -18,9 +20,9 @@ export function generalProjectIntroductionTurn(info: Row): boolean {
   const identities = new Set(shared.map(requestIdentity))
   const requests = [...shared, ...interpreted.filter(request => !identities.has(requestIdentity(request)))]
     .filter(request => request.domain !== 'courtesy')
-  if (semantics.primary_intent !== 'project_information' || semantics.confidence !== 'high'
+  if (semantics.primary_intent !== 'project_information' || !acceptedExtractorConfidence(semantics.confidence)
     || intent.objective !== 'project_information' || requests.length !== 1 || requests[0].domain !== 'property'
-    || requests[0].confidence !== 'high' || requests[0].source === 'pending'
+    || !acceptedExtractorConfidence(requests[0].confidence) || requests[0].source === 'pending'
     || hasValues(intent.required_facts) || hasValues(intent.subject)
     || ['mixed', 'out_of_scope', 'uncertain', 'clarify_scope'].includes(text(object(intent.scope).kind))
     || hasValues(info.limite_alcance)) return false
@@ -31,6 +33,11 @@ export function generalProjectIntroductionTurn(info: Row): boolean {
     && !(overviewOnly && ['residential', 'commercial'].includes(text(value)))
   const catalog = object(semantics.catalog_request || info.catalog_request), context = object(info.property_context), query = object(context.query)
   const lead = object(info.lead), known = object(object(info.conversacion).datos_conocidos)
+  const savedProperty = object(object(info.hechos_confirmados).property), preference = object(context.category_preference)
+  const confirmedCategory = preference.confirmed === true && hasValues(preference.category)
+    || groundedCurrentCategoryExclusions({ ...savedProperty, excluded_categories: [savedProperty.category] },
+      text(savedProperty.evidence)).includes(text(savedProperty.category))
+    || ['choose_floor', 'choose_unit', 'review_unit'].includes(text(context.phase)) && hasValues(query.category)
   const pending = [info.pregunta_pendiente, context.pending_question, intent.pending_question].map(object)
     .find(question => text(question.id) || text(question.act)) || {}
   // A presentation already followed by the brochure or a concrete commercial
@@ -39,9 +46,9 @@ export function generalProjectIntroductionTurn(info: Row): boolean {
     || object(info.estado_conversacion).presentation_sent === true
     || text(pending.act) && pending.act !== 'profile'
     || text(pending.id) && !text(pending.id).startsWith('lead_')
-    || ['preferred_category', 'purchase_purpose'].some(key => hasValues(lead[key]))
+    || confirmedCategory && hasValues(lead.preferred_category) || hasValues(lead.purchase_purpose)
     || ['preferred_bedrooms', 'budget', 'budget_max'].some(key => positiveAmount(lead[key]))
-    || ['categoria', 'proposito'].some(key => hasValues(known[key]))
+    || confirmedCategory && hasValues(known.categoria) || hasValues(known.proposito)
     || ['dormitorios', 'presupuesto'].some(key => positiveAmount(known[key]))) return false
   if (!['none', 'search', ''].includes(text(property.operation)) || !['none', ''].includes(text(property.reference_kind))
     || groupConstrainsRequest(property.group)
@@ -49,7 +56,8 @@ export function generalProjectIntroductionTurn(info: Row): boolean {
     || catalog.purpose && !['none', 'search'].includes(text(catalog.purpose))
     || ['metric', 'requirements', 'semantic_preferences'].some(key => hasValues(catalog[key]))
     || groupConstrainsRequest(query.group)
-    || ['category', 'filters', 'requirements', 'selector'].some(key => hasValues(query[key]))
+    || ['filters', 'requirements', 'selector'].some(key => hasValues(query[key]))
+    || hasValues(query.category) && (!overviewOnly || confirmedCategory)
     || query.operation && !['none', 'search'].includes(text(query.operation))
     || ['selected_ids', 'focused_ids', 'offered_ids', 'comparison_ids'].some(key => hasValues(context[key]))
     || text(lead.unit_id)
@@ -61,9 +69,17 @@ export function generalProjectIntroductionTurn(info: Row): boolean {
 /** Only a current, single, general project request receives the editable summary.
  * Specific or repeated requests retain their own response and next step. */
 export function projectIntroductionForTurn(info: Row): Row | null {
+  if (!generalProjectIntroductionTurn(info)) return null
+  return configuredProjectIntroduction(info)
+}
+
+/** Configuration authority is separate from eligibility. The opening planner
+ * also uses it for legacy callers that have no interpreted request contract. */
+export function configuredProjectIntroduction(info: Row): Row | null {
   const configured = object(info.configuracion_presentacion_proyecto || info.presentacion_general_proyecto)
-  if (configured.available !== true || !text(configured.summary) || !generalProjectIntroductionTurn(info)) return null
-  return { available: true, summary: text(configured.summary), source: text(configured.source), content_kind: 'approved_business_summary' }
+  return configured.available === true && text(configured.summary).trim()
+    ? { available: true, summary: text(configured.summary), source: text(configured.source), content_kind: 'approved_business_summary' }
+    : null
 }
 
 /** Remove the unspecialized configuration from every model projection. */

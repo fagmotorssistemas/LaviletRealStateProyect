@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test'), assert = require('node:assert/strict')
 const Module = require('node:module'), path = require('node:path'), originalLoad = Module._load
 Module._load = function (id, parent, main) {
@@ -37,7 +38,8 @@ test('each discovery question records the decision it supports, not engagement',
     assert.ok(question.purpose)
     assert.doesNotMatch(question.purpose,/generar interacción|mantener conversación/)
   }
-  assert.match(nextDiscoveryQuestion({preferred_category:'local'}).purpose,/no evaluar aprobación bancaria/)
+  assert.equal(nextDiscoveryQuestion({preferred_category:'local'}).key,'presupuesto')
+  assert.equal(nextDiscoveryQuestion({preferred_category:'local',budget:100000}).key,'prioridad')
 })
 
 test('attendance addressed to the team cannot become a new appointment', () => {
@@ -55,7 +57,7 @@ test('business hours are factual working windows and do not claim open appointme
   const hours={1:{open:'08:30',close:'18:30'},2:{open:'08:30',close:'18:30'},3:{open:'08:30',close:'18:30'},4:{open:'08:30',close:'18:30'},5:{open:'08:30',close:'18:30'},6:{open:'09:30',close:'13:30'}}
   const reply=visitBusinessHoursReply(hours,{slot:{}},'2026-09-14T17:00:00Z')
   assert.match(reply,/lunes a viernes de 08:30 a 18:30/)
-  assert.match(reply,/sábado de 09:30 a 13:30/)
+  assert.match(reply,/sábados? de 09:30 a 13:30/)
   assert.match(reply,/fecha y hora.*verificaremos la disponibilidad/)
   assert.doesNotMatch(reply,/tenemos.*disponible|Mapa:|confirmada/)
   const dated=visitBusinessHoursReply(hours,{slot:{requested_date:'2026-09-15'}},'2026-09-14T17:00:00Z')

@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
 import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, normalizedRequestTopics } from './request-topics'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
@@ -17,7 +18,7 @@ import { TURN_RULES, explicitlyRequestsVisit, visitRequestPermissionVeto } from 
 import { replyQuestions } from './reply-question'
 import { isBareAffirmative } from './conversation-next-step'
 import { asksUnitPrice } from './price-reply'
-import { LEAD_PROFILE_EXTRACTION_RULES, normalizeLeadProfile } from './lead-profile'
+import { currentProfileNameResponse, LEAD_PROFILE_EXTRACTION_RULES, needsProfileNameRecovery, normalizeLeadProfile, PROFILE_NAME_RECOVERY_RULES, requiresProfileNameAssessment } from './lead-profile'
 import { promptSections } from './prompt-sections'
 import { CATALOG_REQUEST_SCHEMA, CATALOG_REQUEST_RULES, catalogRequestStatus, normalizeCatalogRequest } from './catalog-request'
 import { FINANCING_IDENTITY_SCHEMA, FINANCING_IDENTITY_RULES } from './financing-identity'
@@ -39,6 +40,8 @@ const closedObject = (properties: Row): Row => ({ type: 'object', properties, re
 const nullableObject = (properties: Row): Row => ({ anyOf: [closedObject(properties), { type: 'null' }] })
 const confidence = { type: 'string', enum: ['high', 'medium', 'low'] }
 const requestDomains = ['property', 'visit', 'financing', 'advisor', 'tracking', 'courtesy', 'other'] as const
+const nameResponseProperties = { status: { type: 'string', enum: ['declared', 'not_declared', 'declined', 'uncertain'] },
+  evidence: { type: 'string' }, confidence }
 
 /** One versioned extraction contract. Unknown values stay null; actions still require server validation. */
 export const TURN_EXTRACTION_SCHEMA = closedObject({
@@ -59,6 +62,7 @@ export const TURN_EXTRACTION_SCHEMA = closedObject({
   financing_partner_choice: FINANCING_PARTNER_CHOICE_SCHEMA,
   material_request: MATERIAL_REQUEST_SCHEMA,
   full_name: nullableString,
+  name_response: nullableObject(nameResponseProperties),
   financing_identity: FINANCING_IDENTITY_SCHEMA,
   financing_amounts: FINANCING_AMOUNTS_SCHEMA,
   financing_quote: FINANCING_QUOTE_SCHEMA,
@@ -209,16 +213,16 @@ function evidencedActions(raw: Row, source: string, previousQuestion = '') {
   const acknowledgement = current.replace(/^[\s,]*(?:bueno|entonces)[\s,]+/i, '')
   const shortAcceptance = isBareAffirmative(acknowledgement) || /^(?:acepto|autorizo)(?:,? (?:por favor|gracias))?[.! ]*$/.test(message)
   const currentAnswer = object(object(raw.turn_semantics).answer_to_previous)
-  const semanticAcceptance = currentAnswer.kind === 'affirmative' && currentAnswer.confidence === 'high'
+  const semanticAcceptance = currentAnswer.kind === 'affirmative' && acceptedExtractorConfidence(currentAnswer.confidence)
     && evidenceMatches(text(currentAnswer.evidence), current)
   const concurrentDecision = (Array.isArray(raw.requests) ? raw.requests : []).map(object).some(request =>
-    !['tracking', 'courtesy'].includes(text(request.domain)) && request.confidence === 'high'
+    !['tracking', 'courtesy'].includes(text(request.domain)) && acceptedExtractorConfidence(request.confidence)
     && evidenceMatches(text(request.evidence), current))
   const trackingAnswer = supported('consent_granted') && actualTrackingInvitation && !refusedOrConditional.test(message)
     && (shortAcceptance || semanticAcceptance && !concurrentDecision)
   const optOut = explicitOptOut
   const advisorRequest = Array.isArray(raw.requests) && raw.requests.map(object).some(request =>
-    request.domain === 'advisor' && request.confidence === 'high' && evidenceMatches(text(request.evidence), current))
+    request.domain === 'advisor' && acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), current))
   return { requested_advisor: !advisorDeclined && (supported('requested_advisor') && (advisorRequest || !Array.isArray(raw.requests)) || advisorRequested), opt_out: optOut,
     tracking_consent: !optOut && (trackingAnswer || explicitConsent) }
 }
@@ -247,6 +251,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     return normalizeInactiveInterpretation(budgetQuestion.raw)
   }
   let recoveryIssues: string[] = []
+  let profileNameRecovery: Row = { attempted: false, status: 'not_needed' }
   let isolatedProperty = false
   let isolatedBudget = false
   const validationIssues = (value: Row) => [...new Set([
@@ -255,7 +260,10 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   if (method === 'model') {
     // Interpretation is shared by both retrieval routes. The feature switch
     // controls retrieval/context size, never the meaning of a requirement.
-    const extractionSchema = closedObject({ ...object(TURN_EXTRACTION_SCHEMA.properties), catalog_request: CATALOG_REQUEST_SCHEMA })
+    const nameAssessmentRequired = requiresProfileNameAssessment(input)
+    const extractionSchema = closedObject({ ...object(TURN_EXTRACTION_SCHEMA.properties),
+      ...(nameAssessmentRequired ? { name_response: closedObject(nameResponseProperties) } : {}),
+      catalog_request: CATALOG_REQUEST_SCHEMA })
     const prompt = await dependencies.activePrompt('extractor_eventos')
     const requestRules = `Contrato ${CONVERSATION_CONTRACT_VERSION}.\n${EXTRACTION_REQUEST_RULES}`
     const currentInstructions = compactFinancingExtraction(input) ? promptSections([
@@ -265,6 +273,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
       ['Temas actuales por solicitud', REQUEST_TOPICS_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
+      ['Interpretación del perfil pendiente', nameAssessmentRequired && LEAD_PROFILE_EXTRACTION_RULES],
     ]) : promptSections([
       ['Función y configuración del extractor', prompt],
       ['Fuente del turno y separación del historial', CURRENT_TURN_INTERPRETATION_RULE],
@@ -298,7 +307,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       || budgetQuestionBasis(pendingQuestionFromReply(previousQuestion))
     const roleCue = pendingQuestionFromReply(`¿${text(budget.evidence)}?`).id === 'budget_kind'
       || budgetQuestionBasis({ id: 'budget_amount', question: budget.evidence }) !== null
-    if (budget.status === 'amount' && budget.confidence === 'high' && evidenceMatches(text(budget.evidence), readable)
+    if (budget.status === 'amount' && acceptedExtractorConfidence(budget.confidence) && evidenceMatches(text(budget.evidence), readable)
       && (kindWasAsked || roleWasAsked || roleCue)) recoveryIssues.push('unresolved_budget_role')
     if (recoveryIssues.length) {
       const blocks = interpretationRepairBlocks(recoveryIssues)
@@ -366,6 +375,31 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       }
       if (remaining.length) throw new TurnInterpretationError(remaining)
     }
+    if (needsProfileNameRecovery(raw, readable, input)) {
+      // Only an omitted identity field is checked. Previously accepted profile,
+      // catalogue, money and permission blocks remain the same objects.
+      const before = object(normalizeLeadProfile(raw, readable, input).field_status).full_name
+      const repaired = await dependencies.aiJson(PROFILE_NAME_RECOVERY_RULES, {
+        mensaje_actual: readable,
+        pregunta_pendiente: { id: object(input.pregunta_pendiente).id,
+          question: object(input.pregunta_pendiente).question },
+        recuperacion_perfil: { fields: ['full_name'], preserve_other_fields: true,
+          reason: 'missing_name_in_current_profile_answer' },
+      }, closedObject({ full_name: nullableString,
+        profile_evidence: closedObject({ full_name: nullableString }),
+        name_response: closedObject(nameResponseProperties) }))
+      const response = currentProfileNameResponse(repaired, readable)
+      const candidate = normalizeLeadProfile(repaired, readable, input)
+      const accepted = response?.status === 'declared' && !!candidate.full_name
+      profileNameRecovery = { attempted: true, status: accepted ? 'recovered'
+        : response && response.status !== 'declared' ? response.status : 'invalid_result',
+        initial_field_status: before,
+        preserved_fields: ['residence', 'property', 'budget', 'requests', 'permissions'] }
+      if (accepted) raw = { ...raw, full_name: candidate.full_name,
+        profile_evidence: { ...object(raw.profile_evidence), full_name: object(candidate.evidence).full_name },
+        name_response: response }
+      else if (response) raw = { ...raw, name_response: response }
+    }
   }
   const withDiagnostics = (result: TurnInterpretation): TurnInterpretation => {
     result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed',
@@ -374,6 +408,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ...(isolatedBudget ? { contract: 'historical-budget-isolation-v1', isolated_fields: ['budget', 'financing_amounts', 'qualification.presupuesto_texto'],
         preserved_fields: ['property', 'requests', 'profile', 'permissions'], reason: 'current_request_with_context_only_budget' } : {}) }
     result.diagnostic.historical_reconciliation = { status: historicalFields.size ? 'confirmed_facts_preserved' : 'not_needed', fields: [...historicalFields] }
+    result.diagnostic.profile_name_recovery = profileNameRecovery
     const rebind = result.withActionMessage
     if (rebind) result.withActionMessage = message => withDiagnostics(rebind(message))
     return result
@@ -420,11 +455,11 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   const actualPendingQuestion = normalizedPendingQuestion(input.pregunta_pendiente)
   const partnerChoice = object(extracted.financing_partner_choice)
   if (actualPendingQuestion.id === 'financing_partner' && partnerChoice.kind === 'select'
-    && partnerChoice.confidence === 'high' && evidenceMatches(text(partnerChoice.evidence), actionMessage)) {
+    && acceptedExtractorConfidence(partnerChoice.confidence) && evidenceMatches(text(partnerChoice.evidence), actionMessage)) {
     const financingContext = object(input.financiamiento)
     const partnerInput = financingInputs({ ...extracted, turn_semantics: semantics }, actionMessage, lastQuestion,
       { partners: Array.isArray(financingContext.partners) ? financingContext.partners.map(text) : [], current: object(financingContext.current) })
-    const partnerAnswer = { question_id: 'financing_partner', kind: 'value', evidence: partnerChoice.evidence, confidence: 'high' }
+    const partnerAnswer = { question_id: 'financing_partner', kind: 'value', evidence: partnerChoice.evidence, confidence: partnerChoice.confidence }
     // The lender consumer validates the current entity and rejects an ordinary
     // terms/requirements question. Supplying that answer never grants consent.
     if (financingPartnerAnswer({ ...extracted, turn_semantics: { ...semantics, answer_to_previous: partnerAnswer } }, partnerInput)
@@ -444,7 +479,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
       'visit_request_is_refused_or_conditional']
   }
   const visitAnswer = text(actualPendingQuestion.id).startsWith('visit_')
-    && answer.question_id === actualPendingQuestion.id && answer.confidence === 'high'
+    && answer.question_id === actualPendingQuestion.id && acceptedExtractorConfidence(answer.confidence)
     && ['affirmative', 'value'].includes(text(answer.kind)) && evidenceMatches(text(answer.evidence), actionMessage)
   const physicalVisitRequest = actionMessage.split(/[.!?;\n]+|\bpero\b|\badem[aá]s\b/iu).some(clause => {
     const value = normalized(clause)
@@ -466,7 +501,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     === text(right).trim().normalize('NFKC').toLowerCase()
   const rawRequests = (Array.isArray(raw.requests) ? raw.requests : []).map(object)
   const reservation = object(semantics.reservation)
-  const reservationRequest = reservation.kind === 'request' && reservation.confidence === 'high'
+  const reservationRequest = reservation.kind === 'request' && acceptedExtractorConfidence(reservation.confidence)
     && evidenceMatches(text(reservation.evidence), actionMessage)
   const sharesReservationClause = (evidence: unknown) => {
     const quote = normalized(text(evidence)), reservationQuote = normalized(text(reservation.evidence))
@@ -477,7 +512,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     : /\b(?:asesor|asesora|humano|humana|llamada|llame|llamen)\b/.test(normalized(text(evidence)))
       && evidencedActions({ ...raw, action_evidence: { ...object(raw.action_evidence), requested_advisor: evidence } }, text(evidence)).requested_advisor
   const independentDomain = (domain: string) => rawRequests.some(request => request.domain === domain
-    && request.confidence === 'high' && evidenceMatches(text(request.evidence), actionMessage)
+    && acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), actionMessage)
     && (!sharesReservationClause(request.evidence) || explicitDomain(domain, request.evidence)))
   const reservationCollision = (request: Row) => reservationRequest && ['advisor', 'visit'].includes(text(request.domain))
     && sharesReservationClause(request.evidence) && !explicitDomain(text(request.domain), request.evidence)
@@ -500,19 +535,19 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
       'reservation_clause_reused_for_advisor']
   }
   const independentVisit = (Array.isArray(raw.requests) ? raw.requests : []).map(object).some(request =>
-    request.domain === 'visit' && request.confidence === 'high' && evidenceMatches(text(request.evidence), actionMessage)
+    request.domain === 'visit' && acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), actionMessage)
       && !sameEvidence(request.evidence, answer.evidence))
   // An acceptance answers a particular offer. The same clause cannot be reused
   // to accept a visit when the actual pending question asks about another
   // object; a separately evidenced visit request remains independent.
-  if (visit.kind === 'accept_visit_preference' && answer.confidence === 'high' && answer.question_id
+  if (visit.kind === 'accept_visit_preference' && acceptedExtractorConfidence(answer.confidence) && answer.question_id
     && !text(answer.question_id).startsWith('visit_') && sameEvidence(visit.evidence, answer.evidence) && !independentVisit) {
     extracted.visit_intent = null
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'visit_acceptance_belongs_to_other_question']
   }
   const visitIntent = object(extracted.visit_intent)
-  const evidencedVisitRequest = rawRequests.some(request => request.domain === 'visit' && request.confidence === 'high'
+  const evidencedVisitRequest = rawRequests.some(request => request.domain === 'visit' && acceptedExtractorConfidence(request.confidence)
     && evidenceMatches(text(request.evidence), actionMessage) && !reservationCollision(request)
     && explicitlyRequestsVisit(text(request.evidence)) && !visitRequestPermissionVeto(actionMessage, text(request.evidence)))
   const currentVisit = ['request_visit', 'accept_visit_preference'].includes(text(visitIntent.kind))
@@ -554,7 +589,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   // sole unit that happens to match it. Explicit codes and relative unit
   // selectors retain their separate meaning.
   if (currentProperty.operation === 'select' && propertyFilters.floor_number !== null
-    && propertyFilters.floor_number !== undefined && currentProperty.confidence === 'high'
+    && propertyFilters.floor_number !== undefined && acceptedExtractorConfidence(currentProperty.confidence)
     && evidenceMatches(text(object(currentProperty.filter_evidence).floor_number), actionMessage)
     && !(Array.isArray(currentProperty.unit_numbers) && currentProperty.unit_numbers.length) && !currentProperty.selector) {
     semantics.property = { ...currentProperty, operation: 'search', reference_kind: 'none', query_scope: 'catalog' }
@@ -610,11 +645,11 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
         'financing_consent_without_current_authorization']
     }
   }
-  const currentPositivePropertyRequest = requests.find(request => request.domain === 'property' && request.confidence === 'high'
+  const currentPositivePropertyRequest = requests.find(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)
     && evidenceMatches(text(request.evidence), readable)
     && !refusalOnlyStatement(evidenceMatches(text(request.request), readable) ? text(request.request) : text(request.evidence)))
   const noPositiveOperationalRequest = !requests.some(request => ['visit', 'financing', 'advisor', 'tracking'].includes(text(request.domain))
-    && request.confidence === 'high' && evidenceMatches(text(request.evidence), readable))
+    && acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), readable))
   const discardedOperationalScope = rejectedCurrentOperationalRequests.length > 0
     || ['ask_financing', 'request_visit'].includes(text(semantics.primary_intent)) && refusalOnlyStatement(text(semantics.primary_evidence))
   if (discardedOperationalScope) {
@@ -634,7 +669,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
       if (['other', 'ask_financing', 'request_visit', 'project_information'].includes(text(semantics.primary_intent))) {
         semantics.primary_intent = canonicalIntent
         semantics.primary_evidence = positivePropertyEvidence || null
-        semantics.confidence = currentPositivePropertyRequest ? 'high' : 'low'
+        semantics.confidence = currentPositivePropertyRequest ? currentPositivePropertyRequest.confidence : 'low'
         const decisions = object(semantics.interpretation).decisions
         semantics.interpretation = { ...object(semantics.interpretation), canonical_primary_intent: canonicalIntent,
           decisions: [...(Array.isArray(decisions) ? decisions : []), { code: 'current_positive_request_recovers_discarded_operational_scope' }] }
@@ -650,25 +685,25 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     ? rawInterpretationDecisions.map(object) : []
   const rejectedActionIntent = interpretationDecisions.some(decision => decision.code === 'reservation_intent_without_current_action_evidence')
     || Array.isArray(semantics.normalization_issues) && semantics.normalization_issues.includes('visit_event_without_current_request')
-  const currentPropertyRequest = requests.find(request => request.domain === 'property' && request.confidence === 'high'
+  const currentPropertyRequest = requests.find(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)
     && evidenceMatches(text(request.evidence), actionMessage))
   const hasCurrentAction = extracted.requested_advisor || extracted.opt_out || extracted.financing_consent === true || currentVisit
     || object(semantics.reservation).kind !== 'none'
     || requests.some(request => ['visit', 'financing', 'advisor', 'tracking'].includes(text(request.domain))
-      && request.confidence === 'high' && evidenceMatches(text(request.evidence), actionMessage))
+      && acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), actionMessage))
   const propertyContext = object(input.contexto_propiedades)
   const hasContextIds = (key: string) => { const ids = propertyContext[key]; return Array.isArray(ids) && ids.length > 0 }
   const hasKnownOptions = ['offered_ids', 'comparison_ids', 'selected_ids'].some(hasContextIds)
   const currentCatalogRequirements = object(semantics.catalog_request).requirements
   const currentQuantities = (Array.isArray(semantics.housing_quantities) ? semantics.housing_quantities : []).map(object)
   const evaluatedQuantity = currentQuantities.find(quantity => quantity.dimension === 'bedrooms' && quantity.role === 'evaluation'
-    && quantity.confidence === 'high' && evidenceMatches(text(quantity.evidence), actionMessage))
+    && acceptedExtractorConfidence(quantity.confidence) && evidenceMatches(text(quantity.evidence), actionMessage))
   const noCurrentFilters = !Object.values(object(property.filters)).some(value => value !== null && value !== undefined
     && (!Array.isArray(value) || value.length > 0))
   const currentPeopleContext = currentQuantities.find(quantity => quantity.dimension === 'people'
-    && ['context', 'evaluation'].includes(text(quantity.role)) && quantity.confidence === 'high'
+    && ['context', 'evaluation'].includes(text(quantity.role)) && acceptedExtractorConfidence(quantity.confidence)
     && evidenceMatches(text(quantity.evidence), actionMessage))
-  const currentOnlyPropertyRequests = requests.filter(request => request.domain === 'property' && request.confidence === 'high'
+  const currentOnlyPropertyRequests = requests.filter(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)
     && evidenceMatches(text(request.evidence), actionMessage))
   const knownReferenceInCurrentRequest = currentOnlyPropertyRequests.length === 1
     && /\b(?:(?:es(?:t)?[ao]s?|aquell[ao]s?|amb[ao]s?) (?:opciones?|alternativas?|unidades?|departamentos?|apartamentos?|penthouses?|suites?|viviendas?|inmuebles?)|(?:en|entre|de) (?:ellas|ellos|ambas|ambos))\b/.test(normalized(text(currentOnlyPropertyRequests[0].evidence)))
@@ -689,7 +724,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     const propertyRequestEvidence = currentOnlyPropertyRequests[0].evidence
     property = { ...property, group: property.group || knownGroup || null, operation: 'details', reference_kind: 'followup',
       query_scope: hasContextIds('comparison_ids') ? 'comparison' : hasContextIds('offered_ids') ? 'offered' : 'selected',
-      evidence: propertyRequestEvidence, confidence: 'high' }
+      evidence: propertyRequestEvidence, confidence: combinedExtractorConfidence(currentOnlyPropertyRequests[0].confidence, currentPeopleContext.confidence) }
     semantics.property = property
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'current_household_reference_restores_known_property_information']
@@ -697,7 +732,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     if (semantics.primary_intent !== 'ask_price' && !asksUnitPrice(actionMessage, true)) {
       semantics.primary_intent = 'project_information'
       semantics.primary_evidence = propertyRequestEvidence
-      semantics.confidence = 'high'
+      semantics.confidence = property.confidence
     }
     semantics.interpretation = { ...object(semantics.interpretation), canonical_primary_intent: semantics.primary_intent,
       decisions: [...(Array.isArray(priorDecisions) ? priorDecisions : []),
@@ -711,33 +746,34 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     && !['search', 'select', 'rank'].includes(text(object(semantics.catalog_request).purpose))) {
     property = { ...property, group: text(object(propertyContext.query).group) || property.group || 'residential',
       operation: 'details', reference_kind: 'followup', query_scope: hasContextIds('comparison_ids') ? 'comparison'
-        : hasContextIds('offered_ids') ? 'offered' : 'selected', evidence: currentPropertyRequest.evidence, confidence: 'high' }
+        : hasContextIds('offered_ids') ? 'offered' : 'selected', evidence: currentPropertyRequest.evidence,
+      confidence: combinedExtractorConfidence(currentPropertyRequest.confidence, evaluatedQuantity.confidence) }
     semantics.property = property
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'current_evaluation_restores_known_property_reference']
   }
   if (semantics.primary_intent === 'other' && rejectedActionIntent && object(semantics.reservation).kind === 'none'
-    && property.confidence === 'high' && ['details', 'compare'].includes(text(property.operation))
+    && acceptedExtractorConfidence(property.confidence) && ['details', 'compare'].includes(text(property.operation))
     && evidenceMatches(text(property.evidence), actionMessage)
-    && requests.some(request => request.domain === 'property' && request.confidence === 'high' && evidenceMatches(text(request.evidence), actionMessage))
+    && requests.some(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), actionMessage))
     && !requests.some(request => ['visit', 'financing', 'advisor', 'tracking'].includes(text(request.domain))
-      && request.confidence === 'high' && evidenceMatches(text(request.evidence), actionMessage))
+      && acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), actionMessage))
     && !extracted.requested_advisor && !extracted.opt_out && extracted.financing_consent !== true && !currentVisit
     && !(answer.kind === 'affirmative' && /^(?:si|claro|de acuerdo|esta bien|perfecto)(?:,? por favor)?[.! ]*$/.test(normalized(actionMessage)))) {
     semantics.primary_intent = 'project_information'
     semantics.primary_evidence = property.evidence
-    semantics.confidence = 'high'
+    semantics.confidence = combinedExtractorConfidence(property.confidence, currentPropertyRequest?.confidence)
     semantics.interpretation = { ...object(semantics.interpretation), canonical_primary_intent: 'project_information',
       decisions: [...interpretationDecisions, { code: 'current_property_information_recovers_unsupported_action_intent' }] }
   }
   // Exclusive evaluation of known options is informational even when an
   // unrelated high-level label disagrees. Quantity meaning and current source
   // are required together; an actual price question keeps its own objective.
-  const currentPropertyRequests = requests.filter(request => request.domain === 'property' && request.confidence === 'high'
+  const currentPropertyRequests = requests.filter(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)
     && evidenceMatches(text(request.evidence), actionMessage))
   const exclusiveCurrentEvaluation = evaluatedQuantity && hasKnownOptions && noCurrentFilters && !hasCurrentAction
     && !extracted.tracking_consent && currentPropertyRequests.length === 1
-    && property.confidence === 'high' && ['details', 'compare'].includes(text(property.operation))
+    && acceptedExtractorConfidence(property.confidence) && ['details', 'compare'].includes(text(property.operation))
     && evidenceMatches(text(property.evidence), actionMessage)
     && !currentQuantities.some(quantity => quantity.role === 'requirement')
     && !(Array.isArray(currentCatalogRequirements) && currentCatalogRequirements.length)
@@ -749,7 +785,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     if (semantics.primary_intent !== 'project_information') {
       semantics.primary_intent = 'project_information'
       semantics.primary_evidence = property.evidence
-      semantics.confidence = 'high'
+      semantics.confidence = combinedExtractorConfidence(property.confidence, evaluatedQuantity.confidence, currentPropertyRequests[0].confidence)
       semantics.interpretation = { ...object(semantics.interpretation), canonical_primary_intent: 'project_information',
         decisions: [...(Array.isArray(previousEvaluationDecisions) ? previousEvaluationDecisions : []),
           { code: 'current_evaluation_recovers_exclusive_informational_scope' }] }
@@ -762,17 +798,17 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     return Boolean(quote && budgetQuote && (quote.includes(budgetQuote) || budgetQuote.includes(quote)))
   }
   const exclusiveBudgetAnswer = ['budget_amount', 'budget_kind'].includes(pendingQuestionId)
-    && budgetAnswer.confidence === 'high' && budgetAnswer.status !== 'not_discussed'
+    && acceptedExtractorConfidence(budgetAnswer.confidence) && budgetAnswer.status !== 'not_discussed'
     && evidenceMatches(text(budgetAnswer.evidence), actionMessage) && property.operation === 'none'
     && !extracted.requested_advisor && !extracted.opt_out && extracted.financing_consent !== true && !currentVisit
     && object(semantics.reservation).kind === 'none'
-    && !requests.some(request => request.confidence === 'high' && evidenceMatches(text(request.evidence), actionMessage)
+    && !requests.some(request => acceptedExtractorConfidence(request.confidence) && evidenceMatches(text(request.evidence), actionMessage)
       && !['courtesy', 'tracking'].includes(text(request.domain)) && !sameBudgetClause(request.evidence))
   if (exclusiveBudgetAnswer && semantics.primary_intent !== 'discuss_budget') {
     const currentInterpretationDecisions = object(semantics.interpretation).decisions
     semantics.primary_intent = 'discuss_budget'
     semantics.primary_evidence = budgetAnswer.evidence
-    semantics.confidence = 'high'
+    semantics.confidence = budgetAnswer.confidence
     semantics.interpretation = { ...object(semantics.interpretation), canonical_primary_intent: 'discuss_budget',
       decisions: [...(Array.isArray(currentInterpretationDecisions) ? currentInterpretationDecisions : []),
         { code: 'current_budget_answer_recovers_exclusive_scope' }] }
@@ -783,6 +819,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     diagnostic: {
       contract_version: CONVERSATION_CONTRACT_VERSION, method,
       primary_intent: semantics.primary_intent, confidence: semantics.confidence,
+      confidence_policy: 'high_or_medium_with_current_evidence',
       interpretation: semantics.interpretation,
       housing_quantities: semantics.housing_quantities,
       household: semantics.household,
@@ -796,6 +833,9 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
       normalization_issues: semantics.normalization_issues || [],
       // No free-form financial/identity fields enter execution telemetry.
       discarded_request_count: Math.max(0, (Array.isArray(raw.requests) ? raw.requests.length : 0) - requests.length),
+      // An array keeps the field identifier as data, so the existing private
+      // full_name key filter cannot hide these value-free status diagnostics.
+      profile_fields: Object.entries(object(leadProfile.field_status)).map(([field, status]) => ({ field, ...object(status) })),
     },
   }
 }
@@ -805,7 +845,7 @@ export function rememberInterpretedTurn(previous: Row, current: string, extracte
   const facts = { ...object(previous.datos_confirmados) }
   if (extracted.preferred_category) facts.categoria = extracted.preferred_category
   if (extracted.purchase_purpose) facts.proposito = extracted.purchase_purpose
-  if (object(extracted.household).confidence === 'high') facts.household = extracted.household
+  if (acceptedExtractorConfidence(object(extracted.household).confidence)) facts.household = extracted.household
   const amounts = semantics.financing_amounts || extracted.financing_amounts
   const statements = Array.isArray(amounts) ? amounts.map(object) : []
   const entryAnswer = object(semantics.answer_to_previous).question_id === 'financing_down_payment'

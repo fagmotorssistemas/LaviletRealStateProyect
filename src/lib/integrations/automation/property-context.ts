@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { isBareAffirmative, unresolvedChoice } from './conversation-next-step'
 import { categoryInvitationTarget } from './category-offer'
@@ -9,6 +10,7 @@ import { resolveCatalogReference } from './catalog-reference'
 import { catalogQuery, filterCatalog, partitionCatalog } from './catalog-dialogue'
 import { normalizeCatalogRequest } from './catalog-request'
 import { showroomRequest } from './virtual-showroom'
+import { groundedCurrentCategoryExclusions } from './purchase-evidence'
 import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText, propertyFiltersWithQuantityMeaning, propertyPreferenceChange } from './turn-semantics'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
@@ -58,6 +60,15 @@ export function propertyContext(catalog: Row[], previous: unknown, history: unkn
   const reply = lastBot(history)
   const current: Row = { ...saved, version: 2, offered_ids: ids(saved.offered_ids), comparison_ids: ids(saved.comparison_ids), selected_ids: ids(saved.selected_ids), focused_ids: ids(saved.focused_ids),
     pending_question: normalizedPendingQuestion(saved.pending_question), query: object(saved.query) }
+  const exclusionSources = object(saved.category_exclusion_sources)
+  current.excluded_categories = ids(saved.excluded_categories).filter(category => {
+    const proof = object(exclusionSources[category])
+    // Legacy exclusions without source metadata remain intact. Only a recorded
+    // source that demonstrably cannot refer to this type may be discarded.
+    return !text(proof.evidence) || groundedCurrentCategoryExclusions({ confidence: 'high',
+      evidence: proof.evidence, excluded_categories: [category], reference_kind: proof.reference_kind },
+    text(proof.evidence), proof.pending_question).includes(category)
+  })
   // Legacy transcripts and an externally sent advisor message may differ from saved state.
   if (reply && reply !== saved.last_reply) {
     const mentioned = unitsInPropertyReply(catalog, reply)
@@ -114,10 +125,10 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     && /^(?:si\s+)?(?:por favor\s+)?(?:envieme|mandeme|compartame|muestreme)\s+(?:los\s+)?detalles(?:\s+por favor)?$/.test(m)
   const positive = acceptsDetails || /^(?:si(?: claro| por favor| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|revisemos|veamos|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)(?: gracias)?$/.test(m.replace(/[.!¡,]/g, '').trim())
   const confirmsSet = positive && ['choose_category', 'explore_alternatives'].includes(text(pending.act))
-  const semanticValid = semantic.confidence === 'high'
+  const semanticValid = acceptedExtractorConfidence(semantic.confidence)
   const semanticOperation = semanticValid && ['search', 'rank', 'compare', 'select', 'details'].includes(text(semantic.operation)) ? text(semantic.operation) : ''
   const category = semanticValid && !confirmsSet ? text(semantic.category) : ''
-  const excluded = semanticValid && !confirmsSet ? ids(semantic.excluded_categories) : []
+  const excluded = semanticValid && !confirmsSet ? groundedCurrentCategoryExclusions(semantic, current, pending) : []
   const eligible = (units: Row[]) => units.filter(unit => (!category || unit.category === category) && !excluded.includes(text(unit.category)))
   const fromIds = (value: unknown) => ids(value).flatMap(id => catalog.filter(unit => text(unit.id) === id))
   const previousQuery = object(context.query)
@@ -280,7 +291,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const statedNeeds = (Array.isArray(housingQuantities) ? housingQuantities.map(object) : [])
     .flatMap(quantity => {
       const values = quantity.values, evidence = text(quantity.evidence)
-      return quantity.dimension === 'bedrooms' && quantity.role === 'requirement' && quantity.confidence === 'high'
+      return quantity.dimension === 'bedrooms' && quantity.role === 'requirement' && acceptedExtractorConfidence(quantity.confidence)
         && Array.isArray(values) && values.length === 1 && typeof values[0] === 'number'
         && values[0] > 0 && evidence && m.includes(normalized(evidence)) ? [{ bedrooms: values[0], evidence }] : []
     })
@@ -299,7 +310,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.original_query = originalQuery
   }
   const previousBedrooms = bedroomRequirement(originalQuery)
-  const requestsAlternativeExploration = semanticValid && object(semantics).confidence === 'high'
+  const requestsAlternativeExploration = semanticValid && acceptedExtractorConfidence(object(semantics).confidence)
     && asksToExplore && !asksOnlyPrices && ['search', 'details', 'list'].includes(text(structured.purpose)) && currentBedroom !== null
     && previousBedrooms !== null && currentBedroom !== previousBedrooms && !groupChanged
     && !previousSelectedIds.length && !ids(semantic.unit_numbers).length && semanticOperation !== 'select'
@@ -334,7 +345,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     && (category || lexicalFilters.floor_number !== null) && ids(context.offered_ids).length) query.scope = 'offered'
   context.query = query
   if (groupChanged) context.original_query = {}
-  if (broadResidential) { context.preference_category = null; context.excluded_categories = []; context.selected_ids = []; context.comparison_ids = [] }
+  if (broadResidential) { context.preference_category = null; context.selected_ids = []; context.comparison_ids = [] }
   const result = (matches: Row[], reason: string, explicit = false, needsClarification = false) => {
     context.operation_resolution = { ...object(context.operation_resolution), applied: query.operation,
       ...(semanticOperation && query.operation !== semanticOperation ? { adjustment: reason } : {}) }
@@ -366,7 +377,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const informationPurpose = ['details', 'compare', 'count', 'list', 'range', 'min', 'max'].includes(text(structured.purpose))
   const informationOperation = ['details', 'compare', 'rank'].includes(semanticOperation)
   const visualRequest = !!showroomRequest(current, history)
-  const informationalRequest = semanticValid && object(semantics).confidence === 'high'
+  const informationalRequest = semanticValid && acceptedExtractorConfidence(object(semantics).confidence)
     && object(semantics).catalog_request_status !== 'invalid'
     && object(semantics).primary_intent !== 'select_property' && semanticOperation !== 'select'
     && (asksOnlyPrices || informationPurpose
@@ -467,7 +478,17 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   }
   if (category) {
     context.preference_category = category
-    context.excluded_categories = excluded
+    // Choosing a type can reopen that type. It does not revoke independently
+    // confirmed rejections of other types merely because they were not repeated.
+    context.excluded_categories = ids(context.excluded_categories).filter(value => value !== category)
+    const sources = { ...object(context.category_exclusion_sources) }; delete sources[category]
+    context.category_exclusion_sources = sources
+  }
+  if (excluded.length) {
+    context.excluded_categories = [...new Set([...ids(context.excluded_categories), ...excluded])]
+    context.category_exclusion_sources = { ...object(context.category_exclusion_sources), ...Object.fromEntries(excluded.map(category =>
+      [category, { evidence: text(semantic.evidence), reference_kind: semantic.reference_kind,
+        ...(text(object(pending.proposed_query).category) ? { pending_question: pending } : {}) }])) }
   }
   // Semantic explicit codes must actually occur in this message; history cannot fabricate them.
   const semanticNumbers = semanticValid ? ids(semantic.unit_numbers) : []
@@ -775,7 +796,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const rejectedChoice = previousAnswer.kind === 'negative'
     && normalized(text(previousAnswer.evidence)).includes(choiceEvidence)
   const currentChoice = semanticOperation === 'select' && semantic.reference_kind === 'followup'
-    && object(semantics).primary_intent === 'select_property' && object(semantics).confidence === 'high'
+    && acceptedExtractorConfidence(object(semantics).primary_intent === 'select_property' && object(semantics).confidence)
     && [semantic.evidence, object(semantics).primary_evidence].every(value => {
       const evidence = normalized(text(value))
       return !!evidence && m.includes(evidence)
@@ -864,7 +885,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // information turn, not a new choice. Resolve the already chosen subject
   // without changing the current action or interpreting it as fresh consent.
   const preservesSelectedSubject = previousSelectedIds.length > 0 && semanticValid
-    && object(semantics).confidence === 'high' && (operationalContinuation || selectedInformation)
+    && acceptedExtractorConfidence(object(semantics).confidence) && (operationalContinuation || selectedInformation)
     && !semanticOperation && !groupChanged && !selector && !hasCurrentFilters && !currentRequirements.length
     && !categoryPreference && !excluded.length && (!category || category === previousCategory)
     && selectedSubject.every(unit => !category || unit.category === category)
@@ -890,7 +911,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []; context.phase = null
     return result([], 'category_change')
   }
-  const neutralAnswer = object(semantics).primary_intent === 'answer_previous' && object(semantics).confidence === 'high'
+  const neutralAnswer = acceptedExtractorConfidence(object(semantics).primary_intent === 'answer_previous' && object(semantics).confidence)
     && !semanticOperation && !category && !excluded.length && !hasCurrentFilters && !currentRequirements.length
     && !groupChanged && !selector && !ids(semantic.unit_numbers).length
   if (neutralAnswer && previousSelectedIds.length) {

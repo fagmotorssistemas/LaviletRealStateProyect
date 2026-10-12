@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { commercialJourneyPlan } from './commercial-journey'
 import { budgetKindQuestion, budgetQuestion, leadBudget } from './budget-state'
@@ -35,7 +36,7 @@ export function tourContinuation(info: Row, unit: Row = {}, current = ''): TourC
     pending_question: id ? normalizedPendingQuestion({ id, question }) : {},
   })
   const semantics = object(info.semantica_turno)
-  if (['request_visit', 'ask_financing'].includes(text(semantics.primary_intent)) && semantics.confidence === 'high') {
+  if (['request_visit', 'ask_financing'].includes(text(semantics.primary_intent)) && acceptedExtractorConfidence(semantics.confidence)) {
     return answer('', 'requested_action_pending')
   }
   if (info.recorrido_comercial) {

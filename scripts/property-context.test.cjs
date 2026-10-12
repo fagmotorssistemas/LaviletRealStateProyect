@@ -62,7 +62,10 @@ test('contextual comparisons resolve arbitrary offered units even when the extra
     assert.equal(result.query.filters.bedrooms, bedrooms)
     assert.equal(result.context.filter_resolution.current.bedrooms, null)
     assert.equal(result.query.filters.floor_number, null)
-    assert.equal(result.context.filter_resolution.inherited.floor_number, floor)
+    // The normalizer rejects an uncited floor as a current declaration. The
+    // referenced catalogue remains its independent factual authority.
+    assert.equal(result.context.filter_resolution.inherited.floor_number, undefined)
+    assert.ok(result.matches.every(unit => unit.floor_number === floor))
     assert.equal(result.context.reference_resolution.source, 'pending_question')
     const reply = catalogDialogueReply({ catalogo: units, referencia_unidad: result, property_context: result.context })
     assert.equal(reply.audit.catalog_coverage.status, 'answered')

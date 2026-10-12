@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { unitTourUrl } from '@/lib/tour/unitModels'
 import { object, text, type Row } from './data'
 import { statedBudget } from './price-reply'
@@ -56,11 +57,11 @@ function mentionedCategory(current: string): PropertyCategory | null {
   return categories.length === 1 ? categories[0] : null
 }
 
-/** A mentioned objection is not a declared preference. High-confidence semantics
+/** A mentioned objection is not a declared preference. Accepted semantics
  * take precedence; the conservative fallback only accepts a positive clause. */
 export function preferredPropertyCategory(current: string, semantics?: unknown): PropertyCategory | null {
   const property = object(object(semantics).property)
-  if (property.confidence === 'high') {
+  if (acceptedExtractorConfidence(property.confidence)) {
     const category = categoryFrom(property.category)
     const excluded = Array.isArray(property.excluded_categories) ? property.excluded_categories : []
     return category && !excluded.includes(category) ? category : null
@@ -104,7 +105,7 @@ function categoryWasChosen(current: string, semantics?: unknown) {
   // Category preference may accompany a harder requirement. Let its dedicated
   // route answer that requirement before asking the generic budget question.
   if (/\b(?:precios?|valor|cuesta|financiamiento|credito|presupuesto|plantas?|pisos?|niveles?|dormitorios?|habitaciones?|cuartos?|metros|m2|terrazas?|patios?|jardines?|jardin|estudios?|oficinas?|piscinas?|balcones?|parqueaderos?|garajes?|visitas?|citas?)\b/.test(message)) return false
-  if (object(object(semantics).property).confidence === 'high') return object(semantics).primary_intent === 'select_property'
+  if (acceptedExtractorConfidence(object(object(semantics).property).confidence)) return object(semantics).primary_intent === 'select_property'
     || object(object(semantics).answer_to_previous).question_id === 'property_category'
     || /\b(?:prefiero|me interesa|elijo|escojo|quiero)\b/.test(message)
   if (/[?¿]/.test(current)) return false
@@ -136,7 +137,7 @@ function lastOutbound(info: Row) {
 
 function budgetFromInfo(info: Row, current = '') {
   const confirmed = effectiveTurnBudget(info)
-  if (confirmed.confidence === 'high' && ['amount', 'maximum_total', 'initial_capital'].includes(text(confirmed.status))
+  if (acceptedExtractorConfidence(confirmed.confidence) && ['amount', 'maximum_total', 'initial_capital'].includes(text(confirmed.status))
     && typeof confirmed.amount === 'number' && Number.isFinite(confirmed.amount) && confirmed.amount > 0) return confirmed.amount
   const direct = statedBudget(current)
   if (direct !== null) return direct
@@ -227,7 +228,7 @@ function explicitUnitSelection(info: Row, current: string) {
   const semantics = object(info.semantica_turno)
   const property = object(semantics.property)
   const semanticSelection = semantics.primary_intent === 'select_property'
-    && property.confidence === 'high' && ['explicit', 'relative'].includes(text(property.reference_kind))
+    && acceptedExtractorConfidence(property.confidence) && ['explicit', 'relative'].includes(text(property.reference_kind))
   const relativeSelection = ['relative_selection', 'confirmed_single_option'].includes(text(reference.reason))
   if (reference.explicit !== true && !semanticSelection && !relativeSelection) return null
   const message = normalized(current)

@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
 import { selectedFinancingUnit, financingStage } from './financing-stage'
@@ -22,7 +23,7 @@ const assetGroup = (category: unknown) => category === 'local' ? 'commercial' : 
 function declaredCommercialInterest(info: Row) {
   const context = object(info.property_context), query = object(context.query)
   const memory = object(info.hechos_confirmados), current = object(object(info.semantica_turno).property)
-  const usable = (value: Row) => value.confidence === 'high' && !!text(value.evidence).trim()
+  const usable = (value: Row) => acceptedExtractorConfidence(value.confidence) && !!text(value.evidence).trim()
     && !isPassivePurchaseEvidence(value.evidence)
   const currentProperty = usable(current) ? current : {}, saved = object(memory.property)
   const knownProperty = usable(saved) ? saved : {}
@@ -92,7 +93,7 @@ VISITAS: la visita espontánea va después de declinar la reserva y puede ayudar
 export function interpretCommercialJourney(previous: Row, semantics: Row, pending: Row, selectedIds: unknown): Row {
   const next = { ...previous }, answer = object(semantics.answer_to_previous)
   const selected = ids(selectedIds)
-  if (answer.confidence === 'high' && answer.question_id === pending.id) {
+  if (acceptedExtractorConfidence(answer.confidence) && answer.question_id === pending.id) {
     if (pending.id === 'reservation_invitation' && answer.kind === 'negative') {
       const targets = ids(pending.target_ids)
       next.reservation_declined_ids = [...new Set([...ids(previous.reservation_declined_ids), ...targets])]
@@ -100,7 +101,7 @@ export function interpretCommercialJourney(previous: Row, semantics: Row, pendin
     if (pending.id === 'visit_invitation' && answer.kind === 'negative') next.visit_declined = true
   }
   const reservation = object(semantics.reservation)
-  if (reservation.kind === 'declined' && reservation.confidence === 'high' && selected.length === 1)
+  if (reservation.kind === 'declined' && acceptedExtractorConfidence(reservation.confidence) && selected.length === 1)
     next.reservation_declined_ids = [...new Set([...ids(next.reservation_declined_ids), ...selected])]
   return next
 }
@@ -115,7 +116,7 @@ export function purchaseReadiness(info: Row): Row {
   const reviewedCoverage = financingAccepted && reviewedFinancingCovers(info, unit)
   const comparison = evaluateBudgetOptions({ budget, units: unit ? [unit] : [],
     pricesAuthorized: priceKnown, membershipComplete: !!unit })
-  const cash = !!unit && priceKnown && budget.confidence === 'high'
+  const cash = !!unit && priceKnown && acceptedExtractorConfidence(budget.confidence)
     && (comparison.universal_affordability_allowed === true
       || budget.status === 'sufficient_for_selected_unit' && budget.unit_id === unit.id)
   return { selected_unit_id: unit?.id || null, selected_unit_number: unit?.unit_number || null,
@@ -204,7 +205,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   let selectionScope = { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean), floors }
   const scopeKnown = !!selectionQuery.group || !!category || !!selected
   const amount = typeof budget.amount === 'number' && Number.isFinite(budget.amount) && budget.amount > 0 ? budget.amount : null
-  const comparable = budget.status === 'maximum_total' && amount !== null && budget.confidence === 'high' && scopeKnown
+  const comparable = budget.status === 'maximum_total' && amount !== null && acceptedExtractorConfidence(budget.confidence) && scopeKnown
   const authorizedPrices = object(info.politica_comercial).precios_autorizados === true
   const physicalCandidates = physicalPartition.units.filter(unit => !excluded.has(text(unit.category)))
   const physicalCategories = Object.keys(labels).filter(type => physicalCandidates.some(unit => unit.category === type))
@@ -223,7 +224,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     candidates: assessmentCandidates.map(unit => [text(unit.id), unit.published_commercial_price])
       .sort((left, right) => String(left[0]).localeCompare(String(right[0]))) })).digest('hex')
   const currentBudget = object(object(info.semantica_turno).budget)
-  const currentBudgetDeclaration = currentBudget.confidence === 'high' && currentBudget.status !== 'not_discussed' && !!text(currentBudget.evidence).trim()
+  const currentBudgetDeclaration = acceptedExtractorConfidence(currentBudget.confidence) && currentBudget.status !== 'not_discussed' && !!text(currentBudget.evidence).trim()
   const scopeChanged = state.budget_scope_key !== scopeKey
   const comparisonRequired = comparable && complete && assessmentCandidates.length > 0 && !affordable.length && !accepted
     && (currentBudgetDeclaration || scopeChanged)
@@ -322,8 +323,8 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
 
   const budgetDeferred = ids(object(info.memoria_comercial).deferred_fields).includes('presupuesto')
     && budget.source !== 'current_lead_statement'
-  if (!selected && !interest.known)
-    return plan('discover_use', 'Pregunte vivienda o local comercial sin dar por hecho uso personal ni negocio propio. Tipo de inmueble y finalidad son datos separados; una vivienda puede ser para vivir o arrendar.', '¿Le interesa una vivienda o un local comercial?', 'property_category')
+  if (!selected && !interest.category && !interest.group)
+    return plan('discover_use', 'Pregunte vivienda o local comercial sin dar por hecho uso personal ni negocio propio. Tipo de inmueble y finalidad son datos separados; una vivienda puede ser para vivir o arrendar. Conserve una finalidad de inversión ya declarada, pero inversión por sí sola no identifica el tipo de espacio y no autoriza saltar al presupuesto.', '¿Le interesa una vivienda o un local comercial?', 'property_category')
   if (!accepted && !passive && budget.answered !== true && !budgetDeferred) return {
     ...plan('ask_budget', selected
       ? 'Conserve la unidad de interés y responda la consulta actual. Recupere únicamente el presupuesto total aproximado que falta, sin reabrir tipo o planta ni repetir la ficha ya presentada.'
@@ -340,12 +341,12 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
 
   const currentSemantics = object(info.semantica_turno), currentAnswer = object(currentSemantics.answer_to_previous)
   const currentPreference = object(currentSemantics.property), currentFilters = object(currentPreference.filters)
-  const specificPreference = currentPreference.confidence === 'high' && !!text(currentPreference.evidence).trim()
+  const specificPreference = acceptedExtractorConfidence(currentPreference.confidence) && !!text(currentPreference.evidence).trim()
     && (text(currentPreference.category) || ids(currentPreference.unit_numbers).length || text(currentPreference.selector)
       || Object.values(currentFilters).some(value => typeof value === 'number' || Array.isArray(value) && value.length > 0)
       || rows(object(currentSemantics.catalog_request).requirements).length > 0
       || ids(object(currentSemantics.catalog_request).semantic_preferences).length > 0)
-  if (currentAnswer.kind === 'negative' && currentAnswer.confidence === 'high' && !!text(currentAnswer.evidence).trim()
+  if (currentAnswer.kind === 'negative' && acceptedExtractorConfidence(currentAnswer.confidence) && !!text(currentAnswer.evidence).trim()
     && ['property_category', 'property_floor', 'unit_choice'].includes(text(currentAnswer.question_id)) && !specificPreference)
     return { ...plan('clarify_preferences', 'Las opciones presentadas no le convencen y todavía no explicó qué cambiaría. Reconozca su respuesta y aclare qué le gustaría que tuviera la vivienda o el local. No repita la ficha, no suponga que el motivo es precio, no reinicie presupuesto y no sustituya sus necesidades por lo más barato.',
       '¿Qué le gustaría que tuviera la propiedad y que estas opciones no ofrecen?', 'property_requirements'), question_act: 'other' }
@@ -390,13 +391,14 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const comparedUnits = candidates.filter(unit => comparisonIds.includes(text(unit.id)))
   const comparing = comparedUnits.length > 1
   const informationalOnly = ['ask_price', 'project_information', 'ask_financing', 'ask_reservation', 'request_visit', 'request_reservation'].includes(currentIntent)
-  if (!accepted && !passive && !selected && comparing && uncertain.kind === 'uncertain' && uncertain.confidence === 'high'
+  if (!accepted && !passive && !selected && comparing && uncertain.kind === 'uncertain' && acceptedExtractorConfidence(uncertain.confidence)
     && !informationalOnly && !visitDeclined && state.visit_offered !== true && visitPolicy.allowSuggestions) return {
       ...plan('offer_visit', 'El cliente expresa dificultad para elegir entre opciones compatibles identificadas. Atienda primero su duda y ofrezca atención en el lugar habilitado para orientarle y comparar. No prometa planos disponibles, medidas de dormitorios ni capacidad de camas sin evidencia específica. La oficina en el sitio del proyecto no habilita acceso a la obra ni a unidades terminadas. Pregunte si desea coordinar esa atención; no confirme una cita ni solicite otra elección simultánea.', visitInvitation(text(info.modo_comercial), visitPolicy), 'visit_invitation'), visit_offer_allowed: true,
       comparison_unit_ids: comparedUnits.map(unit => text(unit.id)) }
   if (selected) return plan('clarify_purchase', 'Responda y aclare únicamente lo necesario para avanzar. Sin cobertura confirmada no ofrezca reserva. Respete la negativa a financiamiento.')
-  const exploringAlternatives = object(context.exploration_state).authorized === true
-  if (!purpose && !passive && !exploringAlternatives) return plan('discover_purpose', 'Pregunte el uso que aún falta sin repetir el tipo de espacio.', category === 'local' ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?' : '¿Lo busca para vivir o como inversión?', 'property_purpose')
+  // Intended use is independent of the asset. Preserve a volunteered purpose,
+  // but its absence must not interrupt asset -> budget -> physical needs.
+  // Investment alone still reaches discover_use above until the asset is known.
   const bedroomCondition = rows(selectionQuery.requirements).some(requirement => requirement.field === 'bedrooms')
   if (category !== 'local' && category !== 'suite' && !bedroomCondition && !filters.bedrooms && !(Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) && !lead.preferred_bedrooms)
     return plan('discover_bedrooms', 'Use la familia conocida, pero no convierta personas en dormitorios. Reconozca brevemente su respuesta y pregunte cuántos necesita, sin repetir dimensiones o fichas ya entregadas ni enumerar categorías por rutina. Retome una medida solo si la consulta actual la solicita o una comparación la requiere.', '¿Cuántos dormitorios necesita?', 'property_bedrooms')

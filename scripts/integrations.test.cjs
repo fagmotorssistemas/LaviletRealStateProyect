@@ -2646,7 +2646,7 @@ test('old summary declarations cannot overwrite a new search without current tex
   assert.equal(events.events.includes('declared_unit_type'), false)
 })
 test('discovery uses known facts and never asks bedroom count for commercial property', () => {
-  const lead = { preferred_category: 'local', purchase_purpose: 'negocio', behavior_signals: { sdr: { actividad_comercial: 'cafetería' } } }
+  const lead = { preferred_category: 'local', budget: 100000, purchase_purpose: 'negocio', behavior_signals: { sdr: { actividad_comercial: 'cafetería' } } }
   assert.equal(sdrRules.nextDiscoveryQuestion(lead).key, 'prioridad')
   assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 60_000).toISOString() }, []).ya_saludamos, true)
   assert.equal(sdrRules.sdrState({ last_bot_message_at: new Date(Date.now() - 86_400_000).toISOString() }, []).ya_saludamos, false)

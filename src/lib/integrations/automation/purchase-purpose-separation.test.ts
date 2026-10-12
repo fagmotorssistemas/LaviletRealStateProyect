@@ -99,11 +99,12 @@ test('an explicit or elliptical answer to the real intended-use question remains
   }
 })
 
-test('discovery separates a neutral asset choice from later intended-use collection', () => {
+test('discovery separates asset and volunteered intended use without making purpose an extra gate', () => {
   assert.equal(nextDiscoveryQuestion({}).question, '¿Le interesa una vivienda o un local comercial?')
-  assert.equal(nextDiscoveryQuestion({ preferred_category: 'departamento' }).key, 'proposito')
-  assert.equal(nextDiscoveryQuestion({ preferred_category: 'local' }).key, 'proposito')
-  assert.equal(nextDiscoveryQuestion({ preferred_category: 'local', purchase_purpose: 'invertir' }).key, 'prioridad')
+  assert.equal(nextDiscoveryQuestion({ preferred_category: 'departamento' }).key, 'presupuesto')
+  assert.equal(nextDiscoveryQuestion({ preferred_category: 'local' }).key, 'presupuesto')
+  assert.equal(nextDiscoveryQuestion({ preferred_category: 'departamento', budget: 400000 }).key, 'dormitorios')
+  assert.equal(nextDiscoveryQuestion({ preferred_category: 'local', budget: 400000, purchase_purpose: 'invertir' }).key, 'prioridad')
 })
 
 test('combined current name and residence cannot establish a future purchase purpose', async () => {

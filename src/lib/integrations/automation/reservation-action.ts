@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, type Row } from './data'
 import { operationalReservationInvitation, simpleReservationAcceptance, reservationInvitationUnitNumbers, explicitReservationAction } from './reservation-invitation'
 
@@ -18,9 +19,9 @@ const permissionText = (input: string) => normalize(input).normalize('NFD').repl
 
 /** A quoted wish cannot omit an unresolved prerequisite elsewhere in the turn.
  * This is a permission veto, not another classifier: an unconditional request
- * still requires the extractor's high-confidence, literal reservation proof. */
+ * still requires accepted extractor confidence and literal reservation proof. */
 export function reservationPermission(reservation: Row, current: string): Row {
-  if (reservation.kind !== 'request' || reservation.confidence !== 'high') return reservation
+  if (reservation.kind !== 'request' || !acceptedExtractorConfidence(reservation.confidence)) return reservation
   const turn = permissionText(current), proof = permissionText(value(reservation.evidence))
   if (!proof || !turn.includes(proof)) return reservation
   const pendingCheck = [...turn.matchAll(/\b(?:ver|saber|revisar|evaluar|comprobar|confirmar|averiguar)\s+(?:primero\s+)?si\s+([^.!?\n]+)/g)].some(match => {
@@ -74,7 +75,7 @@ function negatesQuotedPermission(before: string, evidence: string) {
 /** Select the persisted message supplying the proof, including batched turns. */
 export function reservationRequest(reservation: Row, messages: { externalId: string; text: string }[], catalog: Row[], selected: Row[]) {
   reservation = reservationPermission(reservation, messages.map(message => message.text).join('\n'))
-  if (reservation.kind !== 'request' || reservation.confidence !== 'high') return null
+  if (reservation.kind !== 'request' || !acceptedExtractorConfidence(reservation.confidence)) return null
   const evidence = value(reservation.evidence).trim()
   if (!evidence) return null
   if (!reservation.accepted_invitation && !explicitReservationAction(evidence)) return null

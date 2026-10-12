@@ -6,12 +6,15 @@ import { pendingQuestionFromReply } from './turn-semantics'
 import { categoryInvitationTarget } from './category-offer'
 import { operationalFinancingInvitation } from './financing-invitation'
 import { operationalReservationInvitation } from './reservation-invitation'
+import { actualFinancingEntryQuestion } from './financing-entry'
 
 /** A bounded recognition of the emitted question; an unknown paraphrase remains
  * unknown rather than receiving the planned meaning automatically. */
 export function actualContinuation(reply: string): Row {
   const question = replyQuestionText(reply), value = normalized(question)
   if (!question) return {}
+  const entryCollection = actualFinancingEntryQuestion(reply)
+  if (entryCollection) return entryCollection
   if (/\bo\b/.test(value) && /\b(?:reserva|reservar|separacion|separar)\b/.test(value)
     && /\b(?:visita|cita|financiamiento|credito)\b/.test(value)) return {}
   const inferred = pendingQuestionFromReply(reply)

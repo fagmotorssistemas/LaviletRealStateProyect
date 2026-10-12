@@ -91,7 +91,8 @@ test('greetings, concrete topics, compound requests, uncertainty and active unit
     ['presentation already delivered', input => { input.estado_conversacion = { presentation_sent: true } }],
     ['commercial pending question', input => { input.pregunta_pendiente = { id: 'property_category', act: 'discover' } }],
     ['known commercial preference', input => { object(input.lead).purchase_purpose = 'vivir' }],
-    ['known commercial context', input => { input.conversacion = { datos_conocidos: { categoria: 'suite' } } }],
+    ['known commercial context', input => { input.conversacion = { datos_conocidos: { categoria: 'suite' } }
+      input.hechos_confirmados = { property: { category: 'suite', evidence: 'Me interesa una suite', confidence: 'high' } } }],
     ['loan amount', input => { object(input.semantica_turno).budget = { status: 'initial_capital', amount: 200000, confidence: 'high' } }],
     ['catalog preferences', input => { object(object(input.semantica_turno).catalog_request).semantic_preferences = ['buenas vistas'] }],
   ]

@@ -6,6 +6,7 @@ const folder = __dirname
 const lib = name => require(path.join(folder, name+'.ts'))
 const profileFixture = require('./fixtures/extractor-profile-turn.json')
 const { BROCHURE_URL } = lib('project-material')
+const { projectIntroductionContext } = require('@/lib/inmobiliaria/projectIntroduction')
 const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
 
 function extractionFixture(input, invalid = false) {
@@ -25,16 +26,22 @@ function extractionFixture(input, invalid = false) {
     raw.declaration_evidence.purchase_purpose = current
     raw.turn_semantics.property.group = 'residential'
     raw.turn_semantics.property.evidence = current
+  } else if (current === 'Me llamo Carlos y soy de Cuenca') {
+    // Reproduce a semantically recognized name whose scalar value was omitted.
+    raw.name_response = { status: 'declared', evidence: 'Me llamo Carlos', confidence: 'high' }
+    raw.declared_location = { city: 'Cuenca', country: null, kind: 'origin', evidence: 'soy de Cuenca' }
+    raw.turn_semantics.primary_intent = 'answer_previous'
+    raw.turn_semantics.answer_to_previous = { question_id: 'lead_profile', kind: 'value', evidence: current, confidence: 'high' }
   } else if (current === 'Me llamo Carlos') {
     raw.full_name = 'Carlos'
     raw.profile_evidence.full_name = current
     raw.turn_semantics.primary_intent = 'answer_previous'
     raw.turn_semantics.answer_to_previous = { question_id: 'lead_profile', kind: 'value', evidence: current, confidence: 'high' }
-  } else if (current === 'Vivo en Cuenca') {
+  } else if (current === 'Vivo en Cuenca' || current === 'Si, si vivo en Cuenca') {
     raw.residence_city = 'Cuenca'
     raw.profile_evidence.residence_city = current
     raw.turn_semantics.primary_intent = 'answer_previous'
-    raw.turn_semantics.answer_to_previous = { question_id: 'lead_profile_residence', kind: 'value', evidence: current, confidence: 'high' }
+    raw.turn_semantics.answer_to_previous = { question_id: current.startsWith('Si,') ? 'lead_residence_confirmation' : 'lead_profile_residence', kind: 'value', evidence: current, confidence: 'high' }
   } else if (current === 'Unos 300 mil para la compra') {
     raw.turn_semantics.primary_intent = 'discuss_budget'
     raw.turn_semantics.answer_to_previous = { question_id: 'budget_amount', kind: 'value', evidence: current, confidence: 'high' }
@@ -49,6 +56,10 @@ function extractionFixture(input, invalid = false) {
     raw.events = ['declared_purchase_purpose']
   } else {
     raw.requests = [{ request: current, domain: 'property', evidence: current, confidence: 'high' }]
+    if (current === 'Hola quiero información') {
+      raw.turn_semantics.primary_intent = 'project_information'
+      raw.requests[0].topics = ['project_overview']
+    }
   }
   if (invalid) {
     raw.turn_semantics.property.group = 'residential'
@@ -73,29 +84,51 @@ async function conversationHarness({ current, messages, extractionFails = false,
   const rpcCalls = [], dbWrites = [], sent = [], tasks = [], steps = [], writerInputs = [], extractorInputs = [], turns = []
   const lead = { ...data.scope, id: '00000000-0000-4000-8000-000000000001', kommo_id: 101, bot_enabled: true, tracking_opt_out_at: null,
     name: 'Carlos', preferred_category: 'departamento', behavior_signals: {} }
-  const conversation = { ...data.scope, id: '00000000-0000-4000-8000-000000000002', lead_id: lead.id, summary: structuredClone(storedSummary) }
+  const conversation = { ...data.scope, id: '00000000-0000-4000-8000-000000000002', lead_id: lead.id, summary: JSON.stringify(storedSummary) }
   const catalog = [{ id: '00000000-0000-4000-8000-000000000202', category: 'departamento', unit_number: '202', floor_number: 2,
     bedrooms: 3, is_published: true, status: 'disponible', area_internal_m2: 120.83 },
     { id: '00000000-0000-4000-8000-000000000602', category: 'penthouse', unit_number: '602', floor_number: 6,
       bedrooms: 3, is_published: true, status: 'disponible', area_internal_m2: 140.53 }]
   const reply = 'Podemos revisar los departamentos de tres dormitorios disponibles en las plantas segunda a quinta.'
-  const context = { historial: structuredClone(history), resumen: conversation.summary, proyecto: { name: 'La Vilet' }, propuestas: proposals }
+  const context = { historial: structuredClone(history), resumen: JSON.parse(conversation.summary), proyecto: { name: 'La Vilet' }, propuestas: proposals }
   const configRow = { enabled: true, dry_run: false, test_only: false }
   let permissionChecks = 0, activeCurrent = current, lastQuestion = noQuestion
+  const journals = [], registeredMessages = []
   function query(table) {
+    const filters = [], value = (row, key) => key.includes('->>') ? row[key.split('->>')[0]]?.[key.split('->>')[1]] : row[key]
+    let update
+    const execute = single => {
+      let rows = table === 'lv_integration_events' ? journals : table === 'conversations' ? [conversation]
+        : table === 'messages' && filters.some(filter => filter.key === 'tool_calls->>source_message_id') ? registeredMessages : []
+      rows = rows.filter(row => filters.every(filter => filter.test(value(row, filter.key))))
+      if (update) {
+        for (const row of rows) Object.assign(row, structuredClone(update))
+        if (table === 'conversations') context.resumen = JSON.parse(conversation.summary)
+        if (table === 'leads') Object.assign(lead, update)
+      }
+      return { data: single ? table === 'lv_visit_intakes' ? visitDraft : table === 'projects' ? { policies_json: {} } : rows[0] || null
+        : table === 'projects' ? { policies_json: {} } : rows, error: null, count: rows.length }
+    }
     const builder = new Proxy({}, { get(_target, property) {
-      if (property === 'then') return (resolve, reject) => Promise.resolve({ data: table === 'projects' ? { policies_json: {} } : [], error: null, count: 0 }).then(resolve, reject)
+      if (property === 'then') return (resolve, reject) => Promise.resolve(execute(false)).then(resolve, reject)
+      if (property === 'eq' || property === 'gt' || property === 'is' || property === 'in') return (key, expected) => {
+        filters.push({ key, test: actual => property === 'eq' ? actual === expected : property === 'gt' ? actual > expected
+          : property === 'is' ? (actual ?? null) === expected : expected.includes(actual) })
+        return builder
+      }
+      if (property === 'match') return values => { for (const [key, expected] of Object.entries(values)) filters.push({ key, test: actual => actual === expected }); return builder }
+      if (property === 'upsert') return payload => {
+        dbWrites.push({ table, payload: structuredClone(payload) })
+        if (table === 'lv_integration_events' && !journals.some(row => row.event_key === payload.event_key)) journals.push({ id: 'journal-'+journals.length, ...structuredClone(payload) })
+        return builder
+      }
       if (property === 'update' || property === 'insert') return payload => {
         dbWrites.push({ table, payload: structuredClone(payload) })
-        if (table === 'conversations' && payload.summary) {
-          conversation.summary = typeof payload.summary === 'string' ? JSON.parse(payload.summary) : structuredClone(payload.summary)
-          context.resumen = conversation.summary
-        }
-        if (table === 'leads') Object.assign(lead, payload)
+        update = payload
         return builder
       }
       if (property === 'select') return () => builder
-      if (property === 'single' || property === 'maybeSingle') return async () => ({ data: table === 'lv_visit_intakes' ? visitDraft : table === 'projects' ? { policies_json: {} } : null, error: null })
+      if (property === 'single' || property === 'maybeSingle') return async () => execute(true)
       return () => builder
     } })
     return builder
@@ -115,7 +148,10 @@ async function conversationHarness({ current, messages, extractionFails = false,
         return { preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose }
       }
       if (name === 'lv_evaluate_message_interest_v2') return { action: 'continue', score: 0 }
-      if (name === 'register_outbound_message') return { id: 'outbound' }
+      if (name === 'register_outbound_message') {
+        registeredMessages.push({ conversation_id: args.p_conversation_id, role: 'bot', content: args.p_content, tool_calls: args.p_tool_calls })
+        return { id: 'outbound' }
+      }
       throw Error('Unexpected operational RPC: '+name)
     })
     replace(config, 'assertLive', () => {})
@@ -131,6 +167,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
     replace(sdr, 'publishedUnitCatalog', async () => catalog)
     replace(sdr, 'catalogSearchConfiguration', async () => ({ embeddingsEnabled: false }))
     replace(sdr, 'commercialContext', async (_lead, historical, profile) => ({ lead: structuredClone(_lead), catalogo: catalog, proyecto: { name: 'La Vilet' }, historial: historical || [],
+      configuracion_presentacion_proyecto: projectIntroductionContext({}, 'La Vilet'),
       politica_comercial: { precios_autorizados: false }, perfil_lead: profile || {}, catalog_read: { complete: true }, financiamiento: { partners: [], current: {} } }))
     replace(sdr, 'commercialReply', async () => ({ reply: 'Podemos revisar las opciones del proyecto. ¿Cuántos dormitorios necesita?', audit: { source: 'commercial' } }))
     replace(finance, 'financingContext', async () => financeState)
@@ -148,6 +185,10 @@ async function conversationHarness({ current, messages, extractionFails = false,
       activePrompt: async () => 'Fixture del extractor publicado',
       aiJson: async (_rules, raw) => {
         extractorInputs.push(structuredClone(raw))
+        if (_rules === lib('lead-profile').PROFILE_NAME_RECOVERY_RULES) return {
+          full_name: 'Carlos', profile_evidence: { full_name: 'Me llamo Carlos' },
+          name_response: { status: 'declared', evidence: 'Me llamo Carlos', confidence: 'high' },
+        }
         return extractionFixture(input, extractionFails)
       },
     }))
@@ -178,7 +219,11 @@ async function conversationHarness({ current, messages, extractionFails = false,
             next_decision: 'Continuar la guía personalizada.', continuation_id: profileId, continuation_act: 'profile' }
         } else {
           const journey = raw.contexto_verificado?.siguiente_paso_comercial || raw.estado_operativo.commercial_journey || {}
-          if (journey.action === 'ask_budget') {
+          if (journey.action === 'discover_use') {
+            proposed = 'Gracias. '+journey.question
+            lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Tipo de espacio',
+              next_decision: 'Consultar el presupuesto.', continuation_id: 'property_category', continuation_act: 'choose_category' }
+          } else if (journey.action === 'ask_budget') {
             proposed = 'Gracias. '+journey.question
             lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Presupuesto total',
               next_decision: 'Identificar los dormitorios necesarios.', continuation_id: 'budget_amount', continuation_act: 'budget' }
@@ -211,7 +256,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
           origin: 'whatsapp', externalId: 'fixture-message-'+index, kommoId: 101, contactId: 102, name: 'Carlos', text: message, sentAt: now } }], async () => {})
       } catch (error) { failure = error }
       const receipt = rpcCalls.slice(callStart).find(call => call.name === 'register_outbound_message')
-      turns.push({ current: message, result, failure, receipt, summary: structuredClone(conversation.summary),
+      turns.push({ current: message, result, failure, receipt, summary: JSON.parse(conversation.summary),
         rpcCalls: rpcCalls.slice(callStart), sent: sent.slice(sentStart), tasks: tasks.slice(taskStart), dbWrites: dbWrites.slice(writeStart),
         extractionCalls: extractorInputs.length-extractorStart, steps: steps.slice(stepStart) })
       context.historial.push({ role: 'cliente', content: message, sent_at: now })
@@ -222,6 +267,28 @@ async function conversationHarness({ current, messages, extractionFails = false,
 }
 
 const outbound = execution => execution.rpcCalls.find(call => call.name === 'register_outbound_message')
+test('the actual opening and compound profile exchange preserve the recovered name and advance to asset discovery', async () => {
+  for (const observationOnly of [false, true]) {
+    const execution = await conversationHarness({ messages: ['Hola quiero información', 'Me llamo Carlos y soy de Cuenca', 'Si, si vivo en Cuenca'],
+      observationOnly, reviewRejects: false })
+    for (const turn of execution.turns) assert.equal(turn.result?.action, 'accepted', turn.failure?.original?.stack || turn.failure?.stack)
+    const [opening, declared, confirmed] = execution.turns
+    assert.match(opening.receipt.args.p_content, /suites.*departamentos.*penthouses.*locales comerciales/,
+      JSON.stringify({ introduction: opening.receipt.args.p_tool_calls.profile_introduction,
+        query: opening.receipt.args.p_tool_calls.catalog_query, intent: opening.receipt.args.p_tool_calls.resolved_turn_intent }))
+    assert.doesNotMatch(opening.receipt.args.p_content, /49|subsuelos|pisos|m²/)
+    assert.equal(declared.extractionCalls, 2, 'Only the missing name receives a focused repair')
+    assert.equal(declared.summary._lead_profile.full_name, 'Carlos')
+    assert.equal(declared.summary._pending_question.id, 'lead_residence_confirmation')
+    assert.equal(confirmed.extractionCalls, 1, 'Residence confirmation does not re-extract the known name')
+    assert.equal(confirmed.summary._lead_profile.full_name, 'Carlos')
+    assert.deepEqual(confirmed.summary._lead_profile.sources.full_name, declared.summary._lead_profile.sources.full_name)
+    assert.equal(confirmed.summary._lead_profile.residence_city, 'Cuenca')
+    assert.equal(confirmed.summary._pending_question.id, 'property_category')
+    assert.match(confirmed.receipt.args.p_content, /vivienda.*local comercial/)
+    assert.doesNotMatch(confirmed.receipt.args.p_content, /su nombre|cómo se llama/)
+  }
+})
 const assertExtractionBlocked = execution => {
   assert.equal(execution.failure?.message, 'PRE_REPLY_SEND_FAILED')
   assert.equal(execution.failure.original?.name, 'Error')
@@ -323,7 +390,8 @@ test('normal and observation keep the same greeting, profile capture, one reside
     assert.equal(opening.profile_introduction.generic_introduction, true)
     assert.deepEqual(opening.profile_collection_decision.allowed_fields, ['full_name','current_residence'])
     assert.match(interest.receipt.args.p_content, /nombre.*ciudad o país reside actualmente/)
-    assert.doesNotMatch(interest.receipt.args.p_content, /departamentos|suites|penthouses|120|140/)
+    assert.match(interest.receipt.args.p_content, /suites.*departamentos.*penthouses.*locales comerciales/)
+    assert.doesNotMatch(interest.receipt.args.p_content, /120|140|m²|subsuelos/)
     assert.equal(interest.receipt.args.p_content.includes(BROCHURE_URL), false)
     assert.equal(interest.summary._lead_introduction.request_sent, true)
     assert.equal(interest.summary._pending_question.id, 'lead_profile')
@@ -378,9 +446,9 @@ test('normal and observation preserve housing interest, total budget and explici
     assert.equal(budget.summary._lead_profile.full_name, 'Carlos')
     assert.equal(budget.summary._lead_profile.residence_city, 'Cuenca')
     assert.equal(budget.summary._lead_introduction.reminder_count, 1)
-    assert.equal(budget.summary._pending_question.id, 'property_purpose')
-    assert.match(budget.receipt.args.p_content, /vivir.*inversión/i)
-    assert.doesNotMatch(budget.receipt.args.p_content, /presupuesto|entrada|su nombre|reside/i)
+    assert.equal(budget.summary._pending_question.id, 'property_bedrooms')
+    assert.match(budget.receipt.args.p_content, /cuántos dormitorios/i)
+    assert.doesNotMatch(budget.receipt.args.p_content, /presupuesto|entrada|su nombre|reside|vivir.*inversión/i)
     assert.equal(budget.receipt.args.p_content.includes(BROCHURE_URL), false)
     assert.equal(budget.summary._financing_journey?.accepted, undefined)
     assert.equal(budget.summary.datos_confirmados.proposito, undefined)

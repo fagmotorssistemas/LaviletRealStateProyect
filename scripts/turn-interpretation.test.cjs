@@ -383,7 +383,7 @@ test('a residence correction overrides a yes prefix or denial and cannot retain 
   assert.equal(changed.residence_candidate, null)
 })
 
-test('confirmation cannot be invented from history, medium confidence, a different question or mismatched target', async () => {
+test('confirmation cannot be invented from history, low confidence, a different question or mismatched target', async () => {
   for (const input of [
     {},
     { ...confirmationInput(), pregunta_pendiente: { id: 'visit_permission', residence_candidate: { city: 'Cuenca', country: null } } },
@@ -392,10 +392,16 @@ test('confirmation cannot be invented from history, medium confidence, a differe
     const result = await profileTurn('Sí', { residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'high' } }, input)
     assert.equal(result.extracted.residence_city, null)
   }
-  for (const [current, evidence, confidence] of [['Quiero el precio', 'Sí', 'high'], ['Sí', 'Sí', 'medium']]) {
+  for (const [current, evidence, confidence] of [['Quiero el precio', 'Sí', 'high'], ['Sí', 'Sí', 'low']]) {
     const result = await profileTurn(current, { residence_confirmation: { decision: 'confirm', evidence, confidence } }, confirmationInput())
     assert.equal(result.extracted.residence_city, null)
   }
+})
+
+test('medium residence confirmation is admitted with the actual pending target and retains its model label', async () => {
+  const result = await profileTurn('Sí', { residence_confirmation: { decision: 'confirm', evidence: 'Sí', confidence: 'medium' } }, confirmationInput())
+  assert.equal(result.extracted.residence_city, 'Cuenca')
+  assert.equal(result.extracted.lead_profile.residence_confirmation.confidence, 'medium')
 })
 
 test('pending origin survives unrelated turns and does not replace an already confirmed residence', async () => {

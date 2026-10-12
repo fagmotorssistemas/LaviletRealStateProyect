@@ -51,16 +51,13 @@ function discoveryQuestion(key: string, question: string) {
 export function nextDiscoveryQuestion(lead: Row): { key: string; question: string; purpose: string } {
   const sdr = object(object(lead.behavior_signals).sdr), category = text(lead.preferred_category)
   if (!category) return discoveryQuestion('categoria', '¿Le interesa una vivienda o un local comercial?')
-  if (!lead.purchase_purpose) return discoveryQuestion('proposito', category === 'local'
-    ? '¿Lo busca para su propio negocio o para invertir y arrendarlo?'
-    : '¿Lo busca para vivir o como inversión?')
+  if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return discoveryQuestion('presupuesto', '¿Qué presupuesto total aproximado tiene previsto para la compra?')
   if (category === 'local') {
     if (lead.purchase_purpose === 'negocio' && !sdr.actividad_comercial) return discoveryQuestion('actividad_comercial', '¿Qué tipo de negocio le gustaría instalar?')
     if (!sdr.prioridad) return discoveryQuestion('prioridad', '¿Qué sería lo más importante para usted al elegir el local?')
   } else {
-    if (['departamento', 'penthouse'].includes(category) && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return discoveryQuestion('dormitorios', '¿Cuántos dormitorios necesita?')
+    if (['vivienda', 'residential', 'departamento', 'penthouse'].includes(category) && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return discoveryQuestion('dormitorios', '¿Cuántos dormitorios necesita?')
   }
-  if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return discoveryQuestion('presupuesto', '¿Tiene un presupuesto aproximado en mente para orientar la búsqueda?')
   if (!sdr.plazo_compra) return discoveryQuestion('plazo_compra', '¿Para cuándo le gustaría tomar una decisión de compra?')
   return discoveryQuestion('unidad', '¿Cuál de las unidades que revisamos le interesa?')
 }

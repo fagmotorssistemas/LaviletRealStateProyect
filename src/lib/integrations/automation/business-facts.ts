@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { CATALOG_NUMBER_FIELDS, requirementMatch } from './catalog-request'
 import { DISCOUNT_NUMBER_FIELDS, DISCOUNT_FACT_UNITS, DISCOUNT_REFERENCE_RULES, discountReferenceEvidence } from './discount-evidence'
@@ -188,7 +189,7 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
     let expected: unknown, source: Row
     if (fact.kind === 'lead_budget') {
       if (fact.field !== 'amount') return unknown('El presupuesto debe identificar amount.')
-      if (budget.confidence !== 'high' || !numeric(budget.amount)) return unknown('No hay importe confirmado para contrastar.', false)
+      if (!acceptedExtractorConfidence(budget.confidence) || !numeric(budget.amount)) return unknown('No hay importe confirmado para contrastar.', false)
       expected = budget.amount; source = { budget }
     } else {
       if (!subject) return unknown('La unidad o grupo no está identificado entre las fuentes del turno.')
@@ -197,7 +198,7 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
         && numeric(budget.amount) && equal(fact.value, budget.amount)
       if (budgetComparison) {
         if (fact.field !== 'published_commercial_price' || !['gt', 'gte', 'lt', 'lte'].includes(text(fact.relation))
-          || budget.status !== 'maximum_total' || budget.confidence !== 'high' || !numeric(budget.amount)
+          || budget.status !== 'maximum_total' || !acceptedExtractorConfidence(budget.confidence) || !numeric(budget.amount)
           || !equal(fact.value, budget.amount)) return unknown('La suficiencia requiere presupuesto total confirmado y una comparación del precio, no entrada ni cuota.', false)
         if (subject.source_scope === 'budget_matching' && scope.basis !== 'budget_matching')
           return unknown('La afirmación no identifica expresamente el subconjunto asequible; no puede sustituir el conjunto descrito por coincidencias de presupuesto.')
@@ -219,7 +220,7 @@ export function validateBusinessFacts(raw: unknown, units: Row[], groups: Row[],
       }
       if (fact.kind === 'budget_difference') {
         if (fact.field !== 'published_commercial_price') return unknown('La diferencia requiere el precio de la unidad o grupo.')
-        if (!['amount', 'maximum_total'].includes(text(budget.status)) || budget.confidence !== 'high'
+        if (!['amount', 'maximum_total'].includes(text(budget.status)) || !acceptedExtractorConfidence(budget.confidence)
           || !numeric(budget.amount) || !numeric(subject.published_commercial_price)) return unknown('Faltan precio o presupuesto total confirmado; no asumir entrada o cuota.', false)
         if (subject.aggregation === 'range') return unknown('Identifique el extremo pertinente del rango para esta diferencia.')
         expected = Math.max(0, Math.round((subject.published_commercial_price - budget.amount) * 100) / 100)

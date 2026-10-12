@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { FINANCING_PROCESS_RULES, ASSISTANCE_CONTINUATION_RULES } from './financing-guidance'
 import { isCategoryOverview } from './catalog-dialogue'
@@ -40,7 +41,7 @@ function verifiedUrls(verified: Row = {}): string[] {
 export function replyLinkContract(_baseReply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
   const explicit = object(audit.link_contract), profile = object(audit.profile_introduction)
   const intent = object(audit.resolved_turn_intent || context.verified?.contrato_turno)
-  const requests = rows(intent.requests).filter(request => request.confidence === 'high')
+  const requests = rows(intent.requests).filter(request => acceptedExtractorConfidence(request.confidence))
   const requested = normalized([context.current || '', ...requests.map(request => text(request.request))].join('\n'))
   const tour = object(audit.unit_model)
   const property = object(context.verified?.property_context)
@@ -95,6 +96,21 @@ export function includeRequiredBrochure(reply: string, audit: Row = {}, context:
   return completed.length <= MAX_REPLY_CHARACTERS ? completed : reply
 }
 
+/** The approved initial summary is business copy owned by the application.
+ * A model draft cannot omit it or expand it into the inventory, including in
+ * observation mode. Subsequent and specific requests keep normal drafting. */
+export function protectInitialProjectPresentation(reply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}): string {
+  const opening = object(audit.profile_introduction), presentation = object(opening.presentation)
+  const summary = text(presentation.approved_summary).trim()
+  if (presentation.required !== true || !summary) return reply
+  const brochure = opening.brochure_required === true && /^https?:\/\/\S+$/.test(text(opening.brochure_url))
+    ? `Brochure del proyecto: ${text(opening.brochure_url)}` : ''
+  const question = text(responsePlan(reply, audit, context).next_question)
+  const protectedReply = [text(opening.name_acknowledgement), summary, brochure, question]
+    .filter(part => part.trim()).join('\n\n')
+  return protectedReply.length <= MAX_REPLY_CHARACTERS ? protectedReply : reply
+}
+
 /** A reservation request/handoff does not reserve inventory or confirm payment. */
 export function reservationOperationalIssues(reply: string, audit: Row = {}): string[] {
   const receipt = object(audit.reservation)
@@ -132,15 +148,17 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
   const pending = object(audit.pending_question)
   const continuation = turnContinuation(audit, context.verified)
   const uncovered = Array.isArray(audit.uncovered_requests) ? audit.uncovered_requests : []
+  const presentation = object(object(audit.profile_introduction).presentation)
+  const approvedOpening = presentation.required === true && !!text(presentation.approved_summary).trim()
   const locked = audit.coverage_complete !== false && !uncovered.length
-    && lockedSources.has(source)
+    && (lockedSources.has(source) || approvedOpening)
   return {
     source,
     locked,
     current_request: { message: context.current || text(intent.current_message), objective: text(intent.objective),
       requests: rows(intent.requests), subject: object(intent.subject), requested_action: text(intent.requested_action) || null },
     required_facts: strings(intent.required_facts),
-    protected_facts: [...rows(object(audit.catalog_results).units), ...rows(object(audit.alternative_results).units),
+    protected_facts: approvedOpening ? [] : [...rows(object(audit.catalog_results).units), ...rows(object(audit.alternative_results).units),
       ...(audit.verified_catalog === true ? [] : rows(context.verified?.catalogo))],
     covered_requests: Array.isArray(audit.covered_requests) ? audit.covered_requests : [],
     ...replyLinkContract(baseReply, audit, context),
@@ -219,6 +237,8 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
 
 export function finalWriterContract(baseReply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
   const plan = responsePlan(baseReply, audit, context)
+  const opening = object(object(audit.profile_introduction).presentation)
+  const approvedOpening = opening.required === true && !!text(opening.approved_summary).trim()
   return {
     version: 'final-writer-v3', ruta: plan.source || 'commercial',
     response_content_scope: context.verified?.alcance_contenido_turno || audit.response_content_scope || null,
@@ -227,7 +247,7 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
     solicitud_actual: plan.current_request,
     estado_comercial: commercialStageContract(audit, context.verified, plan.required_links),
     datos_requeridos: plan.required_facts,
-    base_role: 'internal_fallback_only',
+    base_role: approvedOpening ? 'approved_initial_presentation' : 'internal_fallback_only',
     hechos_protegidos: plan.protected_facts,
     hechos_disponibles: plan.protected_facts,
     price_evidence: audit.price_evidence || null,
@@ -236,8 +256,10 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
     pregunta_siguiente: plan.next_question,
     continuacion_del_turno: plan.continuation,
     pregunta_pendiente: object(audit.pending_question),
-    presentacion: { ...(isCategoryOverview(audit) ? object(audit.alternative_presentation)
-      : { kind: text(object(audit.catalog_query).operation) || 'commercial' }), policy: 'suggestion_not_required_wording' },
+    presentacion: approvedOpening ? { kind: 'approved_summary', policy: 'required_approved_business_copy',
+      summary: text(opening.approved_summary), instruction: 'Preserve el resumen aprobado y la única pregunta de perfil; no amplíe la apertura con fichas o datos del catálogo.' }
+      : { ...(isCategoryOverview(audit) ? object(audit.alternative_presentation)
+        : { kind: text(object(audit.catalog_query).operation) || 'commercial' }), policy: 'suggestion_not_required_wording' },
     accion: text(audit.action) || null,
     resultado_operativo: object(audit.reservation),
     estado_operativo: plan.operational_state,

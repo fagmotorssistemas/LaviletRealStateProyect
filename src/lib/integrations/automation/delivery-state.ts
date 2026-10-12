@@ -60,7 +60,8 @@ export async function deliveryHealth() {
       reason: text(result.reason), at: row.completed_at || row.received_at,
       canResolve: row.status === 'cancelled' && result.requires_review === true,
       canReconcile: row.status === 'uncertain' && ['inbound', 'advisor_outbound'].includes(row.kind),
-      delivery: rejected ? 'rejected' as const : result.delivery_status === 'not_sent' ? 'not_sent' as const
+      delivery: result.delivery_status === 'accepted' && result.registration_status === 'pending' ? 'accepted_registration_pending' as const
+        : rejected ? 'rejected' as const : result.delivery_status === 'not_sent' ? 'not_sent' as const
         : result.delivery_status === 'generation_failed' || /^OPENAI_(?:HTTP_|NETWORK_ERROR)/.test(text(result.reason)) ? 'generation_failed' as const : 'unknown' as const }
   })
   return { blocked: !!block, httpStatus: Number(block?.http_status) || null,
@@ -121,6 +122,11 @@ export async function reconcileDeliveryIncident(id: string, actorId: string, rev
     || review.reviewReference.trim().length < 3 || review.reviewReference.length > 300
     || (review.outcome === 'sent' && !review.providerMessageId?.trim())
     || (review.outcome === 'not_sent' && !!review.providerMessageId?.trim())) throw Error('DELIVERY_REVIEW_REQUIRED')
+  if (review.outcome === 'sent') {
+    const { repairReviewedDeliveryRegistration } = await import('./historical-delivery-registration')
+    await repairReviewedDeliveryRegistration({ eventId: id, actorId, providerMessageId: review.providerMessageId!.trim(),
+      reviewReference: review.reviewReference.trim() })
+  }
   const result = object(await rpc('lv_app_reconcile_delivery', { p_event: id, p_actor: actorId,
     p_outcome: review.outcome, p_reviewed: true, p_provider_message_id: review.providerMessageId?.trim() || null,
     p_review_reference: review.reviewReference.trim() }))

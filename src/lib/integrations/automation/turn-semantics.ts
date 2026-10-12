@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { object, text, type Row } from './data'
 import { bedroomComparison, type BedroomComparison } from './bedroom-comparison'
@@ -7,7 +8,7 @@ import { normalizeCatalogRequest } from './catalog-request'
 import { replyQuestions } from './reply-question'
 import { budgetAmountForCurrentTurn } from './turn-interpretation-input'
 import { deliveredFinancingEntryReference } from './financing-entry'
-import { isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
+import { groundedCurrentCategoryExclusions, isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
 import { floorEvidence, floorInvitationTarget } from './floor-evidence'
 import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction } from './reservation-invitation'
 import { categoryInvitationTarget } from './category-offer'
@@ -208,7 +209,7 @@ En budget, no_defined_budget significa que declara no tener presupuesto definido
 Con pregunta_pendiente.id=reservation_invitation un sí inequívoco solicita iniciar esa reserva: reservation.kind=request, evidencia literal del sí y las unidades de target_ids; un no es declined. Con financing_invitation, «bueno continuemos» acepta continuar la orientación financiera, nunca una visita o un asesor. Conserve answer_to_previous con su id exacto. No asigne un significado distinto cuando la pregunta tiene alternativas ambiguas.
 amount se completa solo con una cifra expresada por el cliente en el mensaje actual. No copie cifras del historial.
 property.category solo indica una preferencia AFIRMADA AHORA: suite|departamento|penthouse|local, no la última categoría mencionada ni una inferencia del historial. En "me interesan más los departamentos porque los penthouse deben ser muy caros", category=departamento y excluded_categories=[penthouse]. Mencionar una opción para descartarla no es elegirla. Una preocupación por precios no declara un presupuesto.
-property.group distingue residential (vivienda en general) de commercial (locales). «Me interesa vivienda» y «algo para vivir» son group=residential, category=null: no implican elegir departamento ni excluir suites. Solo complete category si el mensaje realmente elige o consulta esa categoría concreta.
+property.group distingue residential (vivienda en general) de commercial (locales). «Me interesa vivienda» y «algo para vivir» son group=residential, category=null, excluded_categories=[]: no implican elegir departamento ni excluir suites o penthouses. Solo complete category si el mensaje realmente elige o consulta esa categoría concreta. Cada excluded_categories requiere una declaración actual referida a ese tipo o un rechazo inequívoco al único tipo propuesto en la pregunta pendiente; no copie exclusiones históricas ni infiera descartes a partir de presupuesto o dormitorios.
 Pedir dormitorios tampoco elige una tipología: «prefiero algo de dos dormitorios» conserva category=null y group=residential; incluye departamentos y penthouses compatibles. Una respuesta sobre dormitorios no hereda la categoría de los ejemplos del bot. Una preferencia anterior se conserva en la memoria, no se declara otra vez.
 property.operation distingue buscar opciones (search), preguntar cuáles son mayores/menores/baratas (rank), comparar (compare), elegir afirmativamente (select) y pedir detalles (details). «¿Cuál es la opción más grande?» es rank, NO select. «Prefiero la más grande de esas» es select. Un empate se puede mostrar como resultado de una consulta; no obliga al cliente a elegir antes de recibir información.
 Responder una pregunta de dormitorios, superficie o planta no elige un tipo de unidad ni excluye otros tipos. El presupuesto puede motivar una recomendación, pero no confirma categoría. Un sí a una invitación entregada para explorar UN solo tipo responde a esa invitación; no selecciona unidad ni acepta reserva o financiamiento. Un sí entre varios tipos sigue sin escoger.
@@ -246,7 +247,7 @@ function sharedBedroomRigidityEvidence(requirement: Row | null, quantities: Row[
   const lexical = propertyFiltersFromText(evidence)
   if (lexical.bedrooms_required !== true || lexical.bedrooms !== requirement.value) return ''
   const compatibleQuantity = quantities.some(quantity => quantity.dimension === 'bedrooms'
-    && quantity.role === 'requirement' && quantity.confidence === 'high'
+    && quantity.role === 'requirement' && acceptedExtractorConfidence(quantity.confidence)
     && Array.isArray(quantity.values) && quantity.values.includes(requirement.value)
     && (normalized(evidence).includes(normalized(text(quantity.evidence)))
       || normalized(text(quantity.evidence)).includes(normalized(evidence))))
@@ -259,11 +260,11 @@ function normalizedHousingQuantities(raw: unknown, current: string): Row[] {
   if (!Array.isArray(raw)) return []
   return raw.map(object).flatMap(quantity => {
     const evidence = literalEvidence(quantity.evidence, current)
-    if (quantity.confidence !== 'high' || !evidence || !housingQuantityDimensions.has(text(quantity.dimension))
+    if (!acceptedExtractorConfidence(quantity.confidence) || !evidence || !housingQuantityDimensions.has(text(quantity.dimension))
       || !housingQuantityRoles.has(text(quantity.role)) || !housingQuantityBases.has(text(quantity.count_basis))) return []
     const values = Array.isArray(quantity.values)
       ? [...new Set(quantity.values.filter(value => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 1000))] : []
-    return [{ dimension: quantity.dimension, values, role: quantity.role, count_basis: quantity.count_basis, evidence, confidence: 'high' }]
+    return [{ dimension: quantity.dimension, values, role: quantity.role, count_basis: quantity.count_basis, evidence, confidence: quantity.confidence }]
   }).slice(0, 12)
 }
 
@@ -271,9 +272,10 @@ function householdFromQuantities(quantities: Row[]): Row | null {
   const people = quantities.filter(quantity => quantity.dimension === 'people' && quantity.role !== 'unknown')
   const totals = people.filter(quantity => Array.isArray(quantity.values) && quantity.values.length === 1
     && ['total', 'excluding_speaker'].includes(text(quantity.count_basis)))
-    .map(quantity => ({ occupants: Number((quantity.values as number[])[0]) + (quantity.count_basis === 'excluding_speaker' ? 1 : 0), evidence: quantity.evidence }))
+    .map(quantity => ({ occupants: Number((quantity.values as number[])[0]) + (quantity.count_basis === 'excluding_speaker' ? 1 : 0), evidence: quantity.evidence, confidence: quantity.confidence }))
   const unique = [...new Set(totals.map(total => total.occupants))]
-  return unique.length === 1 ? { occupants: unique[0], evidence: totals.map(total => total.evidence).join('; '), confidence: 'high' } : null
+  return unique.length === 1 ? { occupants: unique[0], evidence: totals.map(total => total.evidence).join('; '),
+    confidence: combinedExtractorConfidence(...totals.map(total => total.confidence)) } : null
 }
 
 /** Every consumer of current lexical filters must honor the same interpreted
@@ -282,7 +284,7 @@ export function propertyFiltersWithQuantityMeaning(rawFilters: unknown, semantic
   const filters = normalizedPropertyFilters(rawFilters), data = object(semantics)
   if (!Object.hasOwn(data, 'housing_quantities')) return filters
   const quantities = Array.isArray(data.housing_quantities) ? data.housing_quantities.map(object) : []
-  const requested = quantities.filter(quantity => quantity.dimension === 'bedrooms' && quantity.role === 'requirement' && quantity.confidence === 'high')
+  const requested = quantities.filter(quantity => quantity.dimension === 'bedrooms' && quantity.role === 'requirement' && acceptedExtractorConfidence(quantity.confidence))
     .flatMap(quantity => Array.isArray(quantity.values) ? quantity.values : [])
   const values = filters.bedrooms_any?.length ? filters.bedrooms_any : filters.bedrooms !== null ? [filters.bedrooms] : []
   if (values.some(value => !requested.includes(value))) {
@@ -295,8 +297,8 @@ export function propertyFiltersWithQuantityMeaning(rawFilters: unknown, semantic
 export function normalizedReservation(raw: unknown, current: string, pendingRaw?: unknown, answerRaw?: unknown): Row {
   const reservation = object(raw)
   const evidence = literalEvidence(reservation.evidence, current)
-  const valid = reservation.confidence === 'high' && !!evidence && reservationKinds.has(text(reservation.kind)) && reservation.kind !== 'none'
-  const result: Row = valid ? { kind: text(reservation.kind), evidence, confidence: 'high',
+  const valid = acceptedExtractorConfidence(reservation.confidence) && !!evidence && reservationKinds.has(text(reservation.kind)) && reservation.kind !== 'none'
+  const result: Row = valid ? { kind: text(reservation.kind), evidence, confidence: reservation.confidence,
     unit_numbers: Array.isArray(reservation.unit_numbers)
       ? [...new Set(reservation.unit_numbers.map(text).filter(code => /^(?:LC-?)?\d{1,4}$/i.test(code)))].slice(0, 12) : [],
   } : { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' }
@@ -306,10 +308,10 @@ export function normalizedReservation(raw: unknown, current: string, pendingRaw?
   // answer every time; never preserve a model-supplied accepted_invitation.
   if (['none', 'request'].includes(text(result.kind)) && pending.id === 'reservation_invitation'
     && pending.act === 'reservation' && operationalReservationInvitation(text(pending.question))
-    && answer.question_id === pending.id && answer.kind === 'affirmative' && answer.confidence === 'high'
+    && answer.question_id === pending.id && answer.kind === 'affirmative' && acceptedExtractorConfidence(answer.confidence)
     && answerEvidence && simpleReservationAcceptance(current)
     && Array.isArray(pending.target_ids) && pending.target_ids.length === 1) {
-    return { kind: 'request', evidence: answerEvidence, confidence: 'high', unit_numbers: [],
+    return { kind: 'request', evidence: answerEvidence, confidence: answer.confidence, unit_numbers: [],
       accepted_invitation: { question: pending.question, target_ids: [...pending.target_ids] } }
   }
   return result.kind === 'request' && !explicitReservationAction(text(result.evidence))
@@ -371,11 +373,11 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const pending = normalizedPendingQuestion(pendingRaw)
   const pendingId = questionIds.includes(text(pending.id) as PendingQuestionId) ? text(pending.id) : ''
   const primaryEvidence = literalEvidence(data.primary_evidence, current)
-  const extractedPrimaryIntent = data.confidence === 'high' && primaryEvidence && primaryIntents.has(text(data.primary_intent))
+  const extractedPrimaryIntent = acceptedExtractorConfidence(data.confidence) && primaryEvidence && primaryIntents.has(text(data.primary_intent))
     ? text(data.primary_intent) : 'other'
   const answer = object(data.answer_to_previous)
   const answerEvidence = literalEvidence(answer.evidence, current)
-  let answerQuestionId = answer.confidence === 'high' && answerEvidence && pendingId
+  let answerQuestionId = acceptedExtractorConfidence(answer.confidence) && answerEvidence && pendingId
     && text(answer.question_id) === pendingId && answerKinds.has(text(answer.kind)) && answer.kind !== 'none'
     ? pendingId : ''
   const reservation = normalizedReservation(data.reservation, current, pending, answer)
@@ -396,18 +398,20 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
 
   const budget = object(data.budget)
   const budgetEvidence = literalEvidence(budget.evidence, current)
-  const budgetStatus = budget.confidence === 'high' && budgetEvidence && budgetStatuses.has(text(budget.status))
+  const budgetStatus = acceptedExtractorConfidence(budget.confidence) && budgetEvidence && budgetStatuses.has(text(budget.status))
     && budget.status !== 'not_discussed' ? text(budget.status) : 'not_discussed'
   const amount = budgetAmountForCurrentTurn(object(raw), current, pending)
   const property = object(data.property)
   const propertyEvidence = literalEvidence(property.evidence, current)
-  const propertyConfident = property.confidence === 'high' && !!propertyEvidence
-  const excluded = propertyConfident && Array.isArray(property.excluded_categories)
-    ? [...new Set(property.excluded_categories.map(text).filter(value => propertyCategories.has(value)))] : []
+  const propertyConfident = acceptedExtractorConfidence(property.confidence) && !!propertyEvidence
+  const excluded = groundedCurrentCategoryExclusions(property, current, pending)
   let category = propertyConfident && propertyCategories.has(text(property.category)) && !excluded.includes(text(property.category))
     ? text(property.category) : null
   const value = normalized(current)
   const normalizationIssues: string[] = []
+  if (propertyConfident && Array.isArray(property.excluded_categories)
+    && property.excluded_categories.some(value => !excluded.includes(text(value))))
+    normalizationIssues.push('category_exclusion_without_current_referent')
   const housingQuantities = normalizedHousingQuantities(data.housing_quantities, current)
   const hasQuantityContract = Object.hasOwn(data, 'housing_quantities')
   const mentionedCategories = [...propertyCategories].filter(candidate => new RegExp(candidate === 'departamento'
@@ -610,7 +614,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   return {
     primary_intent: primaryIntent,
     primary_evidence: primaryIntent === 'other' ? null : reservationIntent ? reservation.evidence : primaryEvidence,
-    confidence: primaryIntent === 'other' ? 'low' : 'high',
+    confidence: primaryIntent === 'other' ? 'low' : reservationIntent ? reservation.confidence : data.confidence,
     reservation,
     ...(hasQuantityContract ? { housing_quantities: housingQuantities, household: householdFromQuantities(housingQuantities) } : {}),
     interpretation: { extractor_primary_intent: extractedPrimaryIntent, canonical_primary_intent: primaryIntent, decisions },
@@ -621,27 +625,27 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
       unit_numbers: propertyConfident && Array.isArray(property.unit_numbers)
         ? [...new Set(property.unit_numbers.map(text).filter(value => /^(?:LC-?)?\d{1,4}$/i.test(value)))].slice(0, 12) : [],
       selector,
-      evidence: propertyConfident ? propertyEvidence : null, confidence: propertyConfident ? 'high' : 'low',
+      evidence: propertyConfident ? propertyEvidence : null, confidence: propertyConfident ? property.confidence : 'low',
     },
     answer_to_previous: answerQuestionId ? {
       question_id: answerQuestionId,
       kind: text(answer.kind),
       evidence: answerEvidence,
-      confidence: 'high',
+      confidence: answer.confidence,
     } : { question_id: null, kind: 'none', evidence: null, confidence: 'low' },
     budget: budgetStatus === 'not_discussed' ? {
       status: 'not_discussed', amount: null, evidence: null, confidence: 'low',
-    } : { status: budgetStatus, amount, evidence: budgetEvidence, confidence: 'high' },
+    } : { status: budgetStatus, amount, evidence: budgetEvidence, confidence: budget.confidence },
     normalization_issues: normalizationIssues,
   }
 }
 
 export function answersPendingQuestion(semantics: unknown, questionId: PendingQuestionId, kind?: string) {
   const answer = object(object(semantics).answer_to_previous)
-  return answer.confidence === 'high' && answer.question_id === questionId && (!kind || answer.kind === kind)
+  return acceptedExtractorConfidence(answer.confidence) && answer.question_id === questionId && (!kind || answer.kind === kind)
 }
 
 export function semanticBudgetStatus(semantics: unknown) {
   const budget = object(object(semantics).budget)
-  return budget.confidence === 'high' && budgetStatuses.has(text(budget.status)) ? text(budget.status) : 'not_discussed'
+  return acceptedExtractorConfidence(budget.confidence) && budgetStatuses.has(text(budget.status)) ? text(budget.status) : 'not_discussed'
 }

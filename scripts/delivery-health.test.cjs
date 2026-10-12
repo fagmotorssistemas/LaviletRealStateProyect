@@ -29,10 +29,10 @@ function databaseHarness(initial = []) {
   const rows = structuredClone(initial), calls = []
   function from(table) {
     assert.equal(table, 'lv_integration_events')
-    let filters = [], update, upsert, single = false, max = Infinity, cols = '*', options, order = []
+    let filters = [], update, upsert, single = false, max = Infinity, order = []
     const value = (row, key) => key.includes('->>') ? row[key.split('->>')[0]]?.[key.split('->>')[1]] : row[key]
     const q = {
-      select(c, o) { cols = c; options = o; return q },
+      select() { return q },
       match(v) { calls.push({ action: 'scope', value: v }); filters.push(r => Object.entries(v).every(([k, v]) => r[k] === v)); return q },
       eq(k, v) { filters.push(r => value(r, k) === v); return q },
       neq(k, v) { filters.push(r => value(r, k) !== v); return q },
@@ -231,6 +231,22 @@ test('generation incidents have their own label; legacy uncertain events cannot 
   assert.ok(health.incidents.every(row => row.delivery === 'generation_failed'))
   assert.equal(health.incidents.find(row => row.id === 'legacy').canResolve, false)
   assert.equal(health.incidents.find(row => row.id === 'new').canResolve, true)
+})
+
+test('known provider acceptance with pending internal registration is distinguished from unknown delivery and generation failure', async () => {
+  const h = databaseHarness([
+    event('registration', 'uncertain', { reason: 'RPC_REGISTER_OUTBOUND_MESSAGE_22P05', delivery_status: 'accepted',
+      registration_status: 'pending', reply_registration_checkpoint: '__reply_registration__:verified', requires_review: true }),
+    event('post_ack_error', 'uncertain', { reason: 'OPENAI_HTTP_503', delivery_status: 'accepted',
+      registration_status: 'pending', reply_registration_checkpoint: '__reply_registration__:post_ack', requires_review: true }),
+    event('unverified_legacy', 'uncertain', { reason: 'RPC_REGISTER_OUTBOUND_MESSAGE_22P05', requires_review: true }),
+  ])
+  const health = await h.deliveryHealth()
+  assert.equal(health.incidents.find(row => row.id === 'registration').delivery, 'accepted_registration_pending')
+  assert.equal(health.incidents.find(row => row.id === 'post_ack_error').delivery, 'accepted_registration_pending')
+  assert.equal(health.incidents.find(row => row.id === 'unverified_legacy').delivery, 'unknown',
+    'An RPC error code alone does not supply provider acceptance proof')
+  assert.equal(h.calls.some(call => call.action === 'update' || call.action === 'upsert'), false)
 })
 
 test('blocked account leaves all pending leads untouched and releases the worker lease', async () => {

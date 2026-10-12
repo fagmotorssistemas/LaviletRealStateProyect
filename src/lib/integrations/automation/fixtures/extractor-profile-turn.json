@@ -22,6 +22,7 @@
   "financing_partner_choice": { "kind": "none", "name": null, "evidence": "", "confidence": "high" },
   "material_request": { "kind": "none", "evidence": "", "confidence": "high" },
   "full_name": "Elena Diaz",
+  "name_response": null,
   "residence_city": "Loja",
   "residence_country": null,
   "declared_location": null,

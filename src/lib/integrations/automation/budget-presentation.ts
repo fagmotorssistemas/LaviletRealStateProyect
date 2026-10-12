@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 
 const ids = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : []
@@ -13,7 +14,7 @@ export function budgetRecommendationPresentation(info: Row): Row | null {
   const request = object(semantics.catalog_request || info.catalog_request)
   if (plan.action !== 'select_property' || plan.question_id !== 'property_category' || plan.presentation !== 'categories'
     || readiness.financing_accepted === true || object(object(info.financiamiento).journey).accepted === true
-    || budget.status !== 'maximum_total' || budget.confidence !== 'high'
+    || budget.status !== 'maximum_total' || !acceptedExtractorConfidence(budget.confidence)
     || typeof budget.amount !== 'number' || !(budget.amount > 0) || guidance.amount !== budget.amount
     || guidance.comparable !== true || guidance.membership_complete !== true || guidance.price_evidence_complete !== true
     || !['search', 'none'].includes(text(query.operation)) || query.category || query.selector || query.scope && query.scope !== 'catalog'

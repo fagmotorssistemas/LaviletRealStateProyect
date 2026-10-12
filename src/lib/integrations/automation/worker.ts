@@ -18,6 +18,7 @@ import { TurnInterpretationError } from './turn-interpretation-input'
 import { isCommercialContextReadFailure } from './context-read'
 import { processAdvisorOutbound } from './advisor-outbound'
 import { syncTransportIncidents } from './transport-monitor'
+import { AcceptedReplyRegistrationError, preserveAcceptedReply, recoverAcceptedReplyRegistrations } from './reply-registration'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -54,6 +55,7 @@ async function runMaintenance(config: Row) {
           if (allowed) await rpc('apply_temperature_decay')
           result = { action: allowed ? 'daily_decay' : 'daily_decay_skipped' }
         } else {
+          const replyRegistrations = await recoverAcceptedReplyRegistrations(guard)
           const enqueued = await planVisits(guard)
           if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) {
             for (const name of ['lv_release_expired_holds', 'lv_escalate_overdue_requests', 'process_handoff_queue']) { await guard(); await rpc(name) }
@@ -63,7 +65,7 @@ async function runMaintenance(config: Row) {
           const { error } = await db().from('lv_outbox').update({ status: 'uncertain', detail: 'Worker interrumpido; comprobar Kommo' })
             .match(scope).eq('status', 'claimed').contains('payload', { _app: 'lavilet' }).lt('claimed_at', new Date(Date.now() - 5 * 60_000).toISOString())
           if (error) throw Error('STALE_OUTBOX_CHECK_FAILED')
-          result = { enqueued, transport }
+          result = { enqueued, transport, reply_registrations: replyRegistrations }
         }
         await rpc('lv_app_finish', { p_token: token, p_ids: batch.map(row => row.id), p_status: 'completed', p_result: result })
         results.push({ kind: first.kind, ...result })
@@ -116,6 +118,7 @@ export async function runAutomation(contactKey?: string) {
         : await rpc<Row[]>('lv_app_claim', { p_token: token })
       if (!batch.length) break
       const first = object(batch[0]), ids = batch.map(row => row.id)
+      let acceptedReply: Row | undefined
       try {
         let result: Row
         if (first.kind === 'advisor_outbound') {
@@ -159,10 +162,32 @@ export async function runAutomation(contactKey?: string) {
         if (first.kind === 'inbound' && result.action === 'expired') {
           result = { ...result, reason: 'REPLY_WINDOW_EXPIRED', requires_review: true, delivery_status: 'not_sent' }
         }
+        if (result.delivery_status === 'accepted' && text(result.reply_registration_checkpoint)) acceptedReply = result
         await rpc('lv_app_finish', { p_token: token, p_ids: ids,
           p_status: result.action === 'cancelled' || result.delivery_status === 'not_sent' ? 'cancelled' : 'completed', p_result: result })
         results.push({ kind: first.kind, ...result })
       } catch (error) {
+        if (acceptedReply) {
+          const reason = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'REPLY_FINISH_FAILED'
+          await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: 'uncertain',
+            p_result: { reason, delivery_status: 'accepted', delivery_uncertain: false,
+              registration_status: acceptedReply.registration_status,
+              reply_registration_checkpoint: acceptedReply.reply_registration_checkpoint,
+              requires_review: true, recovery: 'registration_only' } })
+          results.push({ kind: first.kind, status: 'uncertain', reason, delivery_status: 'accepted' })
+          continue
+        }
+        if (error instanceof AcceptedReplyRegistrationError) {
+          await preserveAcceptedReply(error.checkpoint)
+          const reason = error.original instanceof Error && /^[A-Z0-9_]+$/.test(error.original.message)
+            ? error.original.message : 'REPLY_REGISTRATION_FAILED'
+          await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: 'uncertain',
+            p_result: { reason, delivery_status: 'accepted', delivery_uncertain: false,
+              registration_status: 'pending', reply_registration_checkpoint: error.checkpoint.key,
+              requires_review: true, recovery: 'registration_only' } })
+          results.push({ kind: first.kind, status: 'uncertain', reason, delivery_status: 'accepted', registration_status: 'pending' })
+          continue
+        }
         const preReplySend = error instanceof PreReplySendError
         const original = preReplySend ? error.original : error
         const generationFailure = original instanceof OpenAIRequestError && original.kind !== 'cancelled'

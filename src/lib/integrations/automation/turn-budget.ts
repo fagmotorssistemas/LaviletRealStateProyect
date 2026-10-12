@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { catalogQuery, filterCatalog, partitionCatalog } from './catalog-dialogue'
 import { leadBudget } from './budget-state'
@@ -73,20 +74,20 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
     return { status: budget.status, amount: null, continuation,
       continuation_instruction: budgetContinuationInstruction({ continuation }) }
   }
-  if (budget.confidence === 'high' && ['unknown', 'initial_capital'].includes(text(budget.status))) {
+  if (acceptedExtractorConfidence(budget.confidence) && ['unknown', 'initial_capital'].includes(text(budget.status))) {
     const available = Array.isArray(object(verified.financiamiento).partners) && (object(verified.financiamiento).partners as unknown[]).some(partner => !!text(partner))
     const continuation = budget.status === 'initial_capital' && available && !financeDeclined && !financeAccepted
       ? 'offer_financing_for_entry' : 'continue_needs_discovery'
     return { status: budget.status, amount: budget.amount ?? null, evidence: budget.evidence,
       continuation, continuation_instruction: budgetContinuationInstruction({ continuation }) }
   }
-  if (budget.status === 'amount' && budget.confidence === 'high') return {
+  if (budget.status === 'amount' && acceptedExtractorConfidence(budget.confidence)) return {
     ...evaluateBudgetOptions({ budget, units: [], pricesAuthorized: false, membershipComplete: false }),
     budget_source: budget.source, evidence: budget.evidence, continuation: 'clarify_budget',
     continuation_instruction: budgetContinuationInstruction({ continuation: 'clarify_budget' }),
     mention_allowed: true, mention_required: true,
   }
-  if (budget.status !== 'maximum_total' || budget.confidence !== 'high' || typeof budget.amount !== 'number'
+  if (budget.status !== 'maximum_total' || !acceptedExtractorConfidence(budget.confidence) || typeof budget.amount !== 'number'
     || !Number.isFinite(budget.amount) || budget.amount <= 0 || !text(budget.evidence)) return null
   const result = object(audit.catalog_results)
   const query = catalogQuery(audit.catalog_query || object(verified.property_context).query || object(verified.semantica_turno).property)

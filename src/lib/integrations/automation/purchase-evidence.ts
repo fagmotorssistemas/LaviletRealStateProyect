@@ -1,11 +1,41 @@
-import { object, text } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 
 const preamble = /^(?:(?:hola|saludos|buenos dias|buenas tardes|buenas noches|si|claro|bueno|entiendo|entendido|gracias|por favor|perfecto|de acuerdo)\s+)+/
 const purchaseDecision = /\b(?:comprar|compra|adquirir|invertir|inversion|negocio|mudarm[ea]|mudarnos)\b|\b(?:busco|quiero|quisiera|deseo|necesito|prefiero|me interesa|estoy buscando)\b[^.!?]*(?:\bvivienda\b|\bsuite\b|\bdepartamento\b|\bpenthouse\b|\blocal\b|\bvivir\b)/
 const explicitPurposeAnswer = /^(?:(?:para|como)\s+)?(?:vivir|inversion|invertir|negocio|segunda vivienda|(?:mis?\s+)?vacaciones|arrendar(?:lo)?|alquilar(?:lo)?)$/
 const anotherClause = /\b(?:y|pero|aunque|ademas|tambien|porque|para|sin embargo|seria|busco|quiero|quisiera|deseo|necesito|prefiero|me interesa)\b/
-const explicitPropertyScope = /\b(?:viviendas?|residenciales?|suites?|departamentos?|penthouses?|locales?|dormitorios?|habitaciones?)\b/
+const explicitPropertyScope = /\b(?:viviendas?|residenciales?|suites?|departamentos?|apartamentos?|penthouses?|locales?|dormitorios?|habitaciones?)\b/
+
+const categoryTerms: Record<string, RegExp> = {
+  suite: /\bsuites?\b/, departamento: /\b(?:departamentos?|departametnos?|departametos?|apartamentos?)\b/,
+  penthouse: /\bpenthouses?\b/, local: /\blocal(?:es)?(?: comerciales?)?\b/,
+}
+
+/** A current citation authorizes only the categories that it actually refers
+ * to. A group label, a price or a bedroom count cannot exclude all other types.
+ * Rejections may use any wording: the interpreter decides the act, while this
+ * guard checks the source and its category referent. */
+export function groundedCurrentCategoryExclusions(propertyRaw: unknown, current: string, pendingRaw: unknown = {}): string[] {
+  const property = object(propertyRaw), pending = object(pendingRaw)
+  if (!acceptedExtractorConfidence(property.confidence)) return []
+  const quote = normalized(text(property.evidence)), source = normalized(current)
+  if (!quote || !source.includes(quote)) return []
+  const referencedCategory = pending.act === 'choose_category' && pending.id === 'property_category'
+    ? text(object(pending.proposed_query).category) : ''
+  const scopedReference = ['relative', 'followup'].includes(text(property.reference_kind)) && referencedCategory
+  const individual = Array.isArray(property.exclusion_evidence) ? property.exclusion_evidence.map(object) : []
+  return [...new Set(Array.isArray(property.excluded_categories) ? property.excluded_categories.map(text) : [])]
+    .filter(category => {
+      const categoryPattern = categoryTerms[category]
+      if (!categoryPattern) return false
+      const supplied = individual.find((proof: Row) => proof.category === category)
+      const evidence = supplied ? normalized(text(supplied.evidence)) : quote
+      return !!evidence && source.includes(evidence)
+        && (categoryPattern.test(evidence) || scopedReference === category && !explicitPropertyScope.test(evidence))
+    })
+}
 
 /** Remove only independently supported profile clauses. A full-message name
  * citation is not itself proof that everything in that message is a name. */
@@ -50,8 +80,8 @@ export function isGeneralProjectOverviewWithoutPurchaseScope(raw: unknown, curre
   const source = normalized(current), request = requests[0]
   const meaningful = (value: unknown): boolean => value !== null && value !== undefined
     && (Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? !!value.trim() : true)
-  if (semantics.primary_intent !== 'project_information' || semantics.confidence !== 'high'
-    || requests.length !== 1 || request.domain !== 'property' || request.confidence !== 'high'
+  if (semantics.primary_intent !== 'project_information' || !acceptedExtractorConfidence(semantics.confidence)
+    || requests.length !== 1 || request.domain !== 'property' || !acceptedExtractorConfidence(request.confidence)
     || !Array.isArray(request.topics) || request.topics.length !== 1 || request.topics[0] !== 'project_overview'
     || !normalized(text(request.evidence)) || !source.includes(normalized(text(request.evidence)))
     || property.operation !== 'none' || meaningful(property.category) || meaningful(property.selector)
@@ -78,7 +108,7 @@ export function isPassiveProfilePurposeEvidence(raw: unknown, pendingRaw: unknow
   const data = object(raw), pending = object(pendingRaw), answer = object(object(data.turn_semantics).answer_to_previous)
   const quote = normalized(text(evidence))
   if (!quote || !['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'].includes(text(pending.id))
-    || answer.question_id !== pending.id || answer.confidence !== 'high' || !['affirmative', 'negative', 'value'].includes(text(answer.kind))
+    || answer.question_id !== pending.id || !acceptedExtractorConfidence(answer.confidence) || !['affirmative', 'negative', 'value'].includes(text(answer.kind))
     || normalized(text(answer.evidence)) !== quote || purchaseDecision.test(quote)) return false
   const acknowledgement = /^(?:(?:si|no|claro|bueno|correcto|exacto|asi es|de acuerdo|gracias|por favor|ahi|alli)\s*)+$/.test(quote)
   // A name plus a residence is still a profile answer. Previously any "y"
@@ -105,7 +135,7 @@ export function isAssetOnlyPurposeEvidence(raw: unknown, pendingRaw: unknown, ev
   // the former for an ordinal plus an otherwise neutral asset word.
   if (data.purchase_purpose === 'segunda_vivienda' && /\bsegunda vivienda\b/.test(quote)) return false
   const categoryAnswer = pending.id === 'property_category' && answer.question_id === pending.id
-    && answer.confidence === 'high' && normalized(text(answer.evidence)) === quote
+    && acceptedExtractorConfidence(answer.confidence) && normalized(text(answer.evidence)) === quote
     && ['affirmative', 'negative', 'value'].includes(text(answer.kind))
   // The model may cite a whole mixed message. Strip only independently passive
   // profile clauses, never a real future-use clause in the same declaration.

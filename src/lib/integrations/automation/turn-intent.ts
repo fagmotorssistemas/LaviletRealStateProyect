@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { asksUnitPrice } from './price-reply'
 import { normalizedRequestTopics } from './request-topics'
@@ -13,11 +14,11 @@ const currentEvidence = (request: Row, current: string) => !!normalizedLiteral(r
  * A neutral scope is not contrary evidence, but mixed/foreign/uncertain scope,
  * pending requests and multiple requests must retain their independent domains. */
 function reconciledInformationRequest(input: { current: string; semantics: Row; requests: Row[]; scope: Row }, reservation: Row): Row | null {
-  if (input.semantics.primary_intent !== 'project_information' || input.semantics.confidence !== 'high'
+  if (input.semantics.primary_intent !== 'project_information' || !acceptedExtractorConfidence(input.semantics.confidence)
     || !['neutral', 'property'].includes(text(input.scope.kind)) || input.scope.uncertain !== false
     || text(input.scope.outside_evidence).trim() || reservation.kind !== 'none' || input.requests.length !== 1) return null
   const request = input.requests[0]
-  if (request.domain !== 'other' || request.confidence !== 'high' || request.source === 'pending' || request.source_message_id) return null
+  if (request.domain !== 'other' || !acceptedExtractorConfidence(request.confidence) || request.source === 'pending' || request.source_message_id) return null
   const primaryEvidence = text(input.semantics.primary_evidence).trim(), requestEvidence = text(request.evidence).trim()
   const normalizedLiteral = (value: string) => value.normalize('NFKC').toLowerCase()
   if (!primaryEvidence || primaryEvidence.length > 240 || !requestEvidence || requestEvidence.length > 500
@@ -30,7 +31,7 @@ function reconciledInformationRequest(input: { current: string; semantics: Row; 
 export function resolveTurnIntent(input: { current: string; history?: unknown; semantics: Row; requests: Row[]; scope: Row; previous?: unknown; profilePending?: boolean; pendingQuestion?: unknown }) {
   const previous = object(input.previous), property = object(input.semantics.property)
   const answer = object(input.semantics.answer_to_previous), pending = object(input.pendingQuestion)
-  const confidentIntent = input.semantics.confidence === 'high' && !['', 'other'].includes(text(input.semantics.primary_intent))
+  const confidentIntent = acceptedExtractorConfidence(input.semantics.confidence) && !['', 'other'].includes(text(input.semantics.primary_intent))
   const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current, pending, answer), input.current)
   const reconciledRequest = reconciledInformationRequest(input, reservation)
   const requests = (reconciledRequest ? [reconciledRequest] : input.requests).map(request => {
@@ -46,30 +47,30 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const reservationObjective = reservation.kind === 'request' ? 'request_reservation' : reservation.kind === 'information' ? 'ask_reservation' : null
   const lexicalPrice = asksUnitPrice(input.current, true)
   const propertyPriceFallback = !confidentIntent && lexicalPrice && /\b(?:suites?|departamentos?|apartamentos?|penthouses?|local(?:es)?(?: comerciales?)?)\b/i.test(input.current)
-  const interpretedProperty = input.semantics.confidence === 'high' && (reservationObjective
-    || requests.some(request => request.domain === 'property' && request.confidence === 'high'))
+  const interpretedProperty = acceptedExtractorConfidence(input.semantics.confidence) && (reservationObjective
+    || requests.some(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)))
   const inScope = !input.scope.uncertain && (['property', 'mixed'].includes(text(input.scope.kind))
     || input.scope.kind === 'neutral' && (interpretedProperty || propertyPriceFallback))
-  const currentTyped = requests.filter(request => request.source !== 'pending' && request.confidence === 'high'
+  const currentTyped = requests.filter(request => request.source !== 'pending' && acceptedExtractorConfidence(request.confidence)
     && request.domain !== 'courtesy' && Array.isArray(request.topics) && currentEvidence(request, input.current))
   const typedPrice = currentTyped.some(request => normalizedRequestTopics(request.topics)?.includes('purchase_price'))
   const explicitPrice = inScope && (currentTyped.length ? typedPrice && (!confidentIntent || input.semantics.primary_intent === 'ask_price')
     : input.semantics.primary_intent === 'ask_price' || !confidentIntent && lexicalPrice)
-  const requestsPrice = requests.some(request => request.domain === 'property' && request.confidence === 'high'
+  const requestsPrice = requests.some(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)
     && (Array.isArray(request.topics)
       ? normalizedRequestTopics(request.topics)?.includes('purchase_price')
         && (request.source === 'pending' ? !!text(request.evidence).trim() : currentEvidence(request, input.current))
       : !currentTyped.length && (!text(request.evidence).trim() || request.source === 'pending' || currentEvidence(request, input.current))
         && asksUnitPrice(text(request.request), true)))
   const categoryAnswer = ['select_property', 'answer_previous'].includes(text(input.semantics.primary_intent))
-    && property.confidence === 'high' && (text(property.category) || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0)
-    && !requests.some(request => request.confidence === 'high' && !['property', 'courtesy'].includes(text(request.domain)))
+    && acceptedExtractorConfidence(property.confidence) && (text(property.category) || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0)
+    && !requests.some(request => acceptedExtractorConfidence(request.confidence) && !['property', 'courtesy'].includes(text(request.domain)))
   // A legacy conversation may predate the durable contract. Require both the
   // current interpreted price request and a recent customer's price request.
   const recentClients = rows(input.history).filter(row => ['cliente', 'user'].includes(text(row.role)) && text(row.content) !== input.current).slice(-2)
   const historicalPrice = requestsPrice && recentClients.some(row => asksUnitPrice(text(row.content)))
   const answersPropertyReference = answer.kind === 'value' && answer.question_id === pending.id
-    && (!currentTyped.length || answer.confidence === 'high' && currentEvidence(answer, input.current))
+    && (!currentTyped.length || acceptedExtractorConfidence(answer.confidence) && currentEvidence(answer, input.current))
     && ['property_category', 'unit_choice', 'property_floor', 'property_bedrooms', 'property_area'].includes(text(pending.id))
   const inheritedPrice = inScope && !explicitPrice && categoryAnswer
     && pending.act !== 'explore_quoted_options'

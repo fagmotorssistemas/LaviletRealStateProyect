@@ -174,7 +174,8 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('an ap
   for (const name of allTopics.filter(name => !['project_intro', 'general_location'].includes(name))) assert.equal(topicAllowed(context, name), false, name)
   assert.equal(object(object(context.contexto_verificado).presentacion_general_proyecto).summary, reply)
   assert.match(rules, /Presentación general del proyecto/)
-  assert.equal(object(object(context.contexto_verificado).proyecto).city, 'Cuenca')
+  assert.equal(object(object(context.contexto_verificado).proyecto).city, undefined,
+    'The approved summary is the only business copy for this opening; extra project fields do not expand it')
 })
 
 for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('a delivered price answer closes its inherited permission before the next preference: '+mode, async () => {

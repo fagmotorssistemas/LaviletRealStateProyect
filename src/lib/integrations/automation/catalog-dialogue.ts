@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { areaAssertions, satisfiesNumeric } from './numeric-relations'
 import { object, text, type Row } from './data'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
@@ -183,7 +184,7 @@ export function canOfferLowerFloorBedrooms(info: Row, query: CatalogQuery, decli
   const current = text(answer.evidence).trim(), evidence = text(declined.evidence).trim()
   const refusal = evidence.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const engagement = object(info.commercial_engagement)
-  return query.filters.bedrooms_required !== true && answer.confidence === 'high'
+  return query.filters.bedrooms_required !== true && acceptedExtractorConfidence(answer.confidence)
     && answer.kind === 'negative' && answer.question_id === 'property_requirements'
     && !!current && current === evidence && engagement.passive !== true
     && object(info._sales_memory).passive_sales !== true && semantics.opt_out !== true && info.opt_out !== true
@@ -470,7 +471,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
   if (['ask_price', 'request_visit', 'ask_financing', 'request_reservation', 'ask_reservation'].includes(text(object(info.semantica_turno).primary_intent))) return null
   const reference = object(info.referencia_unidad), context = object(info.property_context || reference.context)
   const semantic = object(object(info.semantica_turno).property)
-  const raw = object(reference.query || context.query || (semantic.confidence === 'high' ? semantic : {}))
+  const raw = object(reference.query || context.query || (acceptedExtractorConfidence(semantic.confidence) ? semantic : {}))
   const query = catalogQuery(raw)
   if (query.filters.bedrooms_operator === 'between' && query.filters.bedrooms_upper == null) return null
   // A relative price choice needs a complete price ranking before selecting a unit.
@@ -552,7 +553,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
       : verifiedAbsenceReply(baseAudit) || `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
     if (unknown.length) return respond(opening)
     const budget = leadBudget(info)
-    const cap = budget.status === 'maximum_total' && budget.confidence === 'high'
+    const cap = budget.status === 'maximum_total' && acceptedExtractorConfidence(budget.confidence)
       && typeof budget.amount === 'number' && object(info.politica_comercial).precios_autorizados === true
       ? { maximum: budget.amount } : undefined
     const declined = object(context.requirements_declined)

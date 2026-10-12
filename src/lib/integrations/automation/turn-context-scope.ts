@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
@@ -14,9 +15,9 @@ function projectIntroduction(verified: Row, audit: Row, intent: Row, subject: Ro
   return intent.objective === 'project_information'
     && object(audit.profile_introduction).generic_introduction === true
     && ['commercial', 'project_overview', 'project_information_choice', ''].includes(text(audit.source))
-    && semantics.confidence === 'high' && semantics.primary_intent === 'project_information'
+    && acceptedExtractorConfidence(semantics.confidence) && semantics.primary_intent === 'project_information'
     && property.operation === 'none' && property.reference_kind === 'none'
-    && requests.length === 1 && requests[0].domain === 'property' && requests[0].confidence === 'high'
+    && requests.length === 1 && requests[0].domain === 'property' && acceptedExtractorConfidence(requests[0].confidence)
     && !hasValue(intent.required_facts) && !hasValue(subject.category)
     && !hasValue(subject.unit_numbers) && !hasValue(subject.filters)
     && !hasValue(property.category) && !hasValue(property.group) && !hasValue(property.unit_numbers)
@@ -44,7 +45,7 @@ export function scopeTurnCatalog(verified: Row, audit: Row): Row {
   }
   if (audit.source !== 'unit_price' || audit.verified_price_only !== true
     || intent.objective !== 'ask_price' || !category || requests.length !== 1
-    || requests.some(row => row.domain !== 'property' || row.confidence !== 'high')
+    || requests.some(row => row.domain !== 'property' || !acceptedExtractorConfidence(row.confidence))
     || (Array.isArray(subject.unit_numbers) && subject.unit_numbers.length)) return verified
   const selected = units.filter(unit => unit.category === category)
   if (!selected.length || selected.length === units.length) return verified

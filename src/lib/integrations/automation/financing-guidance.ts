@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { FINANCING_STAGE_RULES } from './financing-stage'
 import { FINANCING_QUOTE_REPLY_RULES } from './financing-quote'
@@ -5,9 +6,9 @@ import { FINANCING_QUOTE_REPLY_RULES } from './financing-quote'
 /** Uses the existing, grounded interpretation; never reinterprets customer prose. */
 export function hasFinancingRequest(extracted: Row): boolean {
   const semantics = object(extracted.turn_semantics)
-  return semantics.confidence === 'high' && semantics.primary_intent === 'ask_financing'
+  return acceptedExtractorConfidence(semantics.confidence) && semantics.primary_intent === 'ask_financing'
     || (Array.isArray(semantics.requests) && semantics.requests.map(object)
-      .some(request => request.domain === 'financing' && request.confidence === 'high'))
+      .some(request => request.domain === 'financing' && acceptedExtractorConfidence(request.confidence)))
 }
 
 // These are the fields collected by process_financing_message_v3 and

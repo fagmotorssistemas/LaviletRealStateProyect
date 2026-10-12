@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { catalogQuery, type CatalogQuery } from './catalog-dialogue'
 import { resolveCatalogRequirements } from './catalog-result'
@@ -27,8 +28,8 @@ export function resolvedCatalogQuery(info: Row): {
     return empty('unresolved_property_reference')
   if (['mixed', 'out_of_scope', 'uncertain', 'clarify_scope'].includes(text(object(intent.scope).kind)))
     return empty('uncertain_interpretation')
-  if (semantics.confidence !== 'high' || property.confidence !== 'high'
-    || !propertyRequests.length || requests.some(r => r.confidence !== 'high')) return empty('uncertain_interpretation')
+  if (!acceptedExtractorConfidence(semantics.confidence) || !acceptedExtractorConfidence(property.confidence)
+    || !propertyRequests.length || requests.some(r => !acceptedExtractorConfidence(r.confidence))) return empty('uncertain_interpretation')
   // Independent catalogue scopes must be answered together by the normal path;
   // selecting only the primary one would silently omit the other request.
   if (propertyRequests.length > 1) return empty('multiple_catalog_scopes')
@@ -36,14 +37,14 @@ export function resolvedCatalogQuery(info: Row): {
   if (!['catalog', 'offered', 'selected', 'focused', 'comparison'].includes(query.scope)) return empty('unresolved_query_scope')
   if (semantics.catalog_request_status === 'invalid') return empty('invalid_structured_requirements')
   let request = object(semantics.catalog_request)
-  if (request.version === 'catalog-request-v1' && request.confidence !== 'high') return empty('uncertain_interpretation')
+  if (request.version === 'catalog-request-v1' && !acceptedExtractorConfidence(request.confidence)) return empty('uncertain_interpretation')
   let source = proposalInformation ? 'pending_proposal' : 'catalog_request'
   if (request.version !== 'catalog-request-v1') {
     // Details and follow-ups already have an authoritative resolved property
     // query. A missing optional catalog_request does not erase that query.
     source = proposalInformation ? 'pending_proposal' : 'resolved_property_query'
     request = { version: 'catalog-request-v1', purpose: query.operation === 'rank' ? 'search' : query.operation,
-      metric: null, requirements: [], semantic_preferences: [], confidence: 'high', evidence: property.evidence || '' }
+      metric: null, requirements: [], semantic_preferences: [], confidence: property.confidence, evidence: property.evidence || '' }
   }
   if (!['search', 'details', 'compare', 'select', 'count', 'list', 'range', 'min', 'max'].includes(text(request.purpose)))
     return empty('unsupported_catalog_operation')

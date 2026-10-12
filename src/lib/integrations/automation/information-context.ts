@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 
@@ -11,7 +12,7 @@ export function informationSubject(current: string, info: Row): 'project' | 'pro
   const explicitProject = /(?:informacion|detalles|cuenteme|cuentame|hablame).*(?:proyecto|edificio)/.test(m)
   const generic = /^(?:(?:hola|buenos dias|buenas tardes|buenas noches|por favor|si)\s+)*(?:(?:quiero|quisiera|necesito|deseo|me gustaria|envieme|compartame)\s+)?(?:mas\s+)?(?:informacion|info|detalles)(?:\s+por favor)?$/.test(m)
     || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches)\s+)*(?:por favor\s+)?(?:compartame|comparteme|envieme|mandeme)\s+(?:mas\s+)?informacion(?:\s+por favor)?$/.test(m)
-  const interpreted = semantics.primary_intent === 'project_information' && semantics.confidence === 'high'
+  const interpreted = semantics.primary_intent === 'project_information' && acceptedExtractorConfidence(semantics.confidence)
     && !property.category && !property.group && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)
   if (!explicitProject && !generic && !interpreted) return null
   // A mixed request must remain available to the complete response planner.

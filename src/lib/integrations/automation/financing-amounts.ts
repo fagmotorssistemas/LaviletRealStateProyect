@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { BUDGET_QUESTION_CONTEXT_RULES } from './budget-question-context'
 
@@ -36,7 +37,7 @@ export function financingAmountStatements(raw: unknown, current: string): Row[] 
 export function monetaryInterpretationIssues(raw: Row, current: string): string[] {
   const budget = object(object(raw.turn_semantics).budget)
   const expected = budget.status === 'initial_capital' ? 'down_payment' : budget.status === 'maximum_total' ? 'total_budget' : ''
-  if (!expected || budget.confidence !== 'high' || !citation(budget.evidence) || !citation(current).includes(citation(budget.evidence))) return []
+  if (!expected || !acceptedExtractorConfidence(budget.confidence) || !citation(budget.evidence) || !citation(current).includes(citation(budget.evidence))) return []
   const statements = financingAmountStatements(raw.financing_amounts, current)
   const amounts = financingAmounts({}, statements, current)
   const contradictoryReplacement = statements.some(item => item.replaces_role === expected && item.role !== expected
@@ -52,7 +53,7 @@ export function reconcileMonetaryInterpretation(raw: Row, current: string): Row 
   const semantics = object(raw.turn_semantics), budget = object(semantics.budget)
   const statements = financingAmountStatements(raw.financing_amounts, current)
   let amounts = financingAmounts({}, statements, current)
-  const budgetCurrent = budget.confidence === 'high' && !!citation(budget.evidence)
+  const budgetCurrent = acceptedExtractorConfidence(budget.confidence) && !!citation(budget.evidence)
     && citation(current).includes(citation(budget.evidence))
   const roleFromStatus = budget.status === 'initial_capital' ? 'down_payment'
     : budget.status === 'maximum_total' ? 'total_budget' : ''
@@ -70,7 +71,7 @@ export function reconcileMonetaryInterpretation(raw: Row, current: string): Row 
     reconciledBudget = role === 'loan'
       ? { status: 'not_discussed', amount: null, evidence: '', confidence: 'low' }
       : { ...budget, status: role === 'down_payment' ? 'initial_capital' : 'maximum_total',
-        evidence: object(value).evidence, confidence: 'high' }
+        evidence: object(value).evidence, confidence: acceptedExtractorConfidence(budget.confidence) ? budget.confidence : 'high' }
   }
   return { ...raw, financing_amounts: statements,
     turn_semantics: { ...semantics, budget: reconciledBudget } }

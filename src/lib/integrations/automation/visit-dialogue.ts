@@ -1,3 +1,4 @@
+import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { readinessInvitation, readinessPlacePhrase, type ProjectReadiness, type VisitPlace } from '@/lib/inmobiliaria/projectReadiness'
 import type { BusinessScopeDecision } from './business-scope'
@@ -14,7 +15,7 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
   intake?: unknown; proposals?: unknown; current: string; sourceMessageId?: string; sourceAt?: string; pendingQuestion?: unknown }) {
   const previous = object(input.previous), intent = object(input.intent), preference = object(input.preference)
   const readiness = input.readiness, intake = object(input.intake)
-  const valid = intent.confidence === 'high' && literal(intent.evidence, input.current) && intent.target !== 'other'
+  const valid = acceptedExtractorConfidence(intent.confidence) && literal(intent.evidence, input.current) && intent.target !== 'other'
   const rawPurpose = valid ? text(intent.purpose) : ''
   const purpose = rawPurpose || (valid && intent.kind === 'request_visit' ? 'coordination'
     : valid && intent.kind === 'accept_visit_preference' ? 'preference' : valid && intent.kind === 'visit_status' ? 'status' : 'other')
@@ -41,7 +42,7 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
     && (pending.id === 'visit_destination' || previous.version === VISIT_DIALOGUE_VERSION)
   if (currentKind === 'decline' || currentKind === 'cancel') state = { ...state, status: currentKind === 'cancel' ? 'cancellation_requested' : 'declined',
     offered_destination: null, effective_destination: null, alternative_accepted: false, pending_preference: null, missing_fields: [] }
-  const preferenceGiven = valid && preference.confidence === 'high' && literal(preference.evidence, input.current)
+  const preferenceGiven = valid && acceptedExtractorConfidence(preference.confidence) && literal(preference.evidence, input.current)
     && (preference.date_text || preference.time_text)
   if (preferenceGiven && ['coordination', 'preference'].includes(currentKind)) state.pending_preference = { ...preference,
     source_message_id: input.sourceMessageId || null, source_at: input.sourceAt || null }
@@ -98,10 +99,11 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
 /** A semantic project reference can repair uncertainty, never a verified foreign business. */
 export function reconcileVisitDialogueScope(scope: BusinessScopeDecision, current: string, intentInput: unknown, requestsInput: unknown): BusinessScopeDecision {
   const intent = object(intentInput)
-  const grounded = rows(requestsInput).some(r => r.domain === 'visit' && r.confidence === 'high' && literal(r.evidence, current))
-  if (!scope.uncertain && scope.kind !== 'neutral' || !grounded || intent.confidence !== 'high' || intent.target !== 'project'
+  const grounded = rows(requestsInput).find(r => r.domain === 'visit' && acceptedExtractorConfidence(r.confidence) && literal(r.evidence, current))
+  if (!scope.uncertain && scope.kind !== 'neutral' || !grounded || !acceptedExtractorConfidence(intent.confidence) || intent.target !== 'project'
     || intent.kind === 'none' || !literal(intent.evidence, current)) return scope
-  return { kind: 'property', property_message: current, reply: '', uncertain: false, confidence: 'high', reason: 'grounded_project_visit_reference' }
+  return { kind: 'property', property_message: current, reply: '', uncertain: false,
+    confidence: combinedExtractorConfidence(intent.confidence, grounded.confidence), reason: 'grounded_project_visit_reference' }
 }
 
 export function visitDialoguePendingQuestion(planInput: unknown): Row {
@@ -115,9 +117,9 @@ export function visitDialogueIntakeSnapshot(planInput: unknown, intentInput: unk
   const plan = object(planInput), intent = object(intentInput), current = object(preferenceInput), state = object(plan.state)
   const retained = object(state.pending_preference)
   const interpreted = Object.keys(current).length ? current : plan.current_kind === 'accept_alternative' && plan.operation_allowed === true
-    ? { evidence: intent.evidence, confidence: 'high', canonical_text: null, date_text: null, time_text: null, location_type: plan.effective_destination } : null
+    ? { evidence: intent.evidence, confidence: intent.confidence, canonical_text: null, date_text: null, time_text: null, location_type: plan.effective_destination } : null
   const restore = plan.current_kind === 'accept_alternative' && plan.alternative_accepted === true
-    && retained.source_message_id && retained.source_message_id !== currentSourceId && retained.confidence === 'high'
+    && retained.source_message_id && retained.source_message_id !== currentSourceId && acceptedExtractorConfidence(retained.confidence)
   return { ...(interpreted ? { _interpreted_visit: interpreted } : {}),
     ...(restore ? { _visit_dialogue_consent: { current_intent: intent, source_preference: retained } } : {}) }
 }

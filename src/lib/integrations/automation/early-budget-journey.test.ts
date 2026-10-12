@@ -37,13 +37,13 @@ test('known residential use asks total budget before bedrooms and units', () => 
   assert.deepEqual(object(data.property_context).selected_ids, [])
 })
 
-test('unknown use is discovered first; investment asks budget then asset scope before comparing', () => {
+test('unknown asset is discovered first; investment alone retains purpose without skipping asset scope', () => {
   const data = info()
   data.lead = {}
   data.property_context = { query: {}, selected_ids: [] }
   assert.equal(commercialJourneyPlan(data).action, 'discover_use')
   data.lead = { purchase_purpose: 'invertir' }
-  assert.equal(commercialJourneyPlan(data).action, 'ask_budget')
+  assert.equal(commercialJourneyPlan(data).action, 'discover_use')
   object(data.semantica_turno).budget = { status: 'maximum_total', amount: 10000, evidence: 'Diez mil', confidence: 'high' }
   const next = commercialJourneyPlan(data)
   assert.equal(next.action, 'discover_use')
@@ -75,7 +75,7 @@ test('below the complete residential minimum offers analysis without treating ch
   assert.equal(financingStage(data).collection_allowed, false)
 })
 
-test('commercial use compares only commercial inventory and asks budget before business purpose', () => {
+test('commercial use compares only commercial inventory and continues unit selection without requiring business purpose', () => {
   const data = info()
   data.lead = { preferred_category: 'local' }
   data.property_context = { query: { category: 'local' }, selected_ids: [],
@@ -83,7 +83,8 @@ test('commercial use compares only commercial inventory and asks budget before b
   assert.equal(commercialJourneyPlan(data).action, 'ask_budget')
   object(data.semantica_turno).budget = { status: 'maximum_total', amount: 60000, evidence: 'Sesenta mil', confidence: 'high' }
   const next = commercialJourneyPlan(data)
-  assert.equal(next.action, 'discover_purpose')
+  assert.equal(next.action, 'select_property')
+  assert.notEqual(next.question_id, 'property_purpose')
   assert.equal(object(next.budget_guidance).coverage, 'all')
   assert.deepEqual(object(next.budget_guidance).candidate_unit_ids, ['local'])
 })
