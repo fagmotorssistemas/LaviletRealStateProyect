@@ -13,6 +13,7 @@ import { VirtualTourPlugin, events as tourEvents } from '@photo-sphere-viewer/vi
 import type { VirtualTourNode } from '@photo-sphere-viewer/virtual-tour-plugin'
 import type { Position } from '@photo-sphere-viewer/core'
 import {
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Columns2,
@@ -54,7 +55,7 @@ import { ShowroomMenu } from '@/components/tour/ShowroomMenu'
 import { TourAmenitiesGallery } from '@/components/tour/TourAmenitiesGallery'
 import { TourLocationView } from '@/components/tour/TourLocationView'
 import { SITE } from '@/lib/marketing/site'
-import { buildTourWhatsAppMessage, tourWhatsAppHref } from '@/lib/tour/tourWhatsApp'
+import { buildTourWhatsAppMessage, tourWhatsAppHref, type TourWhatsAppContext } from '@/lib/tour/tourWhatsApp'
 import { MetaViewContentUnit } from '@/components/marketing/MetaViewContentUnit'
 import { MetaViewContentShowroom } from '@/components/marketing/MetaViewContentShowroom'
 import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
@@ -97,7 +98,7 @@ import {
   readUnitQueryParam,
   writeUnitQueryParam,
 } from '@/lib/tour/unitDeepLink'
-import { FLOOR_PLAN_FLOORS, FLOOR_PLAN_LEVELS, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
+import { FLOOR_PLAN_FLOORS, FLOOR_PLAN_LEVELS, floorPlanLevelLabel, unitFloorNumber } from '@/lib/tour/floorPlanHotspots'
 import { fetchFloorPlanReady, prefetchFloorPlans, warmFloorPlans } from '@/lib/tour/floorPlanClientCache'
 import { preloadStill, warmStills } from '@/lib/tour/stillPreload'
 import { isCommonAreaCode } from '@/lib/tour/commonAreas'
@@ -927,6 +928,7 @@ function modeButtonsForView(input: {
   shellMode: 'plan' | 'unit'
   hasPanorama?: boolean
   hasGallery?: boolean
+  viewingCommonArea?: boolean
 }): {
   galeria: boolean
   planos: boolean
@@ -939,6 +941,9 @@ function modeButtonsForView(input: {
   }
   const tour = Boolean(input.hasPanorama)
   const galeria = Boolean(input.hasGallery)
+  if (input.viewingCommonArea) {
+    return { galeria: tour && galeria, planos: false, tour, terminaciones: false, comparador: false }
+  }
   const terminaciones = galeria
   const comparador = tour || terminaciones
   return { galeria, planos: false, tour, terminaciones, comparador }
@@ -1396,6 +1401,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(false)
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
+  const [amenityCaption, setAmenityCaption] = useState('')
   const [locationFromMenu, setLocationFromMenu] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(false)
@@ -1415,6 +1421,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const heartPressRef = useRef<{ timer: number; long: boolean } | null>(null)
   const [mobilePanel, setMobilePanel] = useState<'nav' | 'modes' | null>(null)
   const [infoRequestOpen, setInfoRequestOpen] = useState(false)
+  const [infoRequestContext, setInfoRequestContext] = useState<TourWhatsAppContext>('unidad')
   const [tourNavMode, setTourNavMode] = useState<TourNavMode | null>(null)
   const [navChooserOpen, setNavChooserOpen] = useState(false)
   const [voiceAssistOpen, setVoiceAssistOpen] = useState(false)
@@ -2804,6 +2811,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   )
   const modeButtons = modeButtonsForView({
     shellMode,
+    viewingCommonArea,
     hasPanorama: typologyHasPanorama(currentTypology),
     hasGallery: typologyHasGallery(currentTypology) || galeriaImages.length > 0,
   })
@@ -3640,6 +3648,39 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const currentNode = nodes.find((n) => n.id === room || roomSlugFromNode(n) === room)
   const roomName =
     tourRooms.find((item) => item.slug === room)?.label ?? currentNode?.name ?? tourRoomLabel(room)
+  const whatsappUnitCategory = /penthouse/i.test(currentTypology?.name ?? '')
+    ? 'penthouse' : selectedUnit?.category || currentTypology?.category
+  const whatsappContext: TourWhatsAppContext = locationFromMenu
+    ? 'ubicacion'
+    : amenitiesOpen ? 'amenidades'
+      : viewingCommonArea ? 'zona_comun'
+        : isComparador ? 'comparador'
+          : terminacionesUiOpen ? 'terminaciones'
+            : simulatorOpen ? 'simulador'
+              : showPlanShell ? 'plano' : 'unidad'
+  const whatsappMessage = buildTourWhatsAppMessage({
+    context: whatsappContext,
+    locale,
+    unitNumber: selectedUnit?.unit_number,
+    category: whatsappUnitCategory,
+    bedrooms: selectedUnit?.bedrooms,
+    compareUnit: compareUnitB ? { unitNumber: compareUnitB.unit_number, category: /penthouse/i.test(compareTypologyB?.name ?? '') ? 'penthouse' : compareUnitB.category, bedrooms: compareUnitB.bedrooms } : null,
+    commonAreaCode: areaCode,
+    amenityLabel: amenityCaption,
+    floorLabel: floorPlanLevelLabel(planFloor),
+    roomLabel: viewMode === 'tour' ? roomName : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.label ?? roomName,
+    viewMode,
+  })
+  const infoRequestWhatsappMessage = buildTourWhatsAppMessage({
+    context: infoRequestContext,
+    locale,
+    unitNumber: selectedUnit?.unit_number,
+    category: whatsappUnitCategory,
+    bedrooms: selectedUnit?.bedrooms,
+    commonAreaCode: areaCode,
+    roomLabel: viewMode === 'tour' ? roomName : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]?.label ?? roomName,
+    viewMode,
+  })
 
   const trackingScene =
     viewMode === 'tour' ? null : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))] ?? null
@@ -3746,7 +3787,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setNavChooserOpen(true)
         }}
       />
-      <TourAmenitiesGallery open={amenitiesOpen} />
+      <TourAmenitiesGallery open={amenitiesOpen} onCaptionChange={setAmenityCaption} />
       <TourLocationView open={locationFromMenu} fromMenu onClose={() => setLocationFromMenu(false)} />
       <div
         className="absolute inset-0 overflow-hidden"
@@ -4148,6 +4189,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           }}
           railTrailing={
             !voiceAssistOpen ? (
+              <div className={cn('tour-floor-voice', fichaOpen && 'is-hidden')} aria-hidden={fichaOpen || undefined} inert={fichaOpen || undefined}>
               <button
                 type="button"
                 data-tour-voice
@@ -4162,6 +4204,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   className="text-[#E8D9C0] transition group-hover:scale-105"
                 />
               </button>
+              </div>
             ) : null
           }
           onWhatsAppClick={() => {
@@ -4170,6 +4213,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               room: `piso-${planFloor}`,
               typology_code: selectedTypology,
               unit_type_id: currentTypology?.id,
+              metadata: { context: 'plano' },
             })
           }}
           touchesLocked={planTouchLock}
@@ -4466,9 +4510,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                     }
                   className="tour-fab"
                   aria-expanded={mobilePanel === 'nav'}
-                  aria-label={t('Pisos')}
+                  aria-label={t(viewingCommonArea ? 'Volver a los pisos' : 'Pisos')}
                   >
-                  <Layers size={18} strokeWidth={2.25} />
+                  {viewingCommonArea ? <ArrowLeft size={18} strokeWidth={2.25} /> : <Layers size={18} strokeWidth={2.25} />}
                   </button>
                 {mobilePanel === 'nav' ? (
                   <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
@@ -4613,7 +4657,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <Mic size={18} strokeWidth={1.75} />
               </button>
                 ) : null}
-          {selectedUnit ? (
+          {selectedUnit && !viewingCommonArea ? (
                   <button
                     type="button"
             className="tour-fab"
@@ -4663,19 +4707,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           ) : null}
           {SITE.whatsapp ? (
             <a
-              href={tourWhatsAppHref(
-                buildTourWhatsAppMessage({
-                  locale,
-                  unitNumber: selectedUnit?.unit_number,
-                  typologyCode: selectedTypology,
-                  roomLabel:
-                    viewMode === 'tour'
-                      ? roomName
-                      : stillItems[Math.min(stillIndex, Math.max(stillItems.length - 1, 0))]
-                          ?.label ?? roomName,
-                  viewMode,
-                }),
-              )!}
+              href={tourWhatsAppHref(whatsappMessage)!}
               target="_blank"
               rel="noopener noreferrer"
               className="tour-fab tour-whatsapp-btn"
@@ -4691,6 +4723,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                         room,
                   typology_code: selectedTypology,
                   unit_type_id: currentTypology?.id,
+                  metadata: { context: whatsappContext },
                 })
               }}
             >
@@ -4850,6 +4883,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             }
           }}
           onRequestInfo={(unit) => {
+            setInfoRequestContext('unidad')
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
             const floor = unitFloorNumber(unit)
@@ -4881,6 +4915,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           initialMode={simulatorEntry.mode}
           initialSection={simulatorEntry.section}
           onRequestInfo={() => {
+            setInfoRequestContext('simulador')
             setSimulatorOpen(false)
             setInfoRequestOpen(true)
           }}
@@ -4957,6 +4992,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               return
             }
             if (action === 'OPEN_TOUR_360') {
+              if (viewingCommonArea && !typologyHasPanorama(currentTypology)) return
               setShellMode('unit')
               setViewMode('tour')
               setFichaOpen(false)
@@ -4974,6 +5010,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               return
             }
             if (action === 'SAVE_FAVORITE') {
+              if (viewingCommonArea) return
               setSaveUnitOpen(true)
               return
             }
@@ -5027,6 +5064,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         floorLabel={selectedUnit?.floor}
         finish={finish}
         light={light}
+        category={whatsappUnitCategory}
+        bedrooms={selectedUnit?.bedrooms}
+        whatsappMessage={infoRequestWhatsappMessage}
+        whatsappContext={infoRequestContext}
       />
 
       <TourLeadGate

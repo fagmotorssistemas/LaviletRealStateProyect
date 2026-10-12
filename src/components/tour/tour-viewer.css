@@ -863,8 +863,24 @@ html.tour-is-force-landscape body {
   pointer-events: none;
 }
 
+.tour-floor-voice {
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+}
+
+.tour-floor-voice.is-hidden {
+  transform: translateX(calc(100% + 1.5rem));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tour-context-whatsapp {
+  right: var(--edge-right);
+  bottom: var(--edge-bottom);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tour-floor-rail {
+  .tour-floor-rail,
+  .tour-floor-voice {
     transition: opacity 150ms linear;
   }
 }
@@ -1532,7 +1548,7 @@ html.tour-phone-preview .tour-ficha-tile {
 
 /* Vertical: la ficha queda a la izquierda y deja libres el riel y el zoom. */
 @media (max-width: 900px) and (min-height: 501px) {
-  .tour-ficha-sheet.tour-modal-sheet {
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet.tour-modal-sheet {
     left: var(--edge-left) !important;
     right: auto !important;
     width: min(22.5rem, calc(100% - var(--edge-left) - var(--edge-right) - clamp(56px, 5vw, 84px) - 1.15rem)) !important;
@@ -1589,6 +1605,15 @@ html.tour-phone-preview .tour-ficha-tile {
     height: auto !important;
     padding: 0.85rem 0.75rem !important;
     justify-content: center;
+  }
+}
+
+@media (max-width: 900px) and (min-height: 501px) {
+  .tour-root.is-plan-shell .tour-ficha-sheet.tour-modal-sheet {
+    left: var(--edge-left) !important;
+    right: var(--edge-right) !important;
+    width: auto !important;
+    max-width: none !important;
   }
 }
 

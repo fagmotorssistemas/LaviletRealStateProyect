@@ -4,6 +4,14 @@ export type TourLocale = 'es' | 'en'
 
 /** Display translations only. Stored status, room IDs, prices and event values never change. */
 export const tourEnglish: Record<string, string> = {
+  'Solicitud enviada': 'Request sent',
+  'Solicitud enviada ✓': 'Request sent ✓',
+  'Ya enviamos tu solicitud al equipo de La Vilet': 'We have sent your request to the La Vilet team',
+  'Un asesor te contactará pronto': 'An advisor will contact you soon',
+  'Comprobando tu solicitud…': 'Checking your request…',
+  '¿Quieres que el asesor también te cuente sobre': 'Would you like the advisor to tell you about',
+  'Sí, solicitar información': 'Yes, request information',
+  'Escribir por WhatsApp': 'Write on WhatsApp',
   ...tourFinanceEnglish,
   ...tourVoiceEnglish,
   'No disponible para este acabado': 'Not available for this finish',

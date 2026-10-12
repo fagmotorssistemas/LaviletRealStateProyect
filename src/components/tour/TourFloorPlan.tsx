@@ -474,7 +474,7 @@ export function TourFloorPlan({
   const htmlHoverUnitRef = useRef<TourUnitSummary | null>(null)
   const lastHtmlOpenAtRef = useRef(0)
   const lastHtmlOpenKeyRef = useRef('')
-  const whatsappHref = tourWhatsAppHref(floorPlanWhatsAppMessage(locale))
+  const whatsappHref = tourWhatsAppHref(floorPlanWhatsAppMessage(locale, floorPlanLevelLabel(floor)))
 
   useEffect(() => {
     const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse) and (max-width: 900px)')

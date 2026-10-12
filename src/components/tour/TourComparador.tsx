@@ -11,6 +11,8 @@ import { finishSwatchStyle } from '@/lib/tour/finishSwatch'
 import type { TourLocale } from '@/lib/tour/tourMessages'
 import type { TourFinishOption, TourLightMode, TourPlacedHotspot, TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
+import { buildTourWhatsAppMessage } from '@/lib/tour/tourWhatsApp'
+import { TourContextWhatsAppLink } from './TourContextWhatsAppLink'
 
 function formatPrice(value: number | null) {
   if (value == null) return 'Consultar'
@@ -423,6 +425,18 @@ export function TourComparador({
       >
         <Reply size={18} strokeWidth={2} className="-scale-x-100" />
       </button>
+
+      {unitA ? <TourContextWhatsAppLink
+        context="comparador"
+        message={buildTourWhatsAppMessage({
+          context: 'comparador', locale,
+          unitNumber: unitA.unit_number, category: unitA.category, bedrooms: unitA.bedrooms,
+          compareUnit: unitB ? { unitNumber: unitB.unit_number, category: unitB.category, bedrooms: unitB.bedrooms } : null,
+        })}
+        className="tour-fab tour-whatsapp-btn pointer-events-auto absolute right-[var(--edge-right)] bottom-[calc(var(--edge-bottom)+var(--fab)+var(--fab-gap))] z-[34]"
+        typologyCode={unitA.typology_code}
+        unitTypeId={unitA.unit_type_id}
+      /> : null}
 
       {!waitingForB && !drawerOpen ? (
         <div

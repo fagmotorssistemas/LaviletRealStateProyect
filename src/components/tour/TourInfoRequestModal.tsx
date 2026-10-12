@@ -4,12 +4,15 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import Image from 'next/image'
-import { X } from 'lucide-react'
+import { CheckCircle2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { identifyTourLead, logTourEvent } from '@/lib/tour/visitorTracking'
 import { cn } from '@/lib/utils'
 import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
 import { getShowroomPhone, SHOWROOM_IDENTITY_EVENT } from '@/lib/tour/showroomIdentity'
+import { infoRequestKey, infoRequestsSnapshot, readInfoRequests, saveInfoRequest, subscribeInfoRequests, type StoredInfoRequest } from '@/lib/tour/infoRequests'
+import { commonAreaByCode, commonAreaLabel } from '@/lib/tour/commonAreas'
+import { describeTourUnit, tourWhatsAppHref, type TourWhatsAppContext } from '@/lib/tour/tourWhatsApp'
 
 function subscribeIdentity(onChange: () => void) {
   window.addEventListener(SHOWROOM_IDENTITY_EVENT, onChange)
@@ -45,6 +48,10 @@ type TourInfoRequestModalProps = {
   floorLabel?: string | null
   finish?: string | null
   light?: string | null
+  category?: string | null
+  bedrooms?: number | null
+  whatsappMessage: string
+  whatsappContext: TourWhatsAppContext
 }
 
 export function TourInfoRequestModal({
@@ -60,8 +67,12 @@ export function TourInfoRequestModal({
   floorLabel,
   finish,
   light,
+  category,
+  bedrooms,
+  whatsappMessage,
+  whatsappContext,
 }: TourInfoRequestModalProps) {
-  const { t } = useTourLanguage()
+  const { t, locale } = useTourLanguage()
   const sheetRef = useRef<HTMLFormElement>(null)
   useShowroomSheet(open, sheetRef)
 
@@ -69,6 +80,33 @@ export function TourInfoRequestModal({
   const submitLockRef = useRef(false)
   const requestIdRef = useRef<string | null>(null)
   const knownPhone = useSyncExternalStore(subscribeIdentity, getShowroomPhone, () => '')
+  const requestsSnapshot = useSyncExternalStore(subscribeInfoRequests, infoRequestsSnapshot, () => '[]')
+  const key = infoRequestKey(unitId, typologyCode)
+  const storedRequest = readInfoRequests(requestsSnapshot).find((item) => item.key === key) ?? null
+  const [remoteRequest, setRemoteRequest] = useState<StoredInfoRequest | null>(null)
+  const [checkedKey, setCheckedKey] = useState('')
+  const sentRequest = storedRequest ?? (remoteRequest?.key === key ? remoteRequest : null)
+
+  useEffect(() => {
+    if (!open || storedRequest) return
+    let active = true
+    const params = new URLSearchParams()
+    if (unitId) params.set('unit_id', unitId)
+    else if (typologyCode) params.set('typology_code', typologyCode)
+    void fetch(`/api/tour/info-request/status?${params.toString()}`, { cache: 'no-store' })
+      .then(async (response) => response.ok ? response.json() as Promise<{ record: StoredInfoRequest | null }> : { record: null })
+      .then(({ record }) => {
+        if (!active) return
+        if (record?.key === key) {
+          const restored = { ...record, unitNumber: unitNumber ?? record.unitNumber }
+          setRemoteRequest(restored)
+          saveInfoRequest(restored)
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => { if (active) setCheckedKey(key) })
+    return () => { active = false }
+  }, [open, key, unitId, typologyCode, unitNumber, storedRequest?.sentAt])
 
   useEffect(() => {
     if (!open) return
@@ -83,7 +121,7 @@ export function TourInfoRequestModal({
       unit_type_id: unitTypeId,
       metadata: { source: 'solicitar_informacion', unit_number: unitNumber ?? null },
     })
-  }, [open, typologyCode, unitTypeId, unitNumber])
+  }, [open, typologyCode, unitTypeId, unitNumber, unitId])
 
   if (!open) return null
 
@@ -96,44 +134,35 @@ export function TourInfoRequestModal({
     .filter(Boolean)
     .join(' · ')
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    if (data.get('consent') !== 'on') {
-      toast.error(t('Marca la casilla de política de privacidad'))
-      return
-    }
-    const motivo =
-      MOTIVOS.find((item) => item.value === String(data.get('motivo') ?? ''))?.label ||
-      'Consulta showroom'
-    const mensaje = String(data.get('mensaje') ?? '').trim()
-
+  async function sendRequest(input: { phone: string; name?: string; email?: string; motivo: string; mensaje?: string }) {
     if (pending || submitLockRef.current) return
     submitLockRef.current = true
     setPending(true)
     try {
       await identifyTourLead({
         // The server resolves the existing lead by phone and preserves its real name/email.
-        name: knownPhone ? undefined : String(data.get('name') ?? ''),
-        email: knownPhone ? undefined : String(data.get('email') ?? ''),
-        phone: knownPhone || String(data.get('phone') ?? ''),
+        name: knownPhone ? undefined : input.name,
+        email: knownPhone ? undefined : input.email,
+        phone: knownPhone || input.phone,
         mode: knownPhone ? 'phone' : 'full',
         consent: true,
         request_kind: 'info_request',
         client_request_id: requestIdRef.current,
-        motivo,
-        mensaje: mensaje || null,
+        motivo: input.motivo,
+        mensaje: input.mensaje || null,
         typology_code: typologyCode || null,
         unit_type_id: unitTypeId || null,
         unit_id: unitId || null,
         unit_number: unitNumber || null,
-        interest_room: mensaje ? `${motivo}: ${mensaje}` : motivo,
+        interest_room: input.mensaje ? `${input.motivo}: ${input.mensaje}` : input.motivo,
         finish: finish || null,
         light: light || null,
       })
       toast.success(t('Listo. Te contactaremos a la brevedad.'))
+      const record = { key, unitNumber: unitNumber ?? null, sentAt: new Date().toISOString() }
+      setRemoteRequest(record)
+      saveInfoRequest(record)
       onIdentified?.()
-      onClose()
     } catch (error) {
       submitLockRef.current = false
       const message = error instanceof Error ? error.message : ''
@@ -146,6 +175,31 @@ export function TourInfoRequestModal({
       setPending(false)
     }
   }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    if (data.get('consent') !== 'on') {
+      toast.error(t('Marca la casilla de política de privacidad'))
+      return
+    }
+    const motivo = MOTIVOS.find((item) => item.value === String(data.get('motivo') ?? ''))?.label || 'Consulta showroom'
+    await sendRequest({
+      phone: String(data.get('phone') ?? ''),
+      name: String(data.get('name') ?? ''),
+      email: String(data.get('email') ?? ''),
+      motivo,
+      mensaje: String(data.get('mensaje') ?? '').trim(),
+    })
+  }
+
+  const area = commonAreaByCode(typologyCode)
+  const subject = area ? commonAreaLabel(area, locale) : describeTourUnit({ unitNumber, category, bedrooms }, locale)
+  const sentAt = sentRequest ? new Date(sentRequest.sentAt) : null
+  const sentAtLabel = sentAt && !Number.isNaN(sentAt.getTime())
+    ? new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'es-EC', { dateStyle: 'medium', timeStyle: 'short' }).format(sentAt)
+    : ''
+  const checkingStatus = !sentRequest && checkedKey !== key
 
   return (
     <div
@@ -188,11 +242,29 @@ export function TourInfoRequestModal({
           <p className="text-[11px] font-medium tracking-[0.28em] text-[#BDA27E] uppercase">
             {t(" Showroom ")}</p>
           <h2 className="mt-2 font-display text-[1.65rem] leading-tight font-semibold tracking-tight text-[#2B1A18]">
-            {t(" Solicitar información ")}</h2>
+            {t(sentRequest ? 'Solicitud enviada' : 'Solicitar información')}</h2>
           {subtitle ? (
             <p className="mt-2 text-sm leading-relaxed text-[#2B1A18]/55">{t(subtitle)}</p>
           ) : null}
 
+          {sentRequest ? (
+            <div className="mt-6 space-y-3 text-sm text-[#2B1A18]">
+              <CheckCircle2 size={34} className="text-[#70815e]" aria-hidden />
+              <p>{t('Ya enviamos tu solicitud al equipo de La Vilet')}</p>
+              <p className="font-semibold">{subject}</p>
+              {sentAtLabel ? <p className="text-[#2B1A18]/60">{sentAtLabel}</p> : null}
+              <p>{t('Un asesor te contactará pronto')}</p>
+            </div>
+          ) : checkingStatus ? (
+            <p className="mt-6 text-sm text-[#2B1A18]/60">{t('Comprobando tu solicitud…')}</p>
+          ) : knownPhone ? (
+            <div className="mt-6 space-y-4 text-sm text-[#2B1A18]">
+              <p>{t('¿Quieres que el asesor también te cuente sobre')} {subject}?</p>
+              <button type="button" disabled={pending} onClick={() => void sendRequest({ phone: knownPhone, motivo: 'informacion' })} className="tour-modal-submit flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase disabled:opacity-60">
+                {t(pending ? 'Enviando…' : 'Sí, solicitar información')}
+              </button>
+            </div>
+          ) : <>
           <div className="mt-6 space-y-3.5">
             {!knownPhone ? (
               <>
@@ -273,16 +345,20 @@ export function TourInfoRequestModal({
                 {t(" Política de privacidad ")}</a>
             </span>
           </label>
+          </>}
         </div>
 
         <div className="shrink-0 border-t border-[#2B1A18]/8 bg-[#f7f3ee] p-4">
-          <button
+          {sentRequest ? <div className="grid gap-2">
+            {tourWhatsAppHref(whatsappMessage) ? <a href={tourWhatsAppHref(whatsappMessage)!} target="_blank" rel="noopener noreferrer" onClick={() => logTourEvent({ event_type: 'whatsapp_interest', typology_code: typologyCode, unit_type_id: unitTypeId, metadata: { context: whatsappContext } })} className="tour-modal-submit flex h-11 items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase">{t('Escribir por WhatsApp')}</a> : null}
+            <button type="button" onClick={onClose} className="flex h-11 items-center justify-center border border-[#2B1A18]/20 text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase">{t('Cerrar')}</button>
+          </div> : !checkingStatus && !knownPhone ? <button
             type="submit"
             disabled={pending}
             className="tour-modal-submit flex h-11 w-full items-center justify-center bg-[#BDA27E] text-[11px] font-semibold tracking-[0.18em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e] disabled:opacity-60"
           >
             {t(pending ? 'Enviando…' : 'Enviar')}
-          </button>
+          </button> : null}
         </div>
       </form>
     </div>

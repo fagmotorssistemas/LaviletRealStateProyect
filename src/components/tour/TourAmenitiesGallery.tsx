@@ -6,6 +6,8 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { useDualBuffer } from '@/components/tour/useDualBuffer'
 import { fitStill as amenityFit } from '@/lib/tour/stillFit'
 import { preloadStill } from '@/lib/tour/stillPreload'
+import { buildTourWhatsAppMessage } from '@/lib/tour/tourWhatsApp'
+import { TourContextWhatsAppLink } from './TourContextWhatsAppLink'
 
 type AmenitySlide = {
   title: string
@@ -13,7 +15,7 @@ type AmenitySlide = {
   imageUrl: string
 }
 
-export function TourAmenitiesGallery({ open }: { open: boolean }) {
+export function TourAmenitiesGallery({ open, onCaptionChange }: { open: boolean; onCaptionChange?: (caption: string) => void }) {
   const { locale, t } = useTourLanguage()
   const [items, setItems] = useState<AmenitySlide[]>([])
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
@@ -90,6 +92,9 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
         .replace(/\s+/g, ' ')
         .trim()
     : ''
+  useEffect(() => {
+    if (open) onCaptionChange?.(caption)
+  }, [open, caption, onCaptionChange])
   const buffers = useDualBuffer(slide?.imageUrl ?? null)
   const frontSrc = buffers.assigned[buffers.front]
   const fit = amenityFit(boxSize, (frontSrc && aspects[frontSrc]) || 1.6, zoom)
@@ -239,6 +244,12 @@ export function TourAmenitiesGallery({ open }: { open: boolean }) {
           <Plus size={18} strokeWidth={2.25} />
         </button>
       </div>
+
+      <TourContextWhatsAppLink
+        context="amenidades"
+        message={buildTourWhatsAppMessage({ context: 'amenidades', amenityLabel: caption, locale })}
+        className="tour-fab tour-whatsapp-btn tour-context-whatsapp pointer-events-auto absolute z-[6]"
+      />
 
     </div>
   )

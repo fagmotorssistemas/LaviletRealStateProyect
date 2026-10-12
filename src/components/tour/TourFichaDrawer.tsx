@@ -4,7 +4,7 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { QrShareButton } from './QrShareButton'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   Bath,
@@ -26,6 +26,7 @@ import { buildFichaSpecRows, formatAreaM2 } from '@/lib/tour/fichaSpecs'
 import { preloadStill } from '@/lib/tour/stillPreload'
 import { cn } from '@/lib/utils'
 import { useShowroomSheet } from '@/components/tour/useShowroomSheet'
+import { infoRequestsSnapshot, readInfoRequests, saveInfoRequest, subscribeInfoRequests } from '@/lib/tour/infoRequests'
 import { toast } from 'sonner'
 import './tour-viewer.css'
 
@@ -230,6 +231,8 @@ export function TourFichaDrawer({
   onSelectGalleryImage,
 }: TourFichaDrawerProps) {
   const { t, locale } = useTourLanguage()
+  const requestsSnapshot = useSyncExternalStore(subscribeInfoRequests, infoRequestsSnapshot, () => '[]')
+  const sentRequestKeys = new Set(readInfoRequests(requestsSnapshot).map((item) => item.key))
   const sheetRef = useRef<HTMLElement>(null)
   useShowroomSheet(open, sheetRef)
 
@@ -332,6 +335,19 @@ export function TourFichaDrawer({
   }, [open, onClose, safeSlide, carousel.length])
 
   const unit = sorted.find((item) => item.id === unitId) ?? sorted[0] ?? null
+  const activeUnitId = unit?.id
+  const activeUnitNumber = unit?.unit_number
+  useEffect(() => {
+    if (!open || !activeUnitId || readInfoRequests(requestsSnapshot).some((item) => item.key === activeUnitId)) return
+    let active = true
+    void fetch(`/api/tour/info-request/status?unit_id=${encodeURIComponent(activeUnitId)}`, { cache: 'no-store' })
+      .then(async (response) => response.ok ? response.json() as Promise<{ record: { key: string; sentAt: string } | null }> : { record: null })
+      .then(({ record }) => {
+        if (active && record?.key === activeUnitId) saveInfoRequest({ ...record, unitNumber: activeUnitNumber ?? null })
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [open, activeUnitId, activeUnitNumber, requestsSnapshot])
   const detailRows = unit ? buildFichaSpecRows(unit, locale) : []
   // Primera ficha: solo lo básico (como la referencia)
   const compactRows = unit
@@ -647,9 +663,8 @@ export function TourFichaDrawer({
                       className="tour-modal-submit mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#BDA27E] text-[11px] font-semibold tracking-[0.16em] text-[#2B1A18] uppercase transition-colors hover:bg-[#ad926e]"
                     >
                       <Mail size={15} strokeWidth={2} />
-                      {t(" Solicitar información ")}</button>
+                      {t(sentRequestKeys.has(unit.id) ? 'Solicitud enviada ✓' : 'Solicitar información')}</button>
                   ) : null}
-
                   {!unitAvailable ? (
                     <button
                       type="button"

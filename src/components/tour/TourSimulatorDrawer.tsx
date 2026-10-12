@@ -10,6 +10,8 @@ import { MisEscenariosView } from '@/components/financing/MisEscenariosView'
 import { isShowroomIdentified } from '@/lib/tour/showroomIdentity'
 import type { TourUnitSummary } from '@/types/tour'
 import { cn } from '@/lib/utils'
+import { buildTourWhatsAppMessage } from '@/lib/tour/tourWhatsApp'
+import { TourContextWhatsAppLink } from './TourContextWhatsAppLink'
 import './tour-viewer.css'
 
 type TourSimulatorDrawerProps = {
@@ -38,7 +40,7 @@ export function TourSimulatorDrawer({
   initialSection,
   onRequestInfo,
 }: TourSimulatorDrawerProps) {
-  const { t } = useTourLanguage()
+  const { t, locale } = useTourLanguage()
 
   const reduceMotion = useReducedMotion()
   const [showSaved, setShowSaved] = useState(false)
@@ -84,6 +86,7 @@ export function TourSimulatorDrawer({
   }, [open, onClose])
 
   const unitParam = localUnit.trim()
+  const whatsappUnit = sortedUnits.find((item) => item.unit_number === unitParam)
   const pickUnit = (unit: TourUnitSummary) => {
     setLocalUnit(unit.unit_number)
     setPicking(false)
@@ -154,6 +157,13 @@ export function TourSimulatorDrawer({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
+                {whatsappUnit ? <TourContextWhatsAppLink
+                  context="simulador"
+                  message={buildTourWhatsAppMessage({ context: 'simulador', locale, unitNumber: whatsappUnit.unit_number, category: whatsappUnit.category, bedrooms: whatsappUnit.bedrooms })}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[#1a2744] hover:bg-[#f4f4ef]"
+                  typologyCode={whatsappUnit.typology_code}
+                  unitTypeId={whatsappUnit.unit_type_id}
+                /> : null}
                 {unitParam && sortedUnits.length > 1 ? (
                   <button
                     type="button"

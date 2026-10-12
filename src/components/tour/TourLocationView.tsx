@@ -5,11 +5,13 @@ import Image from 'next/image'
 import { ArrowLeft, X } from 'lucide-react'
 import { SITE } from '@/lib/marketing/site'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
+import { buildTourWhatsAppMessage } from '@/lib/tour/tourWhatsApp'
+import { TourContextWhatsAppLink } from './TourContextWhatsAppLink'
 
 const MAP = 'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/ubicacion_lavilet.png'
 
 export function TourLocationView({ open, onClose, fromMenu = false }: { open: boolean; onClose: () => void; fromMenu?: boolean }) {
-  const { t } = useTourLanguage()
+  const { t, locale } = useTourLanguage()
   useEffect(() => {
     if (!open) return
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -19,6 +21,7 @@ export function TourLocationView({ open, onClose, fromMenu = false }: { open: bo
   if (!open) return null
   return (
     <div className="absolute inset-0 z-[80] overflow-y-auto bg-[#f7f3ee] text-[#29251e] md:overflow-hidden">
+      <TourContextWhatsAppLink context="ubicacion" message={buildTourWhatsAppMessage({ context: 'ubicacion', locale })} className="tour-fab tour-whatsapp-btn tour-context-whatsapp pointer-events-auto absolute z-[6]" />
       <div className="flex h-full min-h-0 flex-col gap-8 px-5 pt-[calc(4.5rem+env(safe-area-inset-top))] pb-6 sm:px-8 md:flex-row md:items-center md:gap-10 lg:px-12">
         <div className="flex w-full shrink-0 flex-col items-start gap-6 md:w-[15rem]">
           <p className="text-sm leading-relaxed font-semibold tracking-wide text-[#8e7654] uppercase">
