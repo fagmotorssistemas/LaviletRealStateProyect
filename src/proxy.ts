@@ -7,7 +7,7 @@ import { applyVisitorCookie } from '@/lib/tour/visitorCookie'
 
 export async function proxy(request: NextRequest) {
   // Public assets must also work without a CRM session (manifest requests may omit cookies).
-  if (['/manifest.webmanifest', '/brochure', '/materiales/brochure-la-vilet-v5.pdf'].includes(request.nextUrl.pathname)) return NextResponse.next({ request })
+  if (['/manifest.webmanifest', '/brochure', '/materiales/brochure-la-vilet-v5.pdf', '/googlebff175bf0ff044f0.html'].includes(request.nextUrl.pathname)) return NextResponse.next({ request })
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
