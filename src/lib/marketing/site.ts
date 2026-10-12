@@ -2,7 +2,7 @@ export const SITE = {
   name: 'Lavilet',
   email: 'lavilet.admin@gmail.com',
   /** Número internacional sin + ni espacios, p. ej. 593991234567. Vacío = el formulario usa correo. */
-  whatsapp: String(process.env.NEXT_PUBLIC_WHATSAPP ?? '').replace(/\D/g, ''),
+  whatsapp: String(process.env.NEXT_PUBLIC_WHATSAPP ?? '593992925286').replace(/\D/g, ''),
   city: 'Cuenca, Ecuador',
   /** Coordenadas del proyecto La Vilet (misma ubicación que reference_location_url / visit). */
   location: {
