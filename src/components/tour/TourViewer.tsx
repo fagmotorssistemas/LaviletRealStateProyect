@@ -188,6 +188,7 @@ function CrossfadeStill({
   contain = false,
   fit = 'vistas',
   lateralPan = false,
+  panKey,
   onStep,
   zoom,
   onZoom,
@@ -199,6 +200,7 @@ function CrossfadeStill({
   contain?: boolean
   fit?: 'vistas' | 'planos'
   lateralPan?: boolean
+  panKey?: string | null
   onStep?: (dir: 1 | -1) => void
   zoom?: number
   onZoom?: (value: number) => void
@@ -255,8 +257,11 @@ function CrossfadeStill({
 
   useEffect(() => {
     void preloadStill(shown)
-    panRef.current = 0
   }, [shown])
+  const panScope = panKey ?? shown
+  useEffect(() => {
+    panRef.current = 0
+  }, [panScope])
 
   useEffect(() => {
     const mq = window.matchMedia('(orientation: portrait) and (pointer: coarse)')
@@ -1619,7 +1624,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [galleryZoomMax, setGalleryZoomMax] = useState(1)
   useEffect(() => {
     if (viewMode === 'galeria') setGalleryZoom(1)
-  }, [viewMode, galeriaIndex])
+  }, [viewMode, selectedTypology, selectedUnitId])
   /** Semilla estable: cambia al entrar a galería / tipología para re-sortear acabado×luz. */
   const [galeriaSeed, setGaleriaSeed] = useState(() => Math.floor(Math.random() * 1_000_000))
   const [compareGaleriaSeedB, setCompareGaleriaSeedB] = useState(() => Math.floor(Math.random() * 1_000_000))
@@ -3910,6 +3915,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           contain={isPlanosMode(viewMode)}
           fit={isPlanosMode(viewMode) ? 'planos' : 'vistas'}
           lateralPan={viewMode === 'galeria'}
+          panKey={viewMode === 'galeria' ? stillCursor?.roomSlug : undefined}
           zoom={viewMode === 'galeria' ? galleryZoom : undefined}
           onZoom={viewMode === 'galeria' ? setGalleryZoom : undefined}
           onZoomBounds={
