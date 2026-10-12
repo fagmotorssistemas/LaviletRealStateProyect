@@ -2,16 +2,16 @@
 
 import { canonicalFinishSlug } from '@/lib/tour/roomScene'
 
-/** Blanco y verde agua: los dos acabados que se muestran en la galería. */
-export function galleryFinishPresentation(slug: string, index: number): { name: string; color: string } {
+/** Nombres neutrales para los acabados de la galería. */
+export function galleryFinishPresentation(slug: string, index: number): { name: string } {
   const canonical = canonicalFinishSlug(slug)
   if (canonical === 'acabado-2' || (canonical == null && index === 1)) {
-    return { name: 'Verde agua', color: '#6ec4b8' }
+    return { name: 'Acabado 2' }
   }
   if (canonical === 'acabado-1' || index === 0) {
-    return { name: 'Blanco', color: '#f4f1eb' }
+    return { name: 'Acabado 1' }
   }
-  return { name: `Acabado ${index + 1}`, color: '#d9d2c5' }
+  return { name: `Acabado ${index + 1}` }
 }
 
 /**

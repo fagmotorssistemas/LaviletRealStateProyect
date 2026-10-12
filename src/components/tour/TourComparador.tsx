@@ -308,7 +308,7 @@ export function TourComparador({
               onHotspot={onHotspotB}
             />
           ) : (
-            <div className="relative h-full bg-[#111]">
+            <div className="relative h-full bg-[#14110e]">
               {activePreview ? (
                 <TourZoomableImage src={activePreview.url} alt={t(activePreview.label)} />
               ) : (

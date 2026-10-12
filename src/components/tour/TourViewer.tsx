@@ -71,7 +71,7 @@ import {
 import { pickCatalogPanoUrl, pickTourWidth, smallerTourUrl, tourCoarsePanoUrl, type TourWidth } from '@/lib/tour/pickTourWidth'
 import { requestGyroPermission, stabilizeTourGyro } from '@/lib/tour/stabilizeGyro'
 import { attachForceLandscapePan } from '@/lib/tour/forceLandscapePan'
-import { pickRoomScene, pickSceneUrl, hasBothFinishesForRoom } from '@/lib/tour/roomScene'
+import { pickRoomScene, pickSceneUrl, finishesMatch } from '@/lib/tour/roomScene'
 import { buildGaleriaStills } from '@/lib/tour/galeriaStills'
 import { galleryFinishPresentation } from '@/lib/tour/finishSwatch'
 import { matchesPlanoVariant } from '@/lib/typology-assets'
@@ -918,7 +918,6 @@ function modeButtonsForView(input: {
   shellMode: 'plan' | 'unit'
   hasPanorama?: boolean
   hasGallery?: boolean
-  terminacionesReady?: boolean
 }): {
   galeria: boolean
   planos: boolean
@@ -931,7 +930,7 @@ function modeButtonsForView(input: {
   }
   const tour = Boolean(input.hasPanorama)
   const galeria = Boolean(input.hasGallery)
-  const terminaciones = Boolean(input.terminacionesReady)
+  const terminaciones = galeria
   const comparador = tour || terminaciones
   return { galeria, planos: false, tour, terminaciones, comparador }
 }
@@ -2183,11 +2182,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     : publicCatalog?.typologies.find(item=>item.code===selectedTypology)
   const onFinish = (slug: string) => {
     if (slug === finish) return
-    const finishes = publicCatalog?.finishes?.length ? publicCatalog.finishes : catalog?.finishes ?? []
     const source = (viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms) ?? []
     const lookup = finishLookupSlugRef.current || room
     const entry = source.find((item) => item.slug === lookup) ?? source.find((item) => roomsShareSlot(item.slug, lookup))
-    if (!hasBothFinishesForRoom(entry, finishes, light)) return
+    if (!entry?.scenes?.some((scene) => scene.url && (!scene.light || scene.light === light) && finishesMatch(scene.finish, slug))) return
     setFinish(slug)
     logTourEvent({
       event_type: 'cambio_acabado',
@@ -2767,28 +2765,23 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   useLayoutEffect(() => {
     if (leadGalleryUrl) void preloadStill(leadGalleryUrl)
   }, [leadGalleryUrl])
-  const galleryPhoto =
-    galeriaImages[Math.min(galeriaIndex, Math.max(galeriaImages.length - 1, 0))]
-  const finishLookupSlug = viewMode === 'galeria' ? galleryPhoto?.roomSlug || room : room
+  const finishLookupSlug = room
   finishLookupSlugRef.current = finishLookupSlug
   const finishSource = (viewMode === 'galeria' ? currentTypology?.vistas : currentTypology?.rooms) ?? []
   const finishRoom =
     finishSource.find((item) => item.slug === finishLookupSlug) ??
     finishSource.find((item) => roomsShareSlot(item.slug, finishLookupSlug))
-  const terminacionesReady = hasBothFinishesForRoom(finishRoom, catalogFinishes, light)
+  const availableGalleryFinishes = catalogFinishes.filter((option) =>
+    finishRoom?.scenes?.some((scene) =>
+      scene.url && (!scene.light || scene.light === light) && finishesMatch(scene.finish, option.slug),
+    ),
+  )
   const modeButtons = modeButtonsForView({
     shellMode,
     hasPanorama: typologyHasPanorama(currentTypology),
     hasGallery: typologyHasGallery(currentTypology) || galeriaImages.length > 0,
-    terminacionesReady,
   })
   const showModeSwitcher = modeSwitcherVisible(modeButtons)
-
-  useEffect(() => {
-    if (terminacionesReady) return
-    if (terminacionesFocus) setTerminacionesFocus(false)
-    if (finishCompareOpen) setFinishCompareOpen(false)
-  }, [terminacionesReady, terminacionesFocus, finishCompareOpen])
   const galleryPanelRooms = useMemo(() => {
     const seen = new Set<string>()
     const rooms: { slug: string; label: string }[] = []
@@ -2803,7 +2796,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     () =>
       catalogFinishes.map((item, index) => {
         const look = galleryFinishPresentation(item.slug, index)
-        return { slug: item.slug, name: look.name, color: look.color }
+        return { slug: item.slug, name: look.name }
       }),
     [catalogFinishes],
   )
@@ -4512,9 +4505,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             </div>
         </div>
 
-        {showUnitChrome ? (
+        {showUnitChrome && terminacionesUiOpen ? (
           <TourTerminacionesPanel
-            open={terminacionesUiOpen}
+            open
             onClose={() => {
               setTerminacionesFocus(false)
               setFinishCompareOpen(false)
@@ -4528,7 +4521,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               const index = galeriaImages.findIndex((item) => item.roomSlug === slug)
               if (index >= 0) setGaleriaIndex(index)
             }}
-            finishes={galleryFinishOptions}
+            finishes={availableGalleryFinishes.length > 1
+              ? galleryFinishOptions.filter((option) => availableGalleryFinishes.some((item) => item.slug === option.slug))
+              : []}
             finish={finish || galleryFinishOptions[0]?.slug || ''}
             onFinishChange={(slug) => {
               setViewMode('galeria')

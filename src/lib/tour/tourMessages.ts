@@ -108,6 +108,7 @@ export const tourEnglish: Record<string, string> = {
   'Elija el departamento a simular:': 'Choose an apartment to calculate:', 'No hay unidades disponibles para simular en esta tipología.': 'No units with this layout are available for calculation.',
   'Ver simulación': 'View calculation', 'Cálculos guardados': 'Saved calculations', 'Elección de terminación': 'Choose a finish',
   'Ambiente': 'Room', 'Comparar': 'Compare', 'Blanco': 'White', 'Verde agua': 'Aqua',
+  'Acabado 1': 'Finish 1', 'Acabado 2': 'Finish 2',
   'Todavía no hay terminaciones cargadas.': 'No finishes are available yet.',
   'Izquierda': 'Left', 'Derecha': 'Right', 'hab.': 'bedrooms', 'Plano 3D': '3D floor plan', 'Plano 2D': '2D floor plan',
   'Galería': 'Gallery', 'Terminaciones': 'Finishes', 'Comparador': 'Compare', 'La unidad': 'Unit',

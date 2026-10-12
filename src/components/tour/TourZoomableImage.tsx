@@ -57,6 +57,17 @@ export function TourZoomableImage({ src, alt }: { src: string; alt: string }) {
     onPointerUp={(event) => release(event.pointerId)}
     onPointerCancel={(event) => release(event.pointerId)}
     onLostPointerCapture={(event) => release(event.pointerId)}>
+    {front ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={front}
+        alt=""
+        aria-hidden
+        draggable={false}
+        className="pointer-events-none absolute inset-[-12%] h-[124%] w-[124%] max-w-none object-cover"
+        style={{ filter: 'blur(28px) brightness(0.72) saturate(1.05)' }}
+      />
+    ) : null}
     {(['a', 'b'] as const).map((slot) => {
       const url = buffers.assigned[slot]
       if (!url) return null
