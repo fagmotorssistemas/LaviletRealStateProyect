@@ -166,9 +166,9 @@ test('a delivery inquiry preserves known preferences and carries the same timeli
   assert.equal(journeyPendingQuestion(reply,object(result.audit.commercial_journey),true).id,'budget_amount')
 })
 
-test('reviewed pipeline repairs a missing CTA once, then reviews the completed answer', async () => {
+test('reviewed pipeline completes a missing canonical CTA without a second writer call', async () => {
   const answer = 'El proyecto combina viviendas y espacios comerciales.'
-  const reply = `${answer} ¿Busca una vivienda o un local?`
+  const reply = `${answer} ${commercialJourneyPlan(fresh(), audit).question}`
   const calls: string[] = [], errors: unknown[] = []
   const result = await completeTurnReply({ current: 'que es mixto', baseReply: answer, verified: fresh(), audit },
     async (_rules, raw, _schema, _image, _file, _tone, task) => {
@@ -176,29 +176,26 @@ test('reviewed pipeline repairs a missing CTA once, then reviews the completed a
       try {
         const obligation = (data.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
         assert.equal(obligation.continuation_required, true)
-        if (calls.length === 2) {
-          const repairs = object(data.reparacion).correcciones_concretas
-          // The requested repair is scoped to the missing decision, not a new handoff.
-          assert.ok(JSON.stringify(repairs ?? data).includes('Añada únicamente la pregunta'))
-        }
       } catch (error) { errors.push(error); throw error }
       return task === 'writing' ? draft(calls.length === 1 ? answer : reply) : reviewPass
     })
   assert.deepEqual(errors, [])
   assert.equal(result.audit.status, 'checked'); assert.equal(result.reply, reply)
-  assert.deepEqual(calls, ['writing', 'writing', 'review'])
+  assert.deepEqual(calls, ['writing', 'review'])
   assert.equal(result.needsAdvisor, false)
-  assert.ok((result.audit.repair_attempts as Row[]).some(item => (item.issues as string[]).includes('required_continuation_missing')))
+  assert.equal(object(result.audit.server_continuation_completion).reason, 'required_continuation_missing')
+  assert.deepEqual(result.audit.repair_attempts, [])
 })
 
-test('a missing CTA cannot be approved merely because the facts are correct', async () => {
+test('completion of a CTA cannot bypass an unavailable or invalid factual review', async () => {
   const answer = 'El proyecto combina viviendas y espacios comerciales.'
   const calls: string[] = []
   const result = await completeTurnReply({ current: 'que es mixto', baseReply: answer, verified: fresh(), audit },
     async (_rules, _context, _schema, _image, _file, _tone, task) => { calls.push(String(task)); return draft(answer) })
-  assert.equal(result.audit.status, 'rejected_guard')
-  assert.deepEqual(calls, ['writing', 'writing'])
-  assert.ok((result.audit.issues as string[]).includes('required_continuation_missing'))
+  assert.equal(result.audit.status, 'rejected_review')
+  assert.equal(calls[0], 'writing')
+  assert.ok(calls.includes('review'))
+  assert.equal(object(result.audit.final_validation).passed, false)
 })
 
 test('the reviewer can reject a generic CTA that replaces the actual pending decision', async () => {
@@ -228,10 +225,11 @@ test('the reviewer can reject a generic CTA that replaces the actual pending dec
 test('review disabled skips paid calls but cannot send a missing required decision', async () => {
   const answer = 'El proyecto combina viviendas y espacios comerciales.'
   const result = await withResponseReviewPolicy(off, () => completeTurnReply({ current: 'que es mixto', baseReply: answer, verified: fresh(), audit }, async () => draft(answer)))
-  assert.notEqual(result.reply, answer); assert.equal(result.audit.status, 'rejected_guard')
-  assert.equal(object(result.audit.final_validation).passed, false)
+  assert.notEqual(result.reply, answer); assert.equal(result.audit.status, 'review_disabled')
+  assert.equal(object(result.audit.final_validation).passed, true)
   const plan = object(result.audit.commercial_journey)
   assert.equal(plan.question_id, 'property_category')
+  assert.equal(journeyPendingQuestion(result.reply, plan, true, result.audit.question).id, 'property_category')
   assert.deepEqual(journeyPendingQuestion(answer, plan, true), {})
   assert.equal(rememberCommercialJourney({}, plan, {}, true).stage, 'discover_use')
 })

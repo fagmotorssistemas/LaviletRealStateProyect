@@ -2,12 +2,70 @@ import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { financingAmountStatements } from './financing-amounts'
 import { reconcilePrimaryAfterBudgetIsolation } from './interpretation-consistency'
+import { focusedNumericMentions } from './focused-numeric-syntax'
+import { normalizeCatalogRequest } from './catalog-request'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const citation = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
 const contained = (quote: unknown, source: unknown) => !!citation(quote) && citation(source).includes(citation(quote))
 const monetaryIssues = new Set(['non_current_evidence:budget', 'missing_current_evidence:budget',
   'invalid_budget_amount', 'inconsistent_primary_intent:budget'])
+
+/** A delta copied from an already accepted monetary declaration is not a new
+ * budget. Source identity and a grounded independent current meaning prove
+ * this before another model call. A changed amount, current role clarification,
+ * withdrawal, uncertainty or unverified quote remains subject to recovery. */
+export function reconcileConfirmedBudgetEcho(raw: Row, input: Row, current: string): { raw: Row; fields: string[] } {
+  const semantics = object(raw.turn_semantics), budget = object(semantics.budget)
+  const known = object(confirmedInterpretationMemory(object(input.resumen)).budget)
+  const monetary = new Set(['amount', 'maximum_total', 'initial_capital'])
+  // A bot quote can prove where an erroneous delta came from, but cannot
+  // establish the amount or its role. Both remain backed by accepted memory.
+  const historicalQuote = [...rows(input.historial), ...rows(input.historial_reciente)]
+    .some(message => contained(budget.evidence, message.content))
+    && focusedNumericMentions(text(budget.evidence)).some(mention => mention.value === known.amount)
+  if (!monetary.has(text(budget.status)) || !monetary.has(text(known.status))
+    || known.confidence !== 'high' || typeof known.amount !== 'number' || known.amount <= 0
+    || budget.amount !== known.amount || contained(budget.evidence, current)
+    || !(contained(budget.evidence, known.evidence) || historicalQuote)) return { raw, fields: [] }
+  // These are conservative vetoes, not vocabulary rules assigning a role.
+  // A current monetary reference must be interpreted rather than dropped just
+  // because the extractor also copied the old budget block.
+  const value = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const catalog = normalizeCatalogRequest(raw.catalog_request, current)
+  const currentPhysicalNumbers = [
+    ...rows(catalog?.requirements).filter(requirement => requirement.field !== 'published_commercial_price')
+      .flatMap(requirement => [requirement.value, requirement.upper_value]),
+    ...rows(semantics.housing_quantities).filter(quantity => quantity.confidence === 'high' && contained(quantity.evidence, current))
+      .flatMap(quantity => Array.isArray(quantity.values) ? quantity.values : []),
+    ...Object.entries(object(object(semantics.property).filters)).filter(([field]) =>
+      contained(object(object(semantics.property).filter_evidence)[field], current))
+      .flatMap(([, quantity]) => Array.isArray(quantity) ? quantity : [quantity]),
+    ...(object(semantics.property).confidence === 'high' && contained(object(semantics.property).evidence, current)
+      ? (Array.isArray(object(semantics.property).unit_numbers) ? object(semantics.property).unit_numbers as unknown[] : []).map(Number) : []),
+  ].filter((number): number is number => typeof number === 'number' && Number.isFinite(number))
+  if (/\b(?:presupuest\w*|entrad\w*|capital|credito|prestamo|financ\w*|dolar\w*|dinero|monto|fondos|ahorros|invertir|inversion)\b|[$€£]/.test(value)
+    || focusedNumericMentions(current).some(mention => mention.value === known.amount || !currentPhysicalNumbers.includes(mention.value))
+    || financingAmountStatements(raw.financing_amounts, current).length
+    || contained(object(raw.qualification).presupuesto_texto, current)) return { raw, fields: [] }
+
+  const neutral: Row = { ...raw, turn_semantics: { ...semantics,
+    budget: { status: 'not_discussed', amount: null, evidence: '', confidence: 'low' } } }
+  const independent = reconcilePrimaryAfterBudgetIsolation(neutral, current, object(input.pregunta_pendiente))
+  if (!independent) return { raw, fields: [] }
+  const fields = ['budget']
+  if (semantics.primary_intent === 'discuss_budget'
+    && semantics.primary_intent !== object(independent.turn_semantics).primary_intent) fields.push('primary_intent')
+  // Other primary labels already have their own source and consistency checks.
+  const result = semantics.primary_intent === 'discuss_budget' ? independent : neutral
+  const qualification = { ...object(result.qualification) }
+  if (!contained(qualification.presupuesto_texto, current)
+    && contained(qualification.presupuesto_texto, known.evidence)) {
+    qualification.presupuesto_texto = null
+    fields.push('qualification.presupuesto_texto')
+  }
+  return { raw: { ...result, ...(Object.hasOwn(result, 'qualification') ? { qualification } : {}) }, fields }
+}
 
 /** A repair must certify that the monetary block is reference context. A known
  * amount alone is not enough: its rejected quote must also belong to a saved

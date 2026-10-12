@@ -29,6 +29,17 @@
 .message strong { font-weight: 550; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .message span { color: #52654a; font-size: 12px; }
 .message small { font-size: 11px; color: #6b775f; }
+.reviewLegend { display: grid; justify-items: start; gap: 6px; margin: 0 8px 16px; }
+.reviewLegend small { color: #66745f; font-size: 11px; }
+.reviewMarker { display: inline-block; width: fit-content; padding: 3px 6px; border: 1px solid; border-radius: 4px; font-size: 11px; font-weight: 650; line-height: 1.45; }
+.message[data-review-tone='rejected'] { border-color: #e2b6b6; border-left: 4px solid #bc4646; background: #fff4f4; }
+.message[data-review-tone='warning'] { border-color: #e2c494; border-left: 4px solid #a76a13; background: #fff8ec; }
+.message[data-review-tone='rejected']:hover { background: #ffe9e9; }
+.message[data-review-tone='warning']:hover { background: #fff0d8; }
+.message[data-review-tone][aria-pressed='true'] { box-shadow: inset 0 0 0 2px #435c3c; }
+.reviewMarker[data-tone='rejected'], .reviewSummary[data-tone='rejected'] { color: #822d2d; border-color: #d69a9a; background: #ffecec; }
+.reviewMarker[data-tone='warning'], .reviewSummary[data-tone='warning'] { color: #704507; border-color: #d3ad6b; background: #fff0d3; }
+.reviewSummary { margin: 10px 0 16px; padding: 10px 12px; border: 1px solid; border-radius: 6px; font-size: 12px; }
 .main { min-width: 0; padding: 22px; }
 .messageHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .messageHeading h3 { margin: 4px 0 0; font-size: 21px; font-weight: 600; }

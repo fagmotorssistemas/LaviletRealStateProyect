@@ -15,6 +15,7 @@ import { ArchitectureMap } from './ArchitectureMap'
 import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './ReviewDiagnosticsPanel'
 import { reviewDiagnostics, reviewStepRejected } from './reviewDiagnostics'
 import { CatalogSummarySection } from './CatalogSummaryPanel'
+import { messageReviewMarker } from './messageReviewMarker'
 
 const formatUsd = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value)
 
@@ -72,6 +73,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
   const batch = group?.batches.find(item => item.id === batchId || item.members.some(member => member.id === batchId)) || group?.batches[0]
   const execution = batch?.execution
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
+  const reviewMarker = useMemo(() => messageReviewMarker(steps), [steps])
   const step = steps.find(item => item.order === stepOrder) || steps.find(item => item.key === 'dialogue_decision') || steps[0]
   const attempts = step?.key === 'response_coverage' ? responseAttempts(steps, step) : []
   const explanation = execution && step ? explainStep(execution, step) : null
@@ -105,17 +107,28 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
     {!execution ? <div className={styles.empty} role="status">{loading ? 'Buscando ejecuciones…' : query ? 'No se encontraron conversaciones para ese lead. Pruebe con parte del nombre o su ID de Kommo.' : view === 'maintenance' ? 'No hay tareas de mantenimiento registradas.' : 'Todavía no hay conversaciones disponibles para sus proyectos.'}</div>
       : <div className={styles.layout} style={architecture ? { gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>
         {architecture ? <label className={styles.filters}>Mensaje del mapa<select aria-label="Mensaje del mapa" value={batch?.id || ''} onChange={event => { setBatchId(event.target.value); setStepOrder(null) }}>
-          {group?.batches.map(item => <option key={item.id} value={item.id}>{formatDate(item.execution.receivedAt || item.execution.occurredAt)} · {item.execution.message || 'Sin vista previa'}</option>)}
+          {group?.batches.map(item => {
+            const marker = messageReviewMarker(item.execution.steps)
+            return <option key={item.id} value={item.id}>{marker ? `[${marker.label}] ` : ''}{formatDate(item.execution.receivedAt || item.execution.occurredAt)} · {item.execution.message || 'Sin vista previa'}</option>
+          })}
         </select></label> : <nav className={styles.messages} aria-label="Mensajes de la conversación">
           <h3>{group?.label}</h3>
+          <div className={styles.reviewLegend} aria-label="Colores de la revisión">
+            <span className={styles.reviewMarker} data-tone="rejected">Rojo: revisión sin aprobar</span>
+            <span className={styles.reviewMarker} data-tone="warning">Ámbar: reparación o demo</span>
+            <small>El estado del extractor y del envío se registra por separado.</small>
+          </div>
           {!group?.known && <p className={styles.muted}>No se guardó el identificador de conversación. Este evento se muestra por separado.</p>}
-          {group?.batches.map(item => <button type="button" key={item.id} className={styles.message} aria-pressed={item.id === batch?.id}
+          {group?.batches.map(item => {
+            const marker = messageReviewMarker(item.execution.steps)
+            return <button type="button" key={item.id} className={styles.message} aria-pressed={item.id === batch?.id} data-review-tone={marker?.tone}
             onClick={() => { setBatchId(item.members[0].id); setStepOrder(null) }}>
             <time>{formatDate(item.execution.receivedAt || item.execution.occurredAt)}</time>
             <strong>{item.execution.message || (item.execution.kind === 'maintenance' ? 'Tarea automática' : 'Mensaje sin vista previa')}</strong>
+            {marker && <span className={styles.reviewMarker} data-tone={marker.tone} title={marker.description}>{marker.label}</span>}
             <span>{item.execution.outcome}</span>
             <small>{item.total > 1 ? `Lote de ${item.total} mensajes` : 'Un mensaje'} · {item.execution.steps.length ? `${item.execution.steps.length} pasos registrados` : 'Sin pasos registrados'}</small>
-          </button>)}
+          </button>})}
         </nav>}
         <div className={styles.main}>
           <header className={styles.messageHeading}>
@@ -127,6 +140,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
           {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
           <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
+          {reviewMarker && <p className={styles.reviewSummary} data-tone={reviewMarker.tone}><strong>{reviewMarker.label}.</strong> {reviewMarker.description}</p>}
           {steps.length > 0 && <ExecutionCostPanel key={execution.id} execution={execution} executions={executions} onStep={selectStep} />}
           {steps.length > 0 && <CatalogSummarySection key={`catalog-${execution.id}`} steps={steps} onStep={selectStep} />}
           {architecture && <ArchitectureMap execution={execution} onStep={selectStep} />}

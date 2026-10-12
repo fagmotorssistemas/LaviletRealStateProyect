@@ -109,3 +109,20 @@ export function continuationContentIssues(reply: string, planRaw: unknown): Row[
     instruction: 'Conserve la respuesta válida y formule una pregunta equivalente a siguiente_paso_comercial.question, sin repetir datos ya conocidos ni saltar decisiones.',
     authoritative_fact: JSON.stringify({ action: plan.action, question_id: expectedId, question_act: plan.question_act, question: plan.question }) }]
 }
+
+/** Complete a missing server-owned decision, never replace the writer's actual
+ * question or infer a new commercial step. The canonical plan is decided from
+ * current memory before writing, so this does not ask a resolved datum again.
+ * It requires a locally recognized single question with the same meaning. */
+export function completeRequiredContinuation(reply: string, planRaw: unknown): { reply: string; audit: Row | null } {
+  const plan = object(planRaw), question = text(plan.question).trim()
+  if (!reply.trim() || replyQuestionText(reply) || !text(plan.question_id) || !question
+    || plan.continuation_required === false
+    || ['leave_open', 'await_reservation', 'visit_pending', 'current_operation'].includes(text(plan.action))
+    || (question.match(/\?/g) || []).length !== 1 || !replyQuestionText(question)
+    || !actualContinuation(question).id || continuationContentIssues(question, plan).length) return { reply, audit: null }
+  const completed = `${reply.trim()} ${question}`
+  return { reply: completed, audit: { applied: true, owner: 'system', source: 'canonical_commercial_plan',
+    reason: 'required_continuation_missing', question_id: plan.question_id, question_act: plan.question_act,
+    original_reply: reply, delivered_question: replyQuestionText(completed), model_calls: 0 } }
+}

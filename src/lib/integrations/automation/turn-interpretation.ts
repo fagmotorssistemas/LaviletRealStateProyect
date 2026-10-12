@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
 import { budgetQuestionBasis } from './budget-question-context'
 import { interpretationConsistencyIssues } from './interpretation-consistency'
-import { isolateHistoricalBudget } from './historical-budget-isolation'
+import { isolateHistoricalBudget, reconcileConfirmedBudgetEcho } from './historical-budget-isolation'
 import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence, isAssetOnlyPurposeEvidence } from './purchase-evidence'
 import { resolveFinancingEntryReference } from './financing-entry'
 import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
@@ -231,10 +231,14 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   const method = !readable ? 'unreadable_input' : isGreetingOnly(readable) && !pending.length ? 'literal_greeting' : 'model'
   let raw: Row = {}, promptRevision: string | null = null
   const historicalFields = new Set<string>()
-  const reconcile = (value: Row) => {
+  const reconcile = (value: Row, budgetEchoAllowed = false) => {
     value = resolveFinancingEntryReference(value, readable, normalizedPendingQuestion(input.pregunta_pendiente))
     value = reconcileMonetaryInterpretation(value, readable)
-    const result = reconcileHistoricalInterpretation(reconcilePassivePropertyMemory(reconcileFinancingReference(value, input, readable), input), readable, object(input.resumen))
+    // A recovery owns genuinely unresolved financial meaning. It cannot erase
+    // the original current declaration by returning a new historical echo.
+    const budgetEcho = budgetEchoAllowed ? reconcileConfirmedBudgetEcho(value, input, readable) : { raw: value, fields: [] }
+    budgetEcho.fields.forEach(field => historicalFields.add(field))
+    const result = reconcileHistoricalInterpretation(reconcilePassivePropertyMemory(reconcileFinancingReference(budgetEcho.raw, input, readable), input), readable, object(input.resumen))
     result.fields.forEach(field => historicalFields.add(field))
     const references = reconcileQuotedQuantityReferences(result.raw, input, readable)
     references.fields.forEach(field => historicalFields.add(field))
@@ -281,7 +285,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     promptRevision = createHash('sha256').update(currentInstructions).digest('hex').slice(0, 16)
     dependencies.onPromptRevision?.(promptRevision)
     const modelInput = interpretationInput(input, readable)
-    raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, extractionSchema))
+    raw = reconcile(await dependencies.aiJson(currentInstructions, modelInput, extractionSchema), true)
     recoveryIssues = validationIssues(raw)
     const budget = object(object(raw.turn_semantics).budget)
     // Question context can request a semantic recheck, but never supplies the

@@ -1,6 +1,6 @@
 import { applyTurnGreeting, CONVERSATION_WRITING_STYLE_RULES } from './conversation-style'
 import { ensureReferentialPriceConditions, REFERENTIAL_PRICE_NOTICE_RULES } from './price-conditions'
-import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues, reconcileContinuationMetadata } from './continuation-validation'
+import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues, reconcileContinuationMetadata, completeRequiredContinuation } from './continuation-validation'
 import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { turnContinuationIssues } from './turn-continuation'
 import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
@@ -514,8 +514,14 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const opening = { ...decidedOpening(input.baseReply, input.history),
     policy: informationOpeningRequired ? 'first_information_request' : 'editorial_suggestion', applied: false }
   const writerContract = finalWriterContract(input.baseReply, input.audit, input)
-  const prepareReply = (reply: string) => ensureReferentialPriceConditions(
-    applyTurnGreeting(reply, text(input.audit?.writer_greeting)), input.verified, input.audit).reply
+  let serverContinuationCompletion: Row | null = null
+  const completeContinuation = (reply: string) => {
+    const completed = completeRequiredContinuation(reply, input.verified.siguiente_paso_comercial)
+    if (completed.audit) serverContinuationCompletion = completed.audit
+    return completed.reply
+  }
+  const prepareReply = (reply: string) => completeContinuation(ensureReferentialPriceConditions(
+    applyTurnGreeting(reply, text(input.audit?.writer_greeting)), input.verified, input.audit).reply)
   const profileQuestionAudit = { ...input.audit,
     profile_collection_decision: object(writerContract.estado_comercial).profile_collection_decision }
   const profileQuestionContentIssues = (actualQuestion: unknown): Row[] => leadProfileQuestionIssues(actualQuestion, profileQuestionAudit)
@@ -598,7 +604,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       question: observedWriterQuestion, question_metadata_recovery: writerMetadataRecovery, requests: observedRequests, writer_contract: writerContract,
       commercial_journey: input.verified.siguiente_paso_comercial, commercial_continuation: continuationAudit(),
       resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
-      text_transformations: textTransformations, editorial_observations: editorialObservations, link_contract: linkContract,
+      text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
+      editorial_observations: editorialObservations, link_contract: linkContract,
       repair_attempts: [], repair_budget: { writer: { limit: 0, used: 0 }, review_metadata: { limit: 0, used: 0 } },
       recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
       pending_missing_fact_fragments: reviewMissing,
@@ -713,6 +720,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         : budgetContinuationInstruction(budgetAssessment))
     if (input.audit?.progressive_selection || input.audit?.post_tour_continuation) writingRules += '\n' + PROGRESSIVE_OPTIONS_RULES
     for (let attempt = 0; attempt < 2; attempt++) {
+      serverContinuationCompletion = null
     const previousDraft = proposedReply
     const lastRepair = repairAttempts.at(-1)
     const targetedRepairs = metadataDraft === null && attempt
@@ -798,6 +806,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       return { ...unreviewed, changed: unreviewed.reply !== originalBase.trim(), needsAdvisor: false, unresolved: [],
         audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
           response_content_scope: contentScope, requests: coverageRows(candidate.requests, input.current, [], writerRequestRefs) || [],
+          server_continuation_completion: serverContinuationCompletion,
           final_validation: { passed: true, policy: 'mandatory_server_guards', issues: [], validated_text: reply },
           question: recoveredQuestion.question, question_metadata_recovery: recoveredQuestion,
           follow_up: { usable: questionUsable, source: 'validated_writer', warnings: continuationMetadataIssues(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial) },
@@ -830,14 +839,15 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const brochureReply = includeRequiredBrochure(openedReply, input.audit, input)
     const greetedReply = applyTurnGreeting(brochureReply, text(input.audit?.writer_greeting))
     const pricePrepared = ensureReferentialPriceConditions(greetedReply, input.verified, input.audit)
-    const reply = pricePrepared.reply
+    const reply = completeContinuation(pricePrepared.reply)
     textTransformations = [
       ...(proposedReply !== preparedReply ? [{ stage: 'Formato de la propuesta', before: proposedReply, after: preparedReply }] : []),
       ...(preparedReply !== normalizedReply ? [{ stage: 'Normalización de la ruta antes de revisión', before: preparedReply, after: normalizedReply }] : []),
       ...(normalizedReply !== openedReply ? [{ stage: 'Apertura de la primera solicitud de información', before: normalizedReply, after: openedReply }] : []),
       ...(openedReply !== brochureReply ? [{ stage: 'Enlace del brochure programado', before: openedReply, after: brochureReply }] : []),
       ...(brochureReply !== greetedReply ? [{ stage: 'Saludo común antes de revisión', before: brochureReply, after: greetedReply }] : []),
-      ...(pricePrepared.applied ? [{ stage: 'Condiciones de precios referenciales antes de revisión', before: greetedReply, after: reply }] : []),
+      ...(pricePrepared.applied ? [{ stage: 'Condiciones de precios referenciales antes de revisión', before: greetedReply, after: pricePrepared.reply }] : []),
+      ...(reply !== pricePrepared.reply ? [{ stage: 'Pregunta comercial pendiente completada por el sistema', before: pricePrepared.reply, after: reply }] : []),
     ]
     // A model may describe a proposed CTA in metadata without writing it. The
     // actual client-facing text decides whether there is a question to audit.
@@ -1281,7 +1291,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         follow_up: followUp, catalog_context_scope: input.verified.catalog_context_scope || { kind: 'full_turn' },
         ...(input.verified.prompt_context_selection ? { prompt_context_selection: input.verified.prompt_context_selection } : {}),
         operational_action_verified: object(input.audit?.reservation).handoff_verified === true && continuationChecks.operational_goal_preserved === true && continuationChecks.answers_supported === true,
-        text_transformations: textTransformations, commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
+        text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
+        commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
         repair_budget: repairBudget(), independent_review: reviewRequired,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments, needs_advisor: unresolved.length > 0, unresolved,
         base_preview: traceText(originalBase, MAX_REPLY_CHARACTERS), proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS), final_preview: traceText(reply, MAX_REPLY_CHARACTERS) } }

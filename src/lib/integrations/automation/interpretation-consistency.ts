@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { financingAmountStatements } from './financing-amounts'
+import { normalizeCatalogRequest } from './catalog-request'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const citation = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
@@ -38,6 +39,7 @@ function currentAnswer(raw: Row, current: string, pending?: Row): Row | null {
 
 function hasIndependentCurrentMeaning(raw: Row, current: string): boolean {
   if (currentProperty(raw, current)) return true
+  if (normalizeCatalogRequest(raw.catalog_request, current)) return true
   const answer = currentAnswer(raw, current)
   if (answer && !text(answer.question_id).startsWith('budget_')) return true
   return currentRequests(raw, current).some(request => request.domain !== 'financing'
@@ -68,13 +70,14 @@ function supportedPrimary(raw: Row, current: string, pending: Row, candidate: un
   const semantics = object(candidate)
   if (semantics.confidence !== 'high' || !grounded(semantics.primary_evidence, current)) return null
   const intent = text(semantics.primary_intent), property = currentProperty(raw, current)
+  const catalog = normalizeCatalogRequest(raw.catalog_request, current)
   const requests = currentRequests(raw, current), answer = currentAnswer(raw, current, pending)
   const reservation = object(object(raw.turn_semantics).reservation), visit = object(raw.visit_intent)
   const supported = intent === 'answer_previous' && !!answer
     || intent === 'select_property' && property?.operation === 'select'
     || intent === 'ask_price' && requests.some(request => Array.isArray(request.topics) && request.topics.includes('purchase_price'))
     || intent === 'ask_financing' && requests.some(request => request.domain === 'financing')
-    || intent === 'project_information' && (!!property || requests.some(request => request.domain === 'property'))
+    || intent === 'project_information' && (!!property || !!catalog || requests.some(request => request.domain === 'property'))
     || intent === 'request_visit' && visit.kind === 'request_visit' && visit.confidence === 'high' && grounded(visit.evidence, current)
     || ['request_reservation', 'ask_reservation'].includes(intent) && reservation.confidence === 'high'
       && grounded(reservation.evidence, current) && reservation.kind === (intent === 'request_reservation' ? 'request' : 'information')
@@ -92,6 +95,7 @@ export function reconcilePrimaryAfterBudgetIsolation(raw: Row, current: string, 
   let next = supportedPrimary(raw, current, pending, incoming) || supportedPrimary(raw, current, pending, semantics)
   if (!next) {
     const answer = currentAnswer(raw, current, pending), property = currentProperty(raw, current)
+    const catalog = normalizeCatalogRequest(raw.catalog_request, current)
     const requests = currentRequests(raw, current)
     const priceRequest = requests.find(request => Array.isArray(request.topics) && request.topics.includes('purchase_price'))
     const financialRequest = requests.find(request => request.domain === 'financing')
@@ -103,7 +107,8 @@ export function reconcilePrimaryAfterBudgetIsolation(raw: Row, current: string, 
         : financialRequest ? primary('ask_financing', financialRequest.evidence)
           : answer ? primary('answer_previous', answer.evidence)
             : property ? primary('project_information', property.evidence)
-              : propertyRequest ? primary('project_information', propertyRequest.evidence) : null
+              : propertyRequest ? primary('project_information', propertyRequest.evidence)
+                : catalog ? primary('project_information', catalog.evidence) : null
   }
   return next ? { ...raw, turn_semantics: { ...semantics, ...next } } : null
 }

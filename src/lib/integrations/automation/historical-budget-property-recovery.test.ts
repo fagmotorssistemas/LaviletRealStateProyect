@@ -74,7 +74,7 @@ function input(message = current, summary = previous()): Row {
       { role: 'bot', content: pending.question }] }
 }
 
-for (const legacy of [false, true]) test(`a historical budget and wrong budget intent cannot discard a valid bedroom answer: legacy=${legacy}`, async () => {
+for (const legacy of [false, true]) test(`a proven historical budget is isolated without retrying a valid bedroom answer: legacy=${legacy}`, async () => {
   const raw = propertyTurn(), repair = repairedBudget(), summary = previous(legacy)
   const before = structuredClone({ raw, repair, summary })
   let calls = 0
@@ -95,7 +95,7 @@ for (const legacy of [false, true]) test(`a historical budget and wrong budget i
       return repair
     },
   })
-  assert.equal(calls, 2)
+  assert.equal(calls, 1)
   assert.equal(result.semantics.primary_intent, 'answer_previous')
   assert.equal(object(result.semantics.answer_to_previous).question_id, pending.id)
   assert.equal(object(object(result.semantics.property).filters).bedrooms, 2)
@@ -105,7 +105,8 @@ for (const legacy of [false, true]) test(`a historical budget and wrong budget i
   assert.equal(object(result.extracted.qualification).presupuesto_texto, null)
   assert.equal(result.extracted.requested_advisor, false)
   assert.equal(result.extracted.financing_consent, null)
-  assert.equal(object(result.diagnostic.interpretation_recovery).status, 'recovered')
+  assert.equal(object(result.diagnostic.interpretation_recovery).status, 'not_needed')
+  assert.ok((object(result.diagnostic.historical_reconciliation).fields as string[]).includes('budget'))
   const saved = rememberInterpretedTurn(summary, current, result.extracted, result.semantics)
   assert.deepEqual(object(saved._financing_amounts).total_budget, object(summary._financing_amounts).total_budget)
   assert.deepEqual(saved._financing_identity, summary._financing_identity)
@@ -140,7 +141,7 @@ test('the captured empty-request extraction still recovers two bedrooms and the 
   const result = await interpretConversationTurn(input(current, summary), {
     activePrompt: async () => '', aiJson: async () => ++calls === 1 ? raw : repair,
   })
-  assert.equal(calls, 2)
+  assert.equal(calls, 1)
   assert.equal(result.semantics.primary_intent, 'answer_previous')
   assert.equal(object(object(result.semantics.property).filters).bedrooms, 2)
   assert.deepEqual(result.requests, [])
@@ -193,9 +194,11 @@ test('uncertain, absent or historical repair certification cannot silently neutr
     if (variant === 'uncertain' || variant === 'current_update') object(repair.budget_turn_use).kind = variant
     if (variant === 'medium') object(repair.budget_turn_use).confidence = 'medium'
     if (variant === 'historical') object(repair.budget_turn_use).evidence = originalMoney
+    const original = propertyTurn()
+    object(object(original.turn_semantics).budget).amount = null
     let calls = 0
     await assert.rejects(interpretConversationTurn(input(), {
-      activePrompt: async () => '', aiJson: async () => ++calls === 1 ? propertyTurn() : repair,
+      activePrompt: async () => '', aiJson: async () => ++calls === 1 ? original : repair,
     }), (error: unknown) => error instanceof TurnInterpretationError, variant)
     assert.equal(calls, 2, variant)
   }
@@ -206,9 +209,11 @@ test('a certified budget isolation can recover its label from an independent val
     const repair = repairedBudget()
     if (variant === 'missing_primary') delete object(repair.turn_semantics).primary_intent
     if (variant === 'wrong_primary') object(repair.turn_semantics).primary_intent = 'discuss_budget'
+    const original = propertyTurn()
+    object(object(original.turn_semantics).budget).amount = null
     let calls = 0
     const result = await interpretConversationTurn(input(), {
-      activePrompt: async () => '', aiJson: async () => ++calls === 1 ? propertyTurn() : repair,
+      activePrompt: async () => '', aiJson: async () => ++calls === 1 ? original : repair,
     })
     assert.equal(calls, 2, variant)
     assert.equal(result.semantics.primary_intent, 'answer_previous', variant)
@@ -222,6 +227,7 @@ test('a certified budget isolation can recover its label from an independent val
 
 for (const evidence of [originalMoney, '']) test(`certified isolation repairs a dependent unsupported primary citation: ${evidence ? 'historical' : 'empty'}`, async () => {
   const raw = propertyTurn(), repair = repairedBudget()
+  object(object(raw.turn_semantics).budget).amount = null
   object(repair.turn_semantics).primary_intent = 'discuss_budget'
   object(repair.turn_semantics).primary_evidence = evidence
   const before = structuredClone({ raw, repair })
