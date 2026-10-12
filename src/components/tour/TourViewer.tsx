@@ -3043,7 +3043,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (first?.id) galeriaRoomKeyRef.current = first.id.split(':')[0] ?? first.id
   }, [galeriaImages])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (viewMode !== 'galeria' || galeriaImages.length === 0) return
     const roomKey = galeriaRoomKeyRef.current
     if (!roomKey) return
@@ -3903,7 +3903,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         onPointerDown={stillSwipe.onPointerDown}
       >
         <CrossfadeStill
-          key={stillScope}
+          key={`${currentTypology?.id ?? ''}:${selectedUnitId ?? ''}`}
           url={showStill ? overlayUrl : tourCover}
           fallbackUrl={showStill ? stillFallback : undefined}
           alt={t(viewMode === 'tour' ? roomName : (stillItems[stillIndex]?.label ?? (isPlanosMode(viewMode) ? 'Plano' : 'Vista')))}
