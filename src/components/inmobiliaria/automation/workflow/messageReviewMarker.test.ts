@@ -68,6 +68,52 @@ test('demo approval and a clean normal approval have no rejection marker', () =>
   assert.equal(messageReviewMarker([step({ status: 'checked', repaired: true, repair_attempts: [] })]), null)
 })
 
+const observedMetadata = () => ({
+  ...observed('checked'),
+  final_validation: { passed: false, issues: ['question_metadata_purpose_mismatch'] },
+  semantic_review: { status: 'checked', acceptance: { content_approved: true, follow_up_usable: true }, findings: [], fact_checks: [] },
+})
+
+test('a demo question sheet mismatch is distinct from a rejected commercial draft', () => {
+  const marker = messageReviewMarker([step(observedMetadata())])!
+  assert.equal(marker.kind, 'technical')
+  assert.equal(marker.tone, 'warning')
+  assert.equal(marker.label, 'Ficha interna inconsistente · demo')
+  assert.match(marker.description, /revisor aprobó el contenido/)
+  assert.match(marker.description, /no garantiza que el texto sea correcto/)
+})
+
+test('a question sheet warning never masks mixed factual or commercial guards', () => {
+  for (const issue of ['catalog_area_mismatch', 'numbers_changed', 'required_continuation_missing', 'hard_fact']) {
+    const fixture = observedMetadata()
+    fixture.final_validation.issues.push(issue)
+    const marker = messageReviewMarker([step(fixture)])!
+    assert.equal(marker.kind, 'observed', issue)
+    assert.equal(marker.label, 'Rechazo observado · demo', issue)
+  }
+})
+
+test('metadata classification requires explicit content approval and no risk findings', () => {
+  const contentRejected = observedMetadata()
+  contentRejected.semantic_review.acceptance.content_approved = false
+  assert.equal(messageReviewMarker([step(contentRejected)])?.kind, 'observed')
+  const finding = observedMetadata()
+  assert.equal(messageReviewMarker([step({ ...finding, semantic_review: { ...finding.semantic_review,
+    findings: [{ category: 'turn_goal', reason: 'No atendió el siguiente paso.' }] } })])?.kind, 'observed')
+  const contradiction = observedMetadata()
+  assert.equal(messageReviewMarker([step({ ...contradiction, semantic_review: { ...contradiction.semantic_review,
+    fact_checks: [{ status: 'contradiction' }] } })])?.kind, 'observed')
+})
+
+test('unknown or incomplete guard diagnostics retain the generic demo marker', () => {
+  const fixture = observedMetadata()
+  fixture.final_validation.issues = []
+  assert.equal(messageReviewMarker([step(fixture)])?.kind, 'observed')
+  const unexplainedDetail = observedMetadata()
+  assert.equal(messageReviewMarker([step({ ...unexplainedDetail, final_validation: { ...unexplainedDetail.final_validation,
+    details: [{ fragment: 'Dato sin comprobar' }] } })])?.kind, 'observed')
+})
+
 test('demo mode is never inferred from an unverified status label', () => {
   assert.equal(messageReviewMarker([step({ ...observed('rejected_review'), review_control: { observationOnly: true } })]), null)
 })

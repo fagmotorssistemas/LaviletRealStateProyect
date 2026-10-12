@@ -194,16 +194,82 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
 
 test('only the selected approved introduction supplies numeric evidence, without trusting historical summaries', () => {
   const current = 'Saludos, quiero información por favor'
+  // A configured numeric presentation still needs provenance even though the
+  // default presentation intentionally does not enumerate units or dimensions.
+  const summary = 'La Vilet cuenta con 49 unidades de vivienda.'
   const requests = [{ domain: 'property', topics: ['project_overview'], request: 'Información general', evidence: current, confidence: 'high' }]
   const semantics = object(extraction(current, 'project_information').turn_semantics)
   const info: Row = { proyecto: { name: 'La Vilet' }, semantica_turno: semantics,
     solicitudes_interpretadas: requests,
     contrato_turno: resolveTurnIntent({ current, semantics, requests, scope: { kind: 'property', uncertain: false } }),
-    configuracion_presentacion_proyecto: projectIntroductionContext({}, 'La Vilet') }
+    configuracion_presentacion_proyecto: projectIntroductionContext({ project_introduction: { current: {
+      enabled: true, summary, source: 'Resumen autorizado de prueba' } } }, 'La Vilet') }
   const selected = withProjectIntroductionForTurn(info)
-  const input = { current, baseReply: LAVILET_APPROVED_INTRODUCTION.summary, verified: selected, audit: {} }
+  const input = { current, baseReply: summary, verified: selected, audit: {} }
   assert.ok(!turnCompletenessIssues(input, input.baseReply).includes('numbers_changed'))
   assert.ok(turnCompletenessIssues(input, input.baseReply.replace('49 unidades', '50 unidades')).includes('numbers_changed'))
   assert.ok(turnCompletenessIssues({ ...input, verified: { summary: input.baseReply } }, input.baseReply).includes('numbers_changed'))
   assert.ok(turnCompletenessIssues({ ...input, verified: info }, input.baseReply).includes('numbers_changed'), 'An unselected configuration is not current numeric evidence')
 })
+
+for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
+  test('combined name and residence delivers the brochure and asks for the asset before budget: '+mode, async () => {
+    const current = 'Claro, soy carlos y vivo en cuenca'
+    const pending = { id: 'lead_profile', act: 'profile', question: '¿Cómo se llama y en qué ciudad reside actualmente?' }
+    const previous: Row = { _pending_question: pending, _lead_introduction: { status: 'pending', presentation_sent: true } }
+    const history = [{ role: 'user', content: 'Saludos, quiero información' }, { role: 'bot', content: pending.question }]
+    const raw = extraction(current, 'answer_previous', pending.id)
+    raw.full_name = 'carlos'; raw.residence_city = 'cuenca'
+    raw.profile_evidence = { full_name: current, residence_city: 'vivo en cuenca', residence_country: null }
+    raw.purchase_purpose = 'vivir'; raw.declaration_evidence = { preferred_category: null, purchase_purpose: current }
+    raw.events = ['declared_purchase_purpose']
+    Object.assign(object(object(raw.turn_semantics).property), { group: 'residential', operation: 'none', evidence: current })
+    let extractionCalls = 0
+    const interpreted = await interpretConversationTurn({ mensaje_actual: current, historial: history,
+      resumen: previous, pregunta_pendiente: pending }, {
+      activePrompt: async () => '', aiJson: async () => { extractionCalls++; return raw },
+    })
+    assert.equal(extractionCalls, 1)
+    assert.equal(interpreted.extracted.purchase_purpose, null)
+    assert.equal(object(interpreted.semantics.property).group, null)
+    const summary = rememberInterpretedTurn(previous, current, interpreted.extracted, interpreted.semantics)
+    summary._lead_profile = mergeLeadProfile(previous._lead_profile, interpreted.extracted.lead_profile)
+    const resolved = resolvePropertyTurn(catalog, current, summary, history, interpreted.semantics)
+    summary._property_context = resolved.context
+    const intent = resolveTurnIntent({ current, semantics: interpreted.semantics, requests: interpreted.requests,
+      pendingQuestion: pending, scope: { kind: 'property', uncertain: false }, profilePending: true })
+    const info: Row = { lead: {}, perfil_lead: summary._lead_profile, catalogo: catalog, catalogo_verificacion: catalog,
+      catalog_read: { complete: true }, politica_comercial: { precios_autorizados: true },
+      semantica_turno: interpreted.semantics, solicitudes_interpretadas: interpreted.requests, contrato_turno: intent,
+      property_context: resolved.context, hechos_confirmados: confirmedInterpretationMemory(summary),
+      proyecto: { name: 'La Vilet' }, configuracion_presentacion_proyecto: projectIntroductionContext({}, 'La Vilet'),
+      estado_conversacion: { brochure_sent: false }, financiamiento: { partners: [], journey: {} } }
+    const intro = leadIntroductionTurn({ current, history, summary: { ...previous, _lead_profile: summary._lead_profile },
+      extracted: interpreted.extracted, reply: '¿Le interesa una vivienda o un local comercial?', projectInfo: info,
+      catalog, audit: { source: 'commercial', resolved_turn_intent: intent,
+        semantic_review_enabled: true, business_risk_review_enabled: true } })
+    const next = commercialJourneyPlan(info, intro.audit)
+    info.siguiente_paso_comercial = next
+    assert.equal(next.action, 'discover_use')
+    const audit = { ...intro.audit, commercial_journey: next }
+    const reply = 'Mucho gusto, Carlos. Aquí tiene el brochure digital: '+BROCHURE_URL+' '+next.question
+    const metadata = questionMetadata(next, audit), tasks: string[] = []
+    const completed = await withResponseReviewPolicy({ enabled: mode !== 'disabled', observationOnly: mode === 'demonstration', updatedAt: null },
+      () => completeTurnReply({ current, baseReply: intro.reply, verified: info, history, audit },
+        async (_rules, input, _schema, _image, _file, _tone, task) => {
+          tasks.push(task || '')
+          if (task === 'writing') return { reply, question: metadata,
+            requests: rows(object(input).referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Atender datos de perfil',
+              request_type: 'clarification', status: 'answered', evidence: reply, fact_key: null })) }
+          return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [],
+            question: { ...metadata, offered_action: 'none' } }
+        }))
+    assert.equal(completed.needsAdvisor, false)
+    assert.match(completed.reply, /vivienda.*local comercial/, JSON.stringify(completed.audit.final_validation))
+    assert.doesNotMatch(completed.reply, /presupuesto|dormitorios/)
+    assert.ok(completed.reply.includes(BROCHURE_URL))
+    assert.deepEqual(tasks, mode === 'disabled' ? ['writing'] : ['writing', 'review'])
+    const receipt = journeyPendingQuestion(completed.reply, next, true, completed.audit.question)
+    assert.equal(receipt.id, 'property_category')
+  })
+}

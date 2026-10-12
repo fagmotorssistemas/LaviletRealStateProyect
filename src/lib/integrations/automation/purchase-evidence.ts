@@ -7,6 +7,23 @@ const explicitPurposeAnswer = /^(?:(?:para|como)\s+)?(?:vivir|inversion|invertir
 const anotherClause = /\b(?:y|pero|aunque|ademas|tambien|porque|para|sin embargo|seria|busco|quiero|quisiera|deseo|necesito|prefiero|me interesa)\b/
 const explicitPropertyScope = /\b(?:viviendas?|residenciales?|suites?|departamentos?|penthouses?|locales?|dormitorios?|habitaciones?)\b/
 
+/** Remove only independently supported profile clauses. A full-message name
+ * citation is not itself proof that everything in that message is a name. */
+function withoutPassiveProfileClauses(raw: unknown, quote: string): string {
+  const data = object(raw), profile = object(data.profile_evidence)
+  const name = normalized(text(data.full_name))
+  const nameEvidence = normalized(text(profile.full_name))
+  return quote.split(/\s+(?:y|pero|ademas|tambien)\s+/).filter(clause => {
+    if (isPassivePurchaseEvidence(clause)) return false
+    const value = clause.replace(preamble, '')
+    const namePrefix = /^(?:yo\s+)?(?:soy|me llamo|mi nombre es|mi nombre completo es)\s+/
+    const declaredName = value.replace(namePrefix, '')
+    const supportedName = !!name && !!nameEvidence && (nameEvidence.includes(clause) || nameEvidence === name)
+      && (declaredName === name && (namePrefix.test(value) || value === name))
+    return !supportedName
+  }).join(' ').trim()
+}
+
 /** A literal citation must support the kind of declaration it is used for.
  * Greetings around a present residence or a general information request do not
  * turn either into the intended use of a future purchase. Mixed statements with
@@ -64,7 +81,9 @@ export function isPassiveProfilePurposeEvidence(raw: unknown, pendingRaw: unknow
     || answer.question_id !== pending.id || answer.confidence !== 'high' || !['affirmative', 'negative', 'value'].includes(text(answer.kind))
     || normalized(text(answer.evidence)) !== quote || purchaseDecision.test(quote)) return false
   const acknowledgement = /^(?:(?:si|no|claro|bueno|correcto|exacto|asi es|de acuerdo|gracias|por favor|ahi|alli)\s*)+$/.test(quote)
-  if (!acknowledgement && anotherClause.test(quote)) return false
+  // A name plus a residence is still a profile answer. Previously any "y"
+  // prevented this guard from checking the two independently passive clauses.
+  if (!acknowledgement && anotherClause.test(quote)) return !withoutPassiveProfileClauses(data, quote)
   const profileQuotes = [object(data.profile_evidence).full_name, object(data.profile_evidence).residence_city,
     object(data.profile_evidence).residence_country, object(data.declared_location).evidence, object(data.residence_confirmation).evidence]
   return acknowledgement || profileQuotes.some(profileQuote => normalized(text(profileQuote)) === quote)
@@ -90,8 +109,7 @@ export function isAssetOnlyPurposeEvidence(raw: unknown, pendingRaw: unknown, ev
     && ['affirmative', 'negative', 'value'].includes(text(answer.kind))
   // The model may cite a whole mixed message. Strip only independently passive
   // profile clauses, never a real future-use clause in the same declaration.
-  const scope = quote.split(/\s+(?:y|pero|ademas|tambien)\s+/)
-    .filter(clause => !isPassivePurchaseEvidence(clause)).join(' ')
+  const scope = withoutPassiveProfileClauses(data, quote)
   const words = scope.split(' ')
   // A category-only acknowledgement can bind to the offered asset, but cannot
   // additionally accept personal occupancy or a business/investment purpose.

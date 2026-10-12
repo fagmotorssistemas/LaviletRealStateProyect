@@ -29,6 +29,8 @@ test('saving and disabling preserve stored summary, unrelated controls and bound
 
 
 test('approved default belongs only to the exact La Vilet identity when no introduction was saved', () => {
+  assert.match(LAVILET_APPROVED_INTRODUCTION.summary, /suites, departamentos, penthouses y locales comerciales/)
+  assert.doesNotMatch(LAVILET_APPROVED_INTRODUCTION.summary, /49|dormitorios|niveles|lanzamiento|precio|fecha|m²/)
   for (const name of ['La Vilet', '  LA   VILET ', 'Lavilet', 'Edificio La Vilet']) {
     const settings = projectIntroductionSettings({}, name)
     assert.equal(settings.configured, false)

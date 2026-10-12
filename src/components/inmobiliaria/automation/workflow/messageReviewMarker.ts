@@ -9,13 +9,23 @@ const rejectedStatus = (value: unknown) => /^(rejected|invalid)_/.test(text(valu
 
 export type MessageReviewMarker = {
   tone: 'rejected' | 'warning'
-  kind: 'blocked' | 'repaired' | 'observed'
+  kind: 'blocked' | 'repaired' | 'observed' | 'technical'
   label: string
   description: string
 }
 
 function discarded(output: Row) {
   return output.draft_rejected === true || rejectedStatus(output.status) || output.status === 'recovered_catalog_result'
+}
+
+function questionMetadataOnly(output: Row) {
+  const review = row(output.semantic_review), validation = row(output.final_validation)
+  const issues = [output.issues, validation.issues].flatMap(value => Array.isArray(value) ? value : [])
+  const details = [...rows(review.validation_details), ...rows(validation.details)]
+  return row(review.acceptance).content_approved === true && review.status === 'checked'
+    && !rows(review.findings).length && !rows(review.fact_checks).some(check => check.status === 'contradiction')
+    && issues.length > 0 && issues.every(issue => /^question_metadata_/.test(text(issue)))
+    && details.every(detail => detail.kind === 'review_metadata' && /^question_metadata_/.test(text(detail.code)))
 }
 
 /** Classify the recorded review, never an extractor or delivery failure. */
@@ -28,6 +38,10 @@ export function messageReviewMarker(steps: WorkflowExecutionStep[]): MessageRevi
     const observation = row(final.observation)
     const status = text(observation.status) || text(final.observed_status) || text(row(final.semantic_review).status)
     const rejected = rejectedStatus(status) || status === 'rejected' || row(final.final_validation).passed === false
+    if (rejected && questionMetadataOnly(final)) return {
+      tone: 'warning', kind: 'technical', label: 'Ficha interna inconsistente · demo',
+      description: 'El revisor aprobó el contenido, pero la ficha de la pregunta tiene una inconsistencia. En modo demostración no bloqueó el borrador; la aprobación no garantiza que el texto sea correcto y el envío se comprueba por separado.',
+    }
     return rejected ? {
       tone: 'warning', kind: 'observed', label: 'Rechazo observado · demo',
       description: 'La revisión registró un resultado sin aprobar en modo demostración. Ese resultado no bloqueó el borrador; el envío se comprueba por separado.',

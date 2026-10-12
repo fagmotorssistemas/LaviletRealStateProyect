@@ -6,7 +6,7 @@ import { normalizeEvents } from './conversation-rules'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { nextDiscoveryQuestion } from './sdr-rules'
-import { isAssetOnlyPurposeEvidence } from './purchase-evidence'
+import { isAssetOnlyPurposeEvidence, isPassiveProfilePurposeEvidence } from './purchase-evidence'
 
 function extraction(current: string, group: string, purpose: string, category: string | null = null): Row {
   const raw: Row = structuredClone(fixture)
@@ -104,4 +104,57 @@ test('discovery separates a neutral asset choice from later intended-use collect
   assert.equal(nextDiscoveryQuestion({ preferred_category: 'departamento' }).key, 'proposito')
   assert.equal(nextDiscoveryQuestion({ preferred_category: 'local' }).key, 'proposito')
   assert.equal(nextDiscoveryQuestion({ preferred_category: 'local', purchase_purpose: 'invertir' }).key, 'prioridad')
+})
+
+test('combined current name and residence cannot establish a future purchase purpose', async () => {
+  const pending = { id: 'lead_profile', act: 'profile', question: '¿Cómo se llama y dónde reside actualmente?' }
+  for (const [current, name, nameQuote] of [
+    ['Claro, soy carlos y vivo en cuenca', 'carlos', 'Claro, soy carlos y vivo en cuenca'],
+    ['Mi nombre es Ana María y resido en Quito', 'Ana María', 'Ana María'],
+    ['Me llamo Luis y actualmente vivo en Guayaquil', 'Luis', 'Me llamo Luis'],
+  ]) {
+    const raw = extraction(current, 'residential', 'vivir')
+    raw.full_name = name; raw.residence_city = current.endsWith('Quito') ? 'Quito' : current.endsWith('Guayaquil') ? 'Guayaquil' : 'Cuenca'
+    raw.profile_evidence = { full_name: nameQuote, residence_city: current, residence_country: null }
+    Object.assign(object(raw.turn_semantics), { primary_intent: 'answer_previous', answer_to_previous: {
+      question_id: pending.id, kind: 'affirmative', evidence: current, confidence: 'high' } })
+    object(object(raw.turn_semantics).property).operation = 'none'
+    assert.equal(isPassiveProfilePurposeEvidence(raw, pending, current), true, current)
+    let calls = 0
+    const result = await interpretConversationTurn({ mensaje_actual: current, pregunta_pendiente: pending }, {
+      activePrompt: async () => 'Extract', aiJson: async () => { calls++; return raw },
+    })
+    assert.equal(calls, 1, current)
+    assert.equal(result.extracted.purchase_purpose, null, current)
+    assert.equal(object(result.semantics.property).group, null)
+    assert.ok(!(result.extracted.events as string[]).includes('declared_purchase_purpose'))
+    const previous = { datos_confirmados: { proposito: 'invertir' } }
+    const remembered = rememberInterpretedTurn(previous, current, result.extracted, result.semantics)
+    assert.equal(object(remembered.datos_confirmados).proposito, 'invertir')
+  }
+})
+
+test('profile clauses do not erase an independent asset or future-use declaration in the same citation', async () => {
+  const pending = { id: 'lead_profile', act: 'profile', question: '¿Cómo se llama y dónde reside actualmente?' }
+  for (const [tail, group, category, expectedPurpose] of [
+    ['y busco vivienda', 'residential', null, null],
+    ['y quiero una vivienda para invertir', 'residential', null, 'invertir'],
+    ['pero lo quiero para vacaciones', 'residential', null, 'segunda_vivienda'],
+    ['pero sería para arrendarlo', 'residential', null, 'invertir'],
+    ['y busco un local para abrir una panadería', 'commercial', 'local', 'negocio'],
+  ] as const) {
+    const current = 'Soy Carlos y vivo en Cuenca '+tail
+    const raw = extraction(current, group, expectedPurpose || 'vivir', category)
+    raw.full_name = 'Carlos'; raw.residence_city = 'Cuenca'
+    raw.profile_evidence = { full_name: current, residence_city: current, residence_country: null }
+    object(raw.turn_semantics).answer_to_previous = {
+      question_id: pending.id, kind: 'value', evidence: current, confidence: 'high' }
+    assert.equal(isPassiveProfilePurposeEvidence(raw, pending, current), false, current)
+    const result = await interpretConversationTurn({ mensaje_actual: current, pregunta_pendiente: pending }, {
+      activePrompt: async () => 'Extract', aiJson: async () => raw,
+    })
+    assert.equal(result.extracted.purchase_purpose, expectedPurpose, current)
+    assert.equal(result.extracted.preferred_category, category, current)
+    assert.equal(object(result.semantics.property).group, group, current)
+  }
 })

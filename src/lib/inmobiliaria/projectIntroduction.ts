@@ -1,7 +1,7 @@
 export const LAVILET_APPROVED_INTRODUCTION = {
   enabled: true,
-  summary: 'La Vilet es un proyecto de uso mixto ubicado en Puertas del Sol, Cuenca, que combina áreas comerciales dinámicas con modernas unidades residenciales. Cuenta con 49 unidades de vivienda, incluyendo suites, departamentos de 2 y 3 dormitorios, distribuidas en varios niveles junto a espacios comerciales.',
-  source: 'Resumen aprobado por el administrador del proyecto en la revisión de la conversación.',
+  summary: 'La Vilet es un proyecto de uso mixto ubicado en Puertas del Sol, Cuenca, con suites, departamentos, penthouses y locales comerciales.',
+  source: 'Presentación general basada en la ubicación y los tipos de inmuebles autorizados del proyecto.',
 }
 
 /** A dedicated project default, never a fallback for an unrelated project or an invalid saved configuration. */

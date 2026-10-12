@@ -115,7 +115,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           <h3>{group?.label}</h3>
           <div className={styles.reviewLegend} aria-label="Colores de la revisión">
             <span className={styles.reviewMarker} data-tone="rejected">Rojo: revisión sin aprobar</span>
-            <span className={styles.reviewMarker} data-tone="warning">Ámbar: reparación o demo</span>
+            <span className={styles.reviewMarker} data-tone="warning">Ámbar: ficha, reparación o demo</span>
             <small>El estado del extractor y del envío se registra por separado.</small>
           </div>
           {!group?.known && <p className={styles.muted}>No se guardó el identificador de conversación. Este evento se muestra por separado.</p>}
