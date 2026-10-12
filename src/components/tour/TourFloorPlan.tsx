@@ -64,6 +64,8 @@ type TourFloorPlanProps = {
   touchesLocked?: boolean
   /** El piso visible ya tiene imagen decodificada o el primer frame del 3D. */
   onFloorPresented?: (floor: number) => void
+  /** Desliza el selector de pisos fuera de pantalla, p. ej. con la ficha abierta. */
+  railHidden?: boolean
   /** Toque en el plano fuera de una unidad o área (cierra la ficha). */
   onEmptyPlanTap?: () => void
 }
@@ -401,6 +403,7 @@ export function TourFloorPlan({
   onPreferredVariantChange,
   touchesLocked = false,
   onFloorPresented,
+  railHidden = false,
   onEmptyPlanTap,
   selectedUnitId,
 }: TourFloorPlanProps) {
@@ -1876,7 +1879,9 @@ export function TourFloorPlan({
       </div>
 
       <div
-        className="tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] z-30 h-auto w-[calc(clamp(56px,5vw,84px)+2px)] overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md"
+        className={cn('tour-floor-rail pointer-events-auto absolute right-[max(0.5rem,env(safe-area-inset-right))] z-30 h-auto w-[calc(clamp(56px,5vw,84px)+2px)] overflow-y-auto overscroll-contain rounded-2xl border border-[#bda27e]/35 bg-[#14110e]/55 p-0 shadow-[0_8px_24px_rgba(20,17,14,0.28)] backdrop-blur-md', railHidden && 'is-hidden')}
+        aria-hidden={railHidden || undefined}
+        inert={railHidden || undefined}
         style={{ WebkitOverflowScrolling: 'touch' }}
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}

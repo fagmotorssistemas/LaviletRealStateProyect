@@ -4153,6 +4153,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           }}
           touchesLocked={planTouchLock}
           onFloorPresented={() => setPlanPresented(true)}
+          railHidden={fichaOpen}
         />
         </>
       ) : null}
