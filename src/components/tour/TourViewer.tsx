@@ -3722,7 +3722,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         hideWebReturn={planEntryOpen}
         onFavorites={() => setFavoritesOpen(true)}
-        place={amenitiesOpen ? 'amenities' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
+        place={amenitiesOpen ? 'amenities' : favoritesOpen ? 'favorites' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={(view) => {
           setAmenitiesOpen(false)
@@ -4309,7 +4309,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             {mobilePanel === 'modes' ? (
               <div
                 role="menu"
-                className="tour-glass absolute top-[calc(100%+6px)] right-2 z-[121] flex max-h-[min(70dvh,24rem)] w-[11rem] flex-col gap-1 overflow-y-auto p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.45)] [@media(max-height:500px)]:top-0 [@media(max-height:500px)]:right-[calc(100%+0.5rem)]"
+                className="tour-glass tour-mobile-popover absolute top-[calc(100%+6px)] right-2 z-[121] flex max-h-[min(70dvh,24rem)] w-[11rem] flex-col gap-1 overflow-y-auto p-1.5 [@media(max-height:500px)]:top-0 [@media(max-height:500px)]:right-[calc(100%+0.5rem)]"
               >
                 {modeButtons.galeria ? (
                 <ModeButton
@@ -4453,7 +4453,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 }}
                 className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
               >
-                <Layers size={13} strokeWidth={1.75} className="shrink-0" />
+                {viewingCommonArea ? (
+                  <ArrowLeft size={13} strokeWidth={1.75} className="shrink-0" />
+                ) : (
+                  <Layers size={13} strokeWidth={1.75} className="shrink-0" />
+                )}
                 {t(" Volver a los pisos ")}</button>
             ) : null}
             {showUnitChrome && !isComparador && !terminacionesUiOpen && selectedTypology && !viewingCommonArea ? (
@@ -4527,7 +4531,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   {viewingCommonArea ? <ArrowLeft size={18} strokeWidth={2.25} /> : <EllipsisVertical size={18} strokeWidth={2.25} />}
                   </button>
                 {!viewingCommonArea && mobilePanel === 'nav' ? (
-                  <div className="tour-glass absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
+                  <div className="tour-glass tour-mobile-popover absolute top-[calc(100%+6px)] left-0 z-40 flex w-full flex-col gap-1 p-1.5">
                   <button
                     type="button"
                       onClick={() => {

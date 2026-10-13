@@ -78,7 +78,7 @@ export function TourTerminacionesPanel({
     <div
       ref={rootRef}
       className={cn(
-        'pointer-events-auto z-[140] flex w-[min(100%-1rem,16rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_16px_48px_rgba(15,23,42,0.22)]',
+        'pointer-events-auto z-[140] flex w-[min(100%-1rem,16rem)] flex-col rounded-[1.75rem] bg-white shadow-[0_16px_48px_rgba(15,23,42,0.22)]',
         contained
           ? 'absolute top-[calc(4.5rem+env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] bottom-auto max-h-[min(78%,32rem)]'
           : 'fixed top-[calc(4.5rem+env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] bottom-auto max-h-[min(78dvh,32rem)]',
@@ -86,7 +86,7 @@ export function TourTerminacionesPanel({
       role="dialog"
       aria-label={t("Terminaciones")}
     >
-      <div className="flex items-start justify-between gap-2 px-3 pt-3 pb-1">
+      <div className="flex items-center justify-between gap-2 border-b border-[#eceff3] px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="mb-1.5 text-[12px] font-semibold text-[#1a2744]">{t("Ambiente")}</p>
           <div className="relative">
@@ -133,7 +133,7 @@ export function TourTerminacionesPanel({
         <button
           type="button"
           onClick={onClose}
-          className="mt-5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#6b7280] transition-colors hover:bg-[#f3f4f6]"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f3f4f6] text-[#1a2744] transition-colors hover:bg-[#e5e7eb]"
           aria-label={t("Cerrar")}
         >
           <X size={16} strokeWidth={2} />
