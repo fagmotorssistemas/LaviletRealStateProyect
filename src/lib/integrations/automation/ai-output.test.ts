@@ -90,6 +90,32 @@ test('real requests and traces isolate extractor and writer defaults and indepen
   assert.equal((storedRequests[7].input_summary as Record<string, unknown>).reasoning_effort, 'none')
 })
 
+test('a reset during inference rejects the late output before it can update conversation state', async t => {
+  const previousKey = process.env.OPENAI_API_KEY
+  process.env.OPENAI_API_KEY = 'synthetic'
+  t.after(() => { if (previousKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previousKey })
+  let active = true, calls = 0, guards = 0
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++; active = false
+    return new Response(JSON.stringify({ status: 'completed', usage: { input_tokens: 100, output_tokens: 10 },
+      output: [{ content: [{ type: 'output_text', text: '{"name":"Carlos"}' }] }] }), { status: 200 })
+  })
+  let stored: Record<string, unknown>[] = []
+  const trace = new AutomationExecutionTrace([{ id: '00000000-0000-4000-8000-000000000001' }], {
+    persist: async rows => { stored = rows; return { error: null } },
+  })
+  await assert.rejects(withAIExecutionTrace(trace, () => aiJson('Extract name', {}, undefined, undefined, undefined,
+    { style: 'actual', warmth: 1, detail: 1 }, 'writing'), async () => {
+    guards++; if (!active) throw Error('WORKER_LEASE_LOST')
+  }), /WORKER_LEASE_LOST/)
+  await trace.flush()
+  assert.equal(calls, 1); assert.equal(guards, 2)
+  const step = stored.find(row => row.step_key === 'model_request')!
+  assert.equal(step.status, 'failed')
+  assert.equal(((step.output_summary as Record<string, unknown>).token_usage as Record<string, unknown>).output_tokens, 10,
+    'Already consumed inference remains visible in cost even though its output was discarded')
+})
+
 test('failed reviewer call records transport policy and sanitized diagnostics even without a model result', async t => {
   const previousKey = process.env.OPENAI_API_KEY
   process.env.OPENAI_API_KEY = 'synthetic'

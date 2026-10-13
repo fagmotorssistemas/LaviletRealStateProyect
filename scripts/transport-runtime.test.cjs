@@ -74,7 +74,7 @@ test('database maintenance completes even when the global send worker cannot acq
   assert.equal(calls.some(([name]) => name === 'lv_app_claim'), false)
 })
 
-function registrationWorker({ failure, acceptedResult, finishFails = false } = {}) {
+function registrationWorker({ failure, acceptedResult, finishFails = false, resetCancelled = false } = {}) {
   const calls = []
   let claimed = false, finishFailurePending = finishFails
   const registration = require('../src/lib/integrations/automation/reply-registration.ts')
@@ -82,7 +82,12 @@ function registrationWorker({ failure, acceptedResult, finishFails = false } = {
   const { runAutomation } = load('src/lib/integrations/automation/worker.ts', {
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live', globalMaintenance: false }) },
     './data': { ...data, autoConfig: async () => ({ enabled: true, dry_run: false }),
-      db: () => { throw Error('UNEXPECTED_DIRECT_DATABASE_ACCESS') },
+      db: () => {
+        if(!resetCancelled)throw Error('UNEXPECTED_DIRECT_DATABASE_ACCESS')
+        const q={then:resolve=>Promise.resolve({error:null,data:[{id:'input-1'}]}).then(resolve)}
+        for(const method of ['select','match','in','eq','limit','abortSignal'])q[method]=()=>q
+        return {from:()=>q}
+      },
       rpc: async (name, args) => {
         calls.push({ name, args })
         if (name === 'lv_app_claim_contact') {
@@ -117,6 +122,21 @@ function registrationWorker({ failure, acceptedResult, finishFails = false } = {
   })
   return { calls, run: () => runAutomation('42:100'), registration }
 }
+
+test('a full test reset retires late worker failures without recovery, incidents or provider calls', async () => {
+  const { AcceptedReplyRegistrationError } = require('../src/lib/integrations/automation/reply-registration.ts')
+  const { PreReplySendError } = require('../src/lib/integrations/automation/delivery-phase.ts')
+  const checkpoint = { id: 'journal-1', key: '__reply_registration__:reset', contact: '42:100', data: { delivery_state: 'accepted' } }
+  for (const failure of [Error('WORKER_LEASE_LOST'), new PreReplySendError(Error('READ_CONVERSATIONS_FAILED')),
+    new AcceptedReplyRegistrationError(checkpoint, Error('RPC_REGISTER_OUTBOUND_MESSAGE_23503'))]) {
+    const h = registrationWorker({ failure, resetCancelled: true })
+    const result = await h.run()
+    assert.equal(result.reason, 'test_contact_reset')
+    assert.equal(result.results[0].reason, 'TEST_CONTACT_RESET')
+    assert.equal(h.calls.some(call => ['lv_app_finish', 'preserve_acceptance', 'generation_recovery', 'publish', 'provider_write'].includes(call.name)), false)
+    assert.equal(h.calls.at(-1).args.p_action, 'release')
+  }
+})
 
 test('known accepted registration failure keeps its checkpoint and never triggers generation recovery or a provider resend', async () => {
   const { AcceptedReplyRegistrationError } = require('../src/lib/integrations/automation/reply-registration.ts')

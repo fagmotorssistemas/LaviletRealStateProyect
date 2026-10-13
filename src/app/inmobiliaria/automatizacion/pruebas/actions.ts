@@ -17,6 +17,8 @@ const problems: Record<string, string> = {
   TEST_RESUME_BUSY: 'No se reanudó el bot: hay un procesamiento o envío pendiente de confirmar. Espere a que termine y vuelva a intentarlo.',
   TEST_RESUME_NOT_INSTALLED: 'Falta actualizar la base de datos para reanudar el bot conservando la conversación. Aplique la migración de reanudación y vuelva a intentarlo.',
   TEST_RESET_PROTECTED: 'Este lead tiene contratos, reservas o ventas y no se puede reiniciar.',
+  TEST_RESET_DEPENDENCY_FAILED: 'No se reinició la prueba: hay registros vinculados que no se pudieron limpiar. Se requiere revisar la función de reinicio en la base de datos.',
+  TEST_RESET_SCOPE_MISMATCH: 'No se reinició la prueba: hay registros compartidos con otro lead o proyecto. Corrija esa vinculación antes de reiniciar este contacto.',
   TEST_CONTACT_OPT_OUT: 'El contacto solicitó no recibir mensajes. No se puede reactivar desde aquí.',
   TEST_CONTACTS_READ_FAILED: 'No se pudo cargar la lista de pruebas. Pulse «Actualizar lista» para reintentar.',
   TEST_ACCESS_DENIED: 'Su sesión no tiene acceso de administrador a este proyecto. Vuelva a iniciar sesión con una cuenta autorizada.',

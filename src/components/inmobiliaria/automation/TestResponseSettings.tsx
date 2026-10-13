@@ -71,7 +71,7 @@ export function TestResponseSettings({initial,initialError='',reviewControl}:{in
             <button className={local.danger} disabled={disabled} onClick={()=>setConfirmation({id:contact.id,action:'remove'})}>Eliminar de pruebas</button>
           </div>
           {confirmation?.id===contact.id&&<div className={local.confirm}>
-            <p>{confirmation.action==='reset'?`¿Reiniciar la prueba de +${contact.phone}? Se guardará un respaldo y se limpiarán su conversación, preferencias, datos recogidos y citas de prueba para empezar desde cero. El historial de WhatsApp y Kommo se conserva.`:`¿Quitar +${contact.phone} de la lista? Se restaurarán sus tiempos habituales. Su lead y conversación se conservan; si la automatización está limitada a pruebas, dejará de responderle.`}</p>
+            <p>{confirmation.action==='reset'?`¿Reiniciar por completo la prueba de +${contact.phone}? Se guardará un respaldo y se limpiarán su ficha, conversación, preferencias, financiamiento, citas, solicitudes, reservas, contratos y ventas de prueba. Se cancelarán las tareas antiguas y se habilitará el bot para empezar desde cero. Se conservan el número y el historial externo de WhatsApp y Kommo.`:`¿Quitar +${contact.phone} de la lista? Se restaurarán sus tiempos habituales. Su lead y conversación se conservan; si la automatización está limitada a pruebas, dejará de responderle.`}</p>
             <div className={styles.actions}><button className={styles.primary} disabled={disabled} onClick={()=>void update(contact,confirmation.action)}>{confirmation.action==='reset'?'Confirmar reinicio':'Confirmar eliminación'}</button><button disabled={busy} onClick={()=>setConfirmation(null)}>Cancelar</button></div>
           </div>}
         </article>})}

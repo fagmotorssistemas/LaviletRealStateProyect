@@ -28,15 +28,14 @@ test('a CRM lead without Kommo is awaiting WhatsApp, not a paused WhatsApp bot',
  const contact={id:'entry',phone:'593991234567',label:'',fastResponse:false,version:1,leadId:'web-lead',kommoId:null,botEnabled:false,matches:1,blocked:false,lastResetAt:null}
  const pending=settings.testContactControls(contact)
  assert.equal(pending.label,'Pendiente de vincular WhatsApp')
- assert.equal(pending.canReset,false);assert.equal(pending.canResume,false)
+ assert.equal(pending.canReset,true);assert.equal(pending.canResume,false)
  assert.match(pending.explanation,/lead en el CRM/)
  assert.match(pending.explanation,/Actualizar lista/)
- // A first inbound link does not silently lift a stored pause. Both explicit
- // admin actions become available once the verified Kommo identity exists.
+ // A full reset needs the local lead identity; resuming needs the Kommo link.
  const linked=settings.testContactControls({...contact,kommoId:123})
  assert.equal(linked.label,'Bot pausado')
  assert.equal(linked.canReset,true);assert.equal(linked.canResume,true)
- for(const kommoId of [0,-1,NaN,Infinity,1.5])assert.equal(settings.testContactControls({...contact,kommoId}).canReset,false)
+ for(const kommoId of [0,-1,NaN,Infinity,1.5])assert.equal(settings.testContactControls({...contact,kommoId}).canResume,false)
 })
 test('contact controls distinguish missing leads, duplicates and blocked linked leads',()=>{
  const contact={id:'entry',phone:'593991234567',label:'',fastResponse:false,version:1,leadId:'lead',kommoId:123,botEnabled:true,matches:1,blocked:false,lastResetAt:null}
@@ -46,7 +45,7 @@ test('contact controls distinguish missing leads, duplicates and blocked linked 
  assert.equal(duplicate.label,'Varios leads con este número');assert.equal(duplicate.canResume,false);assert.equal(duplicate.canReset,false)
  const blocked=settings.testContactControls({...contact,blocked:true,botEnabled:false})
  assert.equal(blocked.canResume,false);assert.match(blocked.resumeDisabledReason,/no recibir mensajes/)
- assert.equal(blocked.canReset,true) // The transactional reset separately protects opt-outs and sales.
+ assert.equal(blocked.canReset,true) // Explicit full reset clears opt-outs and prior commercial state.
  const enabled=settings.testContactControls(contact)
  assert.equal(enabled.label,'Bot habilitado');assert.equal(enabled.canReset,true)
  assert.equal(enabled.canResume,true) // A failed Kommo sync remains retryable.
@@ -109,13 +108,12 @@ test('all server actions enforce admin and project access before reading contact
  assert.equal(h.calls.length,1)
 })
 
-test('reset and resume explain a missing Kommo link before attempting a mutation',async()=>{
+test('reset can clear an unlinked local lead but resume still requires Kommo',async()=>{
  const h=actionHarness({contacts:[{...contact,kommoId:null,botEnabled:false}]})
- for(const action of ['reset','resume']){
-  const result=await h.update(action)
-  assert.equal(result.ok,false);assert.match(result.error,/todavía no está vinculado con Kommo/)
- }
- assert.deepEqual(h.calls,[]);assert.deepEqual(h.kommo,[])
+ assert.equal((await h.update('reset')).ok,true)
+ const result=await h.update('resume')
+ assert.equal(result.ok,false);assert.match(result.error,/todavía no está vinculado con Kommo/)
+ assert.equal(h.calls.length,1);assert.equal(h.calls[0][0],'lv_restart_enrolled_test_contact');assert.deepEqual(h.kommo,[])
 })
 
 test('expected reset rejections are serializable results instead of masked server exceptions',async()=>{

@@ -59,6 +59,9 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
       onDiagnostics: value => { transport = value } }))
     usage = Object.keys(object(result.usage)).length ? object(result.usage) : undefined
     diagnostics = modelResponseDiagnostics(result, outputBudget)
+    // A reset can revoke the worker while inference is running. Do not let
+    // its late result update the lead or start another response.
+    await requestOptions.beforeAttempt?.()
     if (result.status !== 'completed') throw new Error('OPENAI_INCOMPLETE')
     const output = (Array.isArray(result.output) ? result.output : []).map(object)
       .flatMap(item => Array.isArray(item.content) ? item.content.map(object) : [])

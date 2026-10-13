@@ -31,6 +31,17 @@ async function scheduleTasks() {
   if (error) throw new Error('TASK_SCHEDULE_FAILED')
 }
 
+/** An explicit test reset retires the whole batch, including accepted-reply
+ * recovery. Keep the reset's terminal result instead of creating an incident. */
+async function batchCancelledByReset(ids: string[]) {
+  try {
+    const { data, error } = await db().from('lv_integration_events').select('id').match(scope)
+      .in('id', ids).eq('status', 'cancelled').eq('result->>reset_cancelled', 'true')
+      .limit(1).abortSignal(AbortSignal.timeout(10_000))
+    return !error && Boolean(data?.length)
+  } catch { return false }
+}
+
 /** Database maintenance owns no Kommo send resources. Its lease can advance
  * while contacts are busy; the global send worker retains its old exclusion. */
 async function runMaintenance(config: Row) {
@@ -117,7 +128,7 @@ export async function runAutomation(contactKey?: string) {
         ? await rpc<Row[]>('lv_app_claim_contact', { p_token: token, p_contact: contactKey })
         : await rpc<Row[]>('lv_app_claim', { p_token: token })
       if (!batch.length) break
-      const first = object(batch[0]), ids = batch.map(row => row.id)
+      const first = object(batch[0]), ids = batch.map(row => text(row.id))
       let acceptedReply: Row | undefined
       try {
         let result: Row
@@ -163,10 +174,15 @@ export async function runAutomation(contactKey?: string) {
           result = { ...result, reason: 'REPLY_WINDOW_EXPIRED', requires_review: true, delivery_status: 'not_sent' }
         }
         if (result.delivery_status === 'accepted' && text(result.reply_registration_checkpoint)) acceptedReply = result
+        await guard()
         await rpc('lv_app_finish', { p_token: token, p_ids: ids,
           p_status: result.action === 'cancelled' || result.delivery_status === 'not_sent' ? 'cancelled' : 'completed', p_result: result })
         results.push({ kind: first.kind, ...result })
       } catch (error) {
+        if (await batchCancelledByReset(ids)) {
+          results.push({ kind: first.kind, status: 'cancelled', reason: 'TEST_CONTACT_RESET' })
+          return { mode: 'live', processed: results.length, reason: 'test_contact_reset', results }
+        }
         if (acceptedReply) {
           const reason = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'REPLY_FINISH_FAILED'
           await rpc('lv_app_finish', { p_token: token, p_ids: ids, p_status: 'uncertain',

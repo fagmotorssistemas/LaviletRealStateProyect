@@ -31,17 +31,17 @@ export function testContactControls(contact: TestContact) {
     && Number.isSafeInteger(contact.kommoId) && Number(contact.kommoId) > 0
   const linkHelp = waiting
     ? 'Envíe un primer mensaje desde este número al WhatsApp del proyecto y pulse «Actualizar lista». Los botones de reinicio y reanudación estarán disponibles cuando se vincule el lead con Kommo.'
-    : 'Este teléfono ya tiene un lead en el CRM, pero todavía no está vinculado con Kommo. Envíe un mensaje desde este número al WhatsApp del proyecto y pulse «Actualizar lista». Después podrá reiniciar la prueba o reanudar el bot.'
-  const resetDisabledReason = duplicate ? 'Hay varios leads con este teléfono. Resuelva el duplicado antes de reiniciar o reanudar.'
-    : !linked ? linkHelp : ''
-  const resumeDisabledReason = resetDisabledReason || (contact.blocked
-    ? 'El contacto solicitó no recibir mensajes. No se puede reactivar desde aquí.' : '')
+    : 'Este teléfono ya tiene un lead en el CRM, pero todavía no está vinculado con Kommo. Puede reiniciar sus datos de prueba. Para reanudar el bot, envíe un mensaje desde este número al WhatsApp del proyecto y pulse «Actualizar lista».'
+  const identityHelp = duplicate ? 'Hay varios leads con este teléfono. Resuelva el duplicado antes de reiniciar o reanudar.' : waiting ? linkHelp : ''
+  const resetDisabledReason = identityHelp
+  const resumeDisabledReason = identityHelp || (!linked ? linkHelp : '') || (contact.blocked
+    ? 'El contacto solicitó no recibir mensajes. «Reanudar bot» conserva esa baja; «Reiniciar prueba» limpia el estado de prueba y habilita el bot.' : '')
   return {
     label: duplicate ? 'Varios leads con este número' : waiting ? 'Esperando primer mensaje'
       : !linked ? 'Pendiente de vincular WhatsApp' : contact.botEnabled ? 'Bot habilitado' : 'Bot pausado',
     explanation: resetDisabledReason || resumeDisabledReason || (!contact.botEnabled
       ? 'El bot está deshabilitado para este lead. «Reanudar bot» conserva la conversación; «Reiniciar prueba» permite empezar desde cero.' : ''),
-    canReset: linked, canResume: linked && !contact.blocked,
+    canReset: !duplicate && !waiting && contact.matches === 1, canResume: linked && !contact.blocked,
     resetDisabledReason, resumeDisabledReason,
   }
 }
