@@ -20,6 +20,7 @@ import { isCommercialContextReadFailure } from './context-read'
 import { processAdvisorOutbound } from './advisor-outbound'
 import { syncTransportIncidents } from './transport-monitor'
 import { AcceptedReplyRegistrationError, preserveAcceptedReply, recoverAcceptedReplyRegistrations } from './reply-registration'
+import { sendConfirmedDeliveryRetry } from './delivery-retry'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -137,6 +138,9 @@ export async function runAutomation(contactKey?: string) {
           result = object(first.payload).identityAmbiguous === true
             ? { action: 'cancelled', reason: 'ADVISOR_CONTACT_AMBIGUOUS', requires_review: true }
             : await processAdvisorOutbound(first)
+        }
+        else if (first.kind === 'delivery_retry') {
+          result = await sendConfirmedDeliveryRetry(first, guard)
         }
         else if (first.kind === 'inbound') {
           await guard()

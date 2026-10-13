@@ -9,6 +9,7 @@ import { assessMissingFacts } from './coverage-evidence'
 import { calculateMonthlyPayment } from '@/lib/financing/calculator'
 import { completeTurnReply } from './turn-completeness'
 import { object, type Row } from './data'
+import { MONTHLY_PAYMENT_POLICY } from './monthly-payment-policy'
 
 const today = '2026-10-05', partners = ['Cooperativa JEP', 'Banco Pichincha']
 const inquiry = { requested: true, beforeApplication: true, evidence: '¿Cuánto sería la entrada y la cuota?', years: null }
@@ -19,6 +20,20 @@ function fixture(settings = defaultFinancingGuidance()) {
     politica_comercial: { precios_autorizados: true }, financiamiento: { partners, current: {} },
     politica_financiera: { guidance: financingPolicyContext(settings, partners, today) } }
 }
+
+test('monthly orientation does not configure invented terms and makes the lender the final authority', () => {
+  const context = financingQuoteContext(fixture(), inquiry)
+  assert.equal(context.monthly_estimate_available, false)
+  assert.equal(context.monthly_payment_policy, MONTHLY_PAYMENT_POLICY)
+  assert.equal(MONTHLY_PAYMENT_POLICY.direct_project_credit, false)
+  assert.equal(MONTHLY_PAYMENT_POLICY.final_payment_authority, 'selected_lender')
+  assert.equal(MONTHLY_PAYMENT_POLICY.inquiry_starts_application, false)
+  assert.ok(context.monthly_estimate_missing.includes('plazo_sin_confirmar_o_fuera_de_limites'))
+  assert.ok(context.monthly_estimate_missing.includes('tasa_o_tipo_de_tasa_sin_confirmar'))
+  const missingUnit = financingQuoteContext({ ...fixture(), property_context: {} }, inquiry)
+  assert.deepEqual(missingUnit.monthly_estimate_missing, ['selected_unit'])
+  assert.equal(financingPolicyContext(defaultFinancingGuidance(), partners, today).monthly_payment_policy, MONTHLY_PAYMENT_POLICY)
+})
 
 test('JEP applies both 70% and the $150k cap; unverified term does not produce a monthly payment', () => {
   const context = financingQuoteContext(fixture(), inquiry)

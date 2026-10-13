@@ -183,14 +183,19 @@ export async function recoverAcceptedReplyRegistrations(guard: () => Promise<voi
       }
       const args = object(checkpoint.data.args), before = checkpoint.data.summary_before
       if (checkpoint.data.memory_saved !== true) {
-        let save = db().from('conversations').update({ summary: checkpoint.data.summary_after }).match(scope).eq('id', args.p_conversation_id)
-        save = typeof before === 'string' ? save.eq('summary', before) : save.is('summary', null)
-        const memory = await save.select('id').abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
-        if (memory.error) throw Error('REPLY_REGISTRATION_MEMORY_FAILED')
-        if (!memory.data) {
-          const current = await db().from('conversations').select('summary').match(scope).eq('id', args.p_conversation_id)
-            .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
-          if (current.error || current.data?.summary !== checkpoint.data.summary_after) throw Error('REPLY_REGISTRATION_MEMORY_CONFLICT')
+        if (typeof checkpoint.data.delivery_retry_count === 'number') {
+          if (await rpc('lv_app_save_retry_memory', { p_checkpoint: checkpoint.id }) !== true)
+            throw Error('REPLY_REGISTRATION_MEMORY_CONFLICT')
+        } else {
+          let save = db().from('conversations').update({ summary: checkpoint.data.summary_after }).match(scope).eq('id', args.p_conversation_id)
+          save = typeof before === 'string' ? save.eq('summary', before) : save.is('summary', null)
+          const memory = await save.select('id').abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
+          if (memory.error) throw Error('REPLY_REGISTRATION_MEMORY_FAILED')
+          if (!memory.data) {
+            const current = await db().from('conversations').select('summary').match(scope).eq('id', args.p_conversation_id)
+              .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
+            if (current.error || current.data?.summary !== checkpoint.data.summary_after) throw Error('REPLY_REGISTRATION_MEMORY_CONFLICT')
+          }
         }
         await productionStore.save(checkpoint, { ...checkpoint.data, memory_saved: true })
       }
@@ -238,15 +243,20 @@ export async function finishReviewedReplyCheckpoint(input: { event: Row; evidenc
     delivery_state: 'accepted', accepted_at: evidence.sent_at, provider_message_id: evidence.external_message_id })
   await finishReplyRegistration(checkpoint)
   if (checkpoint.data.memory_saved !== true) {
-    const before = checkpoint.data.summary_before
-    let save = db().from('conversations').update({ summary: checkpoint.data.summary_after }).match(scope).eq('id', args.p_conversation_id)
-    save = typeof before === 'string' ? save.eq('summary', before) : save.is('summary', null)
-    const result = await save.select('id').abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
-    if (result.error) throw Error('REPLY_REGISTRATION_MEMORY_FAILED')
-    if (!result.data) {
-      const current = await db().from('conversations').select('summary').match(scope).eq('id', args.p_conversation_id)
-        .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
-      if (current.error || current.data?.summary !== checkpoint.data.summary_after) throw Error('REPLY_REGISTRATION_MEMORY_CONFLICT')
+    if (typeof checkpoint.data.delivery_retry_count === 'number') {
+      if (await rpc('lv_app_save_retry_memory', { p_checkpoint: checkpoint.id }) !== true)
+        throw Error('REPLY_REGISTRATION_MEMORY_CONFLICT')
+    } else {
+      const before = checkpoint.data.summary_before
+      let save = db().from('conversations').update({ summary: checkpoint.data.summary_after }).match(scope).eq('id', args.p_conversation_id)
+      save = typeof before === 'string' ? save.eq('summary', before) : save.is('summary', null)
+      const result = await save.select('id').abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
+      if (result.error) throw Error('REPLY_REGISTRATION_MEMORY_FAILED')
+      if (!result.data) {
+        const current = await db().from('conversations').select('summary').match(scope).eq('id', args.p_conversation_id)
+          .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
+        if (current.error || current.data?.summary !== checkpoint.data.summary_after) throw Error('REPLY_REGISTRATION_MEMORY_CONFLICT')
+      }
     }
     await productionStore.save(checkpoint, { ...checkpoint.data, memory_saved: true })
   }

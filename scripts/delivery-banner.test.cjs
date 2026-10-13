@@ -82,10 +82,10 @@ test('review form requires attestation, reference and an ID for a confirmed send
   assert.equal(button(tree, 'Guardar comprobación').props.disabled, true)
   const textarea = all(tree, 'textarea')[0]
   assert.equal(textarea.props.required, true)
-  assert.equal(textarea.props.minLength, 10)
+  assert.equal(textarea.props.minLength, 3)
   textarea.props.onChange({ target: { value: 'Historial revisado en Kommo' } })
   assert.equal(button(h.render(), 'Guardar comprobación').props.disabled, true)
-  all(h.render(), 'input').find(node => node.props.type === 'checkbox').props.onChange({ target: { checked: true } })
+  all(h.render(), 'input').find(node => node.props.type === 'checkbox' && node.props.required).props.onChange({ target: { checked: true } })
   assert.equal(button(h.render(), 'Guardar comprobación').props.disabled, false)
   all(h.render(), 'select')[0].props.onChange({ target: { value: 'sent' } })
   tree = h.render()
@@ -93,11 +93,11 @@ test('review form requires attestation, reference and an ID for a confirmed send
   const provider = all(tree, 'input').find(node => node.props.type !== 'checkbox')
   assert.equal(provider.props.required, true)
   assert.equal(provider.props.maxLength, 200)
-  all(tree, 'input').find(node => node.props.type === 'checkbox').props.onChange({ target: { checked: true } })
+  all(tree, 'input').find(node => node.props.type === 'checkbox' && node.props.required).props.onChange({ target: { checked: true } })
   assert.equal(button(h.render(), 'Guardar comprobación').props.disabled, true)
   provider.props.onChange({ target: { value: 'message-42' } })
   assert.equal(button(h.render(), 'Guardar comprobación').props.disabled, false)
-  assert.match(words(all(h.render(), 'form')[0]), /no vuelve a enviar ese mensaje/)
+  assert.match(words(all(h.render(), 'form')[0]), /programar un reintento/)
 })
 
 test('confirmed review posts only the evidence contract and closes the form after success', async t => {
@@ -114,7 +114,7 @@ test('confirmed review posts only the evidence contract and closes the form afte
   assert.equal(requests.length, 1)
   assert.equal(requests[0][0], '/api/integrations/delivery')
   assert.deepEqual(JSON.parse(requests[0][1].body), { action: 'reconcile_incident', id: incidentId,
-    outcome: 'sent', reviewed: true, providerMessageId: 'provider-42', reviewReference: 'Revisado destinatario, contenido y hora' })
+    outcome: 'sent', reviewed: true, retry: false, providerMessageId: 'provider-42', reviewReference: 'Revisado destinatario, contenido y hora' })
   assert.equal(h.state[2], false)
   assert.equal(h.state[3], null)
   assert.equal(all(h.render(), 'form').length, 0)
@@ -131,9 +131,30 @@ test('not-sent review does not post a stale provider ID and preserves the form i
   all(h.render(), 'form')[0].props.onSubmit({ preventDefault() {} })
   await settle()
   assert.deepEqual(JSON.parse(requests[0][1].body), { action: 'reconcile_incident', id: incidentId,
-    outcome: 'not_sent', reviewed: true, reviewReference: 'Historial y hora comprobados' })
+    outcome: 'not_sent', reviewed: true, retry: true, reviewReference: 'Historial y hora comprobados' })
   assert.equal(h.state[1], 'DELIVERY_EVIDENCE_REQUIRED')
   assert.equal(h.state[3], incidentId)
   assert.equal(h.state[2], false)
   assert.equal(all(h.render(), 'form').length, 1)
+})
+
+test('the reported six-character observation enables saving and retry can be declined explicitly', () => {
+  const h = harness()
+  openReview(h)
+  all(h.render(), 'textarea')[0].props.onChange({ target: { value: 'asdasd' } })
+  all(h.render(), 'input').find(node => node.props.required).props.onChange({ target: { checked: true } })
+  assert.equal(button(h.render(), 'Guardar comprobación').props.disabled, false)
+  assert.match(words(h.render()), /Entre 3 y 300 caracteres/)
+  all(h.render(), 'input').find(node => node.props.type === 'checkbox' && !node.props.required).props.onChange({ target: { checked: false } })
+  assert.equal(h.state[8], false)
+  assert.equal(button(h.render(), 'Guardar comprobación').props.disabled, true)
+})
+
+test('queued retries stay visible after the unknown incident has been reconciled', () => {
+  const h = harness()
+  h.state[0].incidents = []; h.state[0].incidentCount = 0; h.state[0].retryPending = 1
+  const text = words(h.render())
+  assert.match(text, /Hay respuestas esperando reintento/)
+  assert.match(text, /Reintentos programados o en curso: 1/)
+  assert.match(text, /aún no está confirmada como entregada en WhatsApp/)
 })

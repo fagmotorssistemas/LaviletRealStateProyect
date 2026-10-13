@@ -71,7 +71,7 @@ function event(id, status, result = {}, overrides = {}) {
     received_at: '2026-09-15T13:55:59Z', completed_at: '2026-09-15T13:56:00Z', ...overrides }
 }
 
-test('explicit Kommo rejections are not ambiguous deliveries and account blocks are saved without retry', async t => {
+test('account rejections are not retried; only repeatable transient field failures receive bounded retries', async t => {
   const old = process.env.KOMMO_BASE_URL, token = process.env.KOMMO_ACCESS_TOKEN
   process.env.KOMMO_BASE_URL = 'https://lavilet.kommo.com'; process.env.KOMMO_ACCESS_TOKEN = 'synthetic'
   t.after(() => { if (old === undefined) delete process.env.KOMMO_BASE_URL; else process.env.KOMMO_BASE_URL = old; if (token === undefined) delete process.env.KOMMO_ACCESS_TOKEN; else process.env.KOMMO_ACCESS_TOKEN = token })
@@ -86,11 +86,34 @@ test('explicit Kommo rejections are not ambiguous deliveries and account blocks 
   for (status of [400, 401, 402, 403, 404, 422, 429, 408, 503]) {
     const before = calls.length
     await assert.rejects(() => p.setKommoField(3577404, 457014, 'Test'), e => e.status === status && e.uncertain === [408, 503].includes(status) && !e.message.includes('Sensitive'))
-    assert.equal(calls.length, before + 1)
+    assert.equal(calls.length, before + ([429, 503].includes(status) ? 3 : 1))
   }
   status = 402
   await assert.rejects(() => p.launchSalesbot(3577404, 15578), e => e.operation === 'launch_bot' && !e.uncertain)
   assert.deepEqual(blocks.map(x => x[0]), [401, 402, 403, 402])
+})
+
+test('checked non-delivery queues a retry through the batch RPC and wakes the contact without calling Kommo', async () => {
+  const calls = []
+  const mod = load('src/lib/integrations/automation/delivery-state.ts', {
+    './data': { ...data, db: () => ({ rpc: (name, args) => ({ abortSignal: async () => {
+      calls.push({ name, args }); return { data: { reconciled: true, contact_key: '42:100', retry_event_id: 'retry' }, error: null }
+    } }) }) },
+    './schedule-conversations': { scheduleConversations: async contacts => calls.push({ wake: contacts }) },
+  })
+  await mod.reconcileDeliveryIncident('event', 'admin', { outcome: 'not_sent', reviewed: true, reviewReference: 'asdasd', retry: true })
+  assert.equal(calls[0].name, 'lv_app_reconcile_delivery_v2')
+  assert.equal(calls[0].args.p_retry, true)
+  assert.equal(calls[0].args.p_review_reference, 'asdasd')
+  assert.deepEqual(calls[1], { wake: ['42:100'] })
+})
+
+test('reconciliation exposes only known database reasons and never wakes a failed review', async () => {
+  const mod = load('src/lib/integrations/automation/delivery-state.ts', {
+    './data': { ...data, db: () => ({ rpc: () => ({ abortSignal: async () => ({ data: null, error: { code: 'P0001', message: 'WORKER_BUSY' } }) }) }) },
+    './schedule-conversations': { scheduleConversations: async () => { throw Error('UNEXPECTED_WAKE') } },
+  })
+  await assert.rejects(mod.reconcileDeliveryIncident('event', 'admin', { outcome: 'not_sent', reviewed: true, reviewReference: 'No salió' }), /WORKER_BUSY/)
 })
 
 test('legacy Pablo 402 is visible, and GET success alone cannot clear the block', async () => {
@@ -135,14 +158,14 @@ test('a new rejection reopens the account block after an administrator allowed a
   assert.equal((await h.deliveryHealth()).httpStatus, 403)
 })
 
-function workerHarness({ blocked = false, failure = null, action = 'accepted', recoveryFailure = null } = {}) {
+function workerHarness({ blocked = false, failure = null, action = 'accepted', recoveryFailure = null, kind = 'inbound' } = {}) {
   const calls = []
   let claimed = false, hasBlock = blocked
   const q = { then: resolve => Promise.resolve({ error: null }).then(resolve) }
   for (const method of ['upsert', 'update', 'match', 'eq', 'contains', 'lt']) q[method] = () => q
   const { runAutomation } = load('src/lib/integrations/automation/worker.ts', {
     './data': { ...data, db: () => ({ from: () => q }), autoConfig: async () => ({ enabled: true, dry_run: false }),
-      rpc: async (name, args) => { calls.push({ name, args }); if (name === 'lv_app_claim_maintenance') return []; if (name === 'lv_app_claim') { if (claimed) return []; claimed = true; return [event('pablo', 'processing', {}, { payload: { kommoId: 3577404 } })] } return true } },
+      rpc: async (name, args) => { calls.push({ name, args }); if (name === 'lv_app_claim_maintenance') return []; if (name === 'lv_app_claim') { if (claimed) return []; claimed = true; return [event('pablo', 'processing', {}, { kind, payload: { kommoId: 3577404 } })] } return true } },
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live' }) },
     './kommo': provider,
     './generation-recovery': { ...require('../src/lib/integrations/automation/generation-recovery.ts'), recoverGenerationFailure: async () => {
@@ -154,10 +177,22 @@ function workerHarness({ blocked = false, failure = null, action = 'accepted', r
     './nutrition-week-one': { cancelNutritionWeekOne: async () => { calls.push({ name: 'cancel_week_one' }) }, sendNutritionWeekOne: async () => ({}) },
     './nutrition-later': { cancelNutritionLater: async () => {}, sendNutritionLater: async () => ({}) },
     './conversation': { processConversation: async () => { calls.push({ name: 'process' }); if (failure) { hasBlock = failure.status === 402; throw failure } return { action } } },
+    './delivery-retry': { sendConfirmedDeliveryRetry: async () => { calls.push({ name: 'retry_saved_reply' }); if (failure) throw failure; return { action: 'confirmed_delivery_retry', delivery_status: 'accepted' } } },
     './visits': { pendingVisits: async () => { calls.push({ name: 'visits' }); return [] }, planVisits: async () => 0 },
   })
   return { runAutomation, calls }
 }
+
+test('worker dispatches a verified retry without invoking conversation AI or fallback generation; a lost launch stays uncertain', async () => {
+  for (const failed of [false, true]) {
+    const h = workerHarness({ kind: 'delivery_retry', ...(failed ? { failure: new provider.ProviderError(0, true, 'launch_bot') } : {}) })
+    await h.runAutomation()
+    assert.equal(h.calls.filter(call => call.name === 'retry_saved_reply').length, 1)
+    assert.equal(h.calls.some(call => ['process', 'generation_recovery'].includes(call.name)), false)
+    const finish = h.calls.find(call => call.name === 'lv_app_finish').args
+    assert.equal(finish.p_status, failed ? 'uncertain' : 'completed')
+  }
+})
 
 test('an exhausted inference fails over to advisor once without replaying the conversation', async () => {
   const { OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')

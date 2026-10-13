@@ -22,6 +22,7 @@ export function AutomationDeliveryBanner() {
   const [providerMessageId, setProviderMessageId] = useState('')
   const [reviewReference, setReviewReference] = useState('')
   const [reviewed, setReviewed] = useState(false)
+  const [retryNotSent, setRetryNotSent] = useState(true)
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await fetch('/api/integrations/delivery', { cache: 'no-store', signal })
@@ -52,7 +53,7 @@ export function AutomationDeliveryBanner() {
   }
   const transport = health?.transport
   const transportIssue = Boolean(transport?.error || transport?.missing.length || transport?.delayed.length)
-  if (!allowed || (!error && !health?.blocked && !health?.incidentCount && !transportIssue)) return null
+  if (!allowed || (!error && !health?.blocked && !health?.incidentCount && !health?.retryPending && !transportIssue)) return null
   const reason = health?.httpStatus === 402 ? 'Kommo rechazó las solicitudes con «Payment Required» (402). Revise la suscripción o consulte a soporte de Kommo.'
     : health?.httpStatus === 401 ? 'Kommo rechazó las credenciales (401). Un administrador debe revisar la conexión.'
       : 'Kommo rechazó el acceso (403). Un administrador debe revisar los permisos de la integración.'
@@ -60,7 +61,8 @@ export function AutomationDeliveryBanner() {
     <div className="flex items-start gap-3">
       <AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-700" />
       <div className="min-w-0 flex-1">
-        <h2 className="font-semibold">{health?.blocked ? 'Los envíos del bot están bloqueados por Kommo' : health?.incidentCount ? 'Hay respuestas que necesitan revisión' : transportIssue ? 'Hay avisos sobre la sincronización con Kommo' : 'No se pudo verificar el estado del bot'}</h2>
+        <h2 className="font-semibold">{health?.blocked ? 'Los envíos del bot están bloqueados por Kommo' : health?.incidentCount ? 'Hay respuestas que necesitan revisión' : health?.retryPending ? 'Hay respuestas esperando reintento' : transportIssue ? 'Hay avisos sobre la sincronización con Kommo' : 'No se pudo verificar el estado del bot'}</h2>
+        {!!health?.retryPending && <p className="mt-2">Reintentos programados o en curso: {health.retryPending}. La respuesta aún no está confirmada como entregada en WhatsApp.</p>}
         {health?.blocked && <><p className="mt-1">{reason}</p><p className="mt-1">Los nuevos mensajes se conservan pendientes. Cambiar «Detener IA» o reiniciar al lead no elimina este bloqueo.</p></>}
         {!!health?.pendingMessages && health.blocked && <p className="mt-1">Mensajes pendientes: {health.pendingMessages}.</p>}
         {!!health?.incidentCount && <details className="mt-3">
@@ -73,17 +75,17 @@ export function AutomationDeliveryBanner() {
               {(item.explanation || kommoFailureExplanation(item.reason)) && <p className="w-full text-xs">{item.explanation || kommoFailureExplanation(item.reason)}</p>}
               {admin && item.canResolve && !health.blocked && <button type="button" disabled={busy} onClick={() => void update('incident_reviewed', item.id)} className="ml-auto text-xs font-medium underline disabled:opacity-50">Ya atendí esta conversación</button>}
               {admin && item.canReconcile && <button type="button" disabled={busy} onClick={() => {
-                setReviewId(reviewId === item.id ? null : item.id); setOutcome('not_sent'); setProviderMessageId(''); setReviewReference(''); setReviewed(false)
+                setReviewId(reviewId === item.id ? null : item.id); setOutcome('not_sent'); setProviderMessageId(''); setReviewReference(''); setReviewed(false); setRetryNotSent(true)
               }} className="ml-auto text-xs font-medium underline disabled:opacity-50">Comprobar este envío</button>}
               {admin && item.canReconcile && reviewId === item.id && <form className="mt-2 w-full space-y-2 border-t border-amber-200 pt-3" onSubmit={event => {
                 event.preventDefault()
-                void update('reconcile_incident', item.id, { outcome, reviewed, reviewReference: reviewReference.trim(),
+                void update('reconcile_incident', item.id, { outcome, reviewed, retry: outcome === 'not_sent' && retryNotSent, reviewReference: reviewReference.trim(),
                   ...(outcome === 'sent' ? { providerMessageId: providerMessageId.trim() } : {}) })
               }}>
-                <p className="text-xs">Revise el historial de Kommo y compruebe el destinatario, el contenido y la hora del intento. Guardar esta revisión resuelve el bloqueo del intento; no vuelve a enviar ese mensaje.</p>
+                <p className="text-xs">Revise el historial de Kommo y compruebe el destinatario, el contenido y la hora del intento. La comprobación se aplica a los mensajes del mismo intento. Si confirma que no se envió, puede programar un reintento.</p>
                 <label className="block text-xs">Resultado comprobado
                   <select disabled={busy} value={outcome} onChange={event => { setOutcome(event.target.value as 'sent' | 'not_sent'); setReviewed(false) }} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2">
-                    <option value="not_sent">No se envió; cancelar este intento</option>
+                    <option value="not_sent">No se envió</option>
                     <option value="sent">Se envió; registrar el mensaje encontrado</option>
                   </select>
                 </label>
@@ -91,10 +93,12 @@ export function AutomationDeliveryBanner() {
                   <input required maxLength={200} disabled={busy} value={providerMessageId} onChange={event => setProviderMessageId(event.target.value)} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" />
                 </label>}
                 <label className="block text-xs">Referencia de la comprobación y observaciones
-                  <textarea required minLength={10} maxLength={300} disabled={busy} value={reviewReference} onChange={event => setReviewReference(event.target.value)} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" />
+                  <textarea required minLength={3} maxLength={300} disabled={busy} value={reviewReference} onChange={event => setReviewReference(event.target.value)} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" />
+                  <span className="mt-1 block text-xs">Entre 3 y 300 caracteres. Indique qué comprobó en el historial.</span>
                 </label>
+                {outcome === 'not_sent' && <label className="flex items-start gap-2 text-xs"><input type="checkbox" disabled={busy} checked={retryNotSent} onChange={event => { setRetryNotSent(event.target.checked); setReviewed(false) }} className="mt-0.5" />Programar un reintento de la respuesta comprobada. Si desmarca esta opción, se cancela el intento y solo se reanudan los mensajes pendientes.</label>}
                 <label className="flex items-start gap-2 text-xs"><input type="checkbox" required disabled={busy} checked={reviewed} onChange={event => setReviewed(event.target.checked)} className="mt-0.5" />He revisado el historial y comprobado que este resultado corresponde al intento y contacto indicados.</label>
-                <button type="submit" disabled={busy || !reviewed || reviewReference.trim().length < 10 || outcome === 'sent' && !providerMessageId.trim()} className="rounded border border-amber-700 px-3 py-2 text-xs font-medium disabled:opacity-50">Guardar comprobación</button>
+                <button type="submit" disabled={busy || !reviewed || reviewReference.trim().length < 3 || outcome === 'sent' && !providerMessageId.trim()} className="rounded border border-amber-700 px-3 py-2 text-xs font-medium disabled:opacity-50">Guardar comprobación</button>
               </form>}
             </li>)}
           </ul>

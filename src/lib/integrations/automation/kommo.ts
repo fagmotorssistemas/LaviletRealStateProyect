@@ -27,8 +27,10 @@ async function request(path: string, method = 'GET', body?: unknown, attempt = 0
     throw error
   }
   const retryRead = async (status: number, diagnostic: KommoFailureDetails = {}): Promise<unknown> => {
-    // Reads have no delivery side effects. A bot POST or field mutation is never replayed.
-    if (method === 'GET' && attempt < 2 && (!status || status === 429 || status >= 500)) {
+    // Reads and assigning the same field values are repeatable. A bot launch
+    // is retried only after an explicit 429 rejection, never a lost response.
+    const repeatable = method === 'GET' || method === 'PATCH' || method === 'POST' && status === 429
+    if (repeatable && attempt < 2 && (!status || status === 429 || status >= 500)) {
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
       return request(path, method, body, attempt + 1)
     }
@@ -84,7 +86,7 @@ export async function setKommoFields(leadId: number, fields: { fieldId: number; 
 }
 export async function launchSalesbot(leadId: number, botId: number) {
   if (![leadId, botId].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error('INVALID_KOMMO_IDS')
-  // Nunca reintentar automáticamente un POST que pudo ser aceptado.
+  // An ambiguous POST is never replayed; an explicit 429 can be retried.
   await request('/api/v4/bots/run', 'POST', [{ bot_id: botId, entity_id: leadId, entity_type: 'leads' }])
 }
 

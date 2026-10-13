@@ -5,6 +5,7 @@ import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { selectedFinancingUnit } from './financing-stage'
 import { simpleFinancingAcceptance } from './financing-invitation'
+import { MONTHLY_PAYMENT_POLICY, MONTHLY_PAYMENT_REPLY_RULES } from './monthly-payment-policy'
 
 export const FINANCING_QUOTE_SCHEMA = { type: 'object', additionalProperties: false,
   properties: { requested: { type: 'boolean' }, before_application: { type: 'boolean' }, evidence: { type: 'string' },
@@ -42,6 +43,7 @@ export function financingPolicyContext(settings: FinancingGuidance, partners: st
   const alias = (value: string) => normalized(value).replace(/^(?:banco|cooperativa)\s+/, '')
   const current = (source: Parameters<typeof currentGuidanceSource>[0]) => currentGuidanceSource(source, today)
   return { enabled: settings.enabled, estimatesEnabled: settings.enabled && settings.estimatesEnabled,
+    monthly_payment_policy: MONTHLY_PAYMENT_POLICY,
     entry: settings.enabled && settings.entry.enabled && settings.entry.requirement !== 'unconfirmed' && current(settings.entry)
       ? { ...settings.entry, value: settings.entry.requirement === 'not_required' ? null : settings.entry.value } : null,
     reservation: settings.enabled && settings.reservation.enabled && settings.reservation.requirement !== 'unconfirmed' && current(settings.reservation)
@@ -102,6 +104,11 @@ export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row
       assumptions: 'Orientativo y sujeto a evaluación; porcentaje sobre precio publicado, no avalúo bancario. Cuota básica sin gracia, gastos financiados ni cargos desconocidos. No acredita capacidad de pago ni habilita reserva. Un presupuesto total no se convierte en entrada. La reserva no se descuenta sin un pago verificado.' }
   })
   return { requested: inquiry.requested, orientation_only: inquiry.beforeApplication, selected_unit_id: unit?.id || null,
+    monthly_payment_policy: MONTHLY_PAYMENT_POLICY,
+    monthly_estimate_available: estimates.some(estimate => estimate.basic_monthly_payment !== null),
+    monthly_estimate_missing: !unit ? ['selected_unit'] : !priced ? ['authorized_unit_price']
+      : !policy.estimatesEnabled ? ['estimates_enabled'] : !estimates.length ? ['active_applicable_lender_terms']
+        : [...new Set(estimates.filter(estimate => estimate.basic_monthly_payment === null).flatMap(estimate => estimate.issues))],
     selected_unit_number: unit?.unit_number || null, project_entry_applies: entryApplies,
     project_entry_reference: policy.estimatesEnabled && priced ? projectMinimum : null,
     estimates, status: !policy.enabled ? 'conditions_disabled' : !policy.estimatesEnabled ? 'estimates_disabled'
@@ -113,4 +120,6 @@ export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row
       : 'Estas cifras orientan, no aprueban crédito. Respete la acción que el cliente autorizó y las condiciones pendientes.' }
 }
 
-export const FINANCING_QUOTE_REPLY_RULES = `Atienda primero la duda concreta sobre entrada o cuotas con politica_financiera.guidance y financing_quote; no repita únicamente los pasos del trámite. Cifre solo los cálculos del servidor. No use el porcentaje que incluye gastos como porcentaje del precio. Nunca diga que no se exige entrada porque la regla esté apagada, sin confirmar, vencida o fuera de su alcance. Tampoco atribuya toda entrada al banco cuando exista una exigencia propia del proyecto. Si no hay fuente activa, diga que falta confirmar ese dato, sin inventarlo ni rescatar cifras del historial. Explique las limitaciones que afectan la cifra; no prometa una cuota final. Una referencia «desde» no es tasa aprobada. La cuota básica no incluye gracia ni gastos no configurados. Con orientation_only=true, responda lo que ya se conoce antes de ofrecer iniciar evaluación: no pida cédula ni empleo, no repita la invitación al trámite y no derive automáticamente por faltar una tasa o plazo. Si falta unidad, ayude a elegirla para calcular una referencia con las preferencias conocidas. Si falta plazo o tipo de tasa, explique exactamente qué impide calcular la cuota; puede terminar sin otra pregunta. Respete una solicitud explícita de asesor por su ruta propia.`
+const QUOTE_REPLY_RULES = `Atienda primero la duda concreta sobre entrada o cuotas con politica_financiera.guidance y financing_quote; no repita únicamente los pasos del trámite. Cifre solo los cálculos del servidor. No use el porcentaje que incluye gastos como porcentaje del precio. Nunca diga que no se exige entrada porque la regla esté apagada, sin confirmar, vencida o fuera de su alcance. Tampoco atribuya toda entrada al banco cuando exista una exigencia propia del proyecto. Si no hay fuente activa, diga que falta confirmar ese dato, sin inventarlo ni rescatar cifras del historial. Explique las limitaciones que afectan la cifra; no prometa una cuota final. Una referencia «desde» no es tasa aprobada. La cuota básica no incluye gracia ni gastos no configurados. Con orientation_only=true, responda lo que ya se conoce antes de ofrecer iniciar evaluación: no pida cédula ni empleo, no repita la invitación al trámite y no derive automáticamente por faltar una tasa o plazo. Si falta unidad, ayude a elegirla para calcular una referencia con las preferencias conocidas. Si falta plazo o tipo de tasa, explique exactamente qué impide calcular la cuota; puede terminar sin otra pregunta. Respete una solicitud explícita de asesor por su ruta propia.`
+
+export const FINANCING_QUOTE_REPLY_RULES = `${MONTHLY_PAYMENT_REPLY_RULES}\n${QUOTE_REPLY_RULES}`

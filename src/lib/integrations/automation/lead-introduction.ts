@@ -379,12 +379,10 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const priorCandidate = object(prior.confirmation_candidate)
   const sameCandidate = normalized([text(priorCandidate.city), text(priorCandidate.country)].filter(Boolean).join(', ')) === normalized(candidatePlace)
   const confirm = !declined && needsConfirmation && suppliedProfile && !(prior.confirmation_asked === true && sameCandidate)
-  // The first clarification is still the promised profile exchange. Do not
-  // deliver the material while asking for the confirmation that precedes it.
-  // This is a single-turn deferral, never an indefinite personal-data gate.
-  const brochureDeferred = !deliver || confirm && prior.brochure_sent !== true && !materialRequested
-  const deliverBrochure = deliver && material.reason !== 'declined' && !brochureDeferred && (prior.brochure_sent !== true || materialRequested)
-  const brochure = deliverBrochure ? `Aquí tiene el brochure digital completo del proyecto: ${url}` : ''
+  // Profile collection and delivery are separate decisions. A partial profile
+  // answer may require one reminder before the promised automatic brochure.
+  let brochureDeferred = !deliver
+  let deliverBrochure = false
   let question = '', purpose = 'none', result = '', reminderCount = Number(prior.reminder_count) || 0
   let state: Row
   if (!deliver) {
@@ -407,9 +405,15 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
       && missing.length === 1 && missing[0] === 'residence'
     const remind = !declined && (confirm || firstCapture || (onlyProfile || nameWithoutResidence) && missing.length > 0
       && (reminderCount < 1 || denial && prior.denial_followup_asked !== true))
+    // Ask only what is missing before automatically delivering material. Keep
+    // direct material requests, already sent brochures, refusals and the bounded
+    // reminder policy: this is not an indefinite requirement to disclose data.
+    brochureDeferred = remind && missing.length > 0 && prior.brochure_sent !== true && !materialRequested
+    deliverBrochure = material.reason !== 'declined' && !brochureDeferred && (prior.brochure_sent !== true || materialRequested)
+    const brochure = deliverBrochure ? `Aquí tiene el brochure digital completo del proyecto: ${url}` : ''
     if (remind) {
       if (confirm) { question = `Entiendo que es de ${candidatePlace}. ¿Es también su lugar de residencia actual?`; purpose = 'confirm_residence' }
-      else { question = profileQuestion(missing, true); purpose = questionPurpose(missing); if (asked) reminderCount += 1 }
+      else { question = profileQuestion(missing, prior.brochure_sent === true || deliverBrochure); purpose = questionPurpose(missing); if (asked) reminderCount += 1 }
     }
     const contextual = onlyProfile ? '' : overview && !pending && prior.presentation_sent !== true ? presentationText : base
     result = join(remind ? withoutLastQuestion(contextual) : contextual, brochure, remind ? question : onlyProfile || overview ? continuation : '')
@@ -454,7 +458,7 @@ APERTURA Y PERFIL DEL LEAD
 - Si presentation.required=true, responda la consulta general inicial con una presentación breve del proyecto antes de la pregunta de perfil. Ofrecer el brochure y pedir los datos, sin describir el proyecto, no atiende esa consulta. presentation.approved_summary contiene el resumen aprobado y autoriza su concepto, tipos generales y cantidades; conserve esos hechos con redacción natural sin convertirlos en ofertas de catálogo, fichas, precios, etapa de obra o fechas. Esta presentación no se repite después ni se impone en consultas concretas o múltiples.
 - Si generic_introduction=true y no existe presentation.approved_summary, use la presentación básica breve de La Vilet y su ubicación. Todavía no enumere tipos de inmuebles ni sus usos residenciales/comerciales, tampoco mediante paráfrasis; esa oferta corresponde a la continuación posterior. Con el resumen aprobado sí se permite explicar el concepto mixto y las categorías que incluye como descripción general del proyecto. En ambos casos conserve la única pregunta de perfil pendiente, sin una segunda pregunta comercial.
 
-- Si brochure_deferred=true, no adjunte todavía el brochure: se prometió para el siguiente intercambio. Si brochure_required=true, conserve el enlace verificado. Una petición directa del brochure se atiende sin exigir datos.
+- Si brochure_deferred=true, no adjunte todavía el brochure: responda la consulta actual y pida solo el dato de presentación pendiente antes de la entrega automática, también cuando ya dio su nombre y falta residencia. No vuelva a pedir el nombre confirmado. Si brochure_required=true, conserve el enlace verificado. Una petición directa del brochure se atiende sin exigir datos.
 - Si question_purpose=confirm_residence y brochure_deferred=true, confirme primero si el lugar declarado es su residencia actual y deje el brochure para el siguiente intercambio. Si el brochure ya se compartió o se atiende una petición directa, no prometa enviarlo después de confirmar un dato ni presente la residencia como requisito para recibirlo: explique la pregunta por la guía personalizada. Si el lead no responde a la aclaración o rehúsa sus datos, continúe atendiendo su consulta sin reiterarla ni retener el material indefinidamente.
 - Responder datos de perfil no inicia una visita, no autoriza financiamiento y no cambia las preferencias comerciales. No repita datos ya conocidos ni insista cuando no responde. La residencia no implica requisitos financieros, nacionalidad, elegibilidad ni disponibilidad distintos.
 - No invente acabados, terrazas privadas para todas las unidades, superioridad de plusvalía ni visitas a obra. Mantenga la evidencia y los controles del proyecto.`

@@ -45,6 +45,26 @@ test('SQL admission failure before POST is a known local rejection, with no bot 
   assert.equal(calls, 0)
 })
 
+test('temporary field updates are retried before launch; Salesbot retries only an explicit 429 rejection', async t => {
+  const previousUrl = process.env.KOMMO_BASE_URL, previousToken = process.env.KOMMO_ACCESS_TOKEN
+  process.env.KOMMO_BASE_URL = 'https://lavilet.kommo.com'; process.env.KOMMO_ACCESS_TOKEN = 'synthetic'
+  t.after(() => { if (previousUrl === undefined) delete process.env.KOMMO_BASE_URL; else process.env.KOMMO_BASE_URL = previousUrl; if (previousToken === undefined) delete process.env.KOMMO_ACCESS_TOKEN; else process.env.KOMMO_ACCESS_TOKEN = previousToken })
+  const provider = load('src/lib/integrations/automation/kommo.ts', { './config': { assertLive() {} }, './kommo-admission': { reserveKommoCall: async () => {} } })
+  const calls = []
+  let patches = 0, launches = 0
+  t.mock.method(global, 'fetch', async (_url, options) => {
+    calls.push([options.method, options.body])
+    if (options.method === 'PATCH' && ++patches === 1) throw new TypeError('fetch failed')
+    if (options.method === 'POST' && ++launches === 1) return new Response('', { status: 429 })
+    return new Response('{}')
+  })
+  await provider.setKommoField(42, 457014, 'Una respuesta')
+  await provider.launchSalesbot(42, 15578)
+  assert.deepEqual(calls.map(call => call[0]), ['PATCH', 'PATCH', 'POST', 'POST'])
+  assert.equal(calls[0][1], calls[1][1])
+  assert.equal(calls[2][1], calls[3][1])
+})
+
 test('Kommo launch records connection causes and never repeats an uncertain POST', async t => {
   const previousUrl=process.env.KOMMO_BASE_URL,previousToken=process.env.KOMMO_ACCESS_TOKEN
   process.env.KOMMO_BASE_URL='https://lavilet.kommo.com';process.env.KOMMO_ACCESS_TOKEN='synthetic'
@@ -208,16 +228,16 @@ test('a worker-finish failure after a normal accepted result retains registered 
 
 test('reconciliation requires explicit review and provider evidence, invokes no send helper', async () => {
   const calls = []
-  const { reconcileDeliveryIncident } = load('src/lib/integrations/automation/delivery-state.ts', { './data': { ...data, rpc: async (name, args) => {
-    calls.push([name, args]); return { reconciled: true, contact_key: '' }
-  } } })
+  const { reconcileDeliveryIncident } = load('src/lib/integrations/automation/delivery-state.ts', { './data': { ...data, db: () => ({ rpc: (name, args) => ({ abortSignal: async () => {
+    calls.push([name, args]); return { data: { reconciled: true, contact_key: '' }, error: null }
+  } }) }) } })
   const base = { outcome: 'not_sent', reviewed: true, reviewReference: 'Historial revisado' }
   for (const bad of [{ ...base, reviewed: false }, { ...base, reviewReference: '' }, { ...base, outcome: 'sent' }, { ...base, providerMessageId: 'contradiction' }]) {
     await assert.rejects(reconcileDeliveryIncident('event', 'admin', bad), /DELIVERY_REVIEW_REQUIRED/)
   }
   assert.equal(calls.length, 0)
   await reconcileDeliveryIncident('event', 'admin', base)
-  assert.equal(calls[0][0], 'lv_app_reconcile_delivery')
+  assert.equal(calls[0][0], 'lv_app_reconcile_delivery_v2')
   assert.equal(calls[0][1].p_outcome, 'not_sent')
   assert.equal(calls.length, 1)
 })
@@ -248,12 +268,12 @@ test('sent reconciliation restores missing registration before releasing the con
       if (fail) throw Error('DELIVERY_REGISTRATION_FULL_TRACE_REQUIRED')
       return { repaired: true }
     } },
-    './data': { ...data, rpc: async (name, args) => { calls.push([name, args]); return { reconciled: true, contact_key: '' } } },
+    './data': { ...data, db: () => ({ rpc: (name, args) => ({ abortSignal: async () => { calls.push([name, args]); return { data: { reconciled: true, contact_key: '' }, error: null } } }) }) },
   })
   const review = { outcome: 'sent', reviewed: true, providerMessageId: 'observed-1', reviewReference: 'Mensaje observado y revisado' }
   await assert.rejects(reconcileDeliveryIncident('event-1', 'admin-1', review), /FULL_TRACE_REQUIRED/)
   assert.deepEqual(calls.map(([name]) => name), ['repair'])
   fail = false
   await reconcileDeliveryIncident('event-1', 'admin-1', review)
-  assert.deepEqual(calls.map(([name]) => name), ['repair', 'repair', 'lv_app_reconcile_delivery'])
+  assert.deepEqual(calls.map(([name]) => name), ['repair', 'repair', 'lv_app_reconcile_delivery_v2'])
 })

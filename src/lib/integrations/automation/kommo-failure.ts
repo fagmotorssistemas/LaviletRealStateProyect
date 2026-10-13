@@ -35,6 +35,9 @@ export function recordedKommoFailure(error: unknown): Record<string, unknown> | 
 /** Explain legacy errors honestly; absence of an HTTP response does not prove
  * a timeout, an account outage, or that a write was never accepted. */
 export function kommoFailureExplanation(code: string, details: Record<string, unknown> = {}): string | null {
+  if (code === 'DELIVERY_RETRY_NO_LONGER_AUTHORIZED') return 'No se reenvió la respuesta preparada porque cambió el estado de la conversación, intervino un asesor o el bot ya no tiene permiso. Revise la conversación actual; los mensajes pendientes conservan su procesamiento normal.'
+  if (code === 'DELIVERY_RETRY_CHECKPOINT_INVALID' || code === 'DELIVERY_RETRY_CHECKPOINT_REQUIRED') return 'No se inició el reintento porque falta una respuesta preparada válida y comprobada. El sistema no inventa ni reconstruye un envío histórico sin ese registro.'
+  if (code === 'REPLY_WINDOW_EXPIRED') return 'No se envió la respuesta porque venció la ventana de 24 horas desde el mensaje original. Un reintento no abre una ventana nueva; revise la atención pendiente del lead.'
   if (code === 'TEST_CONTACTS_READ_FAILED') return 'Falló la consulta de la lista de contactos de prueba en la base de datos. Es un error de mantenimiento; este registro no demuestra un fallo de IA ni un envío a Kommo.'
   if (!/^KOMMO_(?:UNAVAILABLE|ADMISSION_FAILED|\d{3})$/.test(code)) return null
   const operation = details.provider_operation

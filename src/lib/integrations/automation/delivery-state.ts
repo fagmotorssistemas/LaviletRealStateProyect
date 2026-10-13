@@ -41,7 +41,7 @@ export async function kommoDeliveryBlock() {
 }
 
 export async function deliveryHealth() {
-  const [block, incidents, pending, transport] = await Promise.all([
+  const [block, incidents, pending, transport, retries] = await Promise.all([
     kommoDeliveryBlock(),
     db().from('lv_integration_events').select('id,contact_key,kind,status,result,completed_at,received_at', { count: 'exact' }).match(scope)
       .neq('kind', 'lock').or('status.eq.uncertain,and(status.eq.cancelled,result->>requires_review.eq.true)')
@@ -49,8 +49,10 @@ export async function deliveryHealth() {
     db().from('lv_integration_events').select('id', { count: 'exact', head: true }).match(scope)
       .eq('kind', 'inbound').eq('status', 'pending').abortSignal(AbortSignal.timeout(10_000)),
     transportHealth(),
+    db().from('lv_integration_events').select('id', { count: 'exact', head: true }).match(scope)
+      .eq('kind', 'delivery_retry').in('status', ['pending', 'processing']).abortSignal(AbortSignal.timeout(10_000)),
   ])
-  if (incidents.error || pending.error) throw Error('DELIVERY_HEALTH_READ_FAILED')
+  if (incidents.error || pending.error || retries.error) throw Error('DELIVERY_HEALTH_READ_FAILED')
   const items = (incidents.data || []).map(row => {
     const result = object(row.result), kommoId = Number(text(row.contact_key).split(':')[0])
     // Older versions incorrectly called every 4xx write uncertain. A definite
@@ -61,13 +63,13 @@ export async function deliveryHealth() {
       reason: text(result.reason), at: row.completed_at || row.received_at,
       explanation: kommoFailureExplanation(text(result.reason), result),
       canResolve: row.status === 'cancelled' && result.requires_review === true,
-      canReconcile: row.status === 'uncertain' && ['inbound', 'advisor_outbound'].includes(row.kind),
+      canReconcile: row.status === 'uncertain' && ['inbound', 'advisor_outbound', 'delivery_retry'].includes(row.kind),
       delivery: result.delivery_status === 'accepted' && result.registration_status === 'pending' ? 'accepted_registration_pending' as const
         : rejected ? 'rejected' as const : result.delivery_status === 'not_sent' ? 'not_sent' as const
         : result.delivery_status === 'generation_failed' || /^OPENAI_(?:HTTP_|NETWORK_ERROR)/.test(text(result.reason)) ? 'generation_failed' as const : 'unknown' as const }
   })
   return { blocked: !!block, httpStatus: Number(block?.http_status) || null,
-    detectedAt: text(block?.detected_at) || null, pendingMessages: pending.count || 0,
+    detectedAt: text(block?.detected_at) || null, pendingMessages: pending.count || 0, retryPending: retries.count || 0,
     incidents: items, incidentCount: incidents.count || 0, transport }
 }
 
@@ -114,11 +116,11 @@ export async function resolveDeliveryIncident(id: string, actorId: string) {
 }
 
 export type DeliveryReconciliation = {
-  outcome: 'sent' | 'not_sent'; reviewed: boolean; providerMessageId?: string; reviewReference: string
+  outcome: 'sent' | 'not_sent'; reviewed: boolean; providerMessageId?: string; reviewReference: string; retry?: boolean
 }
 
-/** Explicit human review, with a durable proof/attestation. Does not launch a
- * bot or replay the failed event; subsequent pending inputs get a new wakeup. */
+/** A history check reconciles the whole reply batch. Optional non-delivery
+ * recovery queues one guarded retry; this request never launches a bot. */
 export async function reconcileDeliveryIncident(id: string, actorId: string, review: DeliveryReconciliation) {
   if (review.reviewed !== true || !['sent', 'not_sent'].includes(review.outcome)
     || review.reviewReference.trim().length < 3 || review.reviewReference.length > 300
@@ -129,9 +131,18 @@ export async function reconcileDeliveryIncident(id: string, actorId: string, rev
     await repairReviewedDeliveryRegistration({ eventId: id, actorId, providerMessageId: review.providerMessageId!.trim(),
       reviewReference: review.reviewReference.trim() })
   }
-  const result = object(await rpc('lv_app_reconcile_delivery', { p_event: id, p_actor: actorId,
+  const saved = await db().rpc('lv_app_reconcile_delivery_v2', { p_event: id, p_actor: actorId,
     p_outcome: review.outcome, p_reviewed: true, p_provider_message_id: review.providerMessageId?.trim() || null,
-    p_review_reference: review.reviewReference.trim() }))
+    p_review_reference: review.reviewReference.trim(), p_retry: review.outcome === 'not_sent' && review.retry === true })
+    .abortSignal(AbortSignal.timeout(15_000))
+  if (saved.error) {
+    const known = ['WORKER_BUSY', 'DELIVERY_REVIEW_REQUIRED', 'DELIVERY_REVIEW_FORBIDDEN', 'INCIDENT_NOT_REVIEWABLE',
+      'DELIVERY_BATCH_CONFLICT', 'DELIVERY_EVIDENCE_REQUIRED', 'DELIVERY_OUTCOME_CONFLICT',
+      'DELIVERY_RETRY_CHECKPOINT_REQUIRED', 'DELIVERY_RETRY_LIMIT']
+    throw Error(known.includes(saved.error.message) ? saved.error.message
+      : `RPC_LV_APP_RECONCILE_DELIVERY_V2_${/^[A-Z0-9]+$/.test(saved.error.code) ? saved.error.code : 'FAILED'}`)
+  }
+  const result = object(saved.data)
   if (result.reconciled !== true) throw Error('INCIDENT_REVIEW_FAILED')
   const contact = text(result.contact_key)
   if (contact) {

@@ -91,7 +91,9 @@ test('direct credit and eligibility in one turn both receive an answer without a
 test('questions explain internal requirements without requesting identifiers or consent by default', () => {
   for (const message of ['¿Qué necesito para un crédito?', '¿Cómo funciona el financiamiento?', '¿Cómo puedo saber si soy elegible?']) {
     const reply = financingQuestionReply(message, context.partners)
-    assert.match(reply, /Después de aceptar continuar y elegir una unidad concreta y una entidad/)
+    assert.match(reply, /Después de aceptar continuar, consultamos cuánto tendría disponible para la entrada si todavía falta ese dato/)
+    assert.match(reply, /conservando una unidad ya elegida/)
+    assert.match(reply, /Elegimos una entidad únicamente si todavía no la indicó/)
     assert.match(reply, /nombres completos, número de cédula/)
     assert.match(reply, /datos laborales e ingresos/)
     assert.doesNotMatch(reply, /indica.*cédula|envíe.*documentos|está aprobado|¿.*asesor|¿.*inici/)

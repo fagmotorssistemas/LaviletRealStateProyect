@@ -104,13 +104,13 @@ export async function repairReviewedDeliveryRegistration(input: {
   if (actor.id !== input.actorId || actor.role !== 'admin' || actor.is_active !== true) throw Error('DELIVERY_REVIEW_FORBIDDEN')
   const reason = text(object(initial.result).reason), checkpoint = text(object(initial.result).reply_registration_checkpoint)
   if (!checkpoint && !/^RPC_REGISTER_OUTBOUND_MESSAGE_[A-Z0-9]+$/.test(reason)) return { repaired: false, reason: 'registration_not_failed' }
-  if (initial.status !== 'uncertain' || initial.kind !== 'inbound') {
+  if (initial.status !== 'uncertain' || !['inbound', 'delivery_retry'].includes(text(initial.kind))) {
     if (initial.status === 'completed' && object(initial.result).reconciliation_outcome === 'sent') return { repaired: false, already_reviewed: true }
     throw Error('INCIDENT_NOT_REVIEWABLE')
   }
   return store.exclusive(async () => {
     const event = await store.event(input.eventId), payload = object(event.payload)
-    if (event.status !== 'uncertain' || event.kind !== 'inbound' || event.contact_key !== initial.contact_key
+    if (event.status !== 'uncertain' || !['inbound', 'delivery_retry'].includes(text(event.kind)) || event.contact_key !== initial.contact_key
       || text(object(event.result).reason) !== reason || text(object(event.result).reply_registration_checkpoint) !== checkpoint)
       throw Error('INCIDENT_NOT_REVIEWABLE')
     if (![payload.kommoId, payload.contactId].every(value => Number.isSafeInteger(Number(value)) && Number(value) > 0))

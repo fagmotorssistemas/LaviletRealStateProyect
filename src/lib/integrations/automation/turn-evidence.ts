@@ -284,6 +284,7 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
     else add(`contexto_verificado.${key}`, 'project_fact', value)
   }
   const financingQuote = object(verified.financing_quote)
+  add('contexto_verificado.financing_quote.monthly_payment_policy', 'project_fact', financingQuote.monthly_payment_policy)
   add('contexto_verificado.financing_quote.estimates', 'project_fact', financingQuote.estimates,
     { scope: 'server_calculated_reference_not_credit_approval' })
   if (typeof financingQuote.project_entry_reference === 'number') add('contexto_verificado.financing_quote.project_entry_reference', 'project_fact',

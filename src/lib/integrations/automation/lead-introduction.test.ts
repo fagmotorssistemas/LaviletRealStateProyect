@@ -580,7 +580,9 @@ describe('progressive lead introduction', () => {
   })
   it('asks only the missing residence after receiving a name, with one reminder maximum', () => {
     const turn = leadIntroductionTurn(pending())
-    assert.ok(turn.reply.includes(BROCHURE_URL))
+    assert.equal(turn.reply.includes(BROCHURE_URL), false)
+    assert.equal(turn.brochureDeferred, true)
+    assert.equal(object(turn.audit.profile_introduction).brochure_required, false)
     assert.match(turn.reply, /guía personalizada.*en qué ciudad o país reside actualmente/)
     assert.doesNotMatch(turn.reply, /su nombre|desde dónde|desde qué/)
     assert.equal(turn.state.reminder_count, 1)
@@ -588,7 +590,8 @@ describe('progressive lead introduction', () => {
       summary: { _lead_introduction: turn.state, _lead_profile: declaredName('Juan', 'Me llamo Juan') },
       extracted: { lead_profile: { full_name: null, residence_city: 'Cuenca' } } }))
     assert.equal(following.state.status, 'complete')
-    assert.doesNotMatch(following.reply, /https:\/\/|su nombre|reside actualmente/)
+    assert.ok(following.reply.includes(BROCHURE_URL))
+    assert.doesNotMatch(following.reply, /su nombre|reside actualmente/)
     assert.match(following.reply, /suites, departamentos, penthouses y locales comerciales/)
     assert.match(following.reply, /información de alguna de estas opciones/)
   })
@@ -597,7 +600,34 @@ describe('progressive lead introduction', () => {
       extracted: { lead_profile: { residence_country: 'Estados Unidos' } } }))
     assert.match(turn.reply, /podría indicarnos su nombre/)
     assert.doesNotMatch(turn.reply, /reside actualmente/)
-    assert.ok(turn.reply.includes(BROCHURE_URL))
+    assert.equal(turn.reply.includes(BROCHURE_URL), false)
+    assert.equal(turn.brochureDeferred, true)
+  })
+  it('answers the mixed name and price request, asks only residence, then delivers the brochure after residence arrives', () => {
+    const name = declaredName('Carlos', 'soy carlos')
+    const price = 'Los departamentos de dos dormitorios cuestan desde USD 270.000.'
+    const turn = leadIntroductionTurn(pending({ current: 'soy carlos\npero y que precio tienen los espacios??',
+      extracted: { lead_profile: name, requests: [{ domain: 'property', topics: ['prices'], request: 'Consultar precios',
+        evidence: 'pero y que precio tienen los espacios??', confidence: 'high' }] },
+      reply: `${price} Puede consultar el brochure: ${BROCHURE_URL} ¿Qué tipo de inmueble busca?`,
+      audit: { source: 'unit_price' } }))
+    assert.match(turn.reply, /270\.000/)
+    assert.match(turn.reply, /ciudad o país reside actualmente/)
+    assert.doesNotMatch(turn.reply, /indicarnos su nombre|Qué tipo de inmueble|https:\/\//)
+    assert.equal(object(turn.audit.profile_introduction).brochure_required, false)
+    assert.equal(turn.state.brochure_sent, false)
+    assert.equal(turn.state.reminder_count, 1)
+    assert.ok(leadIntroductionIssues(turn.reply + BROCHURE_URL, turn.audit).includes('lead_profile_brochure_premature'))
+    const deliveredState = rememberLeadIntroduction({ previous: object(begin().state), profile: name, planned: turn.state,
+      reply: turn.reply, accepted: true, followUpUsable: true,
+      audit: { ...turn.audit, semantic_review_enabled: true, turn_completeness: { status: 'checked' } } })
+    const next = leadIntroductionTurn(pending({ current: 'ahora mismo vivo en Cuenca',
+      summary: { _lead_introduction: deliveredState, _lead_profile: name },
+      extracted: { lead_profile: { residence_city: 'Cuenca' } }, reply: 'Gracias por confirmar.' }))
+    assert.ok(next.reply.includes(BROCHURE_URL))
+    assert.equal(next.brochureDeferred, false)
+    assert.equal(next.state.brochure_sent, true)
+    assert.doesNotMatch(next.reply, /indicarnos su nombre|reside actualmente|Mucho gusto/)
   })
   it('answers an ignored-profile price question and releases the brochure without another profile demand', () => {
     const turn = leadIntroductionTurn(pending({ current: 'Pero dígame el precio de los de 3 dormitorios',
@@ -643,7 +673,8 @@ describe('progressive lead introduction', () => {
     assert.ok(leadIntroductionIssues('La Vilet está en Cuenca.', turn.audit).includes('lead_profile_question_missing'))
     assert.ok(leadIntroductionIssues(turn.reply + ' Tenemos departamentos.', turn.audit).includes('lead_profile_categories_premature'))
     assert.ok(leadIntroductionIssues(turn.reply + BROCHURE_URL, turn.audit).includes('lead_profile_brochure_premature'))
-    const delivered = leadIntroductionTurn(pending())
+    const delivered = leadIntroductionTurn(pending({ current: 'Me llamo Juan y vivo en Cuenca',
+      extracted: { lead_profile: { ...declaredName('Juan', 'Me llamo Juan'), residence_city: 'Cuenca' } } }))
     assert.deepEqual(leadIntroductionIssues(delivered.reply, delivered.audit), [])
     assert.ok(leadIntroductionIssues(delivered.reply.replace(BROCHURE_URL, ''), delivered.audit).includes('lead_profile_brochure_missing'))
   })

@@ -661,14 +661,14 @@ test('invalid coverage records exact field and expectation without accepting the
   }
 })
 
-test('invalid coverage diagnostics protect personal data in rejected values', async () => {
+test('invalid coverage diagnostics retain original lead data in rejected values', async () => {
   const candidate = {
     reply: 'Hola.', requests: [covered('contacto: privado@example.com')], question: noQuestion,
   }
   const result = await completeTurnReply({ current: 'Hola', baseReply: 'Hola.', verified: {} }, model(candidate, candidate).generate)
   assert.equal(result.audit.status, 'invalid_coverage')
-  assert.ok(result.audit.issues[0].includes('[correo protegido]'))
-  assert.ok(!JSON.stringify(result.audit.issues).includes('privado@example.com'))
+  assert.ok(result.audit.issues[0].includes('privado@example.com'))
+  assert.ok(!JSON.stringify(result.audit.issues).includes('[correo protegido]'))
 })
 function model(...answers) {
   const calls = []
