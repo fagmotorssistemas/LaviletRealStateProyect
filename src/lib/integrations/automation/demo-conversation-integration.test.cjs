@@ -18,7 +18,12 @@ function extractionFixture(input, invalid = false) {
   raw.turn_semantics.primary_intent = 'other'
   raw.turn_semantics.primary_evidence = current
   raw.turn_semantics.answer_to_previous = { question_id: null, kind: 'none', evidence: '', confidence: 'high' }
-  if (current === 'Algo para vivienda') {
+  if (current === '¿Me pueden hacer un descuento?' || current === '¿Ya está aplicado el descuento de lanzamiento?') {
+    raw.turn_semantics.primary_intent = 'ask_price'
+    raw.turn_semantics.discount_request = { kind: current === '¿Me pueden hacer un descuento?' ? 'negotiate_personal_discount' : 'published_offer_information',
+      evidence: current, confidence: 'high' }
+    raw.requests = [{ request: current, domain: 'property', topics: ['purchase_price'], evidence: current, confidence: 'high' }]
+  } else if (current === 'Algo para vivienda') {
     // This is the production-shaped extraction that exposed the opening gap:
     // the model overreads a housing interest as personal use. Normalization
     // keeps residential interest without inventing a purchase purpose.
@@ -148,6 +153,10 @@ async function conversationHarness({ current, messages, extractionFails = false,
         return { preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose }
       }
       if (name === 'lv_evaluate_message_interest_v2') return { action: 'continue', score: 0 }
+      if (name === 'handoff_lead') {
+        Object.assign(lead, { handoff_status: 'queued', handoff_reason: args.p_reason })
+        return { handoff_status: 'queued' }
+      }
       if (name === 'register_outbound_message') {
         registeredMessages.push({ conversation_id: args.p_conversation_id, role: 'bot', content: args.p_content, tool_calls: args.p_tool_calls })
         return { id: 'outbound' }
@@ -267,6 +276,21 @@ async function conversationHarness({ current, messages, extractionFails = false,
 }
 
 const outbound = execution => execution.rpcCalls.find(call => call.name === 'register_outbound_message')
+test('personal discount negotiation creates a real advisor handoff even when review is observational; published-offer information does not', async () => {
+  for (const observationOnly of [true, false]) {
+    const execution = await conversationHarness({ current: '¿Me pueden hacer un descuento?', observationOnly, reviewRejects: false })
+    assert.equal(execution.failure, undefined, execution.failure?.stack)
+    const handoffs = execution.rpcCalls.filter(call => call.name === 'handoff_lead')
+    assert.equal(handoffs.length, 1)
+    assert.match(handoffs[0].args.p_reason, /descuento personal/)
+    assert.ok(outbound(execution))
+    assert.match(outbound(execution).args.p_content, /asesor|equipo/)
+    assert.equal(execution.rpcCalls.some(call => /reservation|financing/.test(call.name)), false)
+  }
+  const information = await conversationHarness({ current: '¿Ya está aplicado el descuento de lanzamiento?', reviewRejects: false })
+  assert.equal(information.failure, undefined, information.failure?.stack)
+  assert.equal(information.rpcCalls.some(call => call.name === 'handoff_lead'), false)
+})
 test('the actual opening and compound profile exchange preserve the recovered name and advance to asset discovery', async () => {
   for (const observationOnly of [false, true]) {
     const execution = await conversationHarness({ messages: ['Hola quiero información', 'Me llamo Carlos y soy de Cuenca', 'Si, si vivo en Cuenca'],
@@ -399,15 +423,15 @@ test('normal and observation keep the same greeting, profile capture, one reside
     assert.deepEqual(named.receipt.args.p_tool_calls.profile_collection_decision.allowed_fields, ['current_residence'])
     assert.match(named.receipt.args.p_content, /Mucho gusto, Carlos/)
     assert.match(named.receipt.args.p_content, /en qué ciudad o país reside actualmente/)
-    assert.equal(named.receipt.args.p_content.includes(BROCHURE_URL), true)
+    assert.equal(named.receipt.args.p_content.includes(BROCHURE_URL), false)
     assert.equal(named.summary._lead_introduction.reminder_count, 1)
-    assert.equal(named.summary._lead_introduction.brochure_sent, true)
+    assert.equal(named.summary._lead_introduction.brochure_sent, false)
     assert.equal(named.summary._pending_question.id, 'lead_profile_residence')
     assert.equal(resident.summary._lead_profile.full_name, 'Carlos')
     assert.equal(resident.summary._lead_profile.residence_city, 'Cuenca')
     assert.equal(resident.summary._lead_introduction.collection_status, 'complete')
     assert.equal(resident.summary._lead_introduction.reminder_count, 1)
-    assert.equal(resident.receipt.args.p_content.includes(BROCHURE_URL), false)
+    assert.equal(resident.receipt.args.p_content.includes(BROCHURE_URL), true)
     assert.doesNotMatch(resident.receipt.args.p_content, /reside|ciudad|su nombre/)
     assert.match(resident.receipt.args.p_content, /presupuesto total aproximado.*para la compra/)
     assert.doesNotMatch(resident.receipt.args.p_content, /cuántos dormitorios/i)
@@ -436,7 +460,7 @@ test('normal and observation preserve housing interest, total budget and explici
     assert.equal(greeting.receipt.args.p_tool_calls.source, 'minimal_greeting')
     assert.equal(interest.summary._pending_question.id, 'lead_profile')
     assert.equal(named.summary._pending_question.id, 'lead_profile_residence')
-    assert.equal(named.receipt.args.p_content.includes(BROCHURE_URL), true)
+    assert.equal(named.receipt.args.p_content.includes(BROCHURE_URL), false)
     assert.equal(resident.summary._pending_question.id, 'budget_amount')
     assert.equal(budget.extractionCalls, 1)
     assert.equal(budget.summary._interpretation_memory.budget.status, 'maximum_total')

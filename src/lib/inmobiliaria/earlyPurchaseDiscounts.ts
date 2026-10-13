@@ -1,6 +1,7 @@
 export const EARLY_PURCHASE_DISCOUNT_VERSION = 'early-purchase-discounts-v1'
 export const EARLY_PURCHASE_DISCOUNT_RULES = `Los descuentos se comunican solo desde early_purchase_discount calculado y vigente para la unidad; una regla desactivada, sin fuente, vencida o fuera de alcance no acredita un beneficio. Con status=conditional explique la condición pendiente antes de mencionar el precio resultante; no lo presente como precio actual, concedido ni garantizado. La intención de reservar, una solicitud al asesor y un presupuesto no confirman la reserva ni satisfacen condition=reservation_confirmed. advance_purchase requiere las condiciones comerciales autorizadas y su comprobación, no supone que el cliente ya compró.
 base_mode=catalog_additional calcula una sola rebaja sobre catalog_base_price. base_mode=included_in_catalog significa que el precio publicado YA contiene ese descuento: nunca vuelva a restarlo. Sin base_price y discount_amount autorizados no invente un precio original, ahorro monetario ni valor futuro mediante una operación inversa. Un precio original documentado no es una promesa de precio posterior. Los descuentos no se acumulan; prevalece una regla específica de unidad sobre una de categoría y sobre una general. Un conflicto deja el descuento pendiente de confirmar.
+Con condition=published_price y base_mode=included_in_catalog, el beneficio está incorporado al precio publicado, sin exigir una reserva o compra del cliente para explicarlo. status=eligible en esta condición acredita el precio configurado, no una reserva, pago, adjudicación ni concesión personal. No mencione trámites como requisito de este precio ni descuente el porcentaje otra vez.
 El ahorro comercial no es el monto de reserva, la entrada inicial ni la aprobación de un crédito; no reduce esos pagos automáticamente ni acredita inventario reservado. Conserve fuente, vigencia, porcentaje y condiciones. Los importes de referencia calculados por el sistema pueden comunicarse como condicionados; no invente cálculos alternativos. No ofrezca el porcentaje del borrador como si fuera una política publicada.`
 export const DISCOUNT_CATEGORIES = ['suite', 'departamento', 'penthouse', 'local'] as const
 export type DiscountCategory = typeof DISCOUNT_CATEGORIES[number]
@@ -8,7 +9,7 @@ export type DiscountRule = {
   id: string; name: string; enabled: boolean; percent: number
   categories: DiscountCategory[]; unitNumbers: string[]; mode: 'todos' | 'lanzamiento' | 'preventa'
   base: 'catalog_additional' | 'included_in_catalog'
-  condition: 'reservation_confirmed' | 'advance_purchase'; conditions: string
+  condition: 'reservation_confirmed' | 'advance_purchase' | 'published_price'; conditions: string
   startDate: string; endDate: string; source: string; checkedOn: string; reviewBy: string
   referencePrices: { unitNumber: string; amount: number }[]
 }
@@ -72,10 +73,11 @@ export function validateEarlyPurchaseDiscountSettings(value: unknown, today = ne
     const rule: DiscountRule = { id: str(r.id, 80), name: str(r.name, 160), enabled: bool(r.enabled), percent,
       categories: categories.length === DISCOUNT_CATEGORIES.length ? [] : categories,
       unitNumbers: numbers(r.unitNumbers), mode: choice(r.mode, ['todos', 'lanzamiento', 'preventa']),
-      base: choice(r.base, ['catalog_additional', 'included_in_catalog']), condition: choice(r.condition, ['reservation_confirmed', 'advance_purchase']),
+      base: choice(r.base, ['catalog_additional', 'included_in_catalog']), condition: choice(r.condition, ['reservation_confirmed', 'advance_purchase', 'published_price']),
       conditions: str(r.conditions, 1600), startDate: date(r.startDate), endDate: date(r.endDate),
       source: str(r.source, 1600), checkedOn: date(r.checkedOn), reviewBy: date(r.reviewBy), referencePrices }
     if (!/^[\w-]{1,80}$/.test(rule.id) || !rule.name) fail('Cada regla necesita un identificador y un nombre.')
+    if (rule.condition === 'published_price' && rule.base !== 'included_in_catalog') fail('El beneficio incluido en el precio publicado no puede configurarse como una rebaja adicional.')
     if (rule.endDate && (!rule.startDate || rule.endDate < rule.startDate)) fail('El fin de vigencia debe ser posterior o igual al inicio.')
     if (rule.reviewBy && (!rule.checkedOn || rule.reviewBy < rule.checkedOn)) fail('La revisión de la fuente debe ser posterior o igual a su verificación.')
     if (rule.checkedOn > today) fail('La fuente no puede haberse verificado en una fecha futura.')
@@ -141,7 +143,9 @@ export function discountQuote(unitInput: unknown, settingsInput: EarlyPurchaseDi
   if (!candidates.length) return quoted
   if (candidates[1] && priority(candidates[0]) === priority(candidates[1])) return { ...quoted, status: 'conflict', reason: 'same_priority_rules' }
   const rule = candidates[0], catalogPrice = quoted.catalog_price
-  const confirmed = rule.condition === 'reservation_confirmed' ? context.reservationConfirmed === true : context.advancePurchaseConfirmed === true
+  const confirmed = rule.condition === 'published_price' && rule.base === 'included_in_catalog'
+    || (rule.condition === 'reservation_confirmed' ? context.reservationConfirmed === true
+      : rule.condition === 'advance_purchase' && context.advancePurchaseConfirmed === true)
   const original = rule.referencePrices.find(reference => reference.unitNumber === unitKey(text(unit.unit_number)))?.amount
   if (rule.base === 'included_in_catalog' && original !== undefined && Math.abs(money(original * (1 - rule.percent / 100)) - catalogPrice) > 0.01) {
     return { ...quoted, status: 'unavailable', reason: 'included_price_reference_mismatch', rule_id: rule.id }

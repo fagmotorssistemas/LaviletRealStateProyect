@@ -39,6 +39,7 @@
   "visit_intent": { "kind": "none", "purpose": "none", "target": "unspecified", "destination": null, "evidence": "", "confidence": "high" },
   "requests": [],
   "turn_semantics": {
+    "discount_request": null,
     "primary_intent": "answer_previous",
     "primary_evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
     "confidence": "high",

@@ -3,6 +3,7 @@ import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJourney, purchaseReadiness, commercialJourneyPlan } from './commercial-journey'
 import { leadBudget } from './budget-state'
 import { currentTopicReply } from './current-topic'
+import { discountNegotiationForTurn } from './discount-request'
 import { withHandoffNotice } from './handoff-copy'
 import { replyQuestionText } from './reply-question'
 import { requiresContentReview, unverifiedReply } from './delivery-integrity'
@@ -724,7 +725,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
     && isProfileOnlyTurn(current, { ...extracted, turn_semantics: turnSemantics })
-  const financeTurn = !quoteInquiry.beforeApplication && !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
+  const discountNegotiation = discountNegotiationForTurn(turnSemantics, current, businessScope)
+  const financeTurn = !discountNegotiation && !quoteInquiry.beforeApplication && !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
     || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
@@ -852,10 +854,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       /* soft-fail: nunca corta la atención */
     }
   }
-  const operationalTurn = extracted.requested_advisor === true || financeTurn || startingReservation || reservationInformation
+  const operationalTurn = Boolean(discountNegotiation) || extracted.requested_advisor === true || financeTurn || startingReservation || reservationInformation
     || (extracted.events as string[]).includes('requested_visit')
   const catalogTurn = Boolean(object(turnSemantics.property).group)
     || !['', 'none'].includes(text(object(turnSemantics.property).operation))
+
+  // Personal negotiation is handled by the team, independently of response
+  // reviewer modes. Published-offer questions remain informational.
+  if (discountNegotiation && !reply && !inbound.mediaFailed && !extracted.opt_out && !finalNotice) {
+    const notice = await transferToAdvisor('revisar una solicitud de descuento personal; el bot no negocia ni concede rebajas', {
+      rule_id: 'discount.personal_negotiation', origin: 'policy', caused_by_step: semanticStep,
+      facts: { request: discountNegotiation } })
+    reply = 'Con gusto, un asesor revisará su solicitud de descuento. ' + notice
+    audit = { source: 'advisor_handoff', discount_request: discountNegotiation, coverage_complete: false }
+  }
 
   async function afterAppliedVisit(result: Row, proposal: Row): Promise<Row | null> {
     const remaining = interpretation.requests.filter(request => !['visit', 'tracking', 'courtesy'].includes(text(request.domain)))

@@ -24,7 +24,7 @@ export function discountReferenceEvidence(unit: Row): { available: boolean; quot
   if (unit.aggregation || Array.isArray(unit.member_ids) || quote.version !== EARLY_PURCHASE_DISCOUNT_VERSION
     || !['conditional', 'eligible'].includes(text(quote.status)) || quote.unit_id !== unit.id
     || !text(unit.id) || quote.unit_number !== unit.unit_number || !text(quote.rule_id) || !text(quote.source)
-    || !text(quote.conditions) || !['reservation_confirmed', 'advance_purchase'].includes(text(quote.condition))
+    || !text(quote.conditions) || !['reservation_confirmed', 'advance_purchase', 'published_price'].includes(text(quote.condition))
     || !validDate(quote.as_of) || !validDate(quote.checked_on) || text(quote.checked_on) > text(quote.as_of)
     || !validDate(quote.valid_from) || text(quote.valid_from) > text(quote.as_of)
     || quote.valid_until != null && (!validDate(quote.valid_until) || text(quote.valid_until) < text(quote.as_of))
@@ -32,6 +32,7 @@ export function discountReferenceEvidence(unit: Row): { available: boolean; quot
     || !numeric(quote.percent) || quote.percent <= 0 || quote.percent >= 100
     || !numeric(quote.final_price) || quote.final_price <= 0) return unavailable
   const met = quote.status === 'eligible'
+  if (quote.condition === 'published_price' && (quote.base_mode !== 'included_in_catalog' || !met)) return unavailable
   if (quote.condition_met !== met || quote.price_is_conditional !== !met
     || unit.discount_condition_met !== undefined && unit.discount_condition_met !== met
     || unit.catalog_base_price !== undefined && unit.catalog_base_price !== quote.catalog_price

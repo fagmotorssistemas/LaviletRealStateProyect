@@ -13,6 +13,7 @@ import { floorEvidence, floorInvitationTarget } from './floor-evidence'
 import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction } from './reservation-invitation'
 import { categoryInvitationTarget } from './category-offer'
 import { AMOUNT_REFERENCE_SCHEMA } from './monetary-reference'
+import { DISCOUNT_REQUEST_SCHEMA, DISCOUNT_REQUEST_EXTRACTION_RULES, normalizedDiscountRequest } from './discount-request'
 
 export const questionIds = [
   'reservation_invitation',
@@ -74,6 +75,7 @@ const housingQuantityBases = new Set(['total', 'excluding_speaker', 'unspecified
 /** The complete strict schema for the turn_semantics property of an extraction. */
 export const TURN_SEMANTICS_SCHEMA = strictObject({
   primary_intent: enumSchema(primaryIntents), primary_evidence: { type: 'string' }, confidence: confidenceSchema,
+  discount_request: DISCOUNT_REQUEST_SCHEMA,
   housing_quantities: { type: 'array', description: 'Solo cantidades declaradas o evaluadas en mensaje_actual; [] si no hay. Nunca copie cantidades del catálogo, de una pregunta previa ni del historial. No cree elementos vacíos.', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
     values: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 1000 } },
     role: { ...enumSchema(housingQuantityRoles), description: 'requirement busca/restringe; evaluation consulta si las opciones sirven; context describe la familia; unknown es ambiguo. Evaluar capacidad no impone otra búsqueda.' }, count_basis: enumSchema(housingQuantityBases), evidence: { type: 'string' }, confidence: confidenceSchema }) },
@@ -194,6 +196,7 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
 }
 
 export const TURN_SEMANTIC_EXTRACTION_RULES = `
+${DISCOUNT_REQUEST_EXTRACTION_RULES}
 Devuelva SIEMPRE turn_semantics conforme al esquema JSON estricto adjunto; sus campos, tipos y valores permitidos se definen allí.
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
 reservation distingue la intención de iniciar la separación/reserva (request), consultar condiciones o requisitos sin iniciar (information), rechazar o posponer ese proceso (declined) y ausencia de esa intención (none). «Quiero separar el 605», «ayúdeme a iniciar la reserva de esa unidad» y sus errores evidentes de escritura son request; «¿cuánto se paga para reservar?» o «¿cómo funciona la separación?» son information. «Por ahora no, entonces quiero separar el departamento 605» responde negativamente a la propuesta anterior y pide una reserva NUEVA: conserve answer_to_previous y use primary_intent=request_reservation, reservation.kind=request. La unidad mencionada identifica el objeto de la reserva, no convierte el turno en una nueva presentación ni en un recorrido. Copie evidencia literal de la petición completa, incluidas negaciones, condiciones y correcciones relevantes; no cite solo el verbo de una frase negada. Una reserva hipotética o condicionada no satisfecha no inicia el trámite. primary_intent=ask_reservation para information. El evento asked_reservation sirve para puntuar interés, nunca demuestra por sí solo que desea iniciar ahora. unit_numbers conserva los códigos realmente referidos y el catálogo comprobará su existencia; en referencias como «esa» puede usar una unidad inequívoca del contexto, nunca elegir entre varias. Solicitar el proceso requiere atención del asesor; no afirma disponibilidad, pago, reserva confirmada, cita, consentimiento financiero ni asesor asignado. No convierta la aceptación de detalles, una cifra de precio, un «sí» sin pregunta de reserva ni el historial en una solicitud nueva.
@@ -618,6 +621,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     primary_evidence: primaryIntent === 'other' ? null : reservationIntent ? reservation.evidence : primaryEvidence,
     confidence: primaryIntent === 'other' ? 'low' : reservationIntent ? reservation.confidence : data.confidence,
     reservation,
+    ...(data.discount_request !== undefined ? { discount_request: normalizedDiscountRequest(data.discount_request, current) } : {}),
     ...(hasQuantityContract ? { housing_quantities: housingQuantities, household: householdFromQuantities(housingQuantities) } : {}),
     interpretation: { extractor_primary_intent: extractedPrimaryIntent, canonical_primary_intent: primaryIntent, decisions },
     property: {

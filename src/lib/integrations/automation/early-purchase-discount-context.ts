@@ -21,7 +21,8 @@ export function earlyPurchaseDiscountContext(units: Row[], settings: EarlyPurcha
   policy: { enabled: settings.enabled, version: 'early-purchase-discounts-v1',
     as_of: input.today,
     settings_version: settings.updatedAt || null, stacking: false,
-    status: !settings.enabled ? 'disabled' : rules.length ? 'conditional_offers' : 'no_verified_applicable_offer',
+    status: !settings.enabled ? 'disabled' : active.some(quote => quote.status === 'conditional') ? 'conditional_offers'
+      : active.length ? 'included_published_offers' : 'no_verified_applicable_offer',
     rules,
-    instruction: 'Solo las reglas y cotizaciones activas aquí son fuente de descuentos. No hay confirmación comercial de cumplimiento: el interés en comprar o reservar no concede el beneficio. Sin oferta aplicable no afirme un porcentaje, ahorro ni ausencia permanente de descuentos. Un descuento documentado no demuestra un precio futuro. La reserva y la entrada tienen sus propias condiciones.' } }
+    instruction: 'Solo las reglas y cotizaciones activas aquí son fuente de descuentos. Con condition=published_price el beneficio ya está incluido en el precio publicado y no requiere un trámite adicional para explicarlo; no vuelva a restarlo. Las demás condiciones requieren comprobación comercial: el interés en comprar o reservar no las satisface. Sin oferta aplicable no afirme un porcentaje, ahorro ni ausencia permanente de descuentos. Un descuento documentado no demuestra un precio futuro. La reserva y la entrada tienen sus propias condiciones.' } }
 }

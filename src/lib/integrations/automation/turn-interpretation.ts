@@ -17,6 +17,7 @@ import { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromR
 import { isGreetingOnly, normalized } from './sdr-rules'
 import { TURN_RULES, explicitlyRequestsVisit, visitRequestPermissionVeto } from './turn-routing'
 import { replyQuestions } from './reply-question'
+import { DISCOUNT_REQUEST_EXTRACTION_RULES } from './discount-request'
 import { isBareAffirmative } from './conversation-next-step'
 import { asksUnitPrice } from './price-reply'
 import { currentProfileNameResponse, LEAD_PROFILE_EXTRACTION_RULES, needsProfileNameRecovery, normalizeLeadProfile, PROFILE_NAME_RECOVERY_RULES, requiresProfileNameAssessment } from './lead-profile'
@@ -272,6 +273,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Función y configuración del extractor', prompt], ['Interpretación del turno y recopilación financiera', FINANCING_EXTRACTION_RULES],
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
       ['Solicitud de material', MATERIAL_REQUEST_RULES],
+      ['Consultas y negociación de descuentos', DISCOUNT_REQUEST_EXTRACTION_RULES],
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
       ['Temas actuales por solicitud', REQUEST_TOPICS_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],

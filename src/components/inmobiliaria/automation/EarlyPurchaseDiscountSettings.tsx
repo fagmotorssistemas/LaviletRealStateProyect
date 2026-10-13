@@ -49,7 +49,7 @@ export function EarlyPurchaseDiscountSettings({ initial }: { initial: EarlyPurch
     setUnits(previous => ({ ...previous, [rule.id]: '' })); setReferences(previous => ({ ...previous, [rule.id]: '' }))
   }
   return <main className={automationSettingsStyles.shell}>
-    <AutomationSettingsHeader active="descuentos" title="Descuentos por compra anticipada" description="Beneficios comerciales autorizados que el bot puede explicar sin confirmar una reserva ni una compra." project="La Vilet" />
+    <AutomationSettingsHeader active="descuentos" title="Descuentos de lanzamiento y compra anticipada" description="Porcentajes, precios con el beneficio incluido y condiciones que el bot puede explicar." project="La Vilet" />
     <form className={styles.form} onSubmit={event => { event.preventDefault(); submit() }} aria-busy={pending}>
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <div role="status" aria-live="polite">{notice && <p className={styles.notice}>{notice}</p>}</div>
@@ -68,7 +68,7 @@ export function EarlyPurchaseDiscountSettings({ initial }: { initial: EarlyPurch
             <Field label="Descuento (%)"><input type="number" min="0.01" max="99.99" step="any" value={Number.isFinite(rule.percent) ? rule.percent : ''} onChange={event => change(rule.id, { percent: event.target.value === '' ? NaN : Number(event.target.value) })} /></Field>
             <Field label="Etapa comercial"><select value={rule.mode} onChange={event => change(rule.id, { mode: event.target.value as DiscountRule['mode'] })}><option value="todos">Todas las etapas</option><option value="lanzamiento">Lanzamiento</option><option value="preventa">Preventa</option></select></Field>
             <Field label="Cómo se relaciona con el precio publicado"><select value={rule.base} onChange={event => change(rule.id, { base: event.target.value as DiscountRule['base'] })}><option value="catalog_additional">Se descuenta adicionalmente del catálogo</option><option value="included_in_catalog">Ya está incluido en el catálogo</option></select></Field>
-            <Field label="Cuándo se obtiene el beneficio"><select value={rule.condition} onChange={event => change(rule.id, { condition: event.target.value as DiscountRule['condition'] })}><option value="reservation_confirmed">Con una reserva formal confirmada</option><option value="advance_purchase">Con una compra anticipada comprobada</option></select></Field>
+            <Field label="Cuándo se obtiene el beneficio"><select value={rule.condition} onChange={event => change(rule.id, { condition: event.target.value as DiscountRule['condition'], ...(event.target.value === 'published_price' ? { base: 'included_in_catalog' } : {}) })}><option value="published_price">Ya incluido en el precio publicado, sin trámite adicional</option><option value="reservation_confirmed">Con una reserva formal confirmada</option><option value="advance_purchase">Con una compra anticipada comprobada</option></select></Field>
             <Field label="Unidades específicas (opcional)"><input value={units[rule.id] || ''} maxLength={1000} onChange={event => setUnits(previous => ({ ...previous, [rule.id]: event.target.value }))} placeholder="304, 404, LC-02" /></Field>
           </div>
           <fieldset className={styles.scope}><legend>Tipos de inmueble (todos marcados: regla general)</legend>{DISCOUNT_CATEGORIES.map(category => <Toggle key={category} label={category} value={!rule.categories.length || rule.categories.includes(category)} disabled={rule.categories.length === 1 && rule.categories.includes(category)} onChange={checked => {
@@ -77,7 +77,7 @@ export function EarlyPurchaseDiscountSettings({ initial }: { initial: EarlyPurch
           }} />)}</fieldset>
           <p>Sin códigos, se consideran todas las unidades de los tipos elegidos. Con códigos, deben coincidir también con el tipo y la etapa.</p>
           <Field label="Condiciones comerciales autorizadas"><textarea value={rule.conditions} maxLength={1600} onChange={event => change(rule.id, { conditions: event.target.value })} placeholder="Qué debe cumplirse, qué cubre el beneficio y qué debe confirmar el equipo" /></Field>
-          <p>Solicitar una reserva o hablar con un asesor no confirma una reserva formal. Este descuento no es la entrada ni el monto de reserva; tampoco garantiza disponibilidad.</p>
+          {rule.condition !== 'published_price' && <p>Las condiciones de reserva o compra anticipada requieren comprobación del equipo.</p>}
           {rule.base === 'included_in_catalog' && <div className={styles.included}>
             <p>El bot conservará el precio del catálogo y no volverá a restar el porcentaje. Para informar un ahorro en USD necesita el precio original autorizado de esa misma unidad. Sin esa referencia solo puede explicar el porcentaje y sus condiciones.</p>
             <Field label="Precios originales autorizados (opcional; una unidad por línea)"><textarea value={references[rule.id] || ''} onChange={event => setReferences(previous => ({ ...previous, [rule.id]: event.target.value }))} placeholder={'304=300000.00\n404=320000.00'} maxLength={3000} /></Field>

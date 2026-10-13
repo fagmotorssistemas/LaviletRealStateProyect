@@ -54,20 +54,22 @@ export function projectQuantityEvidence(verified: Row): ProjectFact[] {
   const date = text(policy.as_of) || new Date().toISOString().slice(0, 10)
   const validDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
     && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value
-  if (policy.version === EARLY_PURCHASE_DISCOUNT_VERSION && policy.enabled === true && policy.status === 'conditional_offers'
+  if (policy.version === EARLY_PURCHASE_DISCOUNT_VERSION && policy.enabled === true && ['conditional_offers', 'included_published_offers'].includes(text(policy.status))
     && validDate(date) && Array.isArray(policy.rules)) policy.rules.map(object).forEach((rule, index) => {
     if (!text(rule.id) || !text(rule.source) || !text(rule.conditions)
       || typeof rule.percent !== 'number' || !Number.isFinite(rule.percent) || rule.percent <= 0 || rule.percent >= 100
       || !validDate(rule.checked_on) || text(rule.checked_on) > date || !validDate(rule.valid_from) || text(rule.valid_from) > date
       || rule.valid_until != null && (!validDate(rule.valid_until) || text(rule.valid_until) < date)
-      || !['reservation_confirmed', 'advance_purchase'].includes(text(rule.condition))) return
+      || !['reservation_confirmed', 'advance_purchase', 'published_price'].includes(text(rule.condition))
+      || rule.condition === 'published_price' && rule.base_mode !== 'included_in_catalog') return
     const scope = { categories: rule.categories, unit_numbers: rule.unit_numbers, mode: rule.mode,
       rule_id: rule.id, settings_version: policy.settings_version, base_mode: rule.base_mode,
       checked_on: rule.checked_on, valid_from: rule.valid_from, valid_until: rule.valid_until, as_of: date }
     facts.push({ id: `project:politica_descuentos:${text(rule.id)}:percent`, source: `politica_descuentos.rules.${index}`,
       subject: `Descuento ${text(rule.name)} ${(Array.isArray(rule.categories) ? rule.categories : []).join(' ')} ${(Array.isArray(rule.unit_numbers) ? rule.unit_numbers : []).join(' ')}`.trim(),
       evidence: JSON.stringify({ percent: rule.percent, source: rule.source, scope, condition: rule.condition, conditions: rule.conditions,
-        instruction: 'Porcentaje de una oferta condicionada; no acredita concesión, reserva ni porcentaje de entrada.' }),
+        instruction: rule.condition === 'published_price' ? 'Porcentaje ya incluido en el precio publicado; no se descuenta otra vez ni acredita reserva, pago o porcentaje de entrada.'
+          : 'Porcentaje de una oferta condicionada; no acredita concesión, reserva ni porcentaje de entrada.' }),
       value: rule.percent, dimension: 'percentage', unit: 'percent', scope,
       condition: text(rule.condition), conditions: text(rule.conditions), grant_confirmed: false })
   })
