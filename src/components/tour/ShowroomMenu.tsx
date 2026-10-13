@@ -1,6 +1,6 @@
 'use client'
 /* eslint-disable @next/next/no-img-element -- QR is generated locally as a data URL. */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import type { TourLocale } from '@/lib/tour/tourMessages'
 import { Menu, X, Maximize, Minimize, ArrowLeft, Home, Search, Heart, Store, Scan, Trees, HardHat, MapPin, ChevronRight, ChevronDown, Mail, Ruler, BedDouble, Images, Box } from 'lucide-react'
@@ -101,7 +101,7 @@ function isInstalledShowroom() {
   return window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches
 }
 const HOME_HINT_KEY = 'lavilet-tour-a2hs'
-export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onPick,onTour,onAmenities,onLocation,onFavorites,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onLocation?:()=>void;onFavorites?:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
+export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onPick,onTour,onAmenities,onLocation,onFavorites,onConstructionMedia,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onLocation?:()=>void;onFavorites?:()=>void;onConstructionMedia?:(slides:{url:string;caption:string}[],index:number)=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section|null>(null)
  const [activeSection,setActiveSection]=useState<Section|null>(null)
@@ -109,6 +109,7 @@ export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onP
  const [constructionLoading,setConstructionLoading]=useState(false)
  const [constructionError,setConstructionError]=useState(false)
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
+ const constructionSlides=useMemo(()=>constructionUpdates.flatMap(update=>update.media.filter(media=>media.type==='image').map(media=>({url:media.url,caption:translate(media.caption||update.title)}))),[constructionUpdates,translate])
  const [filters,setFilters]=useState(emptyUnitFilters),[full,setFull]=useState(false),[notice,setNotice]=useState(''),[ios,setIos]=useState(false),[homeHint,setHomeHint]=useState(false)
  const button=useRef<HTMLButtonElement>(null)
  const t=(es:string,en:string)=>lang==='es'?es:en
@@ -172,7 +173,7 @@ export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onP
       <div><p className="text-[10px] tracking-[0.22em] text-[#8e7654] uppercase">{t('Obra','Site')}</p><h2 className="font-serif text-3xl text-[#29251e]">{t('Avance de obra','Construction progress')}</h2></div>
       {constructionLoading?<p className="text-sm text-[#756044]">{t('Cargando avances…','Loading updates…')}</p>:
        constructionError?<p role="alert" className="text-sm text-[#9a3b2f]">{t('No se pudo cargar el avance de obra.','Could not load construction progress.')}</p>:
-       constructionUpdates.length?constructionUpdates.map(update=><article key={update.id} className="overflow-hidden rounded-2xl border border-[#bda27e]/35 bg-white/80"><div className="p-4"><time dateTime={update.date} className="text-[10px] tracking-[0.16em] text-[#8e7654] uppercase">{update.date}</time><h3 className="mt-1 font-serif text-xl">{translate(update.title)}</h3><p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-[#756044]">{translate(update.description)}</p></div>{update.media.map(media=><figure key={media.url}>{media.type==='image'?<img src={media.url} alt={media.caption} className="w-full"/>:<video src={media.url} controls preload="metadata" className="w-full"/>}</figure>)}</article>):
+       constructionUpdates.length?constructionUpdates.map((update,updateIndex)=><article key={update.id} className="overflow-hidden rounded-2xl border border-[#bda27e]/35 bg-white/80"><div className="p-4"><time dateTime={update.date} className="text-[10px] tracking-[0.16em] text-[#8e7654] uppercase">{update.date}</time><h3 className="mt-1 font-serif text-xl">{translate(update.title)}</h3><p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-[#756044]">{translate(update.description)}</p></div>{update.media.map((media,mediaIndex)=><figure key={media.url}>{media.type==='image'?<button type="button" className="block w-full focus-visible:outline-2 focus-visible:outline-[#8e7654]" aria-label={`${t('Ver la foto','View photo')} ${translate(media.caption||update.title)}`} onClick={()=>{onConstructionMedia?.(constructionSlides,constructionUpdates.slice(0,updateIndex).reduce((total,item)=>total+item.media.filter(asset=>asset.type==='image').length,0)+update.media.slice(0,mediaIndex).filter(asset=>asset.type==='image').length);close()}}><span className="block aspect-[4/3] overflow-hidden"><img src={media.url} alt={media.caption} draggable={false} className="block h-full w-full object-cover"/></span></button>:<video src={media.url} controls preload="metadata" className="w-full"/>}</figure>)}</article>):
        <div className="rounded-2xl border border-[#bda27e]/35 bg-white/80 px-5 py-8 text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#ded3c1] text-[#29251e]"><HardHat size={22} strokeWidth={1.5}/></span><p className="mt-4 font-serif text-2xl text-[#29251e]">{t('Registro en preparación','Log in preparation')}</p><p className="mx-auto mt-2 max-w-[18rem] text-sm leading-relaxed text-[#756044]">{t('Cuando haya fotos con fecha, se publican en esta misma vista.','Dated site photos are published in this same view.')}</p></div>}
       <a href="mailto:lavilet.admin@gmail.com" className="flex items-center gap-3 rounded-2xl border border-[#bda27e]/35 bg-white/80 p-3 transition-colors hover:bg-white"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#ded3c1] text-[#29251e]"><Mail size={18} strokeWidth={1.5}/></span><span className="min-w-0"><span className="block text-[10px] tracking-[0.16em] text-[#8e7654] uppercase">{t('Pedir el avance','Ask for an update')}</span><span className="block truncate text-sm">lavilet.admin@gmail.com</span></span></a>
      </section>

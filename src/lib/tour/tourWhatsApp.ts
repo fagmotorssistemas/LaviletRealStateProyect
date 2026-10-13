@@ -3,7 +3,7 @@ import { commonAreaByCode, commonAreaLabel } from './commonAreas'
 import { translateTourText, type TourLocale } from './tourMessages'
 
 export type TourWhatsAppContext =
-  | 'plano' | 'unidad' | 'zona_comun' | 'amenidades' | 'ubicacion'
+  | 'plano' | 'unidad' | 'zona_comun' | 'amenidades' | 'obra' | 'ubicacion'
   | 'comparador' | 'terminaciones' | 'simulador'
 
 type UnitDescription = {
@@ -70,6 +70,7 @@ export function buildTourWhatsAppMessage(args: TourWhatsAppMessageArgs): string 
       case 'plano': return `Hello, I am viewing the ${englishFloor(floor)} of La Vilet in the virtual showroom and would like to speak with an advisor.`
       case 'zona_comun': return `Hello, I am viewing ${areaName} at La Vilet in the virtual showroom. I would like to know more about the building's common areas.`
       case 'amenidades': return `Hello, I am viewing La Vilet's amenities (${amenity}) in the virtual showroom. Could you tell me more?`
+      case 'obra': return `Hello, I saw La Vilet's construction progress in the virtual showroom. Could you tell me more?`
       case 'ubicacion': return 'Hello, I am viewing La Vilet’s location in the virtual showroom. Could you help me schedule a visit?'
       case 'comparador': return `Hello, I am comparing ${unit} and ${other} in the La Vilet showroom. Could you help me decide?`
       case 'terminaciones': return `Hello, I am viewing the finishes for ${unit} in the La Vilet showroom. Could you give me more information?`
@@ -84,6 +85,7 @@ export function buildTourWhatsAppMessage(args: TourWhatsAppMessageArgs): string 
     case 'plano': return `Hola, estoy viendo ${/^(plano|subsuelo)/i.test(floor) ? 'el' : 'la'} ${floor.toLocaleLowerCase('es')} de La Vilet en el showroom virtual y me gustaría hablar con un asesor.`
     case 'zona_comun': return `Hola, estoy viendo ${/^(spa|gym|lobby)/i.test(areaName) ? 'el' : 'la'} ${areaName.toLocaleLowerCase('es')} de La Vilet en el showroom virtual. Me gustaría saber más de las áreas comunes del edificio.`
     case 'amenidades': return `Hola, estoy viendo las amenidades de La Vilet (${amenity}) en el showroom virtual. ¿Me pueden contar más?`
+    case 'obra': return `Hola, vi el avance de obra de La Vilet en el showroom virtual. ¿Me pueden contar más?`
     case 'ubicacion': return 'Hola, estoy viendo la ubicación de La Vilet en el showroom virtual. ¿Me ayudan a agendar una visita?'
     case 'comparador': return `Hola, estoy comparando ${unit} y ${other} en el showroom de La Vilet. ¿Me ayudan a decidir?`
     case 'terminaciones': return `Hola, estoy viendo los acabados de ${unit} en el showroom de La Vilet. ¿Me pueden dar más información?`

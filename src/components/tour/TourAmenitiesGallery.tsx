@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, Minus, Plus, X } from 'lucide-react'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { useDualBuffer } from '@/components/tour/useDualBuffer'
 import { fitStill as amenityFit } from '@/lib/tour/stillFit'
@@ -15,11 +15,19 @@ type AmenitySlide = {
   imageUrl: string
 }
 
-export function TourAmenitiesGallery({ open, onCaptionChange }: { open: boolean; onCaptionChange?: (caption: string) => void }) {
+export function TourAmenitiesGallery({
+  open, onCaptionChange, slides, initialIndex = 0, onClose,
+}: {
+  open: boolean
+  onCaptionChange?: (caption: string) => void
+  slides?: { url: string; caption: string }[]
+  initialIndex?: number
+  onClose?: () => void
+}) {
   const { locale, t } = useTourLanguage()
   const [items, setItems] = useState<AmenitySlide[]>([])
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [index, setIndex] = useState(0)
+  const [index, setIndex] = useState(initialIndex)
   const [zoom, setZoom] = useState(1)
   const containerRef = useRef<HTMLDivElement>(null)
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
@@ -43,6 +51,10 @@ export function TourAmenitiesGallery({ open, onCaptionChange }: { open: boolean;
 
   useEffect(() => {
     if (!open) return
+    if (slides) {
+      const timer = window.setTimeout(() => setState('ready'), 0)
+      return () => window.clearTimeout(timer)
+    }
     let cancelled = false
     setState((current) => (current === 'ready' ? current : 'loading'))
     void fetch('/api/tour/amenities')
@@ -62,9 +74,23 @@ export function TourAmenitiesGallery({ open, onCaptionChange }: { open: boolean;
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, slides])
 
-  const count = items.length
+  useEffect(() => {
+    if (!open || !slides) return
+    const timer = window.setTimeout(() => {
+      setIndex(initialIndex)
+      setZoom(1)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [open, slides, initialIndex])
+
+  const list = useMemo(
+    () => slides?.map(({ url, caption }) => ({ title: caption, titleEn: caption, imageUrl: url })) ?? items,
+    [slides, items],
+  )
+
+  const count = list.length
   const step = useCallback(
     (delta: -1 | 1) => {
       if (count < 2) return
@@ -76,15 +102,15 @@ export function TourAmenitiesGallery({ open, onCaptionChange }: { open: boolean;
 
   useEffect(() => {
     if (!open || count === 0) return
-    const current = items[index]
-    const next = items[(index + 1) % count]
-    const prev = items[(index - 1 + count) % count]
+    const current = list[index]
+    const next = list[(index + 1) % count]
+    const prev = list[(index - 1 + count) % count]
     void preloadStill(current?.imageUrl)
     void preloadStill(next?.imageUrl)
     void preloadStill(prev?.imageUrl)
-  }, [open, items, index, count])
+  }, [open, list, index, count])
 
-  const slide = open ? items[index] : undefined
+  const slide = open ? list[index] : undefined
   const caption = slide
     ? (locale === 'en' ? slide.titleEn : slide.title)
         .replace(/[-_\s]?r\d{6,}/gi, '')
@@ -245,9 +271,22 @@ export function TourAmenitiesGallery({ open, onCaptionChange }: { open: boolean;
         </button>
       </div>
 
+      {onClose ? (
+        <button
+          type="button"
+          onClick={onClose}
+          onPointerDown={(event) => event.stopPropagation()}
+          aria-label={t('Cerrar')}
+          className="tour-fab pointer-events-auto absolute z-[7] flex h-11 w-11 items-center justify-center"
+          style={{ top: 'max(0.75rem, env(safe-area-inset-top))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
+        >
+          <X size={18} strokeWidth={2} />
+        </button>
+      ) : null}
+
       <TourContextWhatsAppLink
-        context="amenidades"
-        message={buildTourWhatsAppMessage({ context: 'amenidades', amenityLabel: caption, locale })}
+        context={slides ? 'obra' : 'amenidades'}
+        message={buildTourWhatsAppMessage({ context: slides ? 'obra' : 'amenidades', amenityLabel: caption, locale })}
         className="tour-fab tour-whatsapp-btn tour-context-whatsapp pointer-events-auto absolute z-[6]"
       />
 

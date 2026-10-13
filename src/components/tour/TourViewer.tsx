@@ -1404,6 +1404,8 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [fichaOpen, setFichaOpen] = useState(false)
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
   const [amenityCaption, setAmenityCaption] = useState('')
+  const [constructionSlides, setConstructionSlides] = useState<{ url: string; caption: string }[]>([])
+  const [constructionIndex, setConstructionIndex] = useState(0)
   const [locationFromMenu, setLocationFromMenu] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(false)
@@ -3765,6 +3767,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           if (reopen) void coverVideoRef.current?.play().catch(() => undefined)
         }}
         onAmenities={()=>{setLocationFromMenu(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onConstructionMedia={(slides,index)=>{setAmenitiesOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(false);setConstructionSlides(slides);setConstructionIndex(index)}}
         onLocation={()=>{setAmenitiesOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(true)}}
         onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
@@ -3790,6 +3793,16 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }}
       />
       <TourAmenitiesGallery open={amenitiesOpen} onCaptionChange={setAmenityCaption} />
+      {constructionSlides.length > 0 ? (
+        <div className="absolute inset-0 z-[201]">
+          <TourAmenitiesGallery
+            open
+            slides={constructionSlides}
+            initialIndex={constructionIndex}
+            onClose={() => { setConstructionSlides([]); setConstructionIndex(0) }}
+          />
+        </div>
+      ) : null}
       <TourLocationView open={locationFromMenu} fromMenu onClose={() => setLocationFromMenu(false)} />
       <div
         className="absolute inset-0 overflow-hidden"
@@ -4226,7 +4239,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       ) : null}
 
       {/* Modos PC / móvil: no en el plano del edificio (ahí solo 2D/3D). */}
-      {!booting && showModeSwitcher && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen ? (
+      {!booting && showModeSwitcher && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen && constructionSlides.length === 0 ? (
         <div
           className="tour-float-row tour-float-row--right pointer-events-auto z-[130]"
         >
@@ -5105,7 +5118,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planTouchLock ? <div className="absolute inset-0 z-[35]" aria-hidden="true" /> : null}
 
-      <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} hidden={amenitiesOpen || viewingCommonArea} />
+      <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} hidden={amenitiesOpen || constructionSlides.length > 0 || viewingCommonArea} />
 
       {shellMode === 'plan' ? (
         <div
