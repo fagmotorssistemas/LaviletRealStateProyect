@@ -15,6 +15,7 @@ import {
 import { MARKETING_NAV } from '@/lib/marketing/nav'
 import { cn } from '@/lib/utils'
 import { HERO_LOCKED_EVENT, isHeroLocked } from './heroLock'
+import { heroAntonio } from './heroFont'
 
 const ease = [0.22, 1, 0.36, 1] as const
 const HERO_PATHS = new Set(['/inicio', '/nosotros'])
@@ -29,6 +30,7 @@ export function SiteHeader() {
   const editorial = theme === '3'
   const waitsForHero = HERO_PATHS.has(pathname)
   const [scrolled, setScrolled] = useState(false)
+  const heroHeader = pathname === '/inicio' && editorial && !scrolled
   const [pastHero, setPastHero] = useState(false)
   const [heroLocked, setHeroLocked] = useState(!waitsForHero)
   const [open, setOpen] = useState(false)
@@ -125,6 +127,7 @@ export function SiteHeader() {
       inert={!headerReady || navHidden ? true : undefined}
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
+        heroHeader && heroAntonio.className,
         solid
           ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-white/10 mkt-dark:bg-[#16141c]/75 mkt-3:border-transparent mkt-3:!bg-transparent mkt-3:!backdrop-blur-none'
           : 'border-b border-transparent bg-transparent',
@@ -144,7 +147,9 @@ export function SiteHeader() {
             className={cn(
               'relative z-10 transition-[color,letter-spacing] duration-300',
               editorial
-                ? 'font-serif text-[20px] font-normal tracking-[-0.03em] text-[#3f3d2e] hover:tracking-[-0.01em] lg:text-[22px]'
+                ? heroHeader
+                  ? 'text-[30px] font-extralight tracking-[0.4em] text-[#484C3B] lg:text-[36px]'
+                  : 'font-serif text-[20px] font-normal tracking-[-0.03em] text-[#3f3d2e] hover:tracking-[-0.01em] lg:text-[22px]'
                 : cn(
                     'text-[13px] tracking-[0.22em] uppercase hover:tracking-[0.28em] lg:text-[14px]',
                     overPhoto ? 'font-medium' : 'font-semibold',
@@ -154,7 +159,7 @@ export function SiteHeader() {
                   ),
             )}
           >
-            {editorial ? 'La Vilet' : 'Lavilet'}
+            {heroHeader ? 'LA VILĒT' : editorial ? 'La Vilet' : 'Lavilet'}
           </Link>
         </motion.div>
 
@@ -179,6 +184,7 @@ export function SiteHeader() {
                     'group relative inline-block py-1 text-[12px] tracking-[0.18em] uppercase transition-colors duration-300 lg:text-[13px]',
                     overPhoto ? 'font-medium' : 'font-semibold',
                     linkTone(item.href),
+                    heroHeader && '!font-normal !tracking-[0.32em] !text-[#484C3B]',
                   )}
                 >
                   {item.label}
@@ -219,6 +225,7 @@ export function SiteHeader() {
                   editorial || solid
                     ? 'text-[#2B1A18]/55 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/55 mkt-dark:hover:text-[#f4efe8] mkt-3:text-[#3f3d2e]/55 mkt-3:hover:text-[#3f3d2e]'
                     : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-white',
+                  heroHeader && '!font-normal !tracking-[0.32em] !text-[#484C3B]',
                 )}
               >
                 {accountLabel}

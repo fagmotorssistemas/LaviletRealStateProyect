@@ -27,6 +27,16 @@ const TILE_BG: Record<string, string> = {
   'lockup-T-v4': '#72735A',
 }
 
+const HERO_TILE_BG: Record<string, string> = {
+  'lockup-L-la': '#A77855',
+  'lockup-A-la': '#D7D9C4',
+  'lockup-V-v0': '#686C55',
+  'lockup-I-v1': '#484C3B',
+  'lockup-L-v2': '#A77855',
+  'lockup-E-v3': '#D7D9C4',
+  'lockup-T-v4': '#686C55',
+}
+
 const Dock = createContext({ docked: false })
 
 export function useLockupDocked() {
@@ -65,6 +75,7 @@ function LockupLetter({
   variant,
   quiet = false,
   noLayoutId = false,
+  heroPalette = false,
 }: {
   id: string
   letter: string
@@ -72,9 +83,10 @@ function LockupLetter({
   variant: 'hero' | 'story'
   quiet?: boolean
   noLayoutId?: boolean
+  heroPalette?: boolean
 }) {
   const story = variant === 'story'
-  const tile = story ? TILE_BG[id] : undefined
+  const tile = story ? (heroPalette ? HERO_TILE_BG[id] : TILE_BG[id]) : undefined
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
 
   return (
@@ -84,6 +96,10 @@ function LockupLetter({
         'inline-block cursor-pointer select-none',
         tile &&
           'inline-flex h-[3.6rem] w-[2.85rem] items-center justify-center font-serif text-[2.35rem] leading-none text-[#F2F2F2] sm:h-[4.8rem] sm:w-[3.8rem] sm:text-[3.2rem] lg:h-[5.8rem] lg:w-[4.6rem] lg:text-[3.9rem]',
+        heroPalette && 'font-[inherit] font-extralight',
+        heroPalette && (id === 'lockup-A-la' || id === 'lockup-E-v3')
+          ? 'text-[#484C3B]'
+          : heroPalette && 'text-[#F5F3EB]',
       )}
       style={tile ? { backgroundColor: tile } : undefined}
       initial={story ? { opacity: 0, x: -40 } : { y: 140, scale: 1.85, opacity: 0 }}
@@ -149,11 +165,13 @@ export function LaviletLockup({
   onMist = false,
   backdrop = false,
   noLayoutId = false,
+  heroPalette = false,
 }: {
   variant: 'hero' | 'story'
   onMist?: boolean
   backdrop?: boolean
   noLayoutId?: boolean
+  heroPalette?: boolean
 }) {
   const story = variant === 'story'
   const mist = story || onMist
@@ -162,7 +180,9 @@ export function LaviletLockup({
     <div
       className={cn(
         'flex w-fit flex-col items-start origin-left',
-        story
+        heroPalette
+          ? 'text-[#484C3B]'
+          : story
           ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
           : backdrop || (mist && variant === 'hero')
             ? 'text-[#2B1A18] mkt-dark:text-[#F2F2F2]'
@@ -197,6 +217,7 @@ export function LaviletLockup({
       <div
         className={cn(
           'font-serif font-normal leading-[0.85] tracking-[-0.04em]',
+          heroPalette && 'font-[inherit] font-extralight tracking-[0.04em]',
           backdrop ? 'flex w-fit' : 'grid w-fit grid-cols-[auto_auto] grid-rows-2',
           story
             ? 'text-[clamp(3.25rem,8vw,5.25rem)]'
@@ -216,6 +237,7 @@ export function LaviletLockup({
                 variant={variant}
                 quiet
                 noLayoutId={noLayoutId}
+                heroPalette={heroPalette}
               />
             ))}
             {LETTERS_VILET.map((item, i) => (
@@ -227,6 +249,7 @@ export function LaviletLockup({
                 variant={variant}
                 quiet
                 noLayoutId={noLayoutId}
+                heroPalette={heroPalette}
               />
             ))}
           </>
@@ -241,6 +264,7 @@ export function LaviletLockup({
                   index={i}
                   variant={variant}
                   noLayoutId={noLayoutId}
+                  heroPalette={heroPalette}
                 />
               ))}
             </span>
@@ -253,6 +277,7 @@ export function LaviletLockup({
                   index={i + 2}
                   variant={variant}
                   noLayoutId={noLayoutId}
+                  heroPalette={heroPalette}
                 />
               ))}
             </span>
