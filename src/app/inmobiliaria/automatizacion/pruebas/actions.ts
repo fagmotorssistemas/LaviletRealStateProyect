@@ -53,6 +53,10 @@ function failure(operation: string, error: unknown, mutationStarted = false): Fa
     return rejected('TEST_ACCESS_DENIED')
   }
   const reference = recordFailure(operation,error)
+  if (operation === 'reset' && error && typeof error === 'object' && 'code' in error && error.code === '23503') {
+    return rejected('TEST_RESET_DEPENDENCY_FAILED',
+      `No se reinició la prueba: hay registros vinculados que el reinicio no pudo limpiar. Se requiere actualizar la función de reinicio en la base de datos. Referencia: ${reference}.`, true)
+  }
   return rejected('TEST_ACTION_FAILED', mutationStarted
     ? `No se pudo confirmar el resultado. Pulse «Actualizar lista» y compruebe el estado del contacto antes de repetir la acción. Referencia: ${reference}.`
     : `No se pudo completar la consulta. Pulse «Actualizar lista» para reintentar. Referencia: ${reference}.`, mutationStarted)

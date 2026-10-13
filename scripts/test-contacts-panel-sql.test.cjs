@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Isolated PostgreSQL: no credentials, real leads or outbound messages.
 const {test}=require('node:test'), assert=require('node:assert/strict'),fs=require('node:fs')
 const {PGlite}=require('@electric-sql/pglite')
@@ -30,6 +31,7 @@ test('test contacts: enrollment, wait controls and scoped transactional resets',
   await db.exec(sql('20261004210000_test_contacts_panel.sql')); await db.exec(sql('20261004211000_restart_enrolled_test_contact.sql'))
   await db.exec(sql('20261005183000_explicit_bot_resume.sql'))
   await db.exec(sql('20261005183000_explicit_bot_resume.sql')) // Reapplying is non-destructive.
+  await db.exec(sql('20260929101000_reservation_handoff_receipt.sql'))
   const get=async phone=>(await rows('SELECT * FROM lv_test_contacts_state WHERE phone=$1',[phone]))[0]
   const mutate=async(action,c)=>db.query('SELECT lv_manage_test_contact($1,$2,$3)',[action,c.id,c.version])
   const restart=async c=>db.query('SELECT lv_restart_enrolled_test_contact($1,$2,NULL)',[c.id,c.version])
@@ -90,6 +92,42 @@ test('test contacts: enrollment, wait controls and scoped transactional resets',
    await db.query("UPDATE lv_integration_events SET status='uncertain' WHERE event_key='inbound:102'")
    await assert.rejects(restart(c),/TEST_RESET_BUSY/)
    await db.query("UPDATE lv_integration_events SET status='pending' WHERE event_key='inbound:102'")
+  })
+  await t.test('reservation requests reproduce the old reset failure and the migration archives them before cleanup',async()=>{
+   await db.exec('BEGIN')
+   try {
+    const c=await get('593991234568'),conversation=(await rows('SELECT id FROM conversations WHERE lead_id=$1',[b]))[0].id
+    const otherConversation=(await rows('SELECT id FROM conversations WHERE lead_id=$1',[a]))[0].id
+    const receipt=async(lead,conv,source)=>(await rows(`INSERT INTO lead_reservation_requests
+     (lead_id,source_message_id,source_sent_at,conversation_id,unit_ids,evidence_message_ids,evidence,assignment_mode,handoff_status)
+     VALUES($1,$2,now(),$3,'["502"]','["confirmation"]','Yes, begin the request','queued','requested') RETURNING id`,[lead,source,conv]))[0].id
+    const request=await receipt(b,conversation,'request-to-reset'),otherRequest=await receipt(a,otherConversation,'other-request')
+    const before=(await rows('SELECT count(*)::int n FROM lv_manual_test_reset_backups WHERE lead_id=$1',[b]))[0].n
+    await db.exec('SAVEPOINT old_reset')
+    await assert.rejects(restart(c),error=>error.code==='23503'&&/lead_reservation_requests/.test(error.message))
+    await db.exec('ROLLBACK TO SAVEPOINT old_reset')
+    assert.equal((await rows('SELECT count(*)::int n FROM lv_manual_test_reset_backups WHERE lead_id=$1',[b]))[0].n,before)
+    assert.equal((await get(c.phone)).version,c.version)
+    assert.equal((await rows('SELECT count(*)::int n FROM conversations WHERE id=$1',[conversation]))[0].n,1)
+    assert.equal((await rows('SELECT count(*)::int n FROM lead_reservation_requests WHERE id=$1',[request]))[0].n,1)
+    // Keep migration DDL inside this isolated scenario's transaction.
+    const replacement=sql('20261013183000_test_reset_reservation_requests.sql').replace(/^BEGIN;\r?$/m,'').replace(/^COMMIT;\r?$/m,'')
+    await db.exec(replacement)
+    await db.exec(replacement)
+    assert.equal((await get(c.phone)).version,c.version,'Installing the migration never resets a lead')
+    const result=(await rows('SELECT lv_restart_enrolled_test_contact($1,$2,NULL) result',[c.id,c.version]))[0].result
+    const snapshot=(await rows('SELECT snapshot FROM lv_manual_test_reset_backups WHERE id=$1',[result.backup_id]))[0].snapshot
+    assert.equal(snapshot.lead_reservation_requests.length,1)
+    assert.equal(snapshot.lead_reservation_requests[0].id,request)
+    assert.equal(result.deleted.lead_reservation_requests,1)
+    assert.equal((await rows('SELECT count(*)::int n FROM conversations WHERE lead_id=$1',[b]))[0].n,0)
+    assert.equal((await rows('SELECT count(*)::int n FROM lead_reservation_requests WHERE lead_id=$1',[b]))[0].n,0)
+    assert.equal((await rows('SELECT count(*)::int n FROM lead_reservation_requests WHERE id=$1',[otherRequest]))[0].n,1)
+    assert.equal((await rows('SELECT count(*)::int n FROM conversations WHERE id=$1',[otherConversation]))[0].n,1)
+    assert.equal((await get(c.phone)).version,c.version+1)
+   } finally {await db.exec('ROLLBACK')}
+   // Keep all existing reset protections and tests on the corrected function.
+   await db.exec(sql('20261013183000_test_reset_reservation_requests.sql'))
   })
   await t.test('reset archives before deletion, clears state, keeps other lead and event dedupe',async()=>{
    const c=await get('593991234568')

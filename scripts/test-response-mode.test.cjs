@@ -131,17 +131,28 @@ test('expected reset rejections are serializable results instead of masked serve
  assert.equal((await actionHarness({readError:true}).loadTestResponseAction()).code,'TEST_CONTACTS_READ_FAILED')
 })
 
+test('a rejected reset transaction explains linked records without leaking database details',async t=>{
+ const log=t.mock.method(console,'error',()=>{})
+ const h=actionHarness({rpcError:{message:'private lead and document',details:'sensitive',code:'23503'}}),result=await h.update()
+ assert.equal(result.ok,false);assert.equal(result.code,'TEST_RESET_DEPENDENCY_FAILED');assert.equal(result.refreshRequired,true)
+ assert.match(result.error,/No se reinició la prueba/);assert.match(result.error,/actualizar la función de reinicio/)
+ assert.doesNotMatch(JSON.stringify(result),/private|sensitive|23503/)
+ assert.deepEqual(h.kommo,[]);assert.equal(h.calls.length,1)
+ assert.equal(log.mock.calls[0].arguments[1].code,'23503')
+ assert.doesNotMatch(JSON.stringify(log.mock.calls.map(c=>c.arguments)),/private|sensitive/)
+})
+
 test('unknown database errors and connection loss require refresh without leaking private details',async t=>{
  const log=t.mock.method(console,'error',()=>{})
- for(const options of [{rpcError:{message:'private lead and document',details:'sensitive',code:'23503'}},{rpcThrow:Error('private network request')}]){
+ for(const options of [{rpcError:{message:'private lead and document',details:'sensitive',code:'XX000'}},{rpcThrow:Error('private network request')}]){
   const h=actionHarness(options),result=await h.update()
   assert.equal(result.ok,false);assert.equal(result.refreshRequired,true)
   assert.match(result.error,/No se pudo confirmar el resultado/)
-  assert.doesNotMatch(JSON.stringify(result),/private|sensitive|23503/)
+  assert.doesNotMatch(JSON.stringify(result),/private|sensitive|XX000/)
   assert.deepEqual(h.kommo,[])
  }
  assert.equal(log.mock.calls.length,2)
- assert.equal(log.mock.calls[0].arguments[1].code,'23503')
+ assert.equal(log.mock.calls[0].arguments[1].code,'XX000')
  assert.doesNotMatch(JSON.stringify(log.mock.calls.map(c=>c.arguments)),/private|sensitive/)
 })
 
