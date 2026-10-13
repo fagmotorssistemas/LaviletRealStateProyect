@@ -19,9 +19,10 @@ test('retains concerns, qualifications, confirmed details, links and explanation
  assert.equal(directReply('Comprendo que le interesa abrir un local comercial.','quiero abrir un local'),'Comprendo que le interesa abrir un local comercial.')
  assert.equal(directReply('Veo que desea vivir cerca del centro. Hay opciones.','quiero abrir un local'),'Veo que desea vivir cerca del centro. Hay opciones.')
 })
-test('rule applies to original and every slider combination in writing and review, without changing data extraction',async()=>{
+test('rule applies to writer profiles while extraction and factual review remain independent of editorial preferences',async()=>{
  for(const style of ['actual','cercano','equilibrado','elegante'])for(const warmth of [0,1,2])for(const detail of [0,1,2]) {
-   for(const task of ['writing','review'])assert.ok((await configuredToneInstructions('Base',{style,warmth,detail},task)).includes(DIRECT_REPLY_RULE))
+   assert.ok((await configuredToneInstructions('Base',{style,warmth,detail},'writing')).includes(DIRECT_REPLY_RULE.trim()))
+   assert.equal(await configuredToneInstructions('Base',{style,warmth,detail},'review'),'Base')
    assert.equal(await configuredToneInstructions('Base',{style,warmth,detail},'data'),'Base')
  }
  assert.match(toneDirection({style:'cercano',warmth:2,detail:2}),/sin repetir lo que acaba de decir/)
