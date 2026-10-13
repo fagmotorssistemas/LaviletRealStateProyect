@@ -4,7 +4,7 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Calculator, ChevronLeft, X } from 'lucide-react'
+import { ArrowLeft, Calculator, ChevronLeft, X } from 'lucide-react'
 import { InvestmentConfigurator } from '@/components/financing/InvestmentConfigurator'
 import { MisEscenariosView } from '@/components/financing/MisEscenariosView'
 import { isShowroomIdentified } from '@/lib/tour/showroomIdentity'
@@ -179,9 +179,13 @@ export function TourSimulatorDrawer({
                   <button
                     type="button"
                     onClick={() => setShowSaved((value) => !value)}
-                    className="inline-flex h-11 min-w-11 items-center rounded-lg px-3 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]"
+              className={showSaved
+                ? 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[#1a2744] hover:bg-[#f4f4ef]'
+                : 'inline-flex h-11 min-w-11 items-center rounded-lg px-3 text-[10px] font-semibold tracking-[0.1em] text-[#1a2744] uppercase hover:bg-[#f4f4ef]'}
+              aria-label={showSaved ? t('Volver al simulador') : undefined}
+              title={showSaved ? t('Volver al simulador') : undefined}
                   >
-                    {t(showSaved ? 'Calcular' : 'Guardados')}
+              {showSaved ? <ArrowLeft size={16} strokeWidth={1.75} /> : t(' Guardados ')}
                   </button>
                 ) : null}
                 <button

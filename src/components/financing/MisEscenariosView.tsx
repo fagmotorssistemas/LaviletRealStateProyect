@@ -121,6 +121,59 @@ export function MisEscenariosView({
       {scenarios.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[#d9d0c3] px-4 py-8 text-center text-sm text-[#6b645c]">
           {t(" Aún no tiene cálculos guardados. Elija un departamento y guarde la simulación. ")}</div>
+      ) : embedded ? (
+        <div className="space-y-2">
+          {scenarios.map((row) => {
+            const fidelity = assessScenarioFidelity(row)
+            const unitName = row.units?.unit_number ? `Unidad ${row.units.unit_number}` : 'Sin unidad asignada'
+            return (
+              <article key={row.id} className="rounded-2xl border border-[#ece6dc] bg-white p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-[#1f1a14]">{t(unitName)}</p>
+                    {fidelity.kind !== 'exact' ? (
+                      <span className="mt-1 inline-flex rounded-full bg-[#f7f3ee] px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                        {t(fidelity.kind === 'legacy' ? 'Histórico' : 'Versión desconocida')}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[
+                    ['Alquiler', formatMoney(row.estimated_monthly_rent)],
+                    ['Flujo / año', formatMoney(row.annual_net_cash_flow)],
+                    ['Retorno', formatPercent(row.roi_percent)],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0 rounded-xl bg-[#faf8f5] px-2 py-2">
+                      <p className="text-[9px] font-semibold tracking-[0.1em] text-[#8a8176] uppercase">{t(label)}</p>
+                      <p className="mt-0.5 text-[13px] font-semibold tabular-nums text-[#1f1a14]">{t(value)}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  {onReopen ? (
+                    <button
+                      type="button"
+                      onClick={() => onReopen(row)}
+                      className="inline-flex h-10 flex-1 items-center justify-center rounded-full bg-[#1f1a14] px-4 text-[11px] font-semibold tracking-[0.12em] text-white uppercase"
+                    >
+                      {t('Reabrir')}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`¿Eliminar el escenario de ${unitName}?`)) void removeScenario(row.id)
+                    }}
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-full px-3 text-[11px] font-medium text-[#8a5c58] hover:bg-[#f7f3ee]"
+                  >
+                    {t('Eliminar')}
+                  </button>
+                </div>
+              </article>
+            )
+          })}
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[#ece6dc] bg-white">
           <table className="min-w-full text-sm">
