@@ -328,6 +328,10 @@ export function useFinancingCalculator(
     [partners, state.partnerId],
   )
 
+  const comparisonInterestRate = selectedPartner
+    ? Number(selectedPartner.annual_interest_rate)
+    : state.interestRate
+
   const effectiveInterestRate = useMemo(() => {
     if (state.mode === 'cash') return 0
     if (selectedPartner) return Number(selectedPartner.annual_interest_rate)
@@ -682,6 +686,7 @@ export function useFinancingCalculator(
     unit,
     partners,
     selectedPartner,
+    comparisonInterestRate,
     state,
     patchState,
     setMode,

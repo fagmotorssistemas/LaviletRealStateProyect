@@ -375,7 +375,7 @@ export function InvestmentConfigurator({
               managementFeeRate: calc.managementFeeRate,
               downPaymentPercent: calc.downPaymentPercent,
               financingYears: calc.financingYears,
-              interestRate: calc.preview.interestRate,
+              interestRate: calc.comparisonInterestRate,
               rateType: calc.rateType,
               acquisitionCosts: calc.state.acquisitionCosts,
               annualOtherFinancialCosts: calc.state.annualOtherFinancialCosts,

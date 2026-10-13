@@ -206,6 +206,34 @@ describe('suggestMonthlyRent', () => {
 })
 
 describe('reglas tributarias y datos por unidad', () => {
+  it('compara financiado a 7,8% también desde la vista de contado de la Unidad 001', () => {
+    const cashPreview = buildInvestmentPreview({
+      mode: 'cash', unitPrice: 160000, estimatedMonthlyRent: 1200,
+      vacancyRate: 0.05, annualOperatingExpenses: 1880,
+      taxProfile: '45_80', includeIncomeTax: true,
+      includePropertyManager: true, managementFeeRate: 0.08,
+      interestRate: 7.8,
+    })
+    assert.equal(cashPreview.interestRate, 0)
+
+    const comparison = buildCashVsFinancedComparison({
+      shared: {
+        unitPrice: 160000, estimatedMonthlyRent: 1200,
+        vacancyRate: 0.05, annualOperatingExpenses: 1880,
+        taxProfile: '45_80', includeIncomeTax: true,
+        includePropertyManager: true, managementFeeRate: 0.08,
+        interestRate: 7.8, financingYears: 20, rateType: 'nominal_annual',
+        acquisitionCosts: 2580, rentGrowthRate: 0.02, saleCommissionPct: 0,
+      },
+      downPaymentPercent: 30,
+      horizonYears: 10,
+      appreciationRateAnnual: 0.03,
+    })
+    assert.equal(comparison.financed.preview.interestRate, 7.8)
+    approx(comparison.financed.preview.monthlyCashFlow, -116.52)
+    approx(comparison.financed.wealth.irrAnnualPercent!, 8.81, 0.01)
+    approx(comparison.financed.wealth.projectedGainOrLoss, 73941.31, 0.02)
+  })
   it('mantiene una TIR negativa y finita cuando no hay apreciación', () => {
     const preview = buildInvestmentPreview({
       mode: 'financed',
