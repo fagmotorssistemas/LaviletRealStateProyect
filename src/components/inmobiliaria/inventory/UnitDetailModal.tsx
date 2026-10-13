@@ -23,6 +23,7 @@ import {
 } from '@/services/inmobiliaria.service'
 import { prepareImageForWebUpload } from '@/lib/images/prepareImageForWebUpload'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
+import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { toast } from 'sonner'
 import Image from 'next/image'
 import {
@@ -101,6 +102,9 @@ const defaultEditForm = {
   spaces: '',
   cost_per_m2_internal: '',
   published_commercial_price: '',
+  cadastral_value: '',
+  monthly_building_fee: '',
+  estimated_monthly_rent: '',
   status: 'disponible' as UnitStatus,
   description: '',
 }
@@ -127,6 +131,9 @@ function unitToFormFields(unit: Unit) {
     spaces: (unit.spaces ?? []).join(', '),
     cost_per_m2_internal: unit.cost_per_m2_internal != null ? String(unit.cost_per_m2_internal) : '',
     published_commercial_price: unit.published_commercial_price != null ? String(unit.published_commercial_price) : '',
+    cadastral_value: unit.cadastral_value != null ? String(unit.cadastral_value) : '',
+    monthly_building_fee: unit.monthly_building_fee != null ? String(unit.monthly_building_fee) : '',
+    estimated_monthly_rent: unit.estimated_monthly_rent != null ? String(unit.estimated_monthly_rent) : '',
     status: unit.status,
     description: unit.description ?? '',
   }
@@ -156,6 +163,7 @@ export function UnitDetailModal({
   readOnly = false,
   startInEditMode = false,
 }: UnitDetailModalProps) {
+  const { t } = useTourLanguage()
   const { supabase } = useAuth()
   const [newStatus, setNewStatus] = useState('')
   const [isEditing, setIsEditing] = useState(false)
@@ -261,6 +269,9 @@ export function UnitDetailModal({
         spaces: spacesFromInput(form.spaces),
         cost_per_m2_internal: toNum(form.cost_per_m2_internal),
         published_commercial_price: toNum(form.published_commercial_price),
+        cadastral_value: toNum(form.cadastral_value),
+        monthly_building_fee: toNum(form.monthly_building_fee),
+        estimated_monthly_rent: toNum(form.estimated_monthly_rent),
         status: form.status as UnitStatus,
         description: form.description || null,
       })
@@ -548,6 +559,9 @@ export function UnitDetailModal({
               value={form.published_commercial_price}
               onChange={(e) => updateField('published_commercial_price', e.target.value)}
             />
+            <Input id="edit-cadastral" label={t('Avalúo catastral')} type="number" step="0.01" value={form.cadastral_value} onChange={(e) => updateField('cadastral_value', e.target.value)} />
+            <Input id="edit-building-fee" label={t('Alícuota mensual')} type="number" step="0.01" value={form.monthly_building_fee} onChange={(e) => updateField('monthly_building_fee', e.target.value)} />
+            <Input id="edit-estimated-rent" label={t('Arriendo mensual estimado')} type="number" step="0.01" value={form.estimated_monthly_rent} onChange={(e) => updateField('estimated_monthly_rent', e.target.value)} />
             <Select
               id="edit-status"
               label="Estado"

@@ -4,12 +4,23 @@ import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import { useState } from 'react'
 import type { InvestmentPreview } from '@/types/financingSimulator'
+import type { TaxProfile } from '@/lib/financing/ecuadorTax'
 import {
-  formatMoney,
   formatMoneyExact,
   paymentInterestAndPrincipal,
   roundMoney,
 } from '@/lib/financing/calculator'
+
+const taxProfileLabels: Record<TaxProfile, string> = {
+  none_other: 'Solo este arriendo',
+  lt12: 'Menos de $12.000 al año',
+  '12_25': '$12.000 – $25.000',
+  '25_45': '$25.000 – $45.000',
+  '45_80': '$45.000 – $80.000',
+  '80_120': '$80.000 – $120.000',
+  gt120: 'Más de $120.000',
+  company: 'Compro como empresa',
+}
 
 export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
   const { t } = useTourLanguage()
@@ -38,9 +49,9 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
   const netAvailable = roundMoney(annualNetAvailable * factor)
   const topUpOrSurplus = roundMoney(annualNetAvailable / 12 - preview.monthlyPayment)
   const scaledTopUp =
-    period === 'monthly' ? topUpOrSurplus : roundMoney(topUpOrSurplus * 12)
+    period === 'monthly' ? topUpOrSurplus : roundMoney(annualNetAvailable - preview.monthlyPayment * 12)
 
-  const rows: { label: string; value: number; strong?: boolean; note?: string }[] = [
+  const rows: { label: string; value: number; strong?: boolean; note?: string; tax?: boolean }[] = [
     { label: 'Alquiler bruto', value: roundMoney(preview.annualPotentialRental * factor) },
     { label: 'Vacancia', value: roundMoney(-preview.annualVacancyCost * factor) },
     {
@@ -57,8 +68,10 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
       value: roundMoney(-preview.annualManagement * factor),
     },
     {
-      label: 'Impuesto estimado (supuesto configurado)',
+      label: 'Impuesto a la renta',
+      tax: true,
       value: roundMoney(-preview.annualIncomeTaxEstimate * factor),
+      note: 'Base: arriendo − deducibles SRI',
     },
     {
       label: 'Alquiler neto disponible',
@@ -88,12 +101,12 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
     )
   }
 
-  rows.push({
+  if (preview.mode !== 'cash') rows.push({
     label:
       scaledTopUp < 0
-        ? 'Tu aporte mensual estimado'
+        ? period === 'annual' ? 'Tu aporte anual estimado' : 'Tu aporte mensual estimado'
         : scaledTopUp > 0
-          ? 'Dinero que te queda cada mes'
+          ? period === 'annual' ? 'Dinero que te queda al año' : 'Dinero que te queda cada mes'
           : 'Los ingresos cubren gastos y cuota',
     value: scaledTopUp,
     strong: true,
@@ -135,7 +148,7 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
           {rows.map((row) => (
             <tr key={row.label} className="border-t border-[#f0ebe3]">
               <td className={`px-4 py-2.5 text-[#4a433c] ${row.strong ? 'font-semibold' : ''}`}>
-                {t(row.label)}
+                {row.tax ? <>{t(preview.taxProfile === 'company' ? 'Impuesto a la renta (empresa ' : 'Impuesto a la renta estimado (tabla SRI ')}{t(preview.taxProfile === 'company' ? `${Number((preview.companyIncomeTaxRate * 100).toFixed(1))}%` : preview.incomeTaxTableYear)})</> : t(row.label)}
                 {row.note ? (
                   <span className="mt-0.5 block text-[10px] font-normal text-[#8a8176]">
                     {t(row.note)}
@@ -147,7 +160,7 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
                   row.strong ? 'font-semibold text-[#1f1a14]' : 'text-[#6b645c]'
                 }`}
               >
-                {t(row.strong ? formatMoneyExact(row.value) : formatMoney(row.value))}
+                {t(row.value < 0 ? `−${formatMoneyExact(-row.value)}` : formatMoneyExact(row.value))}
                 <span className="ml-1 text-[10px] text-[#8a8176]">{t(label)}</span>
               </td>
             </tr>
@@ -155,8 +168,7 @@ export function DesglozeAnual({ preview }: { preview: InvestmentPreview }) {
         </tbody>
       </table>
       <div className="border-t border-[#ece6dc] bg-[#fcfbf9] px-4 py-2.5 text-[11px] text-[#8a8176]">
-        {t(" Vacancia una sola vez. IR ")}{t((preview.incomeTaxRate * 100).toFixed(0))}{t("% y gestor")}{t(' ')}
-        {t((preview.managementFeeRate * 100).toFixed(0))}{t("% son supuestos configurados (no una tasa legal universal). Las cifras del horizonte patrimonial están en el análisis principal. ")}</div>
+        {t('Perfil tributario: ')}{t(taxProfileLabels[preview.taxProfile])}{t(' · gestor ')}{t((preview.managementFeeRate * 100).toFixed(1))}{t('%. Deducibles del arriendo según SRI.')}{preview.isCommercial ? t(' El arriendo comercial lleva IVA 15% que paga el inquilino; no es ingreso del propietario.') : null}</div>
     </div>
   )
 }

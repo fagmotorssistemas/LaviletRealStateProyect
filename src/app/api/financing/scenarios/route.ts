@@ -7,6 +7,7 @@ import { syntheticEmailFromPhone, syntheticNameFromPhone, normalizeShowroomPhone
 import { rpcIdentifyTourLeadWithMetaOutbox } from '@/lib/tour/tourRpc'
 import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { expenseBreakdownFromConfig } from '@/lib/financing/calculator'
+import { acquisitionCostsFor } from '@/lib/financing/ecuadorTax'
 import {
   assertUnitAccessibleForTour,
   createAndAnalyzeScenario,
@@ -23,7 +24,9 @@ import {
   parseRateType,
   parseRequiredFinite,
   parseSimulationMode,
+  parseTaxProfile,
   validateDownPaymentAndYears,
+  validateEcuadorTaxSnapshot,
 } from '@/lib/financing/scenarioValidate'
 import type { RateType } from '@/types/financingSimulator'
 
@@ -208,12 +211,12 @@ export async function POST(request: Request) {
       }
 
       // Gastos de propiedad: solo desde config (servidor). Se ignoran expense_breakdown / annual_expenses del cliente.
-      const authorizedExpenses = expenseBreakdownFromConfig(unitPrice, config)
+      const authorizedExpenses = expenseBreakdownFromConfig(unitPrice, config, unit)
       annualOperatingExpenses = authorizedExpenses.total
       expenseBreakdown = authorizedExpenses
 
       annualManagement = parseOptionalFinite(body, 'annual_management', { min: 0 }) ?? 0
-      acquisitionCosts = parseOptionalFinite(body, 'acquisition_costs', { min: 0 }) ?? 0
+      acquisitionCosts = parseOptionalFinite(body, 'acquisition_costs', { min: 0 }) ?? acquisitionCostsFor(unitPrice, config.acquisition_cost_pct ?? 1.3, config.acquisition_cost_fixed ?? 500)
       annualOtherFinancial = parseOptionalFinite(body, 'annual_other_financial', { min: 0 }) ?? 0
       // Cargos mensuales del financiamiento (si existieran en oferta bancaria); no son gastos de propiedad.
       monthlyExtraCharges = parseOptionalFinite(body, 'monthly_extra_charges', { min: 0 }) ?? 0
@@ -226,6 +229,7 @@ export async function POST(request: Request) {
         body.assumptions_json && typeof body.assumptions_json === 'object' && !Array.isArray(body.assumptions_json)
           ? (body.assumptions_json as Record<string, unknown>)
           : {}
+      validateEcuadorTaxSnapshot(assumptions)
       includeIncomeTax =
         typeof body.include_income_tax === 'boolean'
           ? body.include_income_tax
@@ -308,6 +312,7 @@ export async function POST(request: Request) {
       monthlyExtraCharges,
       unitPrice,
       includeIncomeTax,
+      taxProfile: parseTaxProfile(body.tax_profile, config.default_tax_profile),
       includePropertyManager,
       incomeTaxRate,
       managementFeeRate,

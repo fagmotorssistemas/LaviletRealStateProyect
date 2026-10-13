@@ -141,23 +141,7 @@ export function CompraComparisonView({
   const comparison = useMemo(
     () =>
       buildCashVsFinancedComparison({
-        shared: {
-          unitPrice: input.unitPrice,
-          estimatedMonthlyRent: input.estimatedMonthlyRent,
-          vacancyRate: input.vacancyRate,
-          annualOperatingExpenses: input.annualOperatingExpenses,
-          includeIncomeTax: input.includeIncomeTax,
-          includePropertyManager: input.includePropertyManager,
-          incomeTaxRate: input.incomeTaxRate,
-          managementFeeRate: input.managementFeeRate,
-          financingYears: input.financingYears,
-          interestRate: input.interestRate,
-          rateType: input.rateType,
-          acquisitionCosts: input.acquisitionCosts,
-          annualOtherFinancialCosts: input.annualOtherFinancialCosts,
-          monthlyExtraCharges: input.monthlyExtraCharges,
-          saleCosts: input.saleCosts,
-        },
+        shared: { ...input },
         downPaymentPercent: input.downPaymentPercent ?? 30,
         horizonYears,
         appreciationRateAnnual,
@@ -247,6 +231,7 @@ export function CompraComparisonView({
             onChange={(e) => onAppreciationRateChange?.((Number(e.target.value) || 0) / 100)}
             className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-center text-sm tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
+          <div className="mt-1 flex gap-1">{[2, 3, 5].map((rate) => <button key={rate} type="button" onClick={() => onAppreciationRateChange?.(rate / 100)} className={`rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.1em] uppercase ${Math.abs(appreciationRateAnnual * 100 - rate) < 0.01 ? 'bg-[#1a2744] text-white' : 'border border-[#d9d0c3] bg-white text-[#6b645c]'}`}>{t(`${rate}%`)}</button>)}</div>
         </label>
       </div>
 
@@ -258,8 +243,8 @@ export function CompraComparisonView({
               label: 'Entrada hoy',
               value: formatMoney(wealth.initialOutlay),
               hint: isCash
-                ? 'Precio (+ costos iniciales si hay)'
-                : `${formatPercent(downPct, 0)} del precio`,
+                ? `Precio + costos de escritura (${formatMoney(preview.acquisitionCosts)})`
+                : `${formatPercent(downPct, 0)} del precio + costos de escritura (${formatMoney(preview.acquisitionCosts)})`,
             },
             {
               label: isCash ? 'Flujo mensual' : 'Tu aporte/mes',
@@ -276,9 +261,9 @@ export function CompraComparisonView({
               hint: 'Ganancia proyectada (≠ patrimonio)',
             },
             {
-              label: 'Retorno acumulado',
-              value: formatPercent(wealth.cumulativeReturnOnCashPercent),
-              hint: `Sobre capital aportado · ${horizonYears} años`,
+              label: 'Rentabilidad anual (TIR)',
+              value: formatPercent(wealth.irrAnnualPercent),
+              hint: `Retorno acumulado ${formatPercent(wealth.cumulativeReturnOnCashPercent)} · ${horizonYears} años`,
             },
           ] as const
         ).map((card) => (
@@ -320,7 +305,7 @@ export function CompraComparisonView({
                   mgmtMo > 0
                     ? `Admin (${formatPercent(preview.managementFeeRate * 100, 0)})`
                     : null,
-                  taxMo > 0 ? `IR (${formatPercent(preview.incomeTaxRate * 100, 0)})` : null,
+                  taxMo > 0 ? preview.taxProfile === 'company' ? `IR (empresa ${formatPercent(preview.companyIncomeTaxRate * 100, 0)})` : `IR (tabla SRI ${preview.incomeTaxTableYear})` : null,
                 ]
                   .filter(Boolean)
                   .join(' + '))}
@@ -377,7 +362,7 @@ export function CompraComparisonView({
           )}
           {(mgmtMo > 0 || taxMo > 0) && (
             <p className="text-[11px] text-[#8a8176]">
-              {t(" Admin e IR son supuestos del escenario; no son tasas legales universales. ")}</p>
+              {t(' El gestor usa la comisión seleccionada; el IR se calcula sobre la base neta con ')}{t(preview.taxProfile === 'company' ? 'empresa ' : 'tabla SRI ')}{t(preview.taxProfile === 'company' ? `${Number((preview.companyIncomeTaxRate * 100).toFixed(1))}%` : preview.incomeTaxTableYear)}.</p>
           )}
         </Accordion>
 
@@ -444,6 +429,12 @@ export function CompraComparisonView({
               tone="muted"
             />
             <Row label={t("Retorno acumulado")} value="(Ganancia ÷ capital aportado) × 100" tone="muted" />
+            <Row label={t('Costos de compra')} value={t(`Alcabala + registro + notaría: ${formatMoneyExact(preview.acquisitionCosts)}`)} tone="muted" />
+            <Row label={t('Impuesto municipal de utilidades y plusvalía (Cuenca)')} value={t(formatMoneyExact(wealth.capitalGainsTax))} tone="muted" />
+            {wealth.saleCommission > 0 ? <Row label={t('Comisión de venta')} value={t(formatMoneyExact(wealth.saleCommission))} tone="muted" /> : null}
+            <Row label={t('Crecimiento del arriendo')} value={t(formatPercent((preview.assumptions.rentGrowthRate ?? 0.02) * 100, 1))} tone="muted" />
+            <Row label={t('Impuesto a la renta')} value={t(preview.taxProfile === 'company' ? 'Empresa: arriendo − gastos − gestor − intereses − depreciación aplicable' : 'Persona natural: arriendo − 1% del avalúo − intereses − depreciación aplicable; IR incremental SRI')} tone="muted" />
+            <Row label={t('Rentabilidad anual (TIR)')} value={t('Tasa que iguala la entrada, los flujos mensuales y el patrimonio final')} tone="muted" />
             <Row
               label={t(`Capital aportado (${horizonYears} años)`)}
               value={`${formatMoney(wealth.initialOutlay)} + ${formatMoney(wealth.cumulativeTopUps)} = ${formatMoney(wealth.totalCashInvested)}`}
@@ -483,14 +474,14 @@ export function CompraComparisonView({
             },
             {
               key: 'flujo',
-              label: cashFlow >= 0 && finFlow >= 0 ? 'Flujo/mes' : 'Aporte o flujo/mes',
-              cash: formatMoneyExact(Math.abs(cashFlow)),
-              financed: formatMoneyExact(Math.abs(finFlow)),
+              label: 'Flujo mensual (+ recibes / − pones)',
+              cash: `${cashFlow >= 0 ? '+' : '−'}${formatMoneyExact(Math.abs(cashFlow))}`,
+              financed: `${finFlow >= 0 ? '+' : '−'}${formatMoneyExact(Math.abs(finFlow))}`,
               cashGood: cashFlow >= 0,
             },
             {
               key: 'total',
-              label: `Total ${horizonYears} años`,
+              label: `Dinero que pones (${horizonYears} años)`,
               cash: formatMoney(comparison.cash.wealth.totalCashInvested),
               financed: formatMoney(comparison.financed.wealth.totalCashInvested),
             },
@@ -499,6 +490,12 @@ export function CompraComparisonView({
               label: 'Ganancia',
               cash: formatMoney(comparison.cash.wealth.projectedGainOrLoss),
               financed: formatMoney(comparison.financed.wealth.projectedGainOrLoss),
+            },
+            {
+              key: 'tir',
+              label: 'Rentabilidad anual (TIR)',
+              cash: formatPercent(comparison.cash.wealth.irrAnnualPercent),
+              financed: formatPercent(comparison.financed.wealth.irrAnnualPercent),
             },
             {
               key: 'retorno',
@@ -552,7 +549,7 @@ export function CompraComparisonView({
                     key={row.key}
                     className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)] border-b border-[#e4ddd3]/80 last:border-b-0"
                   >
-                    <div className="flex items-center px-2 py-2.5 text-[11px] leading-snug text-[#6b645c] sm:px-3 sm:text-[12px]">
+                    <div className={cn('flex items-center px-2 py-2.5 text-[11px] leading-snug sm:px-3 sm:text-[12px]', row.key === 'tir' ? 'font-semibold text-[#1a2744]' : row.key === 'retorno' ? 'text-[#8a8176]' : 'text-[#6b645c]')}>
                       {t(row.label)}
                     </div>
                     <div
@@ -586,6 +583,7 @@ export function CompraComparisonView({
             )
           })()}
         <div className="rounded border-l-[3px] border-[#c4a574] bg-[#faf3e8] px-3 py-3 text-[12px] text-[#7a5c2e]">
+          <p>{t('La TIR permite comparar contado y financiado. El retorno acumulado usa capitales iniciales distintos y no es directamente comparable.')}</p>
           {!isCash ? (
             <>
               {t(" Con entrada del ")}{t(formatPercent(downPct, 0))}{t(", desembolsas un ")}{t(formatPercent(financedPct, 0))}{t(' ')}

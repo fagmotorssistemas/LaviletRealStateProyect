@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { maxLegalMonthlyRent } from './ecuadorTax'
 import {
   DOWN_PAYMENT_MAX_PCT,
   DOWN_PAYMENT_MIN_PCT,
   buildInvestmentPreview,
+  buildWealthProjection,
+  buildCashVsFinancedComparison,
   buildMonthlyCoverage,
   buildRentCoverageAnalysis,
   calculateMonthlyPayment,
@@ -79,7 +82,7 @@ describe('buildInvestmentPreview — v3 con IR y gestor', () => {
     assert.equal(p.monthlyCoverage.status, 'borderline')
   })
 
-  it('con IR 25% y gestor 8% sobre efectivo: saldo más negativo', () => {
+  it('con IR incremental y gestor 8%: intereses reducen la base imponible', () => {
     const p = buildInvestmentPreview({
       ...base,
       mode: 'financed',
@@ -87,9 +90,8 @@ describe('buildInvestmentPreview — v3 con IR y gestor', () => {
       includePropertyManager: true,
     })
     assert.equal(p.annualManagement, 1094.4)
-    assert.equal(p.annualIncomeTaxEstimate, 3420)
-    // 13680 - 4280 - 1094.4 - 18745.44 - 3420
-    approx(p.annualNetCashFlow, -13859.84, 0.15)
+    assert.equal(p.annualIncomeTaxEstimate, 0)
+    approx(p.annualNetCashFlow, -10439.84, 0.15)
     assert.equal(p.viabilityLevel, 'critical')
     assert.ok((p.roiOnTotalPrice ?? 0) < 0)
     assert.ok((p.cashOnCashReturn ?? 0) < 0)
@@ -111,7 +113,7 @@ describe('buildInvestmentPreview — v3 con IR y gestor', () => {
     })
     assert.equal(p.annualEffectiveRental, 13680)
     assert.equal(p.annualVacancyCost, 720)
-    assert.equal(p.annualIncomeTaxEstimate, 3420)
+    assert.equal(p.annualIncomeTaxEstimate, 0)
     assert.equal(p.annualManagement, 1094.4)
     // Cuota sobre 175k @ 7.8% 15 años (no 30): no asumir 9880 del ejemplo sin plazo.
     assert.ok(p.annualNetCashFlow < 0)
@@ -125,10 +127,9 @@ describe('buildInvestmentPreview — v3 con IR y gestor', () => {
       includeIncomeTax: true,
       includePropertyManager: true,
     })
-    // 13680 - 4280 - 1094.4 - 3420 = 4885.6
-    approx(p.annualNetCashFlow, 4885.6, 0.1)
-    approx(p.roiOnTotalPrice!, 1.58, 0.02)
-    approx(p.cashOnCashReturn!, 1.58, 0.02)
+    approx(p.annualNetCashFlow, 5131.6, 0.1)
+    approx(p.roiOnTotalPrice!, 5131.6 / 310000 * 100, 0.02)
+    approx(p.cashOnCashReturn!, 5131.6 / 310000 * 100, 0.02)
   })
 })
 
@@ -204,6 +205,116 @@ describe('suggestMonthlyRent', () => {
   })
 })
 
+describe('reglas tributarias y datos por unidad', () => {
+  it('mantiene una TIR negativa y finita cuando no hay apreciación', () => {
+    const preview = buildInvestmentPreview({
+      mode: 'financed',
+      unitPrice: 310000,
+      estimatedMonthlyRent: 1200,
+      vacancyRate: 0.05,
+      annualOperatingExpenses: 0,
+      downPaymentPercent: 30,
+      interestRate: 7.8,
+      financingYears: 20,
+    })
+    const wealth = buildWealthProjection({ preview, horizonYears: 10, appreciationRateAnnual: 0 })
+    assert.ok(wealth.irrAnnualPercent != null && Number.isFinite(wealth.irrAnnualPercent))
+    assert.ok(wealth.irrAnnualPercent < 0 && wealth.irrAnnualPercent < 100)
+  })
+  it('Unidad 001: concilia IR y flujo con los datos reales de referencia', () => {
+    const shared = {
+      unitPrice: 160000,
+      cadastralValue: 160000,
+      estimatedMonthlyRent: 1200,
+      vacancyRate: 0.05,
+      annualOperatingExpenses: 160000 * 0.008 + 600,
+      includeIncomeTax: true,
+      includePropertyManager: true,
+      managementFeeRate: 0.08,
+      taxProfile: '45_80' as const,
+    }
+    const cash = buildInvestmentPreview({ ...shared, mode: 'cash' })
+    approx(cash.annualIncomeTaxEstimate, 3624, 0.02)
+    approx(cash.monthlyCashFlow, 590.13, 0.02)
+
+    const financed = buildInvestmentPreview({
+      ...shared,
+      mode: 'financed',
+      downPaymentPercent: 30,
+      financingYears: 20,
+      interestRate: 7.8,
+      rateType: 'nominal_annual',
+    })
+    approx(financed.monthlyPayment, 922.92, 0.02)
+    approx(financed.annualIncomeTaxEstimate, 1028.84, 1)
+    approx(financed.monthlyCashFlow, -116.52, 1)
+
+    const noOtherIncome = { ...shared, taxProfile: 'none_other' as const }
+    const cashWithoutOtherIncome = buildInvestmentPreview({ ...noOtherIncome, mode: 'cash' })
+    const financedWithoutOtherIncome = buildInvestmentPreview({
+      ...noOtherIncome,
+      mode: 'financed',
+      downPaymentPercent: 30,
+      financingYears: 20,
+      interestRate: 7.8,
+      rateType: 'nominal_annual',
+    })
+    assert.equal(cashWithoutOtherIncome.annualIncomeTaxEstimate, 0)
+    approx(cashWithoutOtherIncome.monthlyCashFlow, 892.13, 0.02)
+    approx(financedWithoutOtherIncome.monthlyCashFlow, -30.79, 1)
+  })
+  it('contado 160k, catastral 160k: renta 1200 y vacancia 5% dejan base 12080 sin IR', () => {
+    const p = buildInvestmentPreview({ mode: 'cash', unitPrice: 160000, cadastralValue: 160000, cadastralIsEstimated: false, estimatedMonthlyRent: 1200, vacancyRate: 0.05, annualOperatingExpenses: 0, taxProfile: 'none_other', includeIncomeTax: true, includePropertyManager: false })
+    assert.equal(p.annualEffectiveRental, 13680)
+    assert.equal(p.annualIncomeTaxEstimate, 0)
+    assert.equal(p.annualNetCashFlow, 13680)
+  })
+  it('respeta la comisión del gestor configurada en 10%', () => {
+    const preview = buildInvestmentPreview({
+      mode: 'cash', unitPrice: 160000, estimatedMonthlyRent: 1200,
+      vacancyRate: 0.05, annualOperatingExpenses: 0,
+      includeIncomeTax: false, includePropertyManager: true, managementFeeRate: 0.1,
+    })
+    assert.equal(preview.annualManagement, 1368)
+  })
+  it('tabla configurable distinta cambia IR y sin tabla marca respaldo', () => {
+    const base = { mode: 'cash' as const, unitPrice: 160000, cadastralValue: 160000, estimatedMonthlyRent: 1200, vacancyRate: 0, annualOperatingExpenses: 0, taxProfile: 'none_other' as const, includeIncomeTax: true, includePropertyManager: false }
+    const configured = buildInvestmentPreview({ ...base, incomeTaxBrackets: [{ from: 0, to: null, baseTax: 0, rate: 0.1 }] })
+    const fallback = buildInvestmentPreview({ ...base, incomeTaxBrackets: [] })
+    assert.ok(configured.annualIncomeTaxEstimate > fallback.annualIncomeTaxEstimate)
+    assert.equal(configured.incomeTaxTableFallback, false)
+    assert.equal(fallback.incomeTaxTableFallback, true)
+  })
+  it('intereses del primer año reducen el IR del financiado', () => {
+    const shared = { unitPrice: 160000, cadastralValue: 160000, estimatedMonthlyRent: 1800, vacancyRate: 0.05, annualOperatingExpenses: 1000, taxProfile: '45_80' as const, includeIncomeTax: true, includePropertyManager: false }
+    const cash = buildInvestmentPreview({ ...shared, mode: 'cash' })
+    const financed = buildInvestmentPreview({ ...shared, mode: 'financed', downPaymentPercent: 30, financingYears: 20, interestRate: 8, rateType: 'nominal_annual' })
+    assert.ok(financed.annualIncomeTaxEstimate < cash.annualIncomeTaxEstimate)
+  })
+  it('dos unidades toman predial, alícuota, arriendo y tope propios', () => {
+    const config = { annual_property_tax: 0.3, annual_maintenance: 500, building_fee_per_m2_monthly: 2 } as Parameters<typeof expenseBreakdownFromConfig>[1]
+    const a = { cadastral_value: 144000, area_total_m2: 80, monthly_building_fee: null, estimated_monthly_rent: 1000 }
+    const b = { cadastral_value: 240000, area_total_m2: 120, monthly_building_fee: 300, estimated_monthly_rent: 1600 }
+    const expensesA = expenseBreakdownFromConfig(160000, config, a)
+    const expensesB = expenseBreakdownFromConfig(260000, config, b)
+    assert.equal(expensesA.propertyTax, 432)
+    assert.equal(expensesB.propertyTax, 720)
+    assert.equal(expensesA.maintenance, 1920)
+    assert.equal(expensesB.maintenance, 3600)
+    assert.equal(suggestMonthlyRent({ config, unitPrice: 160000, estimatedMonthlyRent: a.estimated_monthly_rent }).amount, 1000)
+    assert.equal(suggestMonthlyRent({ config, unitPrice: 260000, estimatedMonthlyRent: b.estimated_monthly_rent }).amount, 1600)
+    assert.equal(maxLegalMonthlyRent(a.cadastral_value), 1200)
+    assert.equal(maxLegalMonthlyRent(b.cadastral_value), 2000)
+  })
+  it('contado vs financiado conserva la misma tabla y perfil tributario', () => {
+    const shared = { unitPrice: 160000, estimatedMonthlyRent: 1200, vacancyRate: 0, annualOperatingExpenses: 1000, taxProfile: 'company' as const, companyIncomeTaxRate: 0.3, incomeTaxBrackets: [{ from: 0, to: null, baseTax: 0, rate: 0.1 }], financingYears: 20, interestRate: 8, rateType: 'nominal_annual' as const }
+    const comparison = buildCashVsFinancedComparison({ shared, downPaymentPercent: 30, horizonYears: 10, appreciationRateAnnual: 0.03 })
+    assert.equal(comparison.cash.preview.taxProfile, 'company')
+    assert.equal(comparison.financed.preview.companyIncomeTaxRate, 0.3)
+    assert.ok(comparison.financed.preview.annualIncomeTaxEstimate < comparison.cash.preview.annualIncomeTaxEstimate)
+  })
+})
+
 /** Unidad 002 (suite 1D, $210k): reconciliación de aporte con IR+gestor activos. */
 describe('Unidad 002 — aporte mensual', () => {
   const unit002 = {
@@ -222,13 +333,13 @@ describe('Unidad 002 — aporte mensual', () => {
     rateType: 'nominal_annual' as const,
   }
 
-  it('con admin 8% e IR 25%: aporte ≈ $637,53 (no $261)', () => {
+  it('con gestor y el IR incremental, el aporte refleja el interés deducible', () => {
     const p = buildInvestmentPreview(unit002)
     const c = buildRentCoverageAnalysis(p)
     assert.equal(p.financedAmount, 147000)
     approx(p.monthlyPayment, 1211.33, 0.02)
-    approx(c.monthlyNetRentAvailable, 573.8, 0.02)
-    approx(c.monthlyTopUpOrSurplus, -637.53, 0.02)
+    approx(c.monthlyNetRentAvailable, 853.15, 0.02)
+    approx(c.monthlyTopUpOrSurplus, -358.18, 0.02)
   })
 
   it('sin admin ni IR: déficit ≈ $261,33 (solo si se desactivan)', () => {

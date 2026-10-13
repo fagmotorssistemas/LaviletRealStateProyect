@@ -3,7 +3,6 @@
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 
 import {
-  INCOME_TAX_RATE,
   MANAGEMENT_FEE_RATE,
   formatMoney,
   formatMoneyExact,
@@ -11,6 +10,7 @@ import {
   roundMoney,
 } from '@/lib/financing/calculator'
 import type { FinancingConfig } from '@/types/financingSimulator'
+import { isTaxProfile, type TaxProfile } from '@/lib/financing/ecuadorTax'
 
 export function ParameterSliders({
   monthlyRent,
@@ -21,13 +21,18 @@ export function ParameterSliders({
   vacancyRate,
   onVacancyChange,
   financingConfig,
+  unit,
+  taxProfile,
+  onTaxProfileChange,
+  estimatedIncomeTax,
+  rentExceedsLegalCap,
+  maxLegalRent,
+  cadastralIsEstimated,
   unitPrice,
   includePropertyManager,
   onIncludePropertyManagerChange,
   includeIncomeTax,
   onIncludeIncomeTaxChange,
-  incomeTaxRate,
-  onIncomeTaxRateChange,
   managementFeeRate,
   onManagementFeeRateChange,
   onUnitPriceChange,
@@ -45,6 +50,13 @@ export function ParameterSliders({
   vacancyRate: number
   onVacancyChange: (value: number) => void
   financingConfig: FinancingConfig | null
+  unit?: { cadastral_value?: number | null; monthly_building_fee?: number | null; area_total_m2?: number | null; area_internal_m2?: number | null } | null
+  taxProfile?: TaxProfile
+  onTaxProfileChange?: (value: TaxProfile) => void
+  estimatedIncomeTax?: number
+  rentExceedsLegalCap?: boolean
+  maxLegalRent?: number
+  cadastralIsEstimated?: boolean
   includePropertyManager: boolean
   onIncludePropertyManagerChange: (value: boolean) => void
   includeIncomeTax: boolean
@@ -63,12 +75,10 @@ export function ParameterSliders({
   const { t } = useTourLanguage()
 
   const vacancyPct = Math.round(vacancyRate * 1000) / 10
-  const taxRate = incomeTaxRate ?? INCOME_TAX_RATE
   const mgmtRate = managementFeeRate ?? MANAGEMENT_FEE_RATE
   const annualEffective = roundMoney(monthlyRent * 12 * (1 - vacancyRate))
   const estimatedManagement = roundMoney(annualEffective * mgmtRate)
-  const estimatedIncomeTax = roundMoney(annualEffective * taxRate)
-  const propertyExpenses = propertyExpenseLinesFromConfig(unitPrice, financingConfig)
+  const propertyExpenses = propertyExpenseLinesFromConfig(unitPrice, financingConfig, unit)
 
   return (
     <div className="space-y-5">
@@ -143,6 +153,8 @@ export function ParameterSliders({
         ) : null}
       </label>
 
+      {rentExceedsLegalCap ? <p className="rounded border-l-[3px] border-[#c4a574] bg-[#faf3e8] px-3 py-3 text-[12px] text-[#7a5c2e]">{t('Este arriendo supera el máximo legal para vivienda según el avalúo catastral (')}{t(formatMoneyExact(maxLegalRent ?? 0))}{t('/mes, Ley de Inquilinato Art. 17).')}</p> : null}
+
       <label className="block space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold tracking-[0.14em] text-[#6b645c] uppercase">
@@ -184,6 +196,7 @@ export function ParameterSliders({
         )}
         <p className="text-[11px] text-[#8a8176]">
           {t(" Los gastos de la propiedad incluyen impuesto predial y alícuota. No incluyen seguros ni otros gastos adicionales. Los montos vienen de la configuración del proyecto; no son tarifas tributarias legalmente verificadas por esta interfaz. ")}</p>
+        {cadastralIsEstimated ? <p className="text-[10px] text-[#8a8176]">{t('Avalúo catastral estimado igual al precio; el predial real puede ser menor.')}</p> : null}
         <details className="rounded-xl border border-[#ece6dc] bg-white px-3 py-2">
           <summary className="cursor-pointer text-[11px] font-semibold tracking-[0.1em] text-[#6b645c] uppercase">
             {t(" Ver gastos de la propiedad ")}</summary>
@@ -293,26 +306,23 @@ export function ParameterSliders({
             checked={includeIncomeTax}
             onChange={(event) => onIncludeIncomeTaxChange(event.target.checked)}
           />
-          <span>{t("Impuesto estimado sobre alquiler efectivo (supuesto configurado)")}</span>
+          <span>{t('Impuesto a la renta estimado')}</span>
         </label>
-        {includeIncomeTax && onIncomeTaxRateChange ? (
+        {onTaxProfileChange ? (
           <label className="block space-y-1">
-            <span className="text-[11px] text-[#6b645c]">{t("% impuesto (no es tasa legal universal)")}</span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={Math.round(taxRate * 1000) / 10}
-              onChange={(e) => onIncomeTaxRateChange((Number(e.target.value) || 0) / 100)}
+            <span className="text-[11px] text-[#6b645c]">{t('Tus otros ingresos anuales (aprox.)')}</span>
+            <select
+              value={taxProfile ?? '45_80'}
+              onChange={(e) => { if (isTaxProfile(e.target.value)) onTaxProfileChange(e.target.value) }}
               className="w-full rounded-xl border border-[#e4ddd3] bg-white px-3 py-2 text-sm"
-            />
+            >{([['none_other','Solo este arriendo'],['lt12','Menos de $12.000 al año'],['12_25','$12.000 – $25.000'],['25_45','$25.000 – $45.000'],['45_80','$45.000 – $80.000'],['80_120','$80.000 – $120.000'],['gt120','Más de $120.000'],['company','Compro como empresa']] as const).map(([value,label]) => <option key={value} value={value}>{t(label)}</option>)}</select>
+            <span className="text-[10px] text-[#8a8176]">{t('Se usa para estimar tu impuesto a la renta con la tabla SRI ')}{t(financingConfig?.income_tax_table_year ?? 2026)}{t('. No se guarda como dato personal.')}</span>
           </label>
         ) : null}
         <p className="text-[12px] tabular-nums text-[#4a433c]">
           {t(" IR estimado:")}{t(' ')}
           <strong>
-            {t(includeIncomeTax ? formatMoneyExact(estimatedIncomeTax) : formatMoneyExact(0))}
+            {t(includeIncomeTax ? formatMoneyExact(estimatedIncomeTax ?? 0) : formatMoneyExact(0))}
           </strong>
           {t(" /año · adicional al impuesto predial ")}</p>
       </div>

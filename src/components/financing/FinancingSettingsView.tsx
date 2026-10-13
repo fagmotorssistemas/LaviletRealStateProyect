@@ -8,6 +8,8 @@ import type { FinancingConfig, FinancingPartner } from '@/types/financingSimulat
 import { FINANCING_PROJECT_ID } from '@/types/financingSimulator'
 import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/inmobiliaria/shared/PageHeader'
+import { useTourLanguage } from '@/lib/tour/tourLocale'
+import { SRI_PERSONAL_INCOME_TAX_TABLE_2026, validIncomeTaxBrackets, isTaxProfile, type TaxProfile } from '@/lib/financing/ecuadorTax'
 
 function SectionShell({
   title,
@@ -38,6 +40,7 @@ export function FinancingSettingsView({
   section?: 'partners' | 'config'
 }) {
   const { supabase } = useAuth()
+  const { t } = useTourLanguage()
   const { isAdmin, isLoading: roleLoading } = useRoleAccess()
   const router = useRouter()
   const [tab, setTab] = useState<'partners' | 'config'>(section ?? 'partners')
@@ -99,8 +102,28 @@ export function FinancingSettingsView({
 
   async function saveConfig() {
     if (!config) return
-    if (!(config.annual_property_tax >= 0 && config.annual_property_tax <= 10)) {
-      setMessage('Impuesto fuera de rango (0–10%)')
+    if (!(config.annual_property_tax >= 0 && config.annual_property_tax <= 0.6)) {
+      setMessage('Impuesto fuera de rango (0–0,6%)')
+      return
+    }
+    const brackets = config.income_tax_brackets ?? SRI_PERSONAL_INCOME_TAX_TABLE_2026
+    if (!validIncomeTaxBrackets(brackets)) {
+      setMessage('Los tramos del IR deben ser continuos, estar ordenados y tener solo el último sin límite superior')
+      return
+    }
+    const ranges = [
+      [config.company_income_tax_rate ?? 0.25, 0, 1],
+      [config.management_fee_rate ?? 0.08, 0, 1],
+      [config.acquisition_cost_pct ?? 1.3, 0, 20],
+      [config.acquisition_cost_fixed ?? 500, 0, 100000],
+      [config.sale_commission_pct ?? 0, 0, 20],
+      [config.default_appreciation_rate ?? 0.03, -0.5, 0.5],
+      [config.rent_growth_rate ?? 0.02, -0.5, 0.5],
+      [config.construction_share_pct ?? 80, 0, 100],
+      [config.building_fee_per_m2_monthly ?? 0, 0, 1000],
+    ]
+    if (ranges.some(([value, min, max]) => !Number.isFinite(value) || value < min || value > max) || !Number.isInteger(config.income_tax_table_year) || Number(config.income_tax_table_year) < 2026) {
+      setMessage('Revisa los rangos de la configuración tributaria y de los costos')
       return
     }
     if (!(config.annual_maintenance >= 0 && config.annual_maintenance <= 5000)) {
@@ -125,6 +148,19 @@ export function FinancingSettingsView({
         avg_two_bed_rent: Number(config.avg_two_bed_rent),
         avg_three_bed_rent: Number(config.avg_three_bed_rent),
         disclaimer_text: config.disclaimer_text,
+        default_tax_profile: config.default_tax_profile ?? '45_80',
+        income_tax_brackets: brackets,
+        income_tax_table_year: config.income_tax_table_year,
+        company_income_tax_rate: config.company_income_tax_rate,
+        management_fee_rate: config.management_fee_rate,
+        acquisition_cost_pct: config.acquisition_cost_pct,
+        acquisition_cost_fixed: config.acquisition_cost_fixed,
+        sale_commission_pct: config.sale_commission_pct,
+        default_appreciation_rate: config.default_appreciation_rate,
+        rent_growth_rate: config.rent_growth_rate,
+        rental_depreciation_enabled: config.rental_depreciation_enabled,
+        construction_share_pct: config.construction_share_pct,
+        building_fee_per_m2_monthly: config.building_fee_per_m2_monthly,
         updated_at: new Date().toISOString(),
       })
       .eq('id', config.id)
@@ -228,12 +264,12 @@ export function FinancingSettingsView({
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <label className={fieldClass}>
         <span className={labelClass}>Impuesto predial (%)</span>
-        <p className={helpClass}>Pago único anual al Municipio por la propiedad</p>
+        <p className={helpClass}>Porcentaje sobre el avalúo catastral (COOTAD: máx. 0,5% + tasas)</p>
         <input
           type="number"
           step="any"
           min={0}
-          max={10}
+          max={0.6}
           value={Number(config.annual_property_tax ?? 0)}
           onChange={(event) =>
             setConfig({ ...config, annual_property_tax: Number(event.target.value) })
@@ -241,6 +277,39 @@ export function FinancingSettingsView({
           className={inputClass}
         />
       </label>
+      {([
+        ['building_fee_per_m2_monthly', 'Alícuota por m² ($/mes)', 0, 1000, 'Si la unidad no tiene alícuota propia'],
+        ['management_fee_rate', 'Comisión del gestor (%)', 0, 100, 'Valor por defecto del simulador; el cliente puede desactivarlo'],
+        ['acquisition_cost_pct', 'Costos de compra (%)', 0, 20, 'Alcabala y registro'],
+        ['acquisition_cost_fixed', 'Costos de compra fijos ($)', 0, 100000, 'Notaría'],
+        ['sale_commission_pct', 'Comisión de venta (%)', 0, 20, 'Costo al vender'],
+        ['default_appreciation_rate', 'Apreciación anual (%)', -50, 50, 'Valor inicial del simulador'],
+        ['rent_growth_rate', 'Crecimiento anual del arriendo (%)', -50, 50, 'Se aplica desde el segundo año'],
+        ['construction_share_pct', 'Porción de construcción (%)', 0, 100, 'Para depreciación tributaria opcional'],
+      ] as const).map(([key, label, min, max, help]) => {
+        const isRate = key === 'management_fee_rate' || key === 'default_appreciation_rate' || key === 'rent_growth_rate'
+        return <label key={key} className={fieldClass}>
+          <span className={labelClass}>{t(label)}</span><p className={helpClass}>{t(help)}</p>
+          <input type="number" step="any" min={min} max={max}
+            value={key === 'building_fee_per_m2_monthly' && config[key] == null ? '' : Number(config[key] ?? 0) * (isRate ? 100 : 1)}
+            onChange={(event) => setConfig({ ...config, [key]: key === 'building_fee_per_m2_monthly' && event.target.value === '' ? null : Number(event.target.value) / (isRate ? 100 : 1) })}
+            className={inputClass} />
+        </label>
+      })}
+      <label className={fieldClass}><span className={labelClass}>{t('Depreciación del arriendo')}</span><p className={helpClass}>{t('Aplicar solo si corresponde según el SRI')}</p>
+        <input type="checkbox" checked={Boolean(config.rental_depreciation_enabled)} onChange={(event) => setConfig({ ...config, rental_depreciation_enabled: event.target.checked })} /></label>
+      <div className="space-y-3 sm:col-span-2 xl:col-span-3">
+        <h3 className={labelClass}>{t('Impuesto a la renta')}</h3>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className={fieldClass}><span className={labelClass}>{t('Año de la tabla')}</span><input type="number" min={2026} step={1} value={config.income_tax_table_year ?? 2026} onChange={(e) => setConfig({ ...config, income_tax_table_year: Number(e.target.value) })} className={inputClass} /></label>
+          <label className={fieldClass}><span className={labelClass}>{t('Tarifa empresas (%)')}</span><input type="number" min={0} max={100} step="any" value={Number(config.company_income_tax_rate ?? 0.25) * 100} onChange={(e) => setConfig({ ...config, company_income_tax_rate: Number(e.target.value) / 100 })} className={inputClass} /></label>
+          <label className={fieldClass}><span className={labelClass}>{t('Perfil inicial')}</span><select value={config.default_tax_profile ?? '45_80'} onChange={(e) => { if (isTaxProfile(e.target.value)) setConfig({ ...config, default_tax_profile: e.target.value as TaxProfile }) }} className={inputClass}>{([['none_other','Solo este arriendo'],['lt12','Menos de $12.000 al año'],['12_25','$12.000 – $25.000'],['25_45','$25.000 – $45.000'],['45_80','$45.000 – $80.000'],['80_120','$80.000 – $120.000'],['gt120','Más de $120.000'],['company','Compro como empresa']] as const).map(([profile, label]) => <option key={profile} value={profile}>{t(label)}</option>)}</select></label>
+        </div>
+        <p className={helpClass}>{t('Actualizar cada enero con la resolución del SRI')}</p>
+        {Number(config.income_tax_table_year) < new Date().getFullYear() ? <p className="rounded border-l-[3px] border-[#c4a574] bg-[#faf3e8] px-3 py-3 text-[12px] text-[#7a5c2e]">{t('La tabla del IR es de ')}{config.income_tax_table_year}{t('; revisa si el SRI publicó una nueva')}</p> : null}
+        <div className="max-w-full overflow-x-auto"><table className="min-w-[620px] w-full text-sm"><thead><tr className="text-left"><th>{t('Desde')}</th><th>{t('Hasta')}</th><th>{t('Impuesto fracción básica')}</th><th>{t('% excedente')}</th><th /></tr></thead><tbody>{(config.income_tax_brackets ?? SRI_PERSONAL_INCOME_TAX_TABLE_2026).map((bracket, index, all) => <tr key={index} className="border-t border-[#f0ebe3]">{(['from','to','baseTax','rate'] as const).map((key) => <td key={key} className="py-1 pr-2"><input type="number" min={0} step="any" placeholder={key === 'to' && index === all.length - 1 ? t('en adelante') : ''} value={key === 'to' && bracket.to == null ? '' : key === 'rate' ? bracket.rate * 100 : bracket[key] ?? ''} onChange={(e) => { const next = [...all]; next[index] = { ...bracket, [key]: key === 'to' && e.target.value === '' ? null : Number(e.target.value) / (key === 'rate' ? 100 : 1) }; setConfig({ ...config, income_tax_brackets: next }) }} className={inputClass} /></td>)}<td><button type="button" onClick={() => setConfig({ ...config, income_tax_brackets: all.filter((_, i) => i !== index) })}>{t('Quitar')}</button></td></tr>)}</tbody></table></div>
+        <button type="button" onClick={() => setConfig({ ...config, income_tax_brackets: [...(config.income_tax_brackets ?? SRI_PERSONAL_INCOME_TAX_TABLE_2026), { from: 0, to: null, baseTax: 0, rate: 0 }] })} className="text-sm font-medium text-[#1a2744]">{t('Agregar tramo')}</button>
+      </div>
       <label className={fieldClass}>
         <span className={labelClass}>Alícuota del edificio ($/año)</span>
         <p className={helpClass}>Administración y mantenimiento de áreas comunes</p>
@@ -325,7 +394,7 @@ export function FinancingSettingsView({
   if (showAll) {
     return (
       <div className="grid gap-4 sm:gap-6">
-        {message ? <p className="text-sm text-[#4a433c]">{message}</p> : null}
+        {message ? <p className="text-sm text-[#4a433c]">{t(message)}</p> : null}
         <SectionShell title="Bancos">{partnersTable}</SectionShell>
         <SectionShell title="Configuración">{configForm}</SectionShell>
       </div>
@@ -360,7 +429,7 @@ export function FinancingSettingsView({
         </div>
       ) : null}
 
-      {message ? <p className="text-sm text-[#4a433c]">{message}</p> : null}
+      {message ? <p className="text-sm text-[#4a433c]">{t(message)}</p> : null}
 
       {showPartners ? (
         embedded ? (

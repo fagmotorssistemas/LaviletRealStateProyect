@@ -8,17 +8,29 @@ import type {
   SimulationMode,
   ViabilityLevel,
 } from '@/types/financingSimulator'
+import {
+  TAX_PROFILE_OTHER_INCOME,
+  annualIrrFromMonthlyCashFlows,
+  buildingFeeForUnit,
+  cuencaCapitalGainsTax,
+  incrementalPersonalIncomeTax,
+  isTaxProfile,
+  maxLegalMonthlyRent,
+  resolvedIncomeTaxBrackets,
+  type IncomeTaxBracket,
+  type TaxProfile,
+} from '@/lib/financing/ecuadorTax'
 
 /**
  * Versión de fórmulas; escenarios históricos deben conservar la suya.
- * v5: gastos de la propiedad = predial + alícuota; seguro/otros quedan fuera del bloque.
+ * v6: IR progresivo, avalúo por unidad y flujos anuales de Cuenca/Ecuador.
  */
-export const CALCULATION_VERSION = 'investment-v5'
+export const CALCULATION_VERSION = 'investment-v6'
 
 /** Modelo de gastos de propiedad admitido en simulaciones nuevas. */
 export const PROPERTY_EXPENSE_MODEL = 'predial_and_building_fee'
 
-/** IR sobre alquiler efectivo (tras vacancia). */
+/** Respaldo de la tarifa de sociedades cuando no hay configuración. */
 export const INCOME_TAX_RATE = 0.25
 /** Comisión gestor sobre alquiler efectivo. */
 export const MANAGEMENT_FEE_RATE = 0.08
@@ -40,9 +52,9 @@ export type BuildInvestmentInput = {
   annualManagement?: number
   /** @deprecated Prefer includeIncomeTax. */
   annualIncomeTaxEstimate?: number | null
-  /** Default true: aplica 25% sobre alquiler efectivo. */
+  /** Default true: aplica IR incremental o societario a la base gravable del arriendo. */
   includeIncomeTax?: boolean
-  /** Default true: aplica 8% sobre alquiler efectivo. */
+  /** Default true: aplica la comisión configurable del gestor sobre alquiler efectivo. */
   includePropertyManager?: boolean
   incomeTaxRate?: number
   managementFeeRate?: number
@@ -57,6 +69,18 @@ export type BuildInvestmentInput = {
   wealthHorizonYears?: number
   appreciationRateAnnual?: number
   saleCosts?: number
+  taxProfile?: TaxProfile
+  incomeTaxBrackets?: IncomeTaxBracket[] | null
+  incomeTaxTableYear?: number
+  companyIncomeTaxRate?: number
+  cadastralValue?: number
+  cadastralIsEstimated?: boolean
+  category?: string | null
+  rentalDepreciationEnabled?: boolean
+  constructionSharePct?: number
+  rentGrowthRate?: number
+  saleCommissionPct?: number
+  acquisitionCostBreakdown?: { percentage: number; fixed: number }
 }
 
 /** Redondeo a 2 decimales (política de dinero). */
@@ -123,9 +147,17 @@ export function calculateMonthlyPayment(
  * El campo DB `annual_maintenance` representa la alícuota (admin/mant. de áreas comunes),
  * no un mantenimiento particular independiente del inmueble.
  */
-export function expenseBreakdownFromConfig(unitPrice: number, config: FinancingConfig): ExpenseBreakdown {
-  const propertyTax = roundMoney((Math.max(0, unitPrice) * Number(config.annual_property_tax || 0)) / 100)
-  const maintenance = roundMoney(Number(config.annual_maintenance || 0))
+export type ExpenseUnit = {
+  cadastral_value?: number | null
+  monthly_building_fee?: number | null
+  area_total_m2?: number | null
+  area_internal_m2?: number | null
+}
+
+export function expenseBreakdownFromConfig(unitPrice: number, config: FinancingConfig, unit?: ExpenseUnit | null): ExpenseBreakdown {
+  const cadastral = Number(unit?.cadastral_value) > 0 ? Number(unit?.cadastral_value) : Math.max(0, unitPrice)
+  const propertyTax = roundMoney((cadastral * Number(config.annual_property_tax || 0)) / 100)
+  const maintenance = roundMoney(buildingFeeForUnit(unit, config))
   return {
     propertyTax,
     maintenance,
@@ -176,6 +208,7 @@ export type PropertyExpenseLine = {
 export function propertyExpenseLinesFromConfig(
   unitPrice: number,
   config: FinancingConfig | null | undefined,
+  unit?: ExpenseUnit | null,
 ): { lines: PropertyExpenseLine[]; totalAnnual: number | null; totalMonthly: number | null } {
   if (!config) {
     return {
@@ -202,13 +235,14 @@ export function propertyExpenseLinesFromConfig(
 
   const taxConfigured =
     config.annual_property_tax != null && Number.isFinite(Number(config.annual_property_tax))
-  const feeConfigured =
-    config.annual_maintenance != null && Number.isFinite(Number(config.annual_maintenance))
+  const feeConfigured = unit?.monthly_building_fee != null ||
+    (config.building_fee_per_m2_monthly != null && (unit?.area_total_m2 != null || unit?.area_internal_m2 != null)) ||
+    (config.annual_maintenance != null && Number.isFinite(Number(config.annual_maintenance)))
 
   const propertyTax = taxConfigured
-    ? roundMoney((Math.max(0, unitPrice) * Number(config.annual_property_tax)) / 100)
+    ? roundMoney(((Number(unit?.cadastral_value) > 0 ? Number(unit?.cadastral_value) : Math.max(0, unitPrice)) * Number(config.annual_property_tax)) / 100)
     : null
-  const maintenance = feeConfigured ? roundMoney(Number(config.annual_maintenance)) : null
+  const maintenance = feeConfigured ? roundMoney(buildingFeeForUnit(unit, config)) : null
 
   const lines: PropertyExpenseLine[] = [
     {
@@ -249,7 +283,7 @@ export function suggestedRentFromUnitPrice(unitPrice: number, annualYieldPct = 6
 
 export type RentSuggestion = {
   amount: number
-  source: 'bedrooms' | 'price_yield' | 'none'
+  source: 'unit' | 'bedrooms' | 'price_yield' | 'none'
   label: string
 }
 
@@ -258,7 +292,11 @@ export function suggestMonthlyRent(input: {
   unitPrice: number
   bedrooms?: number | null
   category?: string | null
+  estimatedMonthlyRent?: number | null
 }): RentSuggestion {
+  if (input.estimatedMonthlyRent != null && Number(input.estimatedMonthlyRent) > 0) {
+    return { amount: roundMoney(Number(input.estimatedMonthlyRent)), source: 'unit', label: 'Arriendo de referencia de esta unidad' }
+  }
   const cat = String(input.category ?? '').toLowerCase()
   const isCommercial =
     cat.includes('local') ||
@@ -459,7 +497,7 @@ export type WealthProjectionInput = {
 export function buildWealthProjection(input: WealthProjectionInput): WealthProjection {
   const preview = input.preview
   const horizonYears = Math.max(1, Math.min(40, Math.round(Number(input.horizonYears) || 10)))
-  const appreciationRateAnnual = Number(input.appreciationRateAnnual ?? 0.05)
+  const appreciationRateAnnual = Number(input.appreciationRateAnnual ?? 0.03)
   const saleCosts = roundMoney(Math.max(0, Number(input.saleCosts) || 0))
   const horizonMonths = horizonYears * 12
 
@@ -484,36 +522,60 @@ export function buildWealthProjection(input: WealthProjectionInput): WealthProje
     )
   }
 
-  // Flujo operativo neto mensual (sin cuota): alquiler neto disponible.
-  const monthlyNetRent = roundMoney(
-    (preview.annualEffectiveRental -
-      preview.annualOperatingExpenses -
-      preview.annualManagement -
-      preview.annualIncomeTaxEstimate) /
-      12,
-  )
   const monthlyExtra = preview.monthlyExtraCharges
   const annualOtherMonthly = roundMoney(preview.annualOtherFinancialCosts / 12)
-
   let cumulativeTopUps = 0
   let cumulativeSurplus = 0
-
-  for (let m = 1; m <= horizonMonths; m++) {
-    let debtService = 0
-    if (loanMonths > 0 && m <= loanMonths) {
-      debtService = roundMoney(preview.monthlyPayment + monthlyExtra + annualOtherMonthly)
-    } else if (loanMonths === 0 && preview.mode === 'cash') {
-      debtService = 0
+  const growthRate = Number(preview.assumptions.rentGrowthRate ?? 0.02)
+  const taxProfile = preview.taxProfile
+  const taxTable = resolvedIncomeTaxBrackets(preview.assumptions.incomeTaxBrackets).brackets
+  const cadastral = preview.cadastralValue
+  const depreciation = preview.assumptions.rentalDepreciationEnabled
+    ? preview.unitPrice * Number(preview.assumptions.constructionSharePct ?? 80) / 100 * 0.05
+    : 0
+  const monthlyCashFlows = [-preview.initialCashOutlay]
+  let firstYearMonthlyNetRent = 0
+  for (let year = 0; year < horizonYears; year++) {
+    const factor = (1 + growthRate) ** year
+    const effectiveRent = roundMoney(preview.annualEffectiveRental * factor)
+    const propertyExpenses = roundMoney(preview.annualOperatingExpenses * factor)
+    const management = roundMoney(preview.annualManagement * factor)
+    let interest = 0
+    for (let monthInYear = 1; monthInYear <= 12; monthInYear++) {
+      const month = year * 12 + monthInYear
+      if (loanMonths > 0 && month <= loanMonths) {
+        interest += paymentInterestAndPrincipal(preview.financedAmount, preview.interestRate, preview.financingYears, month, preview.rateType).interest
+      }
     }
-    const monthCf = roundMoney(monthlyNetRent - debtService)
-    if (monthCf < 0) cumulativeTopUps = roundMoney(cumulativeTopUps + Math.abs(monthCf))
-    else if (monthCf > 0) cumulativeSurplus = roundMoney(cumulativeSurplus + monthCf)
+    // Deducibles según SRI 2026 para arriendos de persona natural; validar con contador.
+    const taxable = taxProfile === 'company'
+      ? Math.max(0, effectiveRent - propertyExpenses - management - interest - depreciation)
+      : Math.max(0, effectiveRent - cadastral * 0.01 - interest - depreciation)
+    const tax = !preview.includeIncomeTax ? 0 : roundMoney(taxProfile === 'company'
+      ? taxable * preview.companyIncomeTaxRate
+      : incrementalPersonalIncomeTax(TAX_PROFILE_OTHER_INCOME[taxProfile], taxable, taxTable))
+    const monthlyNetRent = roundMoney((effectiveRent - propertyExpenses - management - tax) / 12)
+    if (year === 0) firstYearMonthlyNetRent = monthlyNetRent
+    for (let monthInYear = 1; monthInYear <= 12; monthInYear++) {
+      const month = year * 12 + monthInYear
+      const debtService = loanMonths > 0 && month <= loanMonths
+        ? roundMoney(preview.monthlyPayment + monthlyExtra + annualOtherMonthly) : 0
+      const monthCf = roundMoney(monthlyNetRent - debtService)
+      monthlyCashFlows.push(monthCf)
+      if (monthCf < 0) cumulativeTopUps = roundMoney(cumulativeTopUps + Math.abs(monthCf))
+      else if (monthCf > 0) cumulativeSurplus = roundMoney(cumulativeSurplus + monthCf)
+    }
   }
 
   const initialOutlay = preview.initialCashOutlay
   const totalCashInvested = roundMoney(initialOutlay + cumulativeTopUps)
-  const propertyAfterSaleCosts = roundMoney(Math.max(0, futurePropertyValue - saleCosts))
+  const capitalGainsTax = roundMoney(cuencaCapitalGainsTax(futurePropertyValue - preview.unitPrice, horizonYears))
+  const saleCommission = roundMoney(futurePropertyValue * Number(preview.assumptions.saleCommissionPct ?? 0) / 100)
+  const propertyAfterSaleCosts = roundMoney(futurePropertyValue - saleCosts - capitalGainsTax - saleCommission)
   const endingEquity = roundMoney(propertyAfterSaleCosts - remainingDebt)
+  const flowsWithSale = [...monthlyCashFlows]
+  flowsWithSale[horizonMonths] = roundMoney(flowsWithSale[horizonMonths] + endingEquity)
+  const irrAnnualPercent = annualIrrFromMonthlyCashFlows(flowsWithSale)
   const projectedGainOrLoss = roundMoney(endingEquity + cumulativeSurplus - totalCashInvested)
   const cumulativeReturnOnCashPercent =
     totalCashInvested > 0
@@ -526,11 +588,15 @@ export function buildWealthProjection(input: WealthProjectionInput): WealthProje
   const propertyAppreciation = roundMoney(futurePropertyValue - preview.unitPrice)
   const annualNetRentYieldPercent =
     preview.unitPrice > 0
-      ? roundMoney(((monthlyNetRent * 12) / preview.unitPrice) * 100)
+      ? roundMoney(((firstYearMonthlyNetRent * 12) / preview.unitPrice) * 100)
       : null
 
-  const zeroFv = roundMoney(Math.max(0, futureNoApprec - saleCosts))
+  const zeroSaleCommission = roundMoney(futureNoApprec * Number(preview.assumptions.saleCommissionPct ?? 0) / 100)
+  const zeroFv = roundMoney(futureNoApprec - saleCosts - zeroSaleCommission)
   const zeroEquity = roundMoney(zeroFv - remainingDebt)
+  const zeroFlows = [...monthlyCashFlows]
+  zeroFlows[horizonMonths] = roundMoney(zeroFlows[horizonMonths] + zeroEquity)
+  const zeroIrrAnnualPercent = annualIrrFromMonthlyCashFlows(zeroFlows)
   const zeroGain = roundMoney(zeroEquity + cumulativeSurplus - totalCashInvested)
   const zeroReturn =
     totalCashInvested > 0 ? roundMoney((zeroGain / totalCashInvested) * 100) : null
@@ -542,8 +608,10 @@ export function buildWealthProjection(input: WealthProjectionInput): WealthProje
     'Montos redondeados a 2 decimales (centavos) en cada paso del motor.',
     saleCosts > 0
       ? `Costos de salida modelados: ${saleCosts}.`
-      : 'Sin costos de venta/salida en este escenario.',
-    'El rendimiento anual de flujo de caja es distinto del retorno acumulado del horizonte. No se anualiza el retorno acumulado.',
+      : 'Sin costo manual adicional de salida; impuestos y comisión configurada se calculan aparte.',
+    'La TIR anual incorpora cada flujo mensual y el valor neto de venta; el retorno acumulado mide otra cosa.',
+    `Venta neta: impuesto de plusvalía ${capitalGainsTax}, comisión ${saleCommission}.`,
+    `El arriendo y los gastos de propiedad crecen ${roundMoney(growthRate * 100)}% por año en esta hipótesis.`,
   ]
 
   return {
@@ -561,14 +629,20 @@ export function buildWealthProjection(input: WealthProjectionInput): WealthProje
     cumulativeReturnOnCashPercent,
     annualNetRentYieldPercent,
     saleCosts,
+    capitalGainsTax,
+    saleCommission,
+    irrAnnualPercent,
     saleCostsIncluded: saleCosts > 0,
     annualCashFlowYieldPercent,
-    monthlyNetRentAverageYear1: monthlyNetRent,
+    monthlyNetRentAverageYear1: firstYearMonthlyNetRent,
     zeroAppreciation: {
       futurePropertyValue: futureNoApprec,
       endingEquity: zeroEquity,
       projectedGainOrLoss: zeroGain,
       cumulativeReturnOnCashPercent: zeroReturn,
+      capitalGainsTax: 0,
+      saleCommission: zeroSaleCommission,
+      irrAnnualPercent: zeroIrrAnnualPercent,
     },
     notes,
   }
@@ -592,6 +666,9 @@ export type WealthProjection = {
   /** (alquiler neto anual año 1) / precio × 100. No es TIR ni retorno del horizonte. */
   annualNetRentYieldPercent: number | null
   saleCosts: number
+  capitalGainsTax: number
+  saleCommission: number
+  irrAnnualPercent: number | null
   saleCostsIncluded: boolean
   annualCashFlowYieldPercent: number | null
   /** Promedio mensual del alquiler neto disponible (año 1 / 12). */
@@ -601,6 +678,9 @@ export type WealthProjection = {
     endingEquity: number
     projectedGainOrLoss: number
     cumulativeReturnOnCashPercent: number | null
+    capitalGainsTax: number
+    saleCommission: number
+    irrAnnualPercent: number | null
   }
   notes: string[]
 }
@@ -660,8 +740,18 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
 
   const includeIncomeTax = input.includeIncomeTax !== false
   const includePropertyManager = input.includePropertyManager !== false
-  const incomeTaxRate = clamp(Number(input.incomeTaxRate ?? INCOME_TAX_RATE) || 0, 0, 1)
+  const companyIncomeTaxRate = clamp(Number(input.companyIncomeTaxRate ?? INCOME_TAX_RATE), 0, 1)
+  const incomeTaxRate = companyIncomeTaxRate
   const managementFeeRate = clamp(Number(input.managementFeeRate ?? MANAGEMENT_FEE_RATE) || 0, 0, 1)
+  const taxProfile = isTaxProfile(input.taxProfile) ? input.taxProfile : '45_80'
+  const taxTable = resolvedIncomeTaxBrackets(input.incomeTaxBrackets)
+  const incomeTaxTableYear = Number(input.incomeTaxTableYear) || 2026
+  const cadastralValue = Math.max(0, Number(input.cadastralValue ?? unitPrice) || 0)
+  const cadastralIsEstimated = input.cadastralIsEstimated !== false
+  const legalMonthlyRent = roundMoney(maxLegalMonthlyRent(cadastralValue))
+  const category = String(input.category || '').toLowerCase()
+  const commercial = ['local', 'comercial', 'oficina', 'office', 'bodega'].some((word) => category.includes(word))
+  const rentExceedsLegalCap = !commercial && !cadastralIsEstimated && Number(input.estimatedMonthlyRent) > legalMonthlyRent
 
   // Primero alquiler efectivo (sin gestión) para basar % IR / gestor.
   const vacancy = clamp(Number(input.vacancyRate) || 0, 0, 1)
@@ -673,10 +763,6 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
   const annualManagement = includePropertyManager
     ? roundMoney(annualEffectiveRental * managementFeeRate)
     : 0
-  const annualIncomeTaxEstimate = includeIncomeTax
-    ? roundMoney(annualEffectiveRental * incomeTaxRate)
-    : 0
-
   const ops = buildOperatingMetrics({
     estimatedMonthlyRent: input.estimatedMonthlyRent,
     vacancyRate: input.vacancyRate,
@@ -705,6 +791,26 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
     monthlyDebtService = roundMoney(monthlyPayment + monthlyExtraCharges)
     annualMortgagePaid = roundMoney(monthlyPayment * 12)
   }
+
+  let yearOneInterest = 0
+  if (mode !== 'cash' && financedAmount > 0) {
+    for (let month = 1; month <= 12; month++) {
+      if (month <= financingYears * 12) {
+        yearOneInterest += paymentInterestAndPrincipal(financedAmount, interestRate, financingYears, month, rateType).interest
+      }
+    }
+  }
+  const depreciation = input.rentalDepreciationEnabled
+    ? unitPrice * clamp(Number(input.constructionSharePct ?? 80), 0, 100) / 100 * 0.05
+    : 0
+  // Deducibles según SRI 2026 para arriendos de persona natural; validar con contador.
+  const rentalTaxableBase = Math.max(0, annualEffectiveRental - cadastralValue * 0.01 - yearOneInterest - depreciation)
+  const companyTaxableBase = Math.max(0, annualEffectiveRental - ops.annualOperatingExpenses - annualManagement - yearOneInterest - depreciation)
+  const annualIncomeTaxEstimate = !includeIncomeTax ? 0 : roundMoney(
+    taxProfile === 'company'
+      ? companyTaxableBase * companyIncomeTaxRate
+      : incrementalPersonalIncomeTax(TAX_PROFILE_OTHER_INCOME[taxProfile], rentalTaxableBase, taxTable.brackets),
+  )
 
   const initialCashOutlay = roundMoney(
     (mode === 'cash' ? unitPrice : downPaymentAmount) + acquisitionCosts,
@@ -814,6 +920,15 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
     includePropertyManager,
     incomeTaxRate,
     managementFeeRate,
+    taxProfile,
+    incomeTaxTableYear,
+    companyIncomeTaxRate,
+    incomeTaxTableFallback: taxTable.fallback,
+    cadastralValue,
+    cadastralIsEstimated,
+    maxLegalMonthlyRent: legalMonthlyRent,
+    rentExceedsLegalCap,
+    isCommercial: commercial,
     assumptions: {
       vacancyAppliedOnce: true,
       incomeTaxIncluded: includeIncomeTax && annualIncomeTaxEstimate > 0,
@@ -826,11 +941,24 @@ export function buildInvestmentPreview(input: BuildInvestmentInput): InvestmentP
       recoveryMethod: 'simple_constant_cashflow',
       excludesAppreciationAndSale: false,
       wealthHorizonYears: input.wealthHorizonYears ?? 10,
-      appreciationRateAnnual: input.appreciationRateAnnual ?? 0.05,
+      appreciationRateAnnual: input.appreciationRateAnnual ?? 0.03,
       saleCosts: roundMoney(Math.max(0, Number(input.saleCosts) || 0)),
       propertyExpenseModel: PROPERTY_EXPENSE_MODEL,
       propertyExpensesExcludeInsuranceAndOther: true,
       annualOperatingExpensesSnapshot: ops.annualOperatingExpenses,
+      taxProfile,
+      incomeTaxTableYear,
+      companyIncomeTaxRate,
+      incomeTaxTableFallback: taxTable.fallback,
+      incomeTaxBrackets: taxTable.brackets,
+      cadastralValue,
+      cadastralIsEstimated,
+      acquisitionCostBreakdown: input.acquisitionCostBreakdown,
+      rentGrowthRate: input.rentGrowthRate ?? 0.02,
+      saleCommissionPct: input.saleCommissionPct ?? 0,
+      rentalDepreciationEnabled: input.rentalDepreciationEnabled === true,
+      constructionSharePct: input.constructionSharePct ?? 80,
+      rentExceedsLegalCap,
     },
   }
 }
@@ -948,25 +1076,28 @@ export function buildViabilityAlternatives(input: BuildInvestmentInput) {
     }
   }
 
-  // Alquiler de equilibrio: neto mensual ≈ cuota → bruto necesario.
-  // neto = bruto*(1-v)*(1-mgmt-tax) - ops/12 ≈ payment
-  // bruto*(1-v)*(1-g-t) ≈ payment + ops/12
-  const vacancy = clamp(Number(input.vacancyRate) || 0, 0, 1)
-  const g = input.includePropertyManager === false ? 0 : Number(input.managementFeeRate ?? MANAGEMENT_FEE_RATE)
-  const t = input.includeIncomeTax === false ? 0 : Number(input.incomeTaxRate ?? INCOME_TAX_RATE)
-  const factor = (1 - vacancy) * (1 - g - t)
-  const opsMonthly = roundMoney(Math.max(0, Number(input.annualOperatingExpenses) || 0) / 12)
-  let breakEvenGrossRent = 0
-  if (factor > 0.01) {
-    breakEvenGrossRent = roundMoney((base.monthlyPayment + opsMonthly) / factor)
+  // IR progresivo: resolver el alquiler de equilibrio con el mismo motor.
+  const surplusAt = (rent: number) => buildRentCoverageAnalysis(buildInvestmentPreview({
+    ...input, estimatedMonthlyRent: rent,
+  })).monthlyTopUpOrSurplus
+  let low = 0
+  let high = Math.max(1000, input.estimatedMonthlyRent * 2)
+  while (surplusAt(high) < 0 && high < 1_000_000) high *= 2
+  if (surplusAt(high) >= 0) {
+    for (let i = 0; i < 50 && high - low > 0.01; i++) {
+      const middle = (low + high) / 2
+      if (surplusAt(middle) >= 0) high = middle
+      else low = middle
+    }
   }
+  const breakEvenGrossRent = roundMoney(high)
   const altRent = buildInvestmentPreview({
     ...input,
     estimatedMonthlyRent: Math.max(breakEvenGrossRent, input.estimatedMonthlyRent),
   })
 
   const appreciationYears = Math.max(1, Math.round(Number(input.wealthHorizonYears) || 10))
-  const appreciationRate = Number(input.appreciationRateAnnual ?? 0.05)
+  const appreciationRate = Number(input.appreciationRateAnnual ?? 0.03)
   const wealth = buildWealthProjection({
     preview: base,
     horizonYears: appreciationYears,

@@ -90,9 +90,9 @@ export function CoberturaMensual({
           {tax > 0 ? (
             <li className="flex justify-between gap-3 border-b border-[#f0ebe3] pb-2">
               <span>
-                {t(" Impuesto estimado ")}{t(preview.incomeTaxRate > 0
-                  ? ` (${formatPercent(preview.incomeTaxRate * 100, 0)} del efectivo)`
-                  : '')}
+                {t(' Impuesto estimado ')}{t(preview.taxProfile === 'company'
+                  ? ` (empresa ${formatPercent(preview.companyIncomeTaxRate * 100, 0)})`
+                  : ` (tabla SRI ${preview.incomeTaxTableYear})`)}
               </span>
               <span className="tabular-nums font-medium">−{t(formatMoneyExact(tax))}</span>
             </li>

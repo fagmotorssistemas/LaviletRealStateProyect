@@ -9,6 +9,41 @@ import {
   sumExpenseBreakdown,
 } from '@/lib/financing/calculator'
 import type { ExpenseBreakdown, RateType, SimulationMode } from '@/types/financingSimulator'
+import { isTaxProfile, validIncomeTaxBrackets, type TaxProfile } from '@/lib/financing/ecuadorTax'
+
+export function parseTaxProfile(raw: unknown, fallback: unknown): TaxProfile {
+  if (raw == null || raw === '') return isTaxProfile(fallback) ? fallback : '45_80'
+  if (!isTaxProfile(raw)) throw new ScenarioValidationError('tax_profile inválido')
+  return raw
+}
+
+/** Validate optional v6 snapshots sent by older/newer clients; the server still recomputes them. */
+export function validateEcuadorTaxSnapshot(raw: unknown) {
+  if (raw == null) return
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ScenarioValidationError('assumptions_json inválido')
+  const row = raw as Record<string, unknown>
+  if (row.taxProfile != null) parseTaxProfile(row.taxProfile, null)
+  if (row.incomeTaxBrackets != null && !validIncomeTaxBrackets(row.incomeTaxBrackets)) throw new ScenarioValidationError('incomeTaxBrackets inválido')
+  const finiteFields: Record<string, { min: number; max: number }> = {
+    incomeTaxTableYear: { min: 2026, max: 2200 }, companyIncomeTaxRate: { min: 0, max: 1 },
+    cadastralValue: { min: 0, max: 1000000000 }, rentGrowthRate: { min: -0.5, max: 0.5 },
+    capitalGainsTax: { min: 0, max: 1000000000 }, saleCommission: { min: 0, max: 1000000000 },
+    irrAnnualPercent: { min: -100, max: 100000 },
+  }
+  for (const [key, bounds] of Object.entries(finiteFields)) {
+    if (row[key] != null) parseRequiredFinite(row[key], key, bounds)
+  }
+  for (const key of ['incomeTaxTableFallback', 'cadastralIsEstimated', 'rentExceedsLegalCap']) {
+    if (row[key] != null && typeof row[key] !== 'boolean') throw new ScenarioValidationError(`${key} debe ser booleano`)
+  }
+  if (row.acquisitionCostBreakdown != null) {
+    const breakdown = row.acquisitionCostBreakdown
+    if (!breakdown || typeof breakdown !== 'object' || Array.isArray(breakdown)) throw new ScenarioValidationError('acquisitionCostBreakdown inválido')
+    const amounts = breakdown as Record<string, unknown>
+    parseRequiredFinite(amounts.percentage, 'acquisitionCostBreakdown.percentage', { min: 0, max: 20 })
+    parseRequiredFinite(amounts.fixed, 'acquisitionCostBreakdown.fixed', { min: 0 })
+  }
+}
 
 export const SIMULATION_MODES = ['cash', 'financed', 'manual'] as const satisfies readonly SimulationMode[]
 export const RATE_TYPES = ['nominal_annual', 'effective_annual'] as const satisfies readonly RateType[]

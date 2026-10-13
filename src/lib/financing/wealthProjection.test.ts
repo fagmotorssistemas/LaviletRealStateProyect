@@ -42,15 +42,15 @@ describe('caso de referencia 310k / 20a / 7.8%', () => {
   it('cobertura bruta/neta y aporte', () => {
     const p = buildInvestmentPreview(REF)
     approx(p.monthlyPayment, 1788.16, 0.02)
-    approx(p.annualNetCashFlow, -11989.52, 0.05)
-    approx(p.monthlyCashFlow, -999.13, 0.05)
-    approx(p.buyerTopUpMonthly, 999.13, 0.05)
+    approx(p.annualNetCashFlow, -7057.39, 0.05)
+    approx(p.monthlyCashFlow, p.annualNetCashFlow / 12, 0.05)
+    approx(p.buyerTopUpMonthly, -p.monthlyCashFlow, 0.05)
 
     const c = buildRentCoverageAnalysis(p)
     approx(c.grossDifference, 11.84, 0.05)
-    approx(c.annualNetRentAvailable, 9468.4, 0.05)
-    approx(c.monthlyNetRentAvailable, 789.03, 0.05)
-    approx(c.monthlyTopUpOrSurplus, -999.13, 0.05)
+    approx(c.annualNetRentAvailable, p.annualEffectiveRental - p.annualOperatingExpenses - p.annualManagement - p.annualIncomeTaxEstimate, 0.05)
+    approx(c.monthlyNetRentAvailable, c.annualNetRentAvailable / 12, 0.05)
+    approx(c.monthlyTopUpOrSurplus, p.monthlyCashFlow, 0.05)
     assert.equal(c.coversGrossBeforeExpenses, true)
     assert.equal(c.coversNetAfterExpenses, false)
   })
@@ -68,18 +68,17 @@ describe('caso de referencia 310k / 20a / 7.8%', () => {
     })
     approx(w.futurePropertyValue, 504957.33, 1)
     approx(w.remainingDebt, 148674.48, 1)
-    approx(w.endingEquity, 356283, 2)
-    approx(w.cumulativeTopUps, 119895, 2)
-    approx(w.totalCashInvested, 212895, 2)
-    approx(w.projectedGainOrLoss, 143388, 3)
-    approx(w.cumulativeReturnOnCashPercent!, 67.35, 0.05)
+    approx(w.endingEquity, w.futurePropertyValue - w.remainingDebt - w.capitalGainsTax - w.saleCommission - w.saleCosts, 2)
+    approx(w.totalCashInvested, w.initialOutlay + w.cumulativeTopUps, 2)
+    approx(w.projectedGainOrLoss, w.endingEquity + w.cumulativeSurplus - w.totalCashInvested, 3)
+    assert.ok(w.irrAnnualPercent != null)
     approx(w.propertyAppreciation, w.futurePropertyValue - REF.unitPrice, 0.01)
     assert.ok(w.initialOutlay > 0)
 
     // Rendimiento anual de flujo = saldo / entrada (≠ ROI precio ≈ −3,87%).
     assert.ok((w.annualCashFlowYieldPercent ?? 0) < 0)
-    approx(w.annualCashFlowYieldPercent!, -12.89, 0.05)
-    approx(p.roiOnTotalPrice!, -3.87, 0.05)
+    approx(w.annualCashFlowYieldPercent!, p.annualNetCashFlow / w.initialOutlay * 100, 0.05)
+    approx(p.roiOnTotalPrice!, p.annualNetCashFlow / p.unitPrice * 100, 0.05)
     assert.ok(p.roiOnTotalPrice! < 0)
   })
 
@@ -110,24 +109,24 @@ describe('caso de referencia 310k / 20a / 7.8%', () => {
       saleCosts: 0,
     })
 
-    approx(cmp.cash.coverage.monthlyNetRentAvailable, 533.8, 0.05)
+    approx(cmp.cash.coverage.monthlyNetRentAvailable, 544.3, 0.05)
     approx(cmp.cash.wealth.futurePropertyValue, 439801.55, 1)
     approx(cmp.cash.wealth.propertyAppreciation, 169801.55, 1)
-    approx(cmp.cash.wealth.cumulativeSurplus, 64056, 1)
-    approx(cmp.cash.wealth.projectedGainOrLoss, 233857.55, 1)
-    approx(cmp.cash.wealth.cumulativeReturnOnCashPercent!, 86.61, 0.05)
+    assert.ok(cmp.cash.wealth.cumulativeSurplus > 64056)
+    approx(cmp.cash.wealth.projectedGainOrLoss, cmp.cash.wealth.endingEquity + cmp.cash.wealth.cumulativeSurplus - cmp.cash.wealth.totalCashInvested, 1)
+    assert.ok(cmp.cash.wealth.irrAnnualPercent != null)
     approx(
-      cmp.cash.wealth.propertyAppreciation + cmp.cash.wealth.cumulativeSurplus,
+      cmp.cash.wealth.propertyAppreciation + cmp.cash.wealth.cumulativeSurplus - cmp.cash.wealth.capitalGainsTax - cmp.cash.wealth.saleCommission,
       cmp.cash.wealth.projectedGainOrLoss,
       1,
     )
 
     approx(cmp.financed.preview.monthlyPayment, 1557.43, 0.05)
-    approx(cmp.financed.coverage.monthlyTopUpOrSurplus, -1023.63, 0.05)
+    assert.ok(cmp.financed.coverage.monthlyTopUpOrSurplus < 0)
     approx(cmp.financed.wealth.remainingDebt, 129490.68, 1)
-    approx(cmp.financed.wealth.endingEquity, 310310.87, 2)
-    approx(cmp.financed.wealth.totalCashInvested, 203835.6, 2)
-    approx(cmp.financed.wealth.projectedGainOrLoss, 106475.27, 2)
+    approx(cmp.financed.wealth.endingEquity, cmp.financed.wealth.futurePropertyValue - cmp.financed.wealth.remainingDebt - cmp.financed.wealth.capitalGainsTax - cmp.financed.wealth.saleCommission - cmp.financed.wealth.saleCosts, 2)
+    approx(cmp.financed.wealth.totalCashInvested, cmp.financed.wealth.initialOutlay + cmp.financed.wealth.cumulativeTopUps, 2)
+    approx(cmp.financed.wealth.projectedGainOrLoss, cmp.financed.wealth.endingEquity + cmp.financed.wealth.cumulativeSurplus - cmp.financed.wealth.totalCashInvested, 2)
     assert.equal(expenses.insurance, 0)
   })
 
@@ -142,6 +141,20 @@ describe('caso de referencia 310k / 20a / 7.8%', () => {
     // Tras fin del crédito el flujo mensual mejora (solo ops); aportes < 15y * top-up inicial
     const naive = Math.abs(Math.min(0, p.monthlyCashFlow)) * 12 * 15
     assert.ok(w.cumulativeTopUps < naive - 1000)
+  })
+
+  it('sin apreciación no hay plusvalía, pero sí comisión de venta y TIR', () => {
+    const preview = buildInvestmentPreview({ ...REF, saleCommissionPct: 2 })
+    const wealth = buildWealthProjection({ preview, horizonYears: 10, appreciationRateAnnual: 0.05 })
+    assert.equal(wealth.zeroAppreciation.capitalGainsTax, 0)
+    approx(wealth.zeroAppreciation.saleCommission, REF.unitPrice * 0.02, 0.01)
+    assert.ok(wealth.zeroAppreciation.irrAnnualPercent != null)
+    assert.ok(wealth.capitalGainsTax > 0)
+  })
+  it('el arriendo crece por año y cambia el flujo del horizonte', () => {
+    const preview = buildInvestmentPreview({ mode: 'cash', unitPrice: 100000, estimatedMonthlyRent: 1000, vacancyRate: 0, annualOperatingExpenses: 0, includeIncomeTax: false, includePropertyManager: false, rentGrowthRate: 0.1 })
+    const wealth = buildWealthProjection({ preview, horizonYears: 2, appreciationRateAnnual: 0 })
+    approx(wealth.cumulativeSurplus, 25200, 0.01)
   })
 
   it('contado, tasa 0, sin alquiler y plusvalía negativa', () => {

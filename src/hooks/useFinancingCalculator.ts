@@ -34,6 +34,7 @@ import {
 } from '@/lib/financing/calculatorUnitPrice'
 import { resolveSimulationMode } from '@/lib/financing/scenarioPersist'
 import { assessScenarioFidelity, finiteOr, finiteOrNull } from '@/lib/financing/scenarioFidelity'
+import { acquisitionCostsFor, cadastralValueFor, isTaxProfile, type TaxProfile } from '@/lib/financing/ecuadorTax'
 import {
   getShowroomLeadId,
   getShowroomPhone,
@@ -48,6 +49,10 @@ type UnitRow = {
   project_id: string
   category?: string | null
   area_internal_m2?: number | null
+  area_total_m2?: number | null
+  cadastral_value?: number | null
+  monthly_building_fee?: number | null
+  estimated_monthly_rent?: number | null
 }
 
 export type UnitCalcState = {
@@ -61,6 +66,7 @@ export type UnitCalcState = {
   /** Incluye comisión gestor sobre alquiler efectivo. */
   includePropertyManager: boolean
   incomeTaxRate: number
+  taxProfile: TaxProfile
   managementFeeRate: number
   acquisitionCosts: number
   annualOtherFinancialCosts: number
@@ -85,6 +91,7 @@ export type UnitCalcState = {
     cashOnCashReturn: number | null
     monthlyPayment: number | null
   } | null
+  savedTaxAssumptions: InvestmentPreview['assumptions'] | null
 }
 
 const defaultUnitState = (): UnitCalcState => ({
@@ -100,7 +107,8 @@ const defaultUnitState = (): UnitCalcState => ({
   annualOtherFinancialCosts: 0,
   monthlyExtraCharges: 0,
   wealthHorizonYears: 10,
-  appreciationRateAnnual: 0.05,
+  appreciationRateAnnual: 0.03,
+  taxProfile: '45_80',
   saleCosts: 0,
   mode: 'cash',
   partnerId: null,
@@ -113,6 +121,7 @@ const defaultUnitState = (): UnitCalcState => ({
   useCurrentPublishedPrice: true,
   fidelityMessage: null,
   savedResults: null,
+  savedTaxAssumptions: null,
 })
 
 export function useFinancingCalculator(
@@ -208,13 +217,14 @@ export function useFinancingCalculator(
           const hasPrice = Number.isFinite(published) && published > 0
           const price = hasPrice ? published : 0
           const expenses = nextConfig
-            ? expenseBreakdownFromConfig(price || 0, nextConfig)
+            ? expenseBreakdownFromConfig(price || 0, nextConfig, nextUnit)
             : { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 }
           const rent = suggestMonthlyRent({
             config: nextConfig,
             unitPrice: price,
             bedrooms: nextUnit?.bedrooms,
             category: nextUnit?.category,
+            estimatedMonthlyRent: nextUnit?.estimated_monthly_rent,
           })
           const recommended = nextPartners.find((p) => p.is_recommended) ?? nextPartners[0] ?? null
           const base = existing ?? defaultUnitState()
@@ -226,6 +236,10 @@ export function useFinancingCalculator(
               monthlyRent: rent.amount,
               vacancyRate: Number(nextConfig?.vacancy_rate ?? 0.05),
               expenses,
+              taxProfile: isTaxProfile(nextConfig?.default_tax_profile) ? nextConfig.default_tax_profile : '45_80',
+              managementFeeRate: Number(nextConfig?.management_fee_rate ?? MANAGEMENT_FEE_RATE),
+              appreciationRateAnnual: Number(nextConfig?.default_appreciation_rate ?? 0.03),
+              acquisitionCosts: acquisitionCostsFor(price, Number(nextConfig?.acquisition_cost_pct ?? 1.3), Number(nextConfig?.acquisition_cost_fixed ?? 500)),
               mode:
                 opts?.initialMode === 'financed'
                   ? 'financed'
@@ -304,8 +318,9 @@ export function useFinancingCalculator(
         unitPrice,
         bedrooms: unit?.bedrooms,
         category: unit?.category,
+        estimatedMonthlyRent: unit?.estimated_monthly_rent,
       }),
-    [config, unitPrice, unit?.bedrooms, unit?.category],
+    [config, unitPrice, unit?.bedrooms, unit?.category, unit?.estimated_monthly_rent],
   )
 
   const selectedPartner = useMemo(
@@ -319,13 +334,14 @@ export function useFinancingCalculator(
     return state.interestRate
   }, [state.mode, state.interestRate, selectedPartner])
 
-  // Siempre modelo v5 (predial + alícuota) cuando hay config; no reintroducir seguro/otros del estado.
+  // Modelo vigente: predial sobre avalúo y alícuota de la unidad.
   const annualOperatingExpenses = useMemo(() => {
+    if (state.initSource === 'scenario' && state.savedResults) return sumExpenseBreakdown(state.expenses)
     if (config && unitPrice > 0) {
-      return expenseBreakdownFromConfig(unitPrice, config).total
+      return expenseBreakdownFromConfig(unitPrice, config, unit).total
     }
     return sumExpenseBreakdown(state.expenses)
-  }, [config, unitPrice, state.expenses])
+  }, [config, unitPrice, state.expenses, state.initSource, state.savedResults, unit])
 
   const livePreview: InvestmentPreview | null = useMemo(() => {
     if (!config) return null
@@ -336,12 +352,25 @@ export function useFinancingCalculator(
         : state.mode === 'manual' || !state.partnerId
           ? 'manual'
           : 'financed'
+    const snapshot = state.initSource === 'scenario' && state.savedResults ? state.savedTaxAssumptions : null
     return buildInvestmentPreview({
       mode,
       unitPrice,
       estimatedMonthlyRent: state.monthlyRent,
       vacancyRate: state.vacancyRate,
       annualOperatingExpenses,
+      taxProfile: state.taxProfile,
+      incomeTaxBrackets: snapshot?.incomeTaxBrackets ?? config.income_tax_brackets,
+      incomeTaxTableYear: snapshot?.incomeTaxTableYear ?? config.income_tax_table_year ?? 2026,
+      companyIncomeTaxRate: snapshot?.companyIncomeTaxRate ?? config.company_income_tax_rate ?? INCOME_TAX_RATE,
+      cadastralValue: snapshot?.cadastralValue ?? cadastralValueFor(unit, unitPrice).value,
+      cadastralIsEstimated: snapshot?.cadastralIsEstimated ?? cadastralValueFor(unit, unitPrice).cadastralIsEstimated,
+      category: unit?.category,
+      rentalDepreciationEnabled: snapshot?.rentalDepreciationEnabled ?? config.rental_depreciation_enabled === true,
+      constructionSharePct: snapshot?.constructionSharePct ?? config.construction_share_pct ?? 80,
+      rentGrowthRate: snapshot?.rentGrowthRate ?? config.rent_growth_rate ?? 0.02,
+      saleCommissionPct: snapshot?.saleCommissionPct ?? config.sale_commission_pct ?? 0,
+      acquisitionCostBreakdown: snapshot?.acquisitionCostBreakdown ?? { percentage: config.acquisition_cost_pct ?? 1.3, fixed: config.acquisition_cost_fixed ?? 500 },
       includeIncomeTax: state.includeIncomeTax,
       includePropertyManager: state.includePropertyManager,
       incomeTaxRate: state.incomeTaxRate,
@@ -351,7 +380,7 @@ export function useFinancingCalculator(
       monthlyExtraCharges: state.monthlyExtraCharges,
       downPaymentPercent: state.downPaymentPercent,
       financingYears: state.financingYears,
-      interestRate: effectiveInterestRate,
+      interestRate: snapshot ? state.interestRate : effectiveInterestRate,
       rateType: state.rateType,
       wealthHorizonYears: state.wealthHorizonYears,
       appreciationRateAnnual: state.appreciationRateAnnual,
@@ -366,6 +395,10 @@ export function useFinancingCalculator(
     state.vacancyRate,
     annualOperatingExpenses,
     state.includeIncomeTax,
+    state.taxProfile,
+    state.savedResults,
+    state.savedTaxAssumptions,
+    state.initSource,
     state.includePropertyManager,
     state.incomeTaxRate,
     state.managementFeeRate,
@@ -379,12 +412,13 @@ export function useFinancingCalculator(
     state.wealthHorizonYears,
     state.appreciationRateAnnual,
     state.saleCosts,
+    unit,
   ])
 
   /** Legacy/unknown: preferir resultados guardados para métricas principales. */
   const preview: InvestmentPreview | null = useMemo(() => {
     if (!livePreview) return null
-    if (state.initSource === 'scenario' && state.savedResults && state.fidelityMessage) {
+    if (state.initSource === 'scenario' && state.savedResults) {
       return {
         ...livePreview,
         annualNetCashFlow: finiteOr(state.savedResults.annualNetCashFlow, livePreview.annualNetCashFlow),
@@ -450,7 +484,7 @@ export function useFinancingCalculator(
 
   function useSuggestedExpenses() {
     if (!config) return
-    const next = expenseBreakdownFromConfig(unitPrice, config)
+    const next = expenseBreakdownFromConfig(unitPrice, config, unit)
     patchState({ expenses: next, savedResults: null, fidelityMessage: null })
   }
 
@@ -502,6 +536,7 @@ export function useFinancingCalculator(
             saleCosts: state.saleCosts,
           },
           include_income_tax: state.includeIncomeTax,
+          tax_profile: state.taxProfile,
           include_property_manager: state.includePropertyManager,
           income_tax_rate: state.incomeTaxRate,
           management_fee_rate: state.managementFeeRate,
@@ -561,6 +596,7 @@ export function useFinancingCalculator(
     const otherFin = finiteOrNull(scenario.annual_other_financial)
     const extra = finiteOrNull(scenario.monthly_extra_charges)
     const assumptions = (scenario.assumptions_json ?? {}) as Record<string, unknown>
+    const taxProfile = isTaxProfile(assumptions.taxProfile) ? assumptions.taxProfile : state.taxProfile
     const includeIncomeTax =
       typeof assumptions.includeIncomeTax === 'boolean'
         ? assumptions.includeIncomeTax
@@ -580,7 +616,7 @@ export function useFinancingCalculator(
     const appreciationRateAnnual =
       typeof assumptions.appreciationRateAnnual === 'number'
         ? assumptions.appreciationRateAnnual
-        : 0.05
+        : 0.03
     const saleCosts = typeof assumptions.saleCosts === 'number' ? assumptions.saleCosts : 0
 
     const expenses: ExpenseBreakdown =
@@ -601,10 +637,12 @@ export function useFinancingCalculator(
     patchState(
       {
         initSource: 'scenario',
+        savedTaxAssumptions: isExact ? assumptions as InvestmentPreview['assumptions'] : null,
         monthlyRent: rent ?? state.monthlyRent,
         vacancyRate: vacancy ?? state.vacancyRate,
         expenses,
         includeIncomeTax,
+        taxProfile,
         includePropertyManager,
         incomeTaxRate,
         managementFeeRate,
@@ -627,9 +665,7 @@ export function useFinancingCalculator(
         useCurrentPublishedPrice: false,
         hypotheticalPrice: !hasPublishedPrice && savedPrice != null ? savedPrice : state.hypotheticalPrice,
         fidelityMessage: isExact ? null : fidelity.message,
-        savedResults: isExact
-          ? null
-          : {
+        savedResults: {
               annualNetCashFlow: finiteOrNull(scenario.annual_net_cash_flow),
               cashOnCashReturn: finiteOrNull(scenario.roi_percent),
               monthlyPayment: finiteOrNull(scenario.monthly_payment),
@@ -673,7 +709,7 @@ export function useFinancingCalculator(
       }),
     suggestedRent: rentSuggestion.amount,
     rentSuggestion,
-    suggestedExpenses: config ? expenseBreakdownFromConfig(unitPrice, config).total : 0,
+    suggestedExpenses: config ? expenseBreakdownFromConfig(unitPrice, config, unit).total : 0,
     unitPrice,
     setUnitPrice: (value: number) => {
       if (hasPublishedPrice && state.useCurrentPublishedPrice) return
@@ -683,7 +719,8 @@ export function useFinancingCalculator(
           hypotheticalPrice: price,
           scenarioUnitPrice: price,
           useCurrentPublishedPrice: false,
-          expenses: expenseBreakdownFromConfig(price, config),
+          expenses: expenseBreakdownFromConfig(price, config, unit),
+          acquisitionCosts: acquisitionCostsFor(price, config.acquisition_cost_pct ?? 1.3, config.acquisition_cost_fixed ?? 500),
           savedResults: null,
           fidelityMessage: null,
         })
@@ -708,7 +745,7 @@ export function useFinancingCalculator(
     /** Acción explícita: deja de anclar resultados históricos y aplica fórmulas/gastos actuales. */
     applyCurrentFormulas: () => {
       const nextExpenses = config
-        ? expenseBreakdownFromConfig(unitPrice, config)
+        ? expenseBreakdownFromConfig(unitPrice, config, unit)
         : { propertyTax: 0, maintenance: 0, insurance: 0, other: 0, total: 0 }
       patchState({
         expenses: nextExpenses,
@@ -764,6 +801,8 @@ export function useFinancingCalculator(
         fidelityMessage: null,
       }),
     incomeTaxRate: state.incomeTaxRate,
+    taxProfile: state.taxProfile,
+    setTaxProfile: (v: TaxProfile) => patchState({ taxProfile: v, savedResults: null, fidelityMessage: null }),
     setIncomeTaxRate: (v: number) =>
       patchState({
         incomeTaxRate: Math.min(1, Math.max(0, v)),

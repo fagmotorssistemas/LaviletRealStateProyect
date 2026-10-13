@@ -120,6 +120,9 @@ export interface TourUnitSummary {
   published_commercial_price: number | null
   status: UnitStatus
   area_total_m2: number | null
+  cadastral_value?: number | null
+  monthly_building_fee?: number | null
+  estimated_monthly_rent?: number | null
   /** Cubierta / interna (si difiere del total). */
   area_internal_m2?: number | null
   area_exterior_m2?: number | null
