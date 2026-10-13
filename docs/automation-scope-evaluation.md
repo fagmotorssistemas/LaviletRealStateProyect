@@ -79,12 +79,33 @@ borrador tiene un intento; si devuelve exactamente el mismo texto rechazado, no
 se vuelve a sortear otra aprobación. La interfaz muestra el responsable del fallo
 y de su reparación, los borradores y los motivos de cada decisión.
 
-El revisor predeterminado es `gpt-5-mini` con razonamiento `low`.
+El revisor predeterminado es `gpt-6-luna` con razonamiento `low`.
 `OPENAI_MODEL_REVIEWER` permite cambiar solo ese rol y
 `OPENAI_REVIEW_REASONING_EFFORT` controla su esfuerzo en esa familia de modelos.
+La reversión a `gpt-5-mini` conserva su razonamiento y contrato propios.
 El clasificador conserva su configuración independiente. La traza registra
 modelo, esfuerzo, consumo y presupuesto; los tokens de razonamiento ya forman
 parte de los tokens de salida y no se suman dos veces.
+
+### Revisor con GPT-6 Luna — 13 de octubre de 2026
+
+`OPENAI_MODEL_REVIEWER` permite probar o revertir únicamente las llamadas de
+revisión. Luna usa `OPENAI_REVIEW_REASONING_EFFORT=low` por defecto y acepta
+`none`, `low`, `medium`, `high`, `xhigh` o `max`. Si se vuelve a `gpt-5-mini`,
+solo se admiten sus valores `minimal`, `low`, `medium` y `high`.
+
+Se mantienen el esquema estricto, las obligaciones, las fuentes, las comprobaciones
+numéricas, el presupuesto de salida, la política de reintentos y el interruptor
+de revisión. El cambio de modelo no activa la revisión obligatoria ni aplica las
+correcciones pendientes del flujo o de las referencias a subconjuntos del catálogo.
+Extractor, redactor, clasificación e interpretación auxiliar conservan sus ajustes.
+
+La interfaz ya dispone de las tarifas de Luna. Las pruebas de transporte simulado
+comprueban el modelo y esfuerzo registrados, la conservación del contrato y la
+reversión independiente sin consumir API; no prueban aún su tasa de aciertos.
+Al desplegar, una variable `OPENAI_MODEL_REVIEWER` explícita debe actualizarse a
+`gpt-6-luna` para activar este modelo. Referencia:
+[GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 ### Redactor con GPT-6 Luna — 13 de octubre de 2026
 

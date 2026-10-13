@@ -60,7 +60,7 @@ test('real requests and traces isolate extractor and writer defaults and indepen
     await aiJson('Conserve las reglas del turno.', input, contracts[0], undefined, undefined, settings, 'writing')
   })
   await trace.flush()
-  const expectedModels = ['gpt-6-luna', 'gpt-6-luna', 'gpt-6-luna', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-6-luna', 'gpt-4.1', 'gpt-6-luna']
+  const expectedModels = ['gpt-6-luna', 'gpt-6-luna', 'gpt-6-luna', 'gpt-6-luna', 'gpt-4.1-mini', 'gpt-6-luna', 'gpt-4.1', 'gpt-6-luna']
   assert.deepEqual(requests.map(request => request.model), expectedModels)
   assert.deepEqual(stored.filter(step => step.step_key === 'model_request').map(step =>
     (step.input_summary as Record<string, unknown>).model), expectedModels)
@@ -79,6 +79,7 @@ test('real requests and traces isolate extractor and writer defaults and indepen
   assert.equal(requests[0].max_output_tokens, 2200)
   assert.equal(requests[1].max_output_tokens, 2200)
   assert.deepEqual(requests[2].reasoning, { effort: 'low' })
+  assert.deepEqual(requests[3].reasoning, { effort: 'low' })
   assert.deepEqual(requests[5].reasoning, { effort: 'low' })
   assert.equal(requests[4].reasoning, undefined, 'writer rollback does not send Luna reasoning to GPT-4.1 mini')
   assert.equal(requests[6].reasoning, undefined, 'rollback does not send Luna reasoning to GPT-4.1')
@@ -289,7 +290,7 @@ test('writer inherits configured tone while all reviewers remain factual', async
   }
 })
 
-test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning usage without enlarging output budget', async t => {
+test('Luna reviewer traces low reasoning without enlarging output budget and preserves GPT-5 mini rollback', async t => {
   for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_WRITER', 'OPENAI_WRITER_REASONING_EFFORT', 'OPENAI_MODEL_REVIEWER', 'OPENAI_REVIEW_REASONING_EFFORT']) {
     const previous = process.env[key]
     if (key === 'OPENAI_API_KEY') process.env[key] = 'synthetic'
@@ -312,7 +313,7 @@ test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning us
   const focused = { properties: { review_contract: { type: 'string', enum: ['focused-review-v1'] }, claims: {}, factual_values: {} } }
   await withAIExecutionTrace(trace, () => aiJson('Review facts', input, focused, undefined, undefined, undefined, 'review'))
   await trace.flush()
-  assert.equal(sent[0].model, 'gpt-5-mini')
+  assert.equal(sent[0].model, 'gpt-6-luna')
   assert.deepEqual(sent[0].reasoning, { effort: 'low' })
   assert.equal(sent[0].max_output_tokens, aiOutputBudget(focused, 'review', input))
   const step = stored.find(row => row.step_key === 'model_request')!
@@ -322,12 +323,18 @@ test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning us
   assert.equal(usage.reasoning_tokens, 256)
   assert.equal(usage.output_tokens, 400, 'Reasoning tokens are already included in output tokens, not billed twice')
 
+  process.env.OPENAI_MODEL_REVIEWER = 'gpt-5-mini'
+  process.env.OPENAI_REVIEW_REASONING_EFFORT = 'minimal'
+  await aiJson('Review facts', input, focused, undefined, undefined, undefined, 'review')
+  assert.equal(sent[1].model, 'gpt-5-mini')
+  assert.deepEqual(sent[1].reasoning, { effort: 'minimal' })
+  assert.equal(sent[1].max_output_tokens, sent[0].max_output_tokens)
   process.env.OPENAI_MODEL_REVIEWER = 'gpt-4o-mini'
   process.env.OPENAI_REVIEW_REASONING_EFFORT = 'high'
   await aiJson('Review facts', input, focused, undefined, undefined, undefined, 'review')
-  assert.equal(sent[1].model, 'gpt-4o-mini')
-  assert.equal(sent[1].reasoning, undefined, 'Model rollback must not send unsupported reasoning options')
+  assert.equal(sent[2].model, 'gpt-4o-mini')
+  assert.equal(sent[2].reasoning, undefined, 'Model rollback must not send unsupported reasoning options')
   await aiJson('Write reply', {}, undefined, undefined, undefined, { style: 'actual', warmth: 1, detail: 1 }, 'writing')
-  assert.equal(sent[2].model, 'gpt-6-luna')
-  assert.deepEqual(sent[2].reasoning, { effort: 'low' }, 'Reviewer reasoning settings cannot change writer requests')
+  assert.equal(sent[3].model, 'gpt-6-luna')
+  assert.deepEqual(sent[3].reasoning, { effort: 'low' }, 'Reviewer reasoning settings cannot change writer requests')
 })
