@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import { identifyTourLead } from '@/lib/tour/visitorTracking'
 import type {
   ExpenseBreakdown,
   FinancingConfig,
@@ -471,10 +473,7 @@ export function useFinancingCalculator(
     try {
       const saveMode: SimulationMode =
         state.mode === 'cash' ? 'cash' : state.partnerId && state.mode === 'financed' ? 'financed' : 'manual'
-      const response = await fetch('/api/financing/scenarios', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const requestBody = JSON.stringify({
           unit_id: unit.id,
           mode: saveMode,
           financing_partner_id: saveMode === 'financed' ? state.partnerId : null,
@@ -511,8 +510,20 @@ export function useFinancingCalculator(
           sale_costs: state.saleCosts,
           phone: getShowroomPhone() || undefined,
           lead_id: getShowroomLeadId() || undefined,
-        }),
       })
+      const postScenario = () => fetch('/api/financing/scenarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+      })
+      let response = await postScenario()
+      if (response.status === 401) {
+        const phone = getShowroomPhone()
+        if (phone) {
+          await identifyTourLead({ mode: 'phone', request_kind: 'identify', phone, consent: true })
+          response = await postScenario()
+        }
+      }
       const json = (await response.json()) as { error?: string; lead_id?: string }
       if (!response.ok) throw new Error(json.error || 'No se pudo guardar')
       setIdentified(true)
@@ -527,7 +538,9 @@ export function useFinancingCalculator(
         false,
       )
     } catch (err) {
-      setSaveMessage(err instanceof Error ? err.message : 'No se pudo guardar')
+      const message = err instanceof Error ? err.message : 'No se pudo guardar'
+      setSaveMessage(message)
+      toast.error(message)
     } finally {
       setSaving(false)
     }

@@ -2,6 +2,10 @@ import { cookies, headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { LV_VID_COOKIE } from '@/lib/tour/trackingIds'
+import { isSecureRequest, visitorCookieOptions } from '@/lib/tour/visitorCookie'
+import { syntheticEmailFromPhone, syntheticNameFromPhone, normalizeShowroomPhone } from '@/lib/tour/showroomIdentity'
+import { rpcIdentifyTourLeadWithMetaOutbox } from '@/lib/tour/tourRpc'
+import { resolveServerAdsConsentForVisitor } from '@/lib/meta/capiServer'
 import { expenseBreakdownFromConfig } from '@/lib/financing/calculator'
 import {
   assertUnitAccessibleForTour,
@@ -33,6 +37,13 @@ function validationResponse(error: unknown) {
   return null
 }
 
+function withVisitorCookie(request: Request, response: NextResponse, visitorKey: string, hadCookie: boolean) {
+  if (!hadCookie) {
+    response.cookies.set(LV_VID_COOKIE, visitorKey, visitorCookieOptions(isSecureRequest(request)))
+  }
+  return response
+}
+
 export async function GET(request: Request) {
   try {
     const admin = tryCreateAdminClient()
@@ -44,19 +55,20 @@ export async function GET(request: Request) {
     const phone = url.searchParams.get('phone')
     const leadParam = url.searchParams.get('lead_id')
     const jar = await cookies()
-    const visitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || null
+    const existingVisitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || null
+    const visitorKey = existingVisitorKey || crypto.randomUUID()
 
     const leadId = await resolveAuthorizedLeadId(admin, {
       leadId: leadParam,
       phone,
       visitorKey,
     })
-    if (!leadId || !visitorKey) {
-      return NextResponse.json({ scenarios: [], identified: false })
+    if (!leadId) {
+      return withVisitorCookie(request, NextResponse.json({ scenarios: [], identified: false }), visitorKey, Boolean(existingVisitorKey))
     }
 
-    const scenarios = await listScenariosForVisitor(admin, leadId, visitorKey)
-    return NextResponse.json({ scenarios, identified: true, lead_id: leadId })
+    const scenarios = await listScenariosForVisitor(admin, leadId)
+    return withVisitorCookie(request, NextResponse.json({ scenarios, identified: true, lead_id: leadId }), visitorKey, Boolean(existingVisitorKey))
   } catch (error) {
     console.error('GET /api/financing/scenarios', error)
     const message = error instanceof Error ? error.message : 'No se pudieron cargar los escenarios'
@@ -82,17 +94,38 @@ export async function POST(request: Request) {
     }
 
     const jar = await cookies()
-    const visitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || null
-    const leadId = await resolveAuthorizedLeadId(admin, {
+    const existingVisitorKey = jar.get(LV_VID_COOKIE)?.value?.trim() || null
+    const visitorKey = existingVisitorKey || crypto.randomUUID()
+    const phone = typeof body.phone === 'string' ? normalizeShowroomPhone(body.phone) : ''
+    let leadId = await resolveAuthorizedLeadId(admin, {
       leadId: typeof body.lead_id === 'string' ? body.lead_id : null,
-      phone: typeof body.phone === 'string' ? body.phone : null,
+      phone,
       visitorKey,
     })
-    if (!leadId || !visitorKey) {
-      return NextResponse.json(
-        { error: 'Identificate en el showroom con tu celular para guardar escenarios' },
+    if (!leadId && phone.replace(/\D/g, '').length >= 8) {
+      if (body.lead_id) {
+        return withVisitorCookie(request, NextResponse.json({ error: 'El celular no coincide con el contacto registrado' }, { status: 403 }), visitorKey, Boolean(existingVisitorKey))
+      }
+      try {
+        const identified = await rpcIdentifyTourLeadWithMetaOutbox(admin, {
+          visitorKey,
+          name: syntheticNameFromPhone(phone),
+          email: syntheticEmailFromPhone(phone),
+          phone,
+          adsConsent: await resolveServerAdsConsentForVisitor(admin, visitorKey),
+          emitLead: false,
+        })
+        leadId = identified.lead_id
+      } catch (error) {
+        console.error('POST /api/financing/scenarios identify lead', error)
+        return withVisitorCookie(request, NextResponse.json({ error: 'No pudimos registrar tus datos, probá de nuevo en un momento' }, { status: 503 }), visitorKey, Boolean(existingVisitorKey))
+      }
+    }
+    if (!leadId) {
+      return withVisitorCookie(request, NextResponse.json(
+        { error: 'Ingresa tu celular para guardar escenarios' },
         { status: 401 },
-      )
+      ), visitorKey, Boolean(existingVisitorKey))
     }
 
     const unitParam = String(body.unit_id || body.unit_param || '').trim()
@@ -285,12 +318,12 @@ export async function POST(request: Request) {
       userAgent: hdrs.get('user-agent'),
     })
 
-    return NextResponse.json({
+    return withVisitorCookie(request, NextResponse.json({
       scenario: result.scenario,
       analysis: result.analysis,
       preview: result.preview,
       lead_id: leadId,
-    })
+    }), visitorKey, Boolean(existingVisitorKey))
   } catch (error) {
     console.error('POST /api/financing/scenarios', error)
     const res = validationResponse(error)

@@ -150,24 +150,40 @@ describe('fallback legacy no confirma guardado incompleto (mock)', () => {
 })
 
 describe('auth escenarios cruzados (mock admin)', () => {
-  function mockAdmin(visitorLeadId: string | null, leadPhoneDigits = '593999111222'): AuthAdminClient {
+  function mockAdmin(visitorLeadId: string | null, leadPhoneDigits = '+593999111222') {
+    let linkedLeadId = visitorLeadId
     const builder = (table: string): AuthQueryBuilder => {
-      const state: { eqs: Record<string, string> } = { eqs: {} }
+      const state: { eqs: Record<string, string>; update?: Record<string, unknown> } = { eqs: {} }
       const api: AuthQueryBuilder = {
         select: () => api,
+        limit: () => api,
         eq: (col, val) => {
           state.eqs[col] = val
           return api
         },
+        range: async () => ({ data: [{ id: 'lead-a', phone: '0999111222' }] }),
+        update: (values) => {
+          state.update = values
+          return api
+        },
+        is: async () => {
+          linkedLeadId = String(state.update?.lead_id ?? '')
+          return { error: null }
+        },
+        upsert: async (values) => {
+          linkedLeadId = String(values.lead_id ?? '')
+          return { error: null }
+        },
         maybeSingle: async () => {
           if (table === 'tour_visitors') {
-            return { data: visitorLeadId ? { lead_id: visitorLeadId } : { lead_id: null } }
+            return { data: { id: 'visitor-1', lead_id: linkedLeadId } }
           }
           if (table === 'leads') {
-            if (!visitorLeadId || state.eqs.id !== visitorLeadId) return { data: null }
+            if (state.eqs.id && state.eqs.id !== 'lead-a') return { data: null }
+            if (state.eqs.phone_normalized && state.eqs.phone_normalized !== leadPhoneDigits) return { data: null }
             return {
               data: {
-                id: visitorLeadId,
+                id: 'lead-a',
                 phone: '+593999111222',
                 phone_normalized: leadPhoneDigits,
               },
@@ -178,23 +194,32 @@ describe('auth escenarios cruzados (mock admin)', () => {
       }
       return api
     }
-    return { from: (table) => builder(table) }
+    return { admin: { from: (table: string) => builder(table) } as AuthAdminClient, linkedLeadId: () => linkedLeadId }
   }
 
   const opts = { tenantId: TENANT, normalizePhone: normalizeShowroomPhone }
 
-  it('sin cookie visitante → null', async () => {
-    const id = await resolveAuthorizedLeadId(mockAdmin('lead-a'), {
+  it('el celular recupera el lead sin cookie visitante', async () => {
+    const id = await resolveAuthorizedLeadId(mockAdmin(null).admin, {
       leadId: 'lead-a',
       phone: '0999111222',
       visitorKey: null,
       ...opts,
     })
-    assert.equal(id, null)
+    assert.equal(id, 'lead-a')
+  })
+
+  it('vincula un visitante nuevo al lead encontrado por celular', async () => {
+    const client = mockAdmin(null)
+    const id = await resolveAuthorizedLeadId(client.admin, {
+      phone: '0999111222', visitorKey: 'vid-2', ...opts,
+    })
+    assert.equal(id, 'lead-a')
+    assert.equal(client.linkedLeadId(), 'lead-a')
   })
 
   it('lead_id ajeno al visitante → null', async () => {
-    const id = await resolveAuthorizedLeadId(mockAdmin('lead-a'), {
+    const id = await resolveAuthorizedLeadId(mockAdmin('lead-a').admin, {
       leadId: 'lead-b',
       visitorKey: 'vid-1',
       ...opts,
@@ -203,7 +228,7 @@ describe('auth escenarios cruzados (mock admin)', () => {
   })
 
   it('visitante autorizado solo su lead', async () => {
-    const id = await resolveAuthorizedLeadId(mockAdmin('lead-a'), {
+    const id = await resolveAuthorizedLeadId(mockAdmin('lead-a').admin, {
       leadId: 'lead-a',
       visitorKey: 'vid-1',
       ...opts,
@@ -212,7 +237,7 @@ describe('auth escenarios cruzados (mock admin)', () => {
   })
 
   it('teléfono que no coincide con el lead del visitante → null', async () => {
-    const id = await resolveAuthorizedLeadId(mockAdmin('lead-a', '593999111222'), {
+    const id = await resolveAuthorizedLeadId(mockAdmin('lead-a', '+593999111222').admin, {
       leadId: 'lead-a',
       phone: '0999000000',
       visitorKey: 'vid-1',

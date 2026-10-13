@@ -344,18 +344,13 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
 }
 
 /**
- * Lista escenarios del lead **y** del visitante actual.
- * Deduplicar lead por teléfono no concede acceso a escenarios de otro visitor_key.
- * Filas legacy sin created_by_visitor_key no se exponen por la API pública.
+ * Lista escenarios del lead identificado por su celular, desde cualquier dispositivo.
  */
 export async function listScenariosForVisitor(
   admin: SupabaseClient,
   leadId: string,
-  visitorKey: string,
 ) {
-  const key = visitorKey.trim()
-  if (!key) return [] as FinancingScenario[]
-  // Select plano (sin embeds) + filtro visitor en memoria.
+  // Select plano (sin embeds) y filtro por lead_id.
   // Los embeds pueden fallar por relaciones/caché y el wrapper antiguo
   // convertía cualquier "column … does not exist" en falso 503 de migración.
   const { data, error } = await admin
@@ -375,9 +370,7 @@ export async function listScenariosForVisitor(
     }
     throw error
   }
-  return ((data ?? []) as FinancingScenario[]).filter(
-    (row) => String(row.created_by_visitor_key || '') === key,
-  )
+  return (data ?? []) as FinancingScenario[]
 }
 
 /** @deprecated Preferir listScenariosForVisitor. */
