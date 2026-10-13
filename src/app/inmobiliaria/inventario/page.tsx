@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Download, ImagePlus, LayoutGrid, Mountain, Plus } from 'lucide-react'
+import { Download, HardHat, ImagePlus, LayoutGrid, Plus } from 'lucide-react'
 import { useInventoryUnits } from '@/hooks/inmobiliaria/useInventoryUnits'
 import { updateUnitStatus } from '@/services/inmobiliaria.service'
 import { useAuth } from '@/contexts/AuthContext'
@@ -98,11 +98,11 @@ export default function InventarioPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => router.push('/inmobiliaria/inventario/alrededores')}
+                onClick={() => router.push('/inmobiliaria/inventario/avance-de-obra')}
                 className="w-full justify-center gap-2 sm:w-auto"
               >
-                <Mountain size={16} aria-hidden />
-                Alrededores
+                <HardHat size={16} aria-hidden />
+                Avance de obra
               </Button>
               <Button
                 type="button"
