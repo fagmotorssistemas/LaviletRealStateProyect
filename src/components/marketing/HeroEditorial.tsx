@@ -51,7 +51,7 @@ export function HeroEditorial() {
               <LaviletLockup variant="story" heroPalette />
             </div>
             <span aria-hidden className="mt-6 block h-px w-10 bg-[#A77855]" />
-            <p className="mt-6 max-w-sm text-[clamp(1.1rem,2vw,1.3rem)] font-light leading-snug tracking-[0.04em] text-[#484C3B] [text-shadow:0_1px_14px_rgba(245,243,235,0.7)]">
+            <p className="mt-6 max-w-sm text-[clamp(1.2rem,2.2vw,1.45rem)] font-light leading-snug tracking-[0.04em] text-[#484C3B] [text-shadow:0_1px_14px_rgba(245,243,235,0.7)]">
               Vivienda, comercio y ciudad,
               <em className="block not-italic">sin renunciar a tu privacidad.</em>
             </p>
@@ -59,7 +59,7 @@ export function HeroEditorial() {
               {FEATURES.map(({ label, Icon }) => (
                 <li
                   key={label}
-                  className="flex items-center gap-3.5 text-[17px] font-light tracking-[0.04em] text-[#484C3B] [text-shadow:0_1px_10px_rgba(245,243,235,0.7)] sm:text-[19px]"
+                  className="flex items-center gap-3.5 text-[18px] font-light tracking-[0.04em] text-[#484C3B] [text-shadow:0_1px_10px_rgba(245,243,235,0.7)] sm:text-[21px]"
                 >
                   <Icon size={24} strokeWidth={1.4} className="shrink-0 text-[#686C55]" />
                   {label}
@@ -69,14 +69,14 @@ export function HeroEditorial() {
             <div className="mt-9 flex flex-wrap gap-3">
               <Link
                 href="/tour"
-                className="inline-flex h-12 items-center rounded-full bg-[#484C3B] px-7 text-[13px] font-normal tracking-[0.32em] text-[#F5F3EB] uppercase shadow-[0_10px_24px_rgba(48,49,44,0.22)] transition-colors hover:bg-[#30312C]"
+                className="inline-flex h-12 items-center rounded-full bg-[#484C3B] px-7 text-[14px] font-normal tracking-[0.32em] text-[#F5F3EB] uppercase shadow-[0_10px_24px_rgba(48,49,44,0.22)] transition-colors hover:bg-[#30312C]"
               >
                 Recorrer en 360°
                 <ArrowRight size={14} className="ml-2" />
               </Link>
               <Link
                 href="/contacto"
-                className="inline-flex h-12 items-center rounded-full bg-[#F5F3EB]/85 px-6 text-[13px] font-normal tracking-[0.32em] text-[#484C3B] uppercase ring-1 ring-[#484C3B]/30 backdrop-blur-sm transition-colors hover:bg-[#F5F3EB]"
+                className="inline-flex h-12 items-center rounded-full bg-[#F5F3EB]/85 px-6 text-[14px] font-normal tracking-[0.32em] text-[#484C3B] uppercase ring-1 ring-[#484C3B]/30 backdrop-blur-sm transition-colors hover:bg-[#F5F3EB]"
               >
                 Agendar visita
               </Link>
