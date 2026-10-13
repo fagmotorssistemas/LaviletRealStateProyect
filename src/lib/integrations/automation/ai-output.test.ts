@@ -21,7 +21,7 @@ test('business fact extraction has bounded output room independent of catalogue 
 const input = { respuesta_propuesta: 'Hola. Los valores referenciales van desde $145.000 hasta $550.000 USD, sujetos a cambios. Para compartirle el brochure y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?' }
 
 test('real requests and traces isolate extractor and writer defaults and independent rollbacks', async t => {
-  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_EXTRACTOR', 'OPENAI_EXTRACTOR_REASONING_EFFORT', 'OPENAI_MODEL_WRITER', 'OPENAI_MODEL_REVIEWER']) {
+  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_EXTRACTOR', 'OPENAI_EXTRACTOR_REASONING_EFFORT', 'OPENAI_MODEL_WRITER', 'OPENAI_WRITER_REASONING_EFFORT', 'OPENAI_MODEL_REVIEWER']) {
     const previous = process.env[key]
     if (key === 'OPENAI_API_KEY') process.env[key] = 'synthetic'
     else if (key === 'OPENAI_MODEL') process.env[key] = 'gpt-4.1'
@@ -50,16 +50,17 @@ test('real requests and traces isolate extractor and writer defaults and indepen
   await withAIExecutionTrace(trace, async () => {
     for (let index = 0; index < contracts.length; index++)
       await aiJson('Conserve las reglas del turno.', input, contracts[index], undefined, undefined, settings, tasks[index])
-    process.env.OPENAI_MODEL_WRITER = 'gpt-4.1'
+    process.env.OPENAI_MODEL_WRITER = 'gpt-4.1-mini'
     await aiJson('Conserve las reglas del turno.', input, contracts[0], undefined, undefined, settings, 'writing')
     await aiJson('Conserve las reglas del turno.', input, contracts[2], undefined, undefined, settings, 'data')
     process.env.OPENAI_MODEL_EXTRACTOR = 'gpt-4.1'
     await aiJson('Conserve las reglas del turno.', input, contracts[2], undefined, undefined, settings, 'data')
     delete process.env.OPENAI_MODEL_WRITER
+    process.env.OPENAI_WRITER_REASONING_EFFORT = 'none'
     await aiJson('Conserve las reglas del turno.', input, contracts[0], undefined, undefined, settings, 'writing')
   })
   await trace.flush()
-  const expectedModels = ['gpt-4.1-mini', 'gpt-4.1-mini', 'gpt-6-luna', 'gpt-5-mini', 'gpt-4.1', 'gpt-6-luna', 'gpt-4.1', 'gpt-4.1-mini']
+  const expectedModels = ['gpt-6-luna', 'gpt-6-luna', 'gpt-6-luna', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-6-luna', 'gpt-4.1', 'gpt-6-luna']
   assert.deepEqual(requests.map(request => request.model), expectedModels)
   assert.deepEqual(stored.filter(step => step.step_key === 'model_request').map(step =>
     (step.input_summary as Record<string, unknown>).model), expectedModels)
@@ -73,13 +74,20 @@ test('real requests and traces isolate extractor and writer defaults and indepen
     })
     assert.equal(request.store, false)
   }
-  assert.equal(requests[0].reasoning, undefined)
-  assert.equal(requests[1].reasoning, undefined)
+  assert.deepEqual(requests[0].reasoning, { effort: 'low' })
+  assert.deepEqual(requests[1].reasoning, { effort: 'low' })
+  assert.equal(requests[0].max_output_tokens, 2200)
+  assert.equal(requests[1].max_output_tokens, 2200)
   assert.deepEqual(requests[2].reasoning, { effort: 'low' })
   assert.deepEqual(requests[5].reasoning, { effort: 'low' })
+  assert.equal(requests[4].reasoning, undefined, 'writer rollback does not send Luna reasoning to GPT-4.1 mini')
   assert.equal(requests[6].reasoning, undefined, 'rollback does not send Luna reasoning to GPT-4.1')
+  assert.deepEqual(requests[7].reasoning, { effort: 'none' })
   const storedRequests = stored.filter(step => step.step_key === 'model_request')
+  assert.equal((storedRequests[0].input_summary as Record<string, unknown>).reasoning_effort, 'low')
+  assert.equal((storedRequests[1].input_summary as Record<string, unknown>).reasoning_effort, 'low')
   assert.equal((storedRequests[2].input_summary as Record<string, unknown>).reasoning_effort, 'low')
+  assert.equal((storedRequests[7].input_summary as Record<string, unknown>).reasoning_effort, 'none')
 })
 
 test('failed reviewer call records transport policy and sanitized diagnostics even without a model result', async t => {
@@ -256,7 +264,7 @@ test('writer inherits configured tone while all reviewers remain factual', async
 })
 
 test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning usage without enlarging output budget', async t => {
-  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_WRITER', 'OPENAI_MODEL_REVIEWER', 'OPENAI_REVIEW_REASONING_EFFORT']) {
+  for (const key of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_MODEL_WRITER', 'OPENAI_WRITER_REASONING_EFFORT', 'OPENAI_MODEL_REVIEWER', 'OPENAI_REVIEW_REASONING_EFFORT']) {
     const previous = process.env[key]
     if (key === 'OPENAI_API_KEY') process.env[key] = 'synthetic'
     else if (key === 'OPENAI_MODEL') process.env[key] = 'gpt-4.1'
@@ -294,6 +302,6 @@ test('GPT-5 mini reviewer sends low reasoning and traces effort and reasoning us
   assert.equal(sent[1].model, 'gpt-4o-mini')
   assert.equal(sent[1].reasoning, undefined, 'Model rollback must not send unsupported reasoning options')
   await aiJson('Write reply', {}, undefined, undefined, undefined, { style: 'actual', warmth: 1, detail: 1 }, 'writing')
-  assert.equal(sent[2].model, 'gpt-4.1-mini')
-  assert.equal(sent[2].reasoning, undefined, 'Reviewer reasoning settings cannot change writer requests')
+  assert.equal(sent[2].model, 'gpt-6-luna')
+  assert.deepEqual(sent[2].reasoning, { effort: 'low' }, 'Reviewer reasoning settings cannot change writer requests')
 })

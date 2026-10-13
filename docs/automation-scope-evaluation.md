@@ -86,6 +86,27 @@ El clasificador conserva su configuración independiente. La traza registra
 modelo, esfuerzo, consumo y presupuesto; los tokens de razonamiento ya forman
 parte de los tokens de salida y no se suman dos veces.
 
+### Redactor con GPT-6 Luna — 13 de octubre de 2026
+
+El redactor final, sus borradores y sus reescrituras usan `gpt-6-luna` con
+razonamiento `low` por defecto. `OPENAI_MODEL_WRITER` controla solo esos roles;
+`OPENAI_WRITER_REASONING_EFFORT` acepta `none`, `low`, `medium`, `high`, `xhigh`
+o `max` únicamente para el redactor Luna. El extractor conserva su propio esfuerzo,
+el revisor sigue en `gpt-5-mini` y el clasificador en `gpt-4o-mini`.
+
+Se conservan los prompts, los contratos JSON estrictos, el límite de salida de
+2200 tokens, los tiempos, los reintentos y las reglas de conversación. Las trazas
+registran el modelo y el esfuerzo utilizados por cada llamada. La interfaz ya
+incluye las tarifas de Luna. Las correcciones pendientes del flujo no se aplican
+con este cambio de modelo.
+
+El cambio se activa al desplegar esta revisión. Si el despliegue define
+`OPENAI_MODEL_WRITER`, debe actualizarse a `gpt-6-luna` para usarlo. Para volver
+solo el redactor al modelo anterior, establezca `OPENAI_MODEL_WRITER=gpt-4.1-mini`;
+ese modelo no recibe parámetros de razonamiento de Luna. La validación local con
+transporte simulado comprueba configuración, aislamiento y contratos, sin consumir
+API ni demostrar todavía la calidad de las nuevas respuestas.
+
 ### Extractor con GPT-6 Luna — 13 de octubre de 2026
 
 El extractor usa `gpt-6-luna` y razonamiento `low` por defecto. Se mantienen

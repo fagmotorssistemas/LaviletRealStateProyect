@@ -4,14 +4,14 @@ import { aiRequestRole, automationModelForRole, automationReasoningEffortForRole
 import { aiRequestBody } from './ai-request-body'
 import { aiOutputBudget } from './ai-output'
 
-test('Luna extraction leaves writing, classification, review and media independent', () => {
+test('Luna extraction and writing leave classification, review and media independent', () => {
   const env = { OPENAI_MODEL: 'gpt-4.1' }
   const cases = [
     { schema: { properties: { property_fragments: {} } }, task: 'writing', attachments: false, role: 'scope', model: 'gpt-4o-mini' },
     { schema: { properties: { turn_semantics: {} } }, task: 'data', attachments: false, role: 'extractor', model: 'gpt-6-luna' },
-    { schema: { properties: { requests: {}, question: {} } }, task: 'writing', attachments: false, role: 'writer', model: 'gpt-4.1-mini' },
+    { schema: { properties: { requests: {}, question: {} } }, task: 'writing', attachments: false, role: 'writer', model: 'gpt-6-luna' },
     { schema: { properties: { factual_values: {} } }, task: 'review', attachments: false, role: 'reviewer', model: 'gpt-5-mini' },
-    { schema: undefined, task: 'writing', attachments: false, role: 'draft', model: 'gpt-4.1-mini' },
+    { schema: undefined, task: 'writing', attachments: false, role: 'draft', model: 'gpt-6-luna' },
     { schema: undefined, task: 'data', attachments: true, role: 'media', model: 'gpt-4.1' },
     { schema: undefined, task: 'data', attachments: false, role: 'interpretation', model: 'gpt-4.1' },
     { schema: { properties: { requests: {}, question: {} } }, task: 'writing', attachments: true, role: 'media', model: 'gpt-4.1' },
@@ -55,8 +55,8 @@ test('each trial role can be rolled back without changing the other agents', () 
 test('a writer override is isolated and an empty override uses the trial default', () => {
   for (const override of ['', '   ', undefined]) {
     const env = { OPENAI_MODEL: 'gpt-4.1', OPENAI_MODEL_WRITER: override }
-    assert.equal(automationModelForRole('writer', env), 'gpt-4.1-mini')
-    assert.equal(automationModelForRole('draft', env), 'gpt-4.1-mini')
+    assert.equal(automationModelForRole('writer', env), 'gpt-6-luna')
+    assert.equal(automationModelForRole('draft', env), 'gpt-6-luna')
     assert.equal(automationModelForRole('extractor', env), 'gpt-6-luna')
   }
   const env = { OPENAI_MODEL: 'extractor-model', OPENAI_MODEL_WRITER: ' writer-trial ' }
@@ -76,7 +76,7 @@ test('extractor rollback and trial do not change any other agent', () => {
     const env = { OPENAI_MODEL: 'media-model', OPENAI_MODEL_EXTRACTOR: ` ${model} ` }
     assert.equal(automationModelForRole('extractor', env), model)
     for (const role of ['media', 'interpretation'] as const) assert.equal(automationModelForRole(role, env), 'media-model')
-    for (const role of ['writer', 'draft'] as const) assert.equal(automationModelForRole(role, env), 'gpt-4.1-mini')
+    for (const role of ['writer', 'draft'] as const) assert.equal(automationModelForRole(role, env), 'gpt-6-luna')
     assert.equal(automationModelForRole('scope', env), 'gpt-4o-mini')
     assert.equal(automationModelForRole('reviewer', env), 'gpt-5-mini')
   }
@@ -91,9 +91,32 @@ test('Luna extractor reasoning is isolated from reviewer controls and follows su
     { message: 'OPENAI_EXTRACTOR_REASONING_EFFORT_INVALID' })
   for (const model of ['gpt-4.1-mini', 'gpt-4.1', 'gpt-5-mini'])
     assert.equal(automationReasoningEffortForRole('extractor', model, { OPENAI_EXTRACTOR_REASONING_EFFORT: 'unsupported' }), undefined)
-  for (const role of ['writer', 'scope', 'draft', 'reviewer', 'interpretation', 'media'] as const)
+  for (const role of ['scope', 'reviewer', 'interpretation', 'media'] as const)
     assert.equal(automationReasoningEffortForRole(role, 'gpt-6-luna', { OPENAI_EXTRACTOR_REASONING_EFFORT: 'high' }), undefined)
+  for (const role of ['writer', 'draft'] as const)
+    assert.equal(automationReasoningEffortForRole(role, 'gpt-6-luna', { OPENAI_EXTRACTOR_REASONING_EFFORT: 'high' }), 'low')
   assert.equal(automationReasoningEffortForRole('reviewer', 'gpt-5-mini', { OPENAI_EXTRACTOR_REASONING_EFFORT: 'high' }), 'low')
+})
+
+test('Luna writer and rewrites have independent reasoning controls and safe rollback', () => {
+  for (const role of ['writer', 'draft'] as const) {
+    assert.equal(automationReasoningEffortForRole(role, 'gpt-6-luna', {}), 'low')
+    assert.equal(automationReasoningEffortForRole(role, 'gpt-6-luna', {
+      OPENAI_EXTRACTOR_REASONING_EFFORT: 'high', OPENAI_REVIEW_REASONING_EFFORT: 'high',
+    }), 'low')
+    for (const effort of ['none', 'low', 'medium', 'high', 'xhigh', 'max'])
+      assert.equal(automationReasoningEffortForRole(role, 'gpt-6-luna', { OPENAI_WRITER_REASONING_EFFORT: ` ${effort} ` }), effort)
+    assert.throws(() => automationReasoningEffortForRole(role, 'gpt-6-luna', { OPENAI_WRITER_REASONING_EFFORT: 'minimal' }),
+      { message: 'OPENAI_WRITER_REASONING_EFFORT_INVALID' })
+    for (const model of ['gpt-4.1-mini', 'gpt-4.1']) {
+      const env = { OPENAI_MODEL_WRITER: model, OPENAI_WRITER_REASONING_EFFORT: 'unsupported' }
+      assert.equal(automationModelForRole(role, env), model)
+      assert.equal(automationReasoningEffortForRole(role, model, env), undefined)
+      assert.equal(automationModelForRole('extractor', env), 'gpt-6-luna')
+    }
+  }
+  assert.equal(automationReasoningEffortForRole('extractor', 'gpt-6-luna', { OPENAI_WRITER_REASONING_EFFORT: 'high' }), 'low')
+  assert.equal(automationReasoningEffortForRole('reviewer', 'gpt-5-mini', { OPENAI_WRITER_REASONING_EFFORT: 'high' }), 'low')
 })
 
 test('Luna request retains the strict extraction schema and bounded output', () => {

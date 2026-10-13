@@ -12,22 +12,28 @@ export function automationModelForRole(role: AIRequestRole, env: NodeJS.ProcessE
   if (role === 'scope') return env.OPENAI_MODEL_SCOPE?.trim() || 'gpt-4o-mini'
   if (role === 'reviewer') return env.OPENAI_MODEL_REVIEWER?.trim() || 'gpt-5-mini'
   if (role === 'extractor') return env.OPENAI_MODEL_EXTRACTOR?.trim() || 'gpt-6-luna'
-  if (role === 'writer' || role === 'draft') return env.OPENAI_MODEL_WRITER?.trim() || 'gpt-4.1-mini'
+  if (role === 'writer' || role === 'draft') return env.OPENAI_MODEL_WRITER?.trim() || 'gpt-6-luna'
   return env.OPENAI_MODEL?.trim() || undefined
 }
 
 export type ReviewReasoningEffort = 'minimal' | 'low' | 'medium' | 'high'
 export type ExtractorReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type WriterReasoningEffort = ExtractorReasoningEffort
 export type AIReasoningEffort = ReviewReasoningEffort | ExtractorReasoningEffort
 
 /** Each role's reasoning controls apply only to its supported model family.
- * Luna extraction starts at low to avoid the provider's medium default. */
+ * Luna extraction and writing start at low to avoid the provider's medium default. */
 export function automationReasoningEffortForRole(role: AIRequestRole, model: string,
   env: NodeJS.ProcessEnv = process.env): AIReasoningEffort | undefined {
   if (role === 'extractor' && model === 'gpt-6-luna') {
     const configured = env.OPENAI_EXTRACTOR_REASONING_EFFORT?.trim().toLowerCase() || 'low'
     if (!['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(configured)) throw new Error('OPENAI_EXTRACTOR_REASONING_EFFORT_INVALID')
     return configured as ExtractorReasoningEffort
+  }
+  if ((role === 'writer' || role === 'draft') && model === 'gpt-6-luna') {
+    const configured = env.OPENAI_WRITER_REASONING_EFFORT?.trim().toLowerCase() || 'low'
+    if (!['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(configured)) throw new Error('OPENAI_WRITER_REASONING_EFFORT_INVALID')
+    return configured as WriterReasoningEffort
   }
   if (role !== 'reviewer' || !/^gpt-5-mini(?:-\d{4}-\d{2}-\d{2})?$/.test(model)) return undefined
   const configured = env.OPENAI_REVIEW_REASONING_EFFORT?.trim().toLowerCase() || 'low'
