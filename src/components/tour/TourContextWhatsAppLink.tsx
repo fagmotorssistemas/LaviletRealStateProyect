@@ -1,6 +1,6 @@
 'use client'
 
-import { MessageCircle } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/tour/WhatsAppIcon'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { tourWhatsAppHref, type TourWhatsAppContext } from '@/lib/tour/tourWhatsApp'
 
@@ -35,7 +35,7 @@ export function TourContextWhatsAppLink({
       })
     }}
   >
-    <MessageCircle size={18} strokeWidth={1.75} aria-hidden />
+    <WhatsAppIcon size={18} />
     {label ? <span>{t(label)}</span> : null}
   </a>
 }

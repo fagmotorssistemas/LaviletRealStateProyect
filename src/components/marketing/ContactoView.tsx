@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowUpRight, Mail, MapPin, MessageCircle, Clock3 } from 'lucide-react'
+import { ArrowUpRight, Mail, MapPin, Clock3 } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/tour/WhatsAppIcon'
 import { SITE } from '@/lib/marketing/site'
 import { cn } from '@/lib/utils'
 import { ContactForm } from './ContactForm'
@@ -197,7 +198,7 @@ export function ContactoView({ embedded = false }: { embedded?: boolean }) {
 
               <div className="p-6">
                 <div className="flex gap-3">
-                  <MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#C45C3E]" strokeWidth={1.75} />
+                  <span className="mt-0.5 h-4 w-4 shrink-0 text-[#C45C3E]"><WhatsAppIcon size={16} /></span>
                   <div>
                     <p className="text-[11px] font-medium tracking-[0.16em] text-[#72735A]/60 uppercase">
                       WhatsApp
