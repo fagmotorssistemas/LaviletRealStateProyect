@@ -37,19 +37,19 @@ function serviceKeyMatchesProject(url: string, key: string) {
 }
 
 /** Solo servidor. Nunca leer NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY. */
-export function tryCreateAdminClient(): SupabaseClient | null {
+export function tryCreateAdminClient(options: { requestTimeoutMs?: number } = {}): SupabaseClient | null {
   const url = readEnv('NEXT_PUBLIC_SUPABASE_URL')
   const key = readEnv('SUPABASE_SERVICE_ROLE_KEY')
   if (!url || !key) return null
   if (!serviceKeyMatchesProject(url, key)) return null
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { fetch: fetchWithTimeout },
+    global: { fetch: (input, init) => fetchWithTimeout(input, init, options.requestTimeoutMs) },
   })
 }
 
-export function createAdminClient() {
-  const client = tryCreateAdminClient()
+export function createAdminClient(options: { requestTimeoutMs?: number } = {}) {
+  const client = tryCreateAdminClient(options)
   if (!client) {
     throw new Error('Faltan NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY')
   }

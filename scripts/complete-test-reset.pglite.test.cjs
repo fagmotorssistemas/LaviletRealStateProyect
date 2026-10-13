@@ -36,6 +36,7 @@ async function setup(){
  await db.exec(sql('20261005183000_explicit_bot_resume.sql'))
  await db.exec(sql('20260929101000_reservation_handoff_receipt.sql'))
  await db.exec(sql(migration))
+ await db.exec(sql('20261013213000_complete_test_reset_timeout.sql'))
  return {db,rows}
 }
 test('complete reset applies to Carlos and Nathaly regardless of opt-out, sale, financing or pending delivery',async t=>{
@@ -170,6 +171,31 @@ test('reset invalidates a global worker processing this lead and preserves backu
   await db.query('SELECT lv_restart_enrolled_test_contact($1,$2,NULL)',[contact.id,contact.version])
   assert.equal((await rows("SELECT lv_app_worker_lock($1,'renew') allowed",[token]))[0].allowed,false)
   assert.equal((await rows("SELECT lv_app_worker_lock($1,'acquire') allowed",[randomUUID()]))[0].allowed,true)
+ }finally{await db.close()}
+})
+
+test('reset skips unrelated roots and empty dependent tables without running their DELETE triggers',async()=>{
+ const {db,rows}=await setup()
+ try{
+  await db.exec(`CREATE TABLE unrelated_reset_root(id uuid PRIMARY KEY,lead_id uuid);
+   CREATE TABLE empty_reset_child(id uuid PRIMARY KEY,conversation_id uuid REFERENCES conversations(id));
+   CREATE FUNCTION reject_unnecessary_reset_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION 'UNNECESSARY_DELETE'; END $$;
+   CREATE TRIGGER unrelated_delete BEFORE DELETE ON unrelated_reset_root FOR EACH STATEMENT EXECUTE FUNCTION reject_unnecessary_reset_delete();
+   CREATE TRIGGER empty_delete BEFORE DELETE ON empty_reset_child FOR EACH STATEMENT EXECUTE FUNCTION reject_unnecessary_reset_delete();`)
+  const lead=randomUUID(),other=randomUUID(),untouched=randomUUID()
+  for(const [id,phone] of [[lead,'593987110032'],[other,'593991234567']])
+   await db.query("INSERT INTO leads(id,tenant_id,project_id,phone,name) VALUES($1,$2,$3,$4,'old')",[id,tenant,project,phone])
+  await db.query('INSERT INTO unrelated_reset_root VALUES($1,$2)',[untouched,other])
+  await db.query('INSERT INTO conversations(lead_id,tenant_id,project_id) VALUES($1,$2,$3)',[lead,tenant,project])
+  await db.query("SELECT lv_manage_test_contact('add',p_phone:='593987110032')")
+  const contact=(await rows('SELECT * FROM lv_test_contacts_state WHERE lead_id=$1',[lead]))[0]
+  const result=(await rows('SELECT lv_restart_enrolled_test_contact($1,$2,NULL) result',[contact.id,contact.version]))[0].result
+  assert.equal(result.status,'reset');assert.equal(result.deleted.empty_reset_child,0)
+  assert.equal((await rows('SELECT count(*)::int n FROM conversations WHERE lead_id=$1',[lead]))[0].n,0)
+  assert.equal((await rows('SELECT count(*)::int n FROM unrelated_reset_root WHERE id=$1',[untouched]))[0].n,1)
+  const configuration=(await rows("SELECT proconfig FROM pg_proc WHERE oid='lv_restart_enrolled_test_contact(uuid,integer,uuid)'::regprocedure"))[0].proconfig
+  assert.ok(configuration.includes('statement_timeout=25s'))
  }finally{await db.close()}
 })
 

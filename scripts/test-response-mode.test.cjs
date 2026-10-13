@@ -78,17 +78,19 @@ test('any enrolled fast phone can be claimed with scope, status and deadline gua
 })
 const contact={id:'00000000-0000-4000-8000-000000000001',version:1,leadId:'lead',kommoId:123,botEnabled:true,matches:1,blocked:false}
 function actionHarness(options={}){
- const calls=[],reads=[],kommo=[]
+ const calls=[],reads=[],kommo=[],adminOptions=[]
+ const client=()=>({rpc:(...args)=>{calls.push(args);return {abortSignal:async()=>{if(options.rpcThrow)throw options.rpcThrow;return {error:options.rpcError||null}}}}})
  const actions=load('src/app/inmobiliaria/automatizacion/pruebas/actions.ts',{
   'node:crypto':require('node:crypto'),
   '@/lib/auth/session':{assertAdmin:async()=>{if(options.denied)throw Error('Solo el administrador puede hacer esto')},getSessionUser:async()=>({user:options.loggedOut?null:{id:'admin'},supabase:{from(){const q={select:()=>q,eq:()=>q,single:async()=>({data:options.projectAccess===false?null:{id:'project'},error:null})};return q}}})},
-  '@/lib/integrations/automation/data':{scope:{tenant_id:'tenant',project_id:'project'},db:()=>({rpc:(...args)=>{calls.push(args);return {abortSignal:async()=>{if(options.rpcThrow)throw options.rpcThrow;return {error:options.rpcError||null}}}}})},
+  '@/lib/integrations/automation/data':{scope:{tenant_id:'tenant',project_id:'project'},db:client},
+  '@/lib/supabase/admin':{createAdminClient:options=>{adminOptions.push(options);return client()}},
   '@/lib/integrations/automation/kommo':{setKommoField:async(...args)=>{kommo.push(args);if(options.kommoError)throw options.kommoError}},
   '@/lib/integrations/automation/resume-test-contact':{resumeTestContact:async(...args)=>{calls.push(['resume',...args]);if(options.resumeError)throw options.resumeError;return {kommoSynced:!options.kommoError}}},
   '@/lib/integrations/automation/test-response-mode':{testContacts:async()=>{reads.push(true);if(options.readError || (options.refreshError&&calls.length))throw Error('TEST_CONTACTS_READ_FAILED');return options.contacts||[contact]}},
   '@/lib/inmobiliaria/testResponseMode':settings,
  })
- return {...actions,calls,reads,kommo,update:(action='reset',version=1)=>actions.updateTestContactAction(contact.id,version,action)}
+ return {...actions,calls,reads,kommo,adminOptions,update:(action='reset',version=1)=>actions.updateTestContactAction(contact.id,version,action)}
 }
 
 test('all server actions enforce admin and project access before reading contacts or mutating',async()=>{
@@ -106,6 +108,15 @@ test('all server actions enforce admin and project access before reading contact
  const stale=await h.update('reset',2)
  assert.equal(stale.code,'TEST_CONTACT_CHANGED');assert.equal(stale.refreshRequired,true)
  assert.equal(h.calls.length,1)
+})
+
+test('reset transport outlasts its database budget without changing other action clients',async()=>{
+ const reset=actionHarness()
+ assert.equal((await reset.update()).ok,true)
+ assert.deepEqual(reset.adminOptions,[{requestTimeoutMs:30000}])
+ const fast=actionHarness()
+ assert.equal((await fast.update('fast_on')).ok,true)
+ assert.deepEqual(fast.adminOptions,[])
 })
 
 test('reset can clear an unlinked local lead but resume still requires Kommo',async()=>{
@@ -138,6 +149,16 @@ test('a rejected reset transaction explains linked records without leaking datab
  assert.deepEqual(h.kommo,[]);assert.equal(h.calls.length,1)
  assert.equal(log.mock.calls[0].arguments[1].code,'23503')
  assert.doesNotMatch(JSON.stringify(log.mock.calls.map(c=>c.arguments)),/private|sensitive/)
+})
+
+test('a database-cancelled reset reports rollback and timeout instead of an uncertain delivery',async t=>{
+ const log=t.mock.method(console,'error',()=>{})
+ const h=actionHarness({rpcError:{message:'private database statement',details:'sensitive',code:'57014'}}),result=await h.update()
+ assert.equal(result.ok,false);assert.equal(result.code,'TEST_RESET_TIMEOUT');assert.equal(result.refreshRequired,true)
+ assert.match(result.error,/base de datos canceló/);assert.match(result.error,/Se revirtieron los cambios/)
+ assert.doesNotMatch(JSON.stringify(result),/private|sensitive|57014/)
+ assert.deepEqual(h.kommo,[]);assert.equal(h.calls.length,1)
+ assert.equal(log.mock.calls[0].arguments[1].code,'57014')
 })
 
 test('unknown database errors and connection loss require refresh without leaking private details',async t=>{

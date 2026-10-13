@@ -1,6 +1,7 @@
 'use server'
 import { randomUUID } from 'node:crypto'
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { db, scope } from '@/lib/integrations/automation/data'
 import { setKommoField } from '@/lib/integrations/automation/kommo'
 import { testContacts } from '@/lib/integrations/automation/test-response-mode'
@@ -55,6 +56,10 @@ function failure(operation: string, error: unknown, mutationStarted = false): Fa
     return rejected('TEST_ACCESS_DENIED')
   }
   const reference = recordFailure(operation,error)
+  if (operation === 'reset' && error && typeof error === 'object' && 'code' in error && error.code === '57014') {
+    return rejected('TEST_RESET_TIMEOUT',
+      `No se reinició la prueba: la base de datos canceló la operación por superar el tiempo permitido. Se revirtieron los cambios de ese intento. Se requiere aplicar la actualización del reinicio y comprobar el estado con «Actualizar lista». Referencia: ${reference}.`, true)
+  }
   if (operation === 'reset' && error && typeof error === 'object' && 'code' in error && error.code === '23503') {
     return rejected('TEST_RESET_DEPENDENCY_FAILED',
       `No se reinició la prueba: hay registros vinculados que el reinicio no pudo limpiar. Se requiere actualizar la función de reinicio en la base de datos. Referencia: ${reference}.`, true)
@@ -66,7 +71,10 @@ function failure(operation: string, error: unknown, mutationStarted = false): Fa
 
 async function mutate(operation: string, args: Record<string, unknown>): Promise<Failure | null> {
   try {
-    const {error} = await db().rpc(operation==='reset'?'lv_restart_enrolled_test_contact':'lv_manage_test_contact',args)
+    // The reset has a bounded 25 s database budget; its transport must not abort
+    // at the generic admin client's 15 s default before receiving that result.
+    const client = operation === 'reset' ? createAdminClient({ requestTimeoutMs: 30_000 }) : db()
+    const {error} = await client.rpc(operation==='reset'?'lv_restart_enrolled_test_contact':'lv_manage_test_contact',args)
       .abortSignal(AbortSignal.timeout(30_000))
     return error ? failure(operation,error,true) : null
   } catch(error) { return failure(operation,error,true) }
