@@ -1,5 +1,6 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
+import { kommoFailureExplanation } from './kommo-failure'
 import { db, object, rpc, scope, text } from './data'
 import { transportHealth } from './transport-monitor'
 
@@ -58,6 +59,7 @@ export async function deliveryHealth() {
     const rejected = rejectedWriteStatus(status)
     return { id: row.id, kommoId: Number.isSafeInteger(kommoId) && kommoId > 0 ? kommoId : null,
       reason: text(result.reason), at: row.completed_at || row.received_at,
+      explanation: kommoFailureExplanation(text(result.reason), result),
       canResolve: row.status === 'cancelled' && result.requires_review === true,
       canReconcile: row.status === 'uncertain' && ['inbound', 'advisor_outbound'].includes(row.kind),
       delivery: result.delivery_status === 'accepted' && result.registration_status === 'pending' ? 'accepted_registration_pending' as const

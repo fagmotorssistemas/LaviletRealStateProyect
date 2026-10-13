@@ -120,7 +120,7 @@ test('empty lead matches never fall back to unrelated events; search text stays 
   assert.deepEqual(state.queries[0].filters.find(([key]) => key === 'kommo_id'), ['kommo_id', 123])
 })
 
-test('every table is tenant scoped, lead identity is project scoped and summaries are sanitized', async () => {
+test('every table is tenant scoped and project lead data remain visible in sanitized summaries', async () => {
   reset()
   state.tables.lv_integration_events = { data: [event(1)], error: null }
   state.tables.leads = { data: [{ id: 'wrong', tenant_id: 'tenant-b', project_id: 'project-b', kommo_id: 1, name: 'Wrong tenant' }, { id: 'right', tenant_id: 'tenant-a', project_id: 'project-a', kommo_id: 1, name: 'Correct project' }], error: null }
@@ -129,7 +129,10 @@ test('every table is tenant scoped, lead identity is project scoped and summarie
   assert.equal(body.executions[0].leadName, 'Correct project')
   assert.equal(body.executions[0].conversationId, id(5))
   assert.equal(body.executions[0].batchId, 'batch-a')
-  assert.doesNotMatch(JSON.stringify(body), /prueba@example\.com|Private person|4200|Wrong tenant/)
+  assert.doesNotMatch(JSON.stringify(body), /Wrong tenant/)
+  assert.match(JSON.stringify(body), /prueba@example\.com/)
+  assert.match(JSON.stringify(body), /Private person/)
+  assert.match(JSON.stringify(body), /4200/)
   assert.ok(state.queries.every(query => query.filters.some(([key, value]) => key === 'tenant_id' && value.includes('tenant-a'))))
 })
 

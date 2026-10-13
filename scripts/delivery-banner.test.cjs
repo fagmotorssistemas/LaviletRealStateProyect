@@ -30,6 +30,7 @@ function harness(role = 'admin') {
     '@/contexts/AuthContext': { useAuth: () => ({ profile: { role } }) },
     '@/lib/inmobiliaria/roleAccess': load('src/lib/inmobiliaria/roleAccess.ts'),
     '@/lib/inmobiliaria/automationErrors': { reservationServiceError: () => '' },
+    '@/lib/integrations/automation/kommo-failure': load('src/lib/integrations/automation/kommo-failure.ts'),
   })
   const render = () => { cursor = 0; return AutomationDeliveryBanner() }
   return { state, render }
@@ -50,6 +51,19 @@ function openReview(h) {
   return h.render()
 }
 const settle = () => new Promise(resolve => setImmediate(resolve))
+
+test('transport and maintenance incidents explain their cause without mislabeling maintenance as an unknown send', () => {
+ const transport=harness()
+ transport.state[0].incidents[0].reason='KOMMO_UNAVAILABLE'
+ assert.match(words(transport.render()),/conexión.*respuesta HTTP/)
+ assert.match(words(transport.render()),/historial antes de reenviar/)
+ const maintenance=harness()
+ maintenance.state[0].incidents[0].reason='TEST_CONTACTS_READ_FAILED'
+ const text=words(maintenance.render())
+ assert.match(text,/Falló una consulta de mantenimiento/)
+ assert.match(text,/lista de contactos de prueba en la base de datos/)
+ assert.doesNotMatch(text,/Resultado del envío por comprobar/)
+})
 
 test('delivery review is visible only to administrators; advisor can read the same incident', () => {
   const advisor = harness('asesor'), admin = harness('admin'), denied = harness('visitante')

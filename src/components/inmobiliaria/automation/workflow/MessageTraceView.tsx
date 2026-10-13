@@ -220,7 +220,7 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
     <h5>Entrada y salida de esta llamada a IA</h5>
     <PromptCopyButton step={step} />
     <AgentCallCost step={step} />
-    <p>Modelo: {String(step.input.model || 'No registrado')}. Copia protegida: puede ocultar datos sensibles.</p>
+    <p>Modelo: {String(step.input.model || 'No registrado')}. Se muestran los valores conservados de esta llamada.</p>
     <ReviewReferenceLegend step={step} />
     {attempts.length > 0 && <details className={styles.technical} open={step.status === 'failed'}>
       <summary>Conexión con la IA · {attempts.length} intento(s)</summary>
@@ -232,8 +232,8 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
       </li>)}</ul>
       {!step.output.output_snapshot && step.status === 'failed' && <p>Esta llamada no devolvió una evaluación utilizable. Esto no constituye un rechazo del contenido por parte de la IA.</p>}
     </details>}
-    <p>Los mensajes nuevos no se ocultan por mencionar presupuestos. Las credenciales y los identificadores personales siguen protegidos.</p>
-    {JSON.stringify([snapshot, output]).includes('[contenido personal protegido]') && <p className={styles.notice}>Este registro antiguo se guardó con el texto oculto. Cambiar la vista no recupera lo que no se conservó; las capturas nuevas mantienen el texto comercial.</p>}
+    <p>Los datos del lead se muestran con su valor original; null significa que la IA no devolvió un dato para ese campo. Las credenciales de conexión siguen ocultas.</p>
+    {/\[(?:dato|correo|contenido personal) protegido\]/.test(JSON.stringify([snapshot.data, output.data])) && <p className={styles.notice}>Este registro antiguo se guardó con datos ocultos. La vista no puede recuperar valores que no se conservaron. Las capturas nuevas muestran los datos del lead.</p>}
     {typeof usage.input_tokens === 'number' && <p>Tokens de entrada: {usage.input_tokens.toLocaleString('es-EC')}. Reutilizados desde caché: {typeof usage.cached_input_tokens === 'number' ? usage.cached_input_tokens.toLocaleString('es-EC') : 'No registrado'}. Tokens de salida: {typeof usage.output_tokens === 'number' ? usage.output_tokens.toLocaleString('es-EC') : 'No registrado'}.</p>}
     {!!(snapshot.limited || output.limited) && <p className={styles.notice}>Parte del contenido supera el límite de captura y está abreviado.</p>}
     {!!step.input.attachments_omitted && <p>Se envió un archivo o imagen. Su contenido binario no se conserva aquí.</p>}

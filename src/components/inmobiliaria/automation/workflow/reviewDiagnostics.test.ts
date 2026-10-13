@@ -8,6 +8,17 @@ const step = (output: Record<string, unknown>, input: Record<string, unknown> = 
 const review = { claims: [{ verdict: 'supported', fragment: 'S3', evidence_ids: ['E9'] }], factual_values: [], project_values: [],
   numeric_checks: [{ numeric_id: 'N4', classification: 'business_quantity', factual_value_indexes: [0], project_value_indexes: [] }] }
 
+test('legacy delivery failure explains the failed connection and does not invent a timeout or an AI rejection', () => {
+ const item={...step({}, {}, 'message_delivery'),status:'failed',errorCode:'KOMMO_UNAVAILABLE'}
+ const diagnostic=reviewDiagnostics(item)[0]
+ assert.match(diagnostic.message,/iniciar Salesbot/)
+ assert.match(diagnostic.message,/sin conservarse una respuesta HTTP/)
+ assert.match(diagnostic.message,/No se confirmó si Kommo aceptó/)
+ assert.doesNotMatch(diagnostic.message,/agotó el tiempo/)
+ const timeout={...item,output:{kommo_diagnostics:{failure_kind:'timeout',provider_operation:'launch_bot',delivery_uncertain:true}}}
+ assert.match(reviewDiagnostics(timeout)[0].message,/agotó el tiempo de espera/)
+})
+
 test('supported claim cannot conceal a dangling numeric index; exact fields are identified', () => {
   const item = step({ output_snapshot: { data: review } }, { ai_role: 'reviewer' })
   const issues = reviewDiagnostics(item)

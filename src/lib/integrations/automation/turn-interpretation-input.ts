@@ -6,6 +6,7 @@ import { monetaryInterpretationIssues } from './financing-amounts'
 import { leadProfileSourceIssues } from './lead-profile'
 import { budgetQuestionBasis } from './budget-question-context'
 import { confirmedFinancingEntryReference } from './financing-entry'
+import { confirmedMonetaryReferences, monetaryReferenceIssues, resolvedMonetaryReference } from './monetary-reference'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -26,10 +27,15 @@ export function budgetAmountWithLiteralQuantity(value: unknown, evidence: string
   return focusedNumericMentions(evidence).some(mention => mention.value === value) ? value : null
 }
 
-/** An actual affirmation can confirm the amount of our delivered entry
- * proposal. This exception never supplies money from an unrelated memory. */
-export function budgetAmountForCurrentTurn(raw: Row, current: string, pending: Row = {}): number | null {
+/** A typed reference validates against canonical facts before any literal
+ * quantity check. Legacy direct declarations and delivered confirmations keep
+ * their existing provenance checks; no amount is invented from memory. */
+export function budgetAmountForCurrentTurn(raw: Row, current: string, pending: Row = {}, monetaryReferences: Row[] = []): number | null {
   const budget = object(object(raw.turn_semantics).budget)
+  if (budget.amount_reference_id != null) {
+    const reference = resolvedMonetaryReference(budget, current, monetaryReferences)
+    return reference ? reference.amount as number : null
+  }
   const amount = budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence))
   if (amount !== null) return amount
   const confirmation = confirmedFinancingEntryReference(raw, current, pending)
@@ -96,7 +102,7 @@ export function reconcileEchoedBudgetQuestion(raw: Row, input: Row, current: str
     || !acceptedExtractorConfidence(semantics.confidence)
     || !text(semantics.primary_evidence).trim() || !matches(semantics.primary_evidence, current)
     || !budgetDeclaration || !acceptedExtractorConfidence(budget.confidence) || !text(budget.evidence).trim() || !matches(budget.evidence, current)
-    || (monetary ? budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) === null : hasValue(budget.amount))) return { raw, fields: [] }
+    || (monetary ? budgetAmountForCurrentTurn(raw, current, pending, confirmedMonetaryReferences(input)) === null : hasValue(budget.amount))) return { raw, fields: [] }
   const exactQuote = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
   const fields: string[] = []
   const requests = rows(raw.requests).filter((request, index) => {
@@ -178,10 +184,11 @@ export function interpretationInput(input: Row, current: string): Row {
     ...(budgetQuestionBasis(budgetPending) ? { contexto_pregunta_presupuesto: {
       role_asked: budgetQuestionBasis(budgetPending),
       question: budgetPending.question,
-      instruction: 'La pregunta aclara la finalidad de una respuesta monetaria directa; cifra y cita deben pertenecer al mensaje actual. Una finalidad explícita distinta declarada ahora prevalece. No atribuya consentimiento.' } } : {}),
+      instruction: 'La pregunta aclara la finalidad de una respuesta monetaria directa. Una cantidad nueva procede del mensaje actual; una referencia contextual inequívoca conserva la magnitud de referencias_monetarias_confirmadas y devuelve amount_reference_id. La cita siempre pertenece al mensaje actual. Una finalidad explícita distinta declarada ahora prevalece. No atribuya consentimiento.' } } : {}),
     ...(proposal ? { propuesta_pendiente: proposal } : {}),
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
+    referencias_monetarias_confirmadas: confirmedMonetaryReferences(input),
     resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts', '_financing_entry', '_visit_dialogue']),
       // The previous objective/question describe a completed interpretation,
       // not this turn. Keep referents and unresolved goals, with the actual
@@ -199,7 +206,7 @@ export function interpretationInput(input: Row, current: string): Row {
 }
 
 /** Source integrity, never a dictionary interpreting the customer's vocabulary. */
-export function interpretationSourceIssues(raw: Row, current: string, pending: Row[] = [], pendingQuestion: Row = {}): string[] {
+export function interpretationSourceIssues(raw: Row, current: string, pending: Row[] = [], pendingQuestion: Row = {}, monetaryReferences: Row[] = []): string[] {
   raw = normalizeInactiveInterpretation(raw)
   const semantics = object(raw.turn_semantics), property = object(semantics.property), budget = object(semantics.budget)
   const requests = rows(raw.requests)
@@ -215,7 +222,8 @@ export function interpretationSourceIssues(raw: Row, current: string, pending: R
   const issues = evidence.flatMap(([key, value]) => !text(value).trim() ? [`missing_current_evidence:${key}`]
     : !matches(value, current) ? [`non_current_evidence:${key}`] : [])
   if (['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
-    && budgetAmountForCurrentTurn(raw, current, pendingQuestion) === null) issues.push('invalid_budget_amount')
+    && budgetAmountForCurrentTurn(raw, current, pendingQuestion, monetaryReferences) === null) issues.push('invalid_budget_amount')
+  issues.push(...monetaryReferenceIssues(raw, current, monetaryReferences))
   issues.push(...monetaryInterpretationIssues(raw, current))
   issues.push(...leadProfileSourceIssues(raw, current))
   return issues
@@ -225,6 +233,7 @@ export function interpretationSourceIssues(raw: Row, current: string, pending: R
  * are never re-extracted just because a catalogue citation was wrong. */
 export function interpretationRepairBlocks(issues: string[]) {
   const fields = [...new Set(issues.map(issue => ['invalid_budget_amount', 'unresolved_budget_role', 'inconsistent_budget_role'].includes(issue)
+    || issue.startsWith('invalid_monetary_reference:')
     ? 'budget' : issue.split(':')[1]))]
   const property = fields.includes('property')
   const budget = fields.includes('budget')
@@ -288,7 +297,7 @@ export function interpretationRepairContext(value: unknown): unknown {
  * and no independently evidenced property/action request. It never selects an
  * option or changes saved context; it removes only this turn's invalid delta. */
 export function isolateHistoricalPropertyFromBudget(previous: Row, merged: Row, repaired: Row,
-  current: string, knownBudgetQuestion: boolean, remaining: string[]): Row | null {
+  current: string, knownBudgetQuestion: boolean, remaining: string[], monetaryReferences: Row[] = []): Row | null {
   if (!knownBudgetQuestion || !remaining.length || remaining.some(issue => issue !== 'non_current_evidence:property')) return null
   const certificate = object(repaired.property_turn_use)
   const grounded = (value: unknown) => !!text(value).trim() && matches(value, current)
@@ -301,7 +310,7 @@ export function isolateHistoricalPropertyFromBudget(previous: Row, merged: Row, 
     return semantics.primary_intent === 'discuss_budget' && acceptedExtractorConfidence(semantics.confidence)
       && grounded(semantics.primary_evidence) && acceptedExtractorConfidence(budget.confidence) && grounded(budget.evidence)
       && ['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
-      && budgetAmountWithLiteralQuantity(budget.amount, text(budget.evidence)) !== null
+      && budgetAmountForCurrentTurn(raw, current, {}, monetaryReferences) !== null
   }
   const compatibleRequests = (raw: Row, requireFinance: boolean) => {
     const requests = rows(raw.requests).filter(request => grounded(request.evidence))

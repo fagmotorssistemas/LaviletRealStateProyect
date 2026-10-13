@@ -11,6 +11,7 @@ import { interpretationConsistencyIssues } from './interpretation-consistency'
 import { isolateHistoricalBudget, reconcileConfirmedBudgetEcho } from './historical-budget-isolation'
 import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence, isAssetOnlyPurposeEvidence } from './purchase-evidence'
 import { resolveFinancingEntryReference } from './financing-entry'
+import { confirmedMonetaryReferences } from './monetary-reference'
 import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_SCHEMA } from './turn-semantics'
 import { isGreetingOnly, normalized } from './sdr-rules'
@@ -230,6 +231,7 @@ function evidencedActions(raw: Row, source: string, previousQuestion = '') {
 /** Called for every authorized turn, before a response route or operational decision is selected. */
 export async function interpretConversationTurn(input: Row, dependencies: Dependencies): Promise<TurnInterpretation> {
   const current = text(input.mensaje_actual)
+  const monetaryReferences = confirmedMonetaryReferences(input)
   const pending = (Array.isArray(input.consultas_pendientes) ? input.consultas_pendientes : []).map(object)
   const readable = current.replace(/\[Archivo no interpretado[^\]]*\]|\[Sticker recibido\]/g, '').trim()
   const method = !readable ? 'unreadable_input' : isGreetingOnly(readable) && !pending.length ? 'literal_greeting' : 'model'
@@ -255,7 +257,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let isolatedProperty = false
   let isolatedBudget = false
   const validationIssues = (value: Row) => [...new Set([
-    ...interpretationSourceIssues(value, readable, pending, normalizedPendingQuestion(input.pregunta_pendiente)), ...interpretationConsistencyIssues(value, readable),
+    ...interpretationSourceIssues(value, readable, pending, normalizedPendingQuestion(input.pregunta_pendiente), monetaryReferences), ...interpretationConsistencyIssues(value, readable),
   ])]
   if (method === 'model') {
     // Interpretation is shared by both retrieval routes. The feature switch
@@ -332,6 +334,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
         pregunta_pendiente: input.pregunta_pendiente,
         ultima_pregunta: previousQuestion,
         hechos_confirmados: modelInput.hechos_confirmados,
+        referencias_monetarias_confirmadas: monetaryReferences,
         perfil_inicial: modelInput.perfil_inicial,
         resumen: modelInput.resumen,
         contexto_propiedades: modelInput.contexto_propiedades,
@@ -366,7 +369,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       if (blocks.property && !blocks.budget && !blocks.fullTurn && remaining.length) {
         const knownBudgetQuestion = text(normalizedPendingQuestion(input.pregunta_pendiente).id).startsWith('budget_')
           || text(pendingQuestionFromReply(previousQuestion).id).startsWith('budget_')
-        const isolated = isolateHistoricalPropertyFromBudget(previous, raw, repaired, readable, knownBudgetQuestion, remaining)
+        const isolated = isolateHistoricalPropertyFromBudget(previous, raw, repaired, readable, knownBudgetQuestion, remaining, monetaryReferences)
         if (isolated) {
           raw = reconcile(isolated)
           remaining = validationIssues(raw)
@@ -436,7 +439,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     lead_profile: leadProfile })
   // An unreadable reaction or a greeting must never inherit operational events from history.
   if (method !== 'model') extracted.events = []
-  const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente)
+  const semantics = normalizeTurnSemantics(raw, actionMessage, input.pregunta_pendiente, confirmedMonetaryReferences(input))
   // The scoring/CRM declaration is a parallel representation of the same turn.
   // A quote about a floor, area or bedroom requirement cannot reinstate a type
   // choice rejected by the current semantic evidence checks.

@@ -12,6 +12,7 @@ import { groundedCurrentCategoryExclusions, isGeneralProjectOverviewWithoutPurch
 import { floorEvidence, floorInvitationTarget } from './floor-evidence'
 import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction } from './reservation-invitation'
 import { categoryInvitationTarget } from './category-offer'
+import { AMOUNT_REFERENCE_SCHEMA } from './monetary-reference'
 
 export const questionIds = [
   'reservation_invitation',
@@ -88,7 +89,8 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
     filter_evidence: strictObject(Object.fromEntries(['floor_number', 'bedrooms', 'bedrooms_any', 'bedrooms_operator', 'bedrooms_upper', 'bedrooms_required', 'min_area_m2', 'max_area_m2'].map(key => [key, { type: 'string' }]))),
     evidence: { type: 'string' }, confidence: confidenceSchema,
   }),
-  budget: strictObject({ status: enumSchema(budgetStatuses), amount: { type: ['number', 'null'] }, evidence: { type: 'string' }, confidence: confidenceSchema }),
+  budget: strictObject({ status: enumSchema(budgetStatuses), amount: { type: ['number', 'null'] }, amount_reference_id: AMOUNT_REFERENCE_SCHEMA,
+    evidence: { type: 'string' }, confidence: confidenceSchema }),
 })
 
 export function normalizedPropertyFilters(raw: unknown): PropertyFilters {
@@ -368,7 +370,7 @@ export function pendingQuestionFromReply(reply: string): Row {
   return id ? normalizedPendingQuestion({ id, question, ...(act ? { act } : {}) }) : {}
 }
 
-export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw: unknown): Row {
+export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw: unknown, monetaryReferences: Row[] = []): Row {
   const data = object(object(raw).turn_semantics)
   const pending = normalizedPendingQuestion(pendingRaw)
   const pendingId = questionIds.includes(text(pending.id) as PendingQuestionId) ? text(pending.id) : ''
@@ -400,7 +402,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const budgetEvidence = literalEvidence(budget.evidence, current)
   const budgetStatus = acceptedExtractorConfidence(budget.confidence) && budgetEvidence && budgetStatuses.has(text(budget.status))
     && budget.status !== 'not_discussed' ? text(budget.status) : 'not_discussed'
-  const amount = budgetAmountForCurrentTurn(object(raw), current, pending)
+  const amount = budgetAmountForCurrentTurn(object(raw), current, pending, monetaryReferences)
   const property = object(data.property)
   const propertyEvidence = literalEvidence(property.evidence, current)
   const propertyConfident = acceptedExtractorConfidence(property.confidence) && !!propertyEvidence
@@ -635,7 +637,8 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     } : { question_id: null, kind: 'none', evidence: null, confidence: 'low' },
     budget: budgetStatus === 'not_discussed' ? {
       status: 'not_discussed', amount: null, evidence: null, confidence: 'low',
-    } : { status: budgetStatus, amount, evidence: budgetEvidence, confidence: budget.confidence },
+    } : { status: budgetStatus, amount, evidence: budgetEvidence, confidence: budget.confidence,
+      ...(budget.amount_reference_id != null ? { amount_reference_id: budget.amount_reference_id } : {}) },
     normalization_issues: normalizationIssues,
   }
 }

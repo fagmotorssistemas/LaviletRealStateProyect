@@ -5,6 +5,7 @@ import { AlertTriangle, ExternalLink, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
 import { reservationServiceError } from '@/lib/inmobiliaria/automationErrors'
+import { kommoFailureExplanation } from '@/lib/integrations/automation/kommo-failure'
 import type { deliveryHealth } from '@/lib/integrations/automation/delivery-state'
 
 type Health = Awaited<ReturnType<typeof deliveryHealth>>
@@ -63,12 +64,13 @@ export function AutomationDeliveryBanner() {
         {health?.blocked && <><p className="mt-1">{reason}</p><p className="mt-1">Los nuevos mensajes se conservan pendientes. Cambiar «Detener IA» o reiniciar al lead no elimina este bloqueo.</p></>}
         {!!health?.pendingMessages && health.blocked && <p className="mt-1">Mensajes pendientes: {health.pendingMessages}.</p>}
         {!!health?.incidentCount && <details className="mt-3">
-          <summary className="cursor-pointer font-medium">Revisar {health.incidentCount} {health.incidentCount === 1 ? 'intento sin respuesta confirmada' : 'intentos sin respuesta confirmada'}</summary>
+          <summary className="cursor-pointer font-medium">Revisar {health.incidentCount} {health.incidentCount === 1 ? 'incidencia' : 'incidencias'}</summary>
           <p className="mt-2 text-xs">Los fallos temporales de generación se reintentan de forma limitada. Si persisten, la consulta pasa al equipo. Revise los casos pendientes en Kommo; un envío de resultado desconocido nunca se repite sin comprobar el historial.</p>
           <ul className="mt-2 space-y-2">
             {health.incidents.map(item => <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-amber-200 bg-white/60 px-3 py-2">
               {item.kommoId ? <a className="inline-flex items-center gap-1 underline" href={`https://lavilet.kommo.com/leads/detail/${item.kommoId}`} target="_blank" rel="noopener noreferrer">Lead #{item.kommoId}<ExternalLink size={12} /></a> : <span>Automatización</span>}
-              <span className="text-xs">{item.reason === 'KOMMO_INBOUND_NOT_OBSERVED' ? 'Kommo registra un mensaje sin recepción aquí; revise el canal y atienda la consulta pendiente' : item.reason === 'SUPERSEDED_DELAYED_INBOUND' ? 'Mensaje recibido fuera de orden; revise que la conversación más reciente haya atendido su consulta' : item.delivery === 'accepted_registration_pending' ? 'Kommo aceptó la respuesta; falta completar su registro interno' : item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Mensaje no enviado; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {reservationServiceError(item.reason) || item.reason}</span>
+              <span className="text-xs">{item.reason === 'TEST_CONTACTS_READ_FAILED' ? 'Falló una consulta de mantenimiento' : item.reason === 'KOMMO_INBOUND_NOT_OBSERVED' ? 'Kommo registra un mensaje sin recepción aquí; revise el canal y atienda la consulta pendiente' : item.reason === 'SUPERSEDED_DELAYED_INBOUND' ? 'Mensaje recibido fuera de orden; revise que la conversación más reciente haya atendido su consulta' : item.delivery === 'accepted_registration_pending' ? 'Kommo aceptó la respuesta; falta completar su registro interno' : item.delivery === 'rejected' ? 'Solicitud rechazada; mensaje no enviado' : item.delivery === 'not_sent' ? 'Mensaje no enviado; necesita atención' : item.delivery === 'generation_failed' ? 'Falló la generación de la respuesta; requiere atención' : 'Resultado del envío por comprobar'} · {reservationServiceError(item.reason) || item.reason}</span>
+              {(item.explanation || kommoFailureExplanation(item.reason)) && <p className="w-full text-xs">{item.explanation || kommoFailureExplanation(item.reason)}</p>}
               {admin && item.canResolve && !health.blocked && <button type="button" disabled={busy} onClick={() => void update('incident_reviewed', item.id)} className="ml-auto text-xs font-medium underline disabled:opacity-50">Ya atendí esta conversación</button>}
               {admin && item.canReconcile && <button type="button" disabled={busy} onClick={() => {
                 setReviewId(reviewId === item.id ? null : item.id); setOutcome('not_sent'); setProviderMessageId(''); setReviewReference(''); setReviewed(false)

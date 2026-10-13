@@ -45,6 +45,31 @@ test('SQL admission failure before POST is a known local rejection, with no bot 
   assert.equal(calls, 0)
 })
 
+test('Kommo launch records connection causes and never repeats an uncertain POST', async t => {
+  const previousUrl=process.env.KOMMO_BASE_URL,previousToken=process.env.KOMMO_ACCESS_TOKEN
+  process.env.KOMMO_BASE_URL='https://lavilet.kommo.com';process.env.KOMMO_ACCESS_TOKEN='synthetic'
+  t.after(()=>{if(previousUrl===undefined)delete process.env.KOMMO_BASE_URL;else process.env.KOMMO_BASE_URL=previousUrl;if(previousToken===undefined)delete process.env.KOMMO_ACCESS_TOKEN;else process.env.KOMMO_ACCESS_TOKEN=previousToken})
+  for(const kind of ['network','timeout','response_body']) {
+    let calls=0
+    const fetcher=t.mock.method(global,'fetch',async()=>{
+      calls++
+      if(kind==='timeout')throw new DOMException('private URL','TimeoutError')
+      if(kind==='network')throw Object.assign(Error('private provider details'),{cause:{code:'ECONNRESET'}})
+      return {ok:true,status:200,text:async()=>{throw Error('private response body')}}
+    })
+    const provider=load('src/lib/integrations/automation/kommo.ts',{'./config':{assertLive(){}},'./kommo-admission':{reserveKommoCall:async()=>{}}})
+    await assert.rejects(provider.launchSalesbot(42,15578),error=>{
+      assert.equal(error.message,'KOMMO_UNAVAILABLE');assert.equal(error.uncertain,true)
+      assert.equal(error.operation,'launch_bot');assert.equal(error.diagnostic.failure_kind,kind)
+      if(kind==='network')assert.equal(error.diagnostic.network_code,'ECONNRESET')
+      assert.doesNotMatch(JSON.stringify(error.diagnostic),/private/)
+      return true
+    })
+    assert.equal(calls,1)
+    fetcher.mock.restore()
+  }
+})
+
 test('database maintenance completes even when the global send worker cannot acquire its lease', async () => {
   const calls = [], q = { then: resolve => Promise.resolve({ error: null }).then(resolve) }
   for (const method of ['upsert', 'update', 'match', 'eq', 'contains', 'lt']) q[method] = () => q

@@ -6,9 +6,9 @@ const internalIdKey = /^(?:id|policy_id|batch_id|batch_event_ids|event_id|event_
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const replyTextKey = /^(?:(?:base|proposed|final|approved|candidate|response|rejected)_preview|(?:approved|candidate|final|policy)_text|policy_content|before|after)$/
 
-const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|access_token|refresh_token|phone|telefono|mobile|email|correo|cedula|dni|identificacion|national_id|full_name|legal_name|given_names|surnames|financing_identity|document|ruc|job_title|employment_stability_months|account_number|numero_cuenta|salary|salario|sueldo|income|ingresos|employer|empleador|financial_documents|personal_data)$/i
+const privateKey = /^(?:.*_)?(?:authorization|password|secret|token|api_key|access_token|refresh_token|cookie|credentials)$/i
 
-/** Audit previews are deliberately smaller than the protected conversation history. */
+/** Keep the owner's lead data visible in audit previews; filter credentials. */
 export function traceText(value: unknown, max = 360) {
   const content = typeof value === 'string' ? value : ''
   const protectedText = content
@@ -19,8 +19,6 @@ export function traceText(value: unknown, max = 360) {
       } catch { return '[enlace protegido]' }
     })
     .replace(/\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]+/gi, '[credencial protegida]')
-    .replace(/[\w.+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}/g, '[correo protegido]')
-    .replace(/(?:\+?\d[\s().-]*){10,}/g, '[dato protegido]')
     .replace(/\s+/g, ' ').trim()
   return truncateUnicode(postgresSafeText(protectedText).value, max)
 }
@@ -30,7 +28,7 @@ export function sanitizeTraceSummary(value: unknown): Summary {
   const seen = new WeakSet<object>()
   function clean(input: unknown, depth: number, key = ''): unknown {
     if (key === 'prompt_snapshot' || key === 'output_snapshot') return sanitizePromptSnapshot(input)
-    if (privateKey.test(key)) return '[dato protegido]'
+    if (privateKey.test(key)) return '[credencial protegida]'
     if (input === null || typeof input === 'boolean') return input
     if (typeof input === 'number') return Number.isFinite(input) ? input : null
     // Opaque database IDs link the actual execution and its catalogue results.
@@ -47,7 +45,7 @@ export function sanitizeTraceSummary(value: unknown): Summary {
     ? preparePostgresJson(clean(value, 0)).value as Summary : {}
 }
 
-/** Bounded, privacy-filtered writer input; kept separately from abbreviated previews. */
+/** Bounded model exchange: preserve original lead values, including nulls. */
 export function sanitizePromptSnapshot(value: unknown): Summary {
   const row = value && typeof value === 'object' ? value as Summary : {}
   const version = row.capture_version === 2 ? 2 : null
@@ -56,14 +54,12 @@ export function sanitizePromptSnapshot(value: unknown): Summary {
   let filtered = row.privacy_filtered === true || !version
   const seen = new WeakSet<object>()
   function clean(input: unknown, depth = 0, key = '', schema = false): unknown {
-    if (!schema && privateKey.test(key)) { filtered = true; return '[dato protegido]' }
+    if (!schema && privateKey.test(key)) { filtered = true; return '[credencial protegida]' }
     if (remaining <= 0 || depth > 20) { limited = true; return '[resumen limitado]' }
     if (typeof input === 'string') {
       // Preserve Markdown indentation and literal whitespace in the captured prompt.
       const protectedText = input
         .replace(/\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]+/gi, '[credencial protegida]')
-        .replace(/[\w.+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}/g, '[correo protegido]')
-        .replace(/(?:\+?\d[\s().-]*){10,}/g, '[dato protegido]')
         .replace(/https?:\/\/[^\s<>]+/gi, raw => {
           try { const url = new URL(raw); return url.search ? `${url.origin}${url.pathname} [parámetros protegidos]` : raw }
           catch { return raw }

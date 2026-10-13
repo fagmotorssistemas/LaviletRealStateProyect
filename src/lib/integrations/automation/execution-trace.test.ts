@@ -61,10 +61,10 @@ test('draft rejection preserves evaluated text and separates code objections fro
   assert.equal(data.decision, 'Rechazado')
   assert.equal((data.revision_ia as Record<string, unknown>).aprobada, true)
   assert.deepEqual(data.controles_codigo, ['style'])
-  assert.doesNotMatch(JSON.stringify(stored), /private@example.com/)
+  assert.match(JSON.stringify(stored), /private@example.com/)
 })
 
-test('AI roles distinguish scope from writer and preserve protected structured outputs', async () => {
+test('AI roles distinguish scope from writer and preserve original lead values in structured outputs', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
   await withAIExecutionTrace(trace, async () => {
@@ -84,12 +84,12 @@ test('AI roles distinguish scope from writer and preserve protected structured o
     const snapshot = output.output_snapshot as Record<string, unknown>
     assert.equal((snapshot.data as Record<string, unknown>).role, input.ai_role)
     assert.ok(String((snapshot.data as Record<string, unknown>).reply).length > 1000)
-    assert.doesNotMatch(JSON.stringify(output), /private@example.com/)
+    assert.match(JSON.stringify(output), /private@example.com/)
     assert.deepEqual(sanitizeTraceSummary(output), output)
   }
 })
 
-test('writer snapshot preserves long instructions and history with privacy and explicit limits', async () => {
+test('writer snapshot preserves long instructions, lead data and history with credential filtering and explicit limits', async () => {
   let stored: Record<string, unknown>[] = []
   const trace = new AutomationExecutionTrace([event], { persist: async rows => { stored = rows; return { error: null } } })
   const instructions = 'Regla de redacción.\n'.repeat(150)
@@ -107,7 +107,7 @@ test('writer snapshot preserves long instructions and history with privacy and e
   assert.equal(snapshot.instructions, instructions)
   assert.equal(snapshot.limited, false)
   assert.ok(JSON.stringify(snapshot).includes('quiero información de autos'))
-  assert.ok(!JSON.stringify(snapshot).includes('person@example.com'))
+  assert.ok(JSON.stringify(snapshot).includes('person@example.com'))
   assert.ok(!JSON.stringify(snapshot).includes('never-store-this'))
   assert.deepEqual(sanitizeTraceSummary(input), input)
   const large = sanitizeTraceSummary({ prompt_snapshot: { instructions: 'x'.repeat(130000) } }).prompt_snapshot as Record<string, unknown>
@@ -150,7 +150,8 @@ test('trace captures actual versions and sanitized steps without modifying decis
     batch_id: event.id, batch_event_ids: [event.id],
   })
   const serialized = JSON.stringify(stored)
-  for (const secret of ['private-value', 'customer@example.com', '0102030405']) assert.ok(!serialized.includes(secret))
+  assert.ok(!serialized.includes('private-value'))
+  for (const value of ['customer@example.com', '0102030405']) assert.ok(serialized.includes(value))
   assert.ok(serialized.includes('2000'))
   assert.deepEqual((stored[1].output_summary as Record<string, unknown>).candidate_unit_ids, ['unit-502'])
   assert.equal(stored[1].status, 'succeeded')
@@ -228,11 +229,12 @@ test('a failed large snapshot cannot prevent later delivery rows being saved', a
   assert.equal(reports[0].code, '22001')
 })
 
-test('overlong identity documents leave no visible numeric suffix in traces', () => {
+test('identity documents keep their complete original value in traces', () => {
   const number = '01010203120312031203'
-  assert.equal(traceText(number), '[dato protegido]')
+  assert.equal(traceText(number), number)
   const safe = JSON.stringify(sanitizeTraceSummary({ financing_identity: { given_names: 'Persona', document: number }, message: number }))
-  assert.doesNotMatch(safe, /Persona|1203/)
+  assert.match(safe, /Persona/)
+  assert.ok(safe.includes(number))
 })
 
 test('audit summaries preserve commercial budgets while removing credentials and contact identifiers', () => {
@@ -268,16 +270,16 @@ test('budget replies survive persistence and reading without suppressing the who
   assert.equal(sanitizeTraceSummary(stored.at(-1)!.output_summary).proposed_preview, reply)
 })
 
-test('internal UUIDs survive redaction without exposing phone-like values or protected fields', () => {
+test('internal IDs and lead phone or document values remain visible and stable on repeated reads', () => {
   const summary = sanitizeTraceSummary({ batch_id: event.id, batch_event_ids: [event.id],
     catalog_snapshot: [{ id: event.id, unit_number: '502' }],
     candidate_ids: ['+593 999 123 456'], phone: event.id, national_id: event.id })
   assert.equal(summary.batch_id, event.id)
   assert.deepEqual(summary.batch_event_ids, [event.id])
   assert.equal((summary.catalog_snapshot as Record<string, unknown>[])[0].id, event.id)
-  assert.doesNotMatch(JSON.stringify(summary.candidate_ids), /593|999|456/)
-  assert.equal(summary.phone, '[dato protegido]')
-  assert.equal(summary.national_id, '[dato protegido]')
+  assert.deepEqual(summary.candidate_ids, ['+593 999 123 456'])
+  assert.equal(summary.phone, event.id)
+  assert.equal(summary.national_id, event.id)
   assert.deepEqual(sanitizeTraceSummary(summary), summary)
 })
 
@@ -294,7 +296,8 @@ test('a handoff records its actual triggering step, evidence and outcome with sa
   const output = stored.at(-1)!.output_summary as Record<string, unknown>
   assert.equal((output.decision as Record<string, unknown>).caused_by_step, review)
   assert.equal((output.catalog_snapshot as Record<string, unknown>[])[0].unit_number, '502')
-  assert.doesNotMatch(JSON.stringify(stored), /private@example|private description/)
+  assert.match(JSON.stringify(stored), /private@example/)
+  assert.doesNotMatch(JSON.stringify(stored), /private description/)
 })
 
 test('actual prompt hashes and failures retain composed instructions', async () => {

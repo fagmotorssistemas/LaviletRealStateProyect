@@ -93,6 +93,11 @@ export function confirmedFinancingEntryReference(raw: Row, current: string, pend
   const reference = object(pending.amount_reference)
   const semantics = object(raw.turn_semantics), answer = object(semantics.answer_to_previous)
   const budget = object(semantics.budget)
+  // Typed contextual resolutions are validated against canonical references by
+  // the shared input validator. Legacy affirmation recovery must not replace
+  // their identities, evidence or amounts (including invalid reference IDs).
+  if (budget.amount_reference_id != null || (Array.isArray(raw.financing_amounts)
+    && raw.financing_amounts.some(item => object(item).amount_reference_id != null))) return null
   const source = text(reference.question_source)
   const delivered = deliveredFinancingEntryReference(source, reference)
   const actualQuestion = actualFinancingEntryQuestion(source)

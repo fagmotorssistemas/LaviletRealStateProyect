@@ -1,6 +1,7 @@
 import { CONVERSATION_EVENT_DETAILS, type ConversationEvent } from '@/lib/integrations/automation/event-contract'
 import { interpretationIssueDetail } from './interpretationDiagnostics'
 import type { WorkflowExecution, WorkflowExecutionStep } from './executionWorkflow'
+import { kommoFailureExplanation } from '@/lib/integrations/automation/kommo-failure'
 import { catalogSearchDiagnostics, catalogSearchExplanation } from './catalogSearchExplanation'
 import { reservationServiceError } from '@/lib/inmobiliaria/automationErrors'
 import { repairBudgetFacts, repairTargetLabel, isObservedReview, reviewDecision, reviewOwnerLabel, reviewObligationLabel, reviewIssueLabels } from './reviewDecision'
@@ -768,7 +769,9 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
   const reason = str(decision.reason) || str(input.reason) || str(output.reason)
     || (step.key === 'turn_intent' ? str(row(output.scope).reason) : '')
   const linkedActions = execution.steps.filter(item => item.key === 'advisor_handoff' && Number(decisionRecord(item).caused_by_step) === step.order)
-  const summary = step.errorCode === 'TURN_INTERPRETATION_INVALID'
+  const providerFailure = step.status === 'failed' ? kommoFailureExplanation(step.errorCode || '', {
+    ...(step.key === 'message_delivery' ? { provider_operation: 'launch_bot' } : {}), ...row(output.kommo_diagnostics) }) : null
+  const summary = providerFailure || (step.errorCode === 'TURN_INTERPRETATION_INVALID'
     ? 'El extractor no logró una interpretación válida del mensaje. Consulte los campos y la evidencia registrados; la interrupción no demuestra que el lead necesitara un asesor.'
     : step.key === 'turn_intent' && ['turn-intent-v1', 'turn-intent-v2'].includes(str(output.version))
     ? `Objetivo registrado: ${humanValue(output.objective)}. ${humanValue(output.interpretation_source)}.`
@@ -784,7 +787,7 @@ export function explainStep(execution: WorkflowExecution, step: WorkflowExecutio
           ? `Se descartó el borrador antes de evaluar su contenido porque la ficha interna de la IA no pasó la validación. ${Array.isArray(output.issues) && output.issues.length ? 'Los controles muestran el campo, el valor recibido y lo esperado.' : 'Este registro antiguo no conserva el campo que falló.'} La decisión de derivar a un asesor se registra por separado.`
         : step.key === 'response_coverage' && isObservedReview(output) ? 'El modo demostración conservó la revisión como monitoreo y permitió el borrador sin exigir aprobación. La aceptación del envío se comprueba por separado.'
         : step.key === 'response_coverage' ? 'Se revisó si la respuesta atiende las solicitudes del mensaje. Los estados registrados permiten revisar esa decisión.'
-          : 'Entradas y resultados conservados para este paso de la ejecución.'
+          : 'Entradas y resultados conservados para este paso de la ejecución.')
   return {
     coverageSections: interpretationFailure.length ? interpretationFailure : step.key === 'response_coverage' ? [...laterChanges, ...coverageSections(output, snapshots)] : step.key === 'response_validation' ? transformationSections(output) : ['semantic_extraction', 'interpretation_recovery'].includes(step.key) && interpretationRecoverySections(output).length ? interpretationRecoverySections(output) : null,
     title: stepTitle(step), summary, used, found, units, cause, missingCause: hasCause && !cause, linkedActions,

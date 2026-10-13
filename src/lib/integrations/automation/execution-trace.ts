@@ -1,6 +1,7 @@
 import 'server-only'
 import { db, object, scope, text, type Row } from './data'
 import { sanitizeTraceSummary, traceErrorCode } from './trace-summary'
+import { recordedKommoFailure } from './kommo-failure'
 export { traceText } from './trace-summary'
 
 export type TraceCategory = 'input' | 'control' | 'context' | 'ai' | 'decision' | 'action' | 'output'
@@ -98,7 +99,8 @@ export class AutomationExecutionTrace {
     if (!step || step.status) return
     step.completedMs = Date.now()
     step.status = status
-    step.output = sanitizeTraceSummary(output)
+    const provider = recordedKommoFailure(error)
+    step.output = sanitizeTraceSummary({ ...output, ...(provider ? { kommo_diagnostics: provider } : {}) })
     if (error) step.errorCode = traceErrorCode(error)
   }
 

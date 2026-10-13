@@ -67,7 +67,7 @@ test('customer text is rejected instead of repaired; valid emoji and literal esc
   assert.notEqual(postgresSafeText('10\u0000000').value, '10000', 'invalid separators are not silently joined')
 })
 
-test('all trace length boundaries preserve surrogate pairs and stored snapshots remain PostgreSQL-safe and private', async () => {
+test('all trace length boundaries preserve surrogate pairs and PostgreSQL-safe lead data while excluding credentials', async () => {
   assert.equal(truncateUnicode('a🏠b', 2), 'a')
   assert.equal(truncateUnicode('a🏠b', 3), 'a🏠')
   assert.equal(traceText('a'.repeat(359) + '🏠tail'), 'a'.repeat(359))
@@ -78,7 +78,8 @@ test('all trace length boundaries preserve surrogate pairs and stored snapshots 
   assert.equal(String(trace.final_text).length, 2999)
   assert.ok(Object.hasOwn(trace, 'x'.repeat(79)))
   assert.equal(trace.broken, 'a\\u0000b')
-  assert.doesNotMatch(JSON.stringify(trace), /private@example.com|supersecret/)
+  assert.match(JSON.stringify(trace), /private@example.com/)
+  assert.doesNotMatch(JSON.stringify(trace), /supersecret/)
   const snapshot = sanitizePromptSnapshot({ instructions: 'a'.repeat(119999) + '🏠tail',
     data: { full_name: 'Nombre protegido' } })
   assert.equal(String(snapshot.instructions).length, 119999)

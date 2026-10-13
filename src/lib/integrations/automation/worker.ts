@@ -5,6 +5,7 @@ import { autoConfig, db, object, rpc, scope, text, type Row } from './data'
 import { processConversation } from './conversation'
 import { pendingVisits, planVisits, previewVisits, sendVisit } from './visits'
 import { ProviderError } from './kommo'
+import { recordedKommoFailure } from './kommo-failure'
 import { cancelNutrition24h, sendNutrition24h } from './nutrition'
 import { cancelNutritionWeekOne, sendNutritionWeekOne } from './nutrition-week-one'
 import { cancelNutritionLater, sendNutritionLater } from './nutrition-later'
@@ -227,7 +228,7 @@ export async function runAutomation(contactKey?: string) {
         // Guardar solo códigos propios, nunca cuerpos de proveedores o datos del cliente.
         const reason = failure instanceof Error && /^[A-Z0-9_]+$/.test(failure.message) ? failure.message : 'PROCESSING_FAILED'
         const rejected = failure instanceof ProviderError && !failure.uncertain && rejectedWriteStatus(failure.status)
-        const detail = failure instanceof ProviderError ? { provider_operation: failure.operation, delivery_uncertain: failure.uncertain, http_status: failure.status } : {}
+        const detail = recordedKommoFailure(failure) || {}
         const generationNotSent = recoverableResponse && !recoveryUncertain && !(failure instanceof ProviderError && failure.uncertain)
         const preReplyNotSent = preReplySend && !recoveryUncertain
         const contextNotSent = isCommercialContextReadFailure(reason)

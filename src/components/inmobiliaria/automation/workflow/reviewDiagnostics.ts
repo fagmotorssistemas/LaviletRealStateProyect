@@ -1,5 +1,6 @@
 import { interpretationIssueDetail } from './interpretationDiagnostics'
 import type { WorkflowExecutionStep } from './executionWorkflow'
+import { kommoFailureExplanation } from '@/lib/integrations/automation/kommo-failure'
 
 type Row = Record<string, unknown>
 const row = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}
@@ -79,7 +80,8 @@ export function reviewDiagnostics(step: WorkflowExecutionStep): ReviewDiagnostic
   if (step.status === 'failed' && !result.length) result.push({ code: step.errorCode || 'step_failed', field: 'errorCode', owner: 'Sistema · ejecución',
     message: step.errorCode === 'TURN_INTERPRETATION_INVALID'
       ? 'La interpretación del mensaje no pasó los controles del servidor. Este registro no conserva el campo que falló; consulte las salidas del extractor. No se deduce que el lead pidiera un asesor ni que faltara saldo de API.'
-      : 'Este paso terminó con el error registrado. Revise los pasos anteriores para identificar su causa; este código no acredita que el borrador fuera incorrecto.', received: step.errorCode })
+      : kommoFailureExplanation(step.errorCode || '', { ...(step.key === 'message_delivery' ? { provider_operation: 'launch_bot' } : {}), ...row(step.output.kommo_diagnostics) })
+        || 'Este paso terminó con el error registrado. Revise los pasos anteriores para identificar su causa; este código no acredita que el borrador fuera incorrecto.', received: step.errorCode })
   return [...new Map(result.map(item => [`${item.code}:${item.field}:${item.sentenceId || ''}`, item])).values()]
 }
 

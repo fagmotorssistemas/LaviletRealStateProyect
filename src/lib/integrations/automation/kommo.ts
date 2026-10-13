@@ -7,9 +7,10 @@ import { assertLive } from './config'
 import { object, text, type Row } from './data'
 import { accountBlockedStatus, recordKommoBlock, rejectedWriteStatus } from './delivery-state'
 import { reserveKommoCall } from './kommo-admission'
+import { kommoConnectionFailure, type KommoFailureDetails } from './kommo-failure'
 
 export class ProviderError extends Error {
-  constructor(public status: number, public uncertain: boolean, public operation = 'unknown') { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
+  constructor(public status: number, public uncertain: boolean, public operation = 'unknown', public diagnostic: KommoFailureDetails = {}) { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
 }
 async function request(path: string, method = 'GET', body?: unknown, attempt = 0): Promise<unknown> {
   if (new URL(process.env.KOMMO_BASE_URL || '').origin !== LAVILET_KOMMO_ORIGIN) throw new Error('WRONG_KOMMO_ACCOUNT')
@@ -21,11 +22,11 @@ async function request(path: string, method = 'GET', body?: unknown, attempt = 0
     // Admission is a known local rejection before fetch, including before POST.
     // Keep the existing safe rejected-write classification without claiming a
     // provider timeout or permitting a replay of any earlier uncertain write.
-    const error = new ProviderError(429, false, operation)
+    const error = new ProviderError(429, false, operation, { failure_kind: 'admission', response_received: false })
     error.message = 'KOMMO_ADMISSION_FAILED'
     throw error
   }
-  const retryRead = async (status: number): Promise<unknown> => {
+  const retryRead = async (status: number, diagnostic: KommoFailureDetails = {}): Promise<unknown> => {
     // Reads have no delivery side effects. A bot POST or field mutation is never replayed.
     if (method === 'GET' && attempt < 2 && (!status || status === 429 || status >= 500)) {
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
@@ -36,7 +37,7 @@ async function request(path: string, method = 'GET', body?: unknown, attempt = 0
       // the worker records it on the event as an additional recovery source.
       try { await recordKommoBlock(status, operation) } catch { /* worker fallback */ }
     }
-    throw new ProviderError(status, method !== 'GET' && !rejectedWriteStatus(status), operation)
+    throw new ProviderError(status, method !== 'GET' && !rejectedWriteStatus(status), operation, diagnostic)
   }
   let response: Response
   try {
@@ -44,12 +45,12 @@ async function request(path: string, method = 'GET', body?: unknown, attempt = 0
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', redirect: 'error',
       signal: AbortSignal.timeout(10_000) })
-  } catch { return retryRead(0) }
-  if (!response.ok) { await response.body?.cancel(); return retryRead(response.status) }
+  } catch (error) { return retryRead(0, kommoConnectionFailure(error)) }
+  if (!response.ok) { await response.body?.cancel(); return retryRead(response.status, { failure_kind: 'http', response_received: true }) }
   let raw: string
-  try { raw = await response.text() } catch { return retryRead(0) }
+  try { raw = await response.text() } catch { return retryRead(0, { failure_kind: 'response_body', response_received: true, observed_http_status: response.status }) }
   if (!raw) return null
-  try { return JSON.parse(raw) } catch { throw new ProviderError(response.status, method !== 'GET', operation) }
+  try { return JSON.parse(raw) } catch { throw new ProviderError(response.status, method !== 'GET', operation, { failure_kind: 'invalid_response', response_received: true }) }
 }
 export async function getKommoLead(id: number): Promise<Row> {
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error('INVALID_KOMMO_LEAD')

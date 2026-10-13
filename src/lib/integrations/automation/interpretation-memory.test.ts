@@ -8,7 +8,7 @@ import { interpretationInput, TurnInterpretationError } from './turn-interpretat
 import { reconcileHistoricalInterpretation, confirmedInterpretationMemory } from './interpretation-memory'
 
 const current = 'si claro, entocnes como procederiamos conel financiemiento??}'
-const budget = { status: 'amount', amount: 100000, evidence: 'mi presupeusto es de 100 mil dolares', confidence: 'high' }
+const budget = { status: 'amount', amount: 100000, amount_reference_id: null, evidence: 'mi presupeusto es de 100 mil dolares', confidence: 'high' }
 const previous: Row = { _turn_intent: { budget }, datos_confirmados: { proposito: 'vivir' } }
 const validate = new Ajv().compile(TURN_EXTRACTION_SCHEMA)
 
