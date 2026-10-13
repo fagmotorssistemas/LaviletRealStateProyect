@@ -50,6 +50,9 @@ type UnitRow = {
   area_terrace_covered_m2: number | null
   area_terrace_open_m2: number | null
   category: string | null
+  cadastral_value: number | null
+  monthly_building_fee: number | null
+  estimated_monthly_rent: number | null
 }
 
 export async function GET() {
@@ -70,7 +73,7 @@ export async function GET() {
       admin
         .from('units')
         .select(
-          'id, unit_number, unit_type_id, floor, floor_number, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_total_m2, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2, category',
+          'id, unit_number, unit_type_id, floor, floor_number, published_commercial_price, status, bedrooms, bathrooms, bathrooms_full, bathrooms_half, spaces, area_total_m2, area_internal_m2, area_exterior_m2, area_terrace_covered_m2, area_terrace_open_m2, category, cadastral_value, monthly_building_fee, estimated_monthly_rent',
         )
         .eq('tenant_id', TOUR_TENANT_ID)
         .eq('is_published', true)
@@ -165,6 +168,9 @@ export async function GET() {
         area_terrace_covered_m2: row.area_terrace_covered_m2,
         area_terrace_open_m2: row.area_terrace_open_m2,
         category: row.category ?? null,
+        cadastral_value: row.cadastral_value,
+        monthly_building_fee: row.monthly_building_fee,
+        estimated_monthly_rent: row.estimated_monthly_rent,
       }
     }),
     },

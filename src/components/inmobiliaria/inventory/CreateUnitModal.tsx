@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { createUnit, uploadUnitMedia } from '@/services/inmobiliaria.service'
 import { prepareImageForWebUpload } from '@/lib/images/prepareImageForWebUpload'
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
+import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { toast } from 'sonner'
 import { ImagePlus, X, BedDouble, Bath } from 'lucide-react'
 
@@ -67,6 +68,9 @@ const emptyForm = {
   spaces: '',
   cost_per_m2_internal: '',
   published_commercial_price: '',
+  cadastral_value: '',
+  monthly_building_fee: '',
+  estimated_monthly_rent: '',
   status: 'disponible',
   description: '',
 }
@@ -81,6 +85,7 @@ interface CreateUnitModalProps {
 }
 
 export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitTypes, tenantId }: CreateUnitModalProps) {
+  const { t } = useTourLanguage()
   const { supabase } = useAuth()
   const [loading, setLoading] = useState(false)
   const [imageFiles, setImageFiles] = useState<File[]>([])
@@ -120,6 +125,9 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitType
         spaces: spacesFromInput(form.spaces),
         cost_per_m2_internal: toNum(form.cost_per_m2_internal),
         published_commercial_price: toNum(form.published_commercial_price),
+        cadastral_value: toNum(form.cadastral_value),
+        monthly_building_fee: toNum(form.monthly_building_fee),
+        estimated_monthly_rent: toNum(form.estimated_monthly_rent),
         status: form.status as 'disponible',
         description: form.description || null,
       })
@@ -243,6 +251,9 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitType
           <Input id="parking" label="Parqueos" type="number" value={form.parking_assigned} onChange={(e) => update('parking_assigned', e.target.value)} />
           <Input id="cost_m2" label="Costo/m²" type="number" step="0.01" placeholder="1500" value={form.cost_per_m2_internal} onChange={(e) => update('cost_per_m2_internal', e.target.value)} />
           <Input id="price" label="Precio comercial" type="number" step="0.01" placeholder="128000" value={form.published_commercial_price} onChange={(e) => update('published_commercial_price', e.target.value)} />
+          <Input id="cadastral" label={t('Avalúo catastral')} type="number" step="0.01" value={form.cadastral_value} onChange={(e) => update('cadastral_value', e.target.value)} />
+          <Input id="building_fee" label={t('Alícuota mensual')} type="number" step="0.01" value={form.monthly_building_fee} onChange={(e) => update('monthly_building_fee', e.target.value)} />
+          <Input id="estimated_rent" label={t('Arriendo mensual estimado')} type="number" step="0.01" value={form.estimated_monthly_rent} onChange={(e) => update('estimated_monthly_rent', e.target.value)} />
           <Select id="status" label="Estado" options={UNIT_STATUS_OPTIONS} value={form.status} onChange={(e) => update('status', e.target.value)} />
         </div>
         <Textarea

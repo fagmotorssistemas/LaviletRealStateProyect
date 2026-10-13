@@ -312,6 +312,13 @@ export function InvestmentConfigurator({
         vacancyRate={calc.vacancyRate}
         onVacancyChange={calc.setVacancyRate}
         financingConfig={calc.config}
+        unit={calc.unit}
+        taxProfile={calc.taxProfile}
+        onTaxProfileChange={calc.setTaxProfile}
+        estimatedIncomeTax={calc.preview?.annualIncomeTaxEstimate}
+        rentExceedsLegalCap={calc.preview?.rentExceedsLegalCap}
+        maxLegalRent={calc.preview?.maxLegalMonthlyRent}
+        cadastralIsEstimated={calc.preview?.cadastralIsEstimated}
         includePropertyManager={calc.state.includePropertyManager}
         onIncludePropertyManagerChange={(v) =>
           calc.patchState({ includePropertyManager: v, savedResults: null, fidelityMessage: null })
@@ -349,14 +356,26 @@ export function InvestmentConfigurator({
               unitPrice: calc.unitPrice,
               estimatedMonthlyRent: calc.monthlyRent,
               vacancyRate: calc.vacancyRate,
-              annualOperatingExpenses: calc.state.expenses.total,
+              annualOperatingExpenses: calc.preview.annualOperatingExpenses,
+              taxProfile: calc.preview.taxProfile,
+              incomeTaxBrackets: calc.preview.assumptions.incomeTaxBrackets,
+              incomeTaxTableYear: calc.preview.incomeTaxTableYear,
+              companyIncomeTaxRate: calc.preview.companyIncomeTaxRate,
+              cadastralValue: calc.preview.cadastralValue,
+              cadastralIsEstimated: calc.preview.cadastralIsEstimated,
+              category: calc.unit?.category,
+              rentGrowthRate: calc.preview.assumptions.rentGrowthRate,
+              saleCommissionPct: calc.preview.assumptions.saleCommissionPct,
+              rentalDepreciationEnabled: calc.preview.assumptions.rentalDepreciationEnabled,
+              constructionSharePct: calc.preview.assumptions.constructionSharePct,
+              acquisitionCostBreakdown: calc.preview.assumptions.acquisitionCostBreakdown,
               includeIncomeTax: calc.state.includeIncomeTax,
               includePropertyManager: calc.state.includePropertyManager,
               incomeTaxRate: calc.incomeTaxRate,
               managementFeeRate: calc.managementFeeRate,
               downPaymentPercent: calc.downPaymentPercent,
               financingYears: calc.financingYears,
-              interestRate: calc.interestRate,
+              interestRate: calc.comparisonInterestRate,
               rateType: calc.rateType,
               acquisitionCosts: calc.state.acquisitionCosts,
               annualOtherFinancialCosts: calc.state.annualOtherFinancialCosts,
@@ -533,6 +552,13 @@ export function InvestmentConfigurator({
               vacancyRate={calc.vacancyRate}
               onVacancyChange={calc.setVacancyRate}
               financingConfig={calc.config}
+              unit={calc.unit}
+              taxProfile={calc.taxProfile}
+              onTaxProfileChange={calc.setTaxProfile}
+              estimatedIncomeTax={calc.preview?.annualIncomeTaxEstimate}
+              rentExceedsLegalCap={calc.preview?.rentExceedsLegalCap}
+              maxLegalRent={calc.preview?.maxLegalMonthlyRent}
+              cadastralIsEstimated={calc.preview?.cadastralIsEstimated}
               includePropertyManager={calc.state.includePropertyManager}
               onIncludePropertyManagerChange={(v) =>
                 calc.patchState({

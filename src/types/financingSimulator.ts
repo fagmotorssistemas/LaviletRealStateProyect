@@ -15,6 +15,8 @@ export type FinancingPartner = {
   is_recommended: boolean | null
 }
 
+import type { IncomeTaxBracket, TaxProfile } from '@/lib/financing/ecuadorTax'
+
 export type FinancingConfig = {
   id: string
   tenant_id: string | null
@@ -36,6 +38,19 @@ export type FinancingConfig = {
   /** Enlace Google Maps / Maps del edificio (fuente de verdad humana). */
   reference_location_url?: string | null
   rent_suggestion_settings?: Record<string, unknown> | null
+  default_tax_profile?: TaxProfile | null
+  income_tax_brackets?: IncomeTaxBracket[] | null
+  income_tax_table_year?: number | null
+  company_income_tax_rate?: number | null
+  management_fee_rate?: number | null
+  acquisition_cost_pct?: number | null
+  acquisition_cost_fixed?: number | null
+  sale_commission_pct?: number | null
+  default_appreciation_rate?: number | null
+  rent_growth_rate?: number | null
+  rental_depreciation_enabled?: boolean | null
+  construction_share_pct?: number | null
+  building_fee_per_m2_monthly?: number | null
 }
 
 export type SimulationMode = 'cash' | 'financed' | 'manual'
@@ -86,6 +101,9 @@ export type WealthProjection = {
   projectedGainOrLoss: number
   cumulativeReturnOnCashPercent: number | null
   saleCosts: number
+  capitalGainsTax: number
+  saleCommission: number
+  irrAnnualPercent: number | null
   saleCostsIncluded: boolean
   annualCashFlowYieldPercent: number | null
   zeroAppreciation: {
@@ -93,6 +111,9 @@ export type WealthProjection = {
     endingEquity: number
     projectedGainOrLoss: number
     cumulativeReturnOnCashPercent: number | null
+    capitalGainsTax: number
+    saleCommission: number
+    irrAnnualPercent: number | null
   }
   notes: string[]
 }
@@ -210,6 +231,15 @@ export type InvestmentPreview = {
   includePropertyManager: boolean
   incomeTaxRate: number
   managementFeeRate: number
+  taxProfile: TaxProfile
+  incomeTaxTableYear: number
+  companyIncomeTaxRate: number
+  incomeTaxTableFallback: boolean
+  cadastralValue: number
+  cadastralIsEstimated: boolean
+  maxLegalMonthlyRent: number
+  rentExceedsLegalCap: boolean
+  isCommercial: boolean
   assumptions: {
     vacancyAppliedOnce: boolean
     incomeTaxIncluded: boolean
@@ -231,6 +261,22 @@ export type InvestmentPreview = {
     propertyExpenseModel?: string
     propertyExpensesExcludeInsuranceAndOther?: boolean
     annualOperatingExpensesSnapshot?: number
+    taxProfile?: TaxProfile
+    incomeTaxTableYear?: number
+    companyIncomeTaxRate?: number
+    incomeTaxTableFallback?: boolean
+    incomeTaxBrackets?: IncomeTaxBracket[]
+    cadastralValue?: number
+    cadastralIsEstimated?: boolean
+    acquisitionCostBreakdown?: { percentage: number; fixed: number }
+    rentGrowthRate?: number
+    saleCommissionPct?: number
+    rentalDepreciationEnabled?: boolean
+    constructionSharePct?: number
+    capitalGainsTax?: number
+    saleCommission?: number
+    irrAnnualPercent?: number | null
+    rentExceedsLegalCap?: boolean
   }
 }
 

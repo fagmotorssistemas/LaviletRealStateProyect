@@ -11,6 +11,7 @@ export type ScenarioFidelity =
     }
 
 const PRIOR_VERSION_MESSAGES: Record<string, string> = {
+  'investment-v5': 'Escenario investment-v5: se muestran los resultados guardados. Al recalcular se aplica el IR progresivo, el avalúo catastral, el crecimiento anual y los costos de venta vigentes.',
   'investment-v4':
     'Escenario investment-v4: se muestran los resultados guardados. Al recalcular se usarán los gastos vigentes de la propiedad (predial + alícuota) y se excluirán seguro y otros gastos de ese bloque.',
   'investment-v3':

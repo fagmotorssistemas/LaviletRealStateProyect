@@ -7,6 +7,7 @@ import {
   FINANCING_YEARS_MAX,
   FINANCING_YEARS_MIN,
   buildInvestmentPreview,
+  buildWealthProjection,
   clampDownPaymentPercent,
   clampFinancingYears,
   expenseBreakdownFromConfig,
@@ -29,6 +30,7 @@ import {
   resolveAuthorizedLeadId as resolveAuthorizedLeadIdCore,
 } from '@/lib/financing/financingAuth'
 import { ScenarioValidationError } from '@/lib/financing/scenarioValidate'
+import { cadastralValueFor, isTaxProfile, type TaxProfile } from '@/lib/financing/ecuadorTax'
 
 export {
   isMissingInvestmentV2SchemaError,
@@ -64,7 +66,7 @@ export async function resolveUnitByParam(admin: SupabaseClient, rawId: string) {
   const id = String(rawId ?? '').trim()
   if (!id) return null
   const selectCols =
-    'id, tenant_id, project_id, unit_number, published_commercial_price, bedrooms, category, area_internal_m2, status, is_published'
+    'id, tenant_id, project_id, unit_number, published_commercial_price, bedrooms, category, area_internal_m2, area_total_m2, cadastral_value, monthly_building_fee, estimated_monthly_rent, status, is_published'
   const byId = await admin.from('units').select(selectCols).eq('id', id).maybeSingle()
   if (byId.data) return byId.data
   const byNumber = await admin
@@ -84,6 +86,12 @@ export function assertUnitAccessibleForTour(
     tenant_id?: string | null
     is_published?: boolean | null
     status?: string | null
+    category?: string | null
+    area_internal_m2?: number | null
+    area_total_m2?: number | null
+    cadastral_value?: number | null
+    monthly_building_fee?: number | null
+    estimated_monthly_rent?: number | null
   } | null,
 ) {
   if (!unit?.id) throw new ScenarioValidationError('Unidad no válida')
@@ -157,6 +165,7 @@ export type CreateScenarioInput = {
   unitPrice: number
   /** Supuestos de entrada validados; el servidor recalcula totales. */
   includeIncomeTax?: boolean
+  taxProfile?: TaxProfile
   includePropertyManager?: boolean
   incomeTaxRate?: number
   managementFeeRate?: number
@@ -221,7 +230,7 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
 
   const { data: unitRow, error: unitError } = await admin
     .from('units')
-    .select('id, project_id, tenant_id, is_published, status')
+    .select('id, project_id, tenant_id, is_published, status, category, area_internal_m2, area_total_m2, cadastral_value, monthly_building_fee, estimated_monthly_rent')
     .eq('id', input.unitId)
     .maybeSingle()
   if (unitError) throw unitError
@@ -231,7 +240,7 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
   const config = await fetchFinancingConfig(admin, projectId)
   if (!config) throw new Error('No hay configuración de financiamiento para el proyecto')
 
-  let mode: SimulationMode = input.mode
+  const mode: SimulationMode = input.mode
   let partner: FinancingPartner | null = null
 
   if (mode === 'financed') {
@@ -283,7 +292,7 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
     input.includePropertyManager ?? (input.annualManagement ?? 0) > 0
 
   // Gastos de propiedad desde config autorizada (predial + alícuota). Ignora body del cliente.
-  const expenseBreakdown = expenseBreakdownFromConfig(input.unitPrice, config)
+  const expenseBreakdown = expenseBreakdownFromConfig(input.unitPrice, config, unit)
   const annualOperatingExpenses = expenseBreakdown.total
 
   const previewFinal = buildInvestmentPreview({
@@ -293,9 +302,21 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
     vacancyRate: input.vacancyRate,
     annualOperatingExpenses,
     includeIncomeTax,
+    taxProfile: isTaxProfile(input.taxProfile) ? input.taxProfile : isTaxProfile(config.default_tax_profile) ? config.default_tax_profile : '45_80',
+    incomeTaxBrackets: config.income_tax_brackets,
+    incomeTaxTableYear: config.income_tax_table_year ?? undefined,
+    companyIncomeTaxRate: config.company_income_tax_rate ?? undefined,
+    cadastralValue: unit.cadastral_value ?? undefined,
+    cadastralIsEstimated: cadastralValueFor(unit, input.unitPrice).cadastralIsEstimated,
+    category: unit.category,
+    rentGrowthRate: config.rent_growth_rate ?? undefined,
+    rentalDepreciationEnabled: config.rental_depreciation_enabled ?? undefined,
+    constructionSharePct: config.construction_share_pct ?? undefined,
+    saleCommissionPct: config.sale_commission_pct ?? undefined,
+    acquisitionCostBreakdown: { percentage: config.acquisition_cost_pct ?? 1.3, fixed: config.acquisition_cost_fixed ?? 500 },
     includePropertyManager,
     incomeTaxRate: input.incomeTaxRate,
-    managementFeeRate: input.managementFeeRate,
+    managementFeeRate: input.managementFeeRate ?? config.management_fee_rate ?? undefined,
     acquisitionCosts: input.acquisitionCosts,
     annualOtherFinancialCosts: input.annualOtherFinancial,
     monthlyExtraCharges: input.monthlyExtraCharges,
@@ -307,6 +328,14 @@ export async function createAndAnalyzeScenario(admin: SupabaseClient, input: Cre
     appreciationRateAnnual: input.appreciationRateAnnual,
     saleCosts: input.saleCosts,
   })
+  const wealth = buildWealthProjection({ preview: previewFinal,
+    horizonYears: input.wealthHorizonYears,
+    appreciationRateAnnual: input.appreciationRateAnnual,
+    saleCosts: input.saleCosts,
+  })
+  previewFinal.assumptions.capitalGainsTax = wealth.capitalGainsTax
+  previewFinal.assumptions.saleCommission = wealth.saleCommission
+  previewFinal.assumptions.irrAnnualPercent = wealth.irrAnnualPercent
 
   const fullRow = scenarioInsertFromPreview(
     { ...input, annualOperatingExpenses, expenseBreakdown },

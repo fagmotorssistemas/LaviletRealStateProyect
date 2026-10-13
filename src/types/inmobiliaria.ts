@@ -192,6 +192,9 @@ export interface Unit {
   spaces: string[]
   cost_per_m2_internal: number | null
   published_commercial_price: number | null
+  cadastral_value?: number | null
+  monthly_building_fee?: number | null
+  estimated_monthly_rent?: number | null
   status: UnitStatus
   description: string | null
   slug: string | null
@@ -725,6 +728,9 @@ export interface LeadFinancing {
     area_total_m2?: number | null
     parking_assigned?: number | null
     published_commercial_price?: number | null
+    cadastral_value?: number | null
+    monthly_building_fee?: number | null
+    estimated_monthly_rent?: number | null
     project?: { name: string } | null
   }
   partner?: Pick<FinancingPartner, 'id' | 'name' | 'partner_type' | 'approx_rate'> | null

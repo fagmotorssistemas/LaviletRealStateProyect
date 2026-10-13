@@ -17,6 +17,10 @@ const visitorMigrationPath = path.join(
   root,
   'supabase/migrations/20260917180000_financing_scenario_visitor_scope.sql',
 )
+const ecuadorMigrationPath = path.join(
+  root,
+  'supabase/migrations/20261014120000_financing_ecuador_tax_model.sql',
+)
 
 describe('migración investment-v2 en PGlite (persistencia local real de esquema)', () => {
   it('añade columnas v2 y permite insert con supuestos; sin triggers que sobrescriban', async () => {
@@ -120,5 +124,35 @@ describe('migración investment-v2 en PGlite (persistencia local real de esquema
     assert.equal(Number(again.rows[0].annual_expenses), 4280)
 
     await db.close()
+  })
+})
+
+describe('migración Ecuador 2026 en PGlite', () => {
+  it('añade únicamente columnas y conserva los datos existentes', async () => {
+    const db = new PGlite()
+    try {
+      await db.exec(`
+        CREATE TABLE public.units (id integer PRIMARY KEY, unit_number text);
+        CREATE TABLE public.financing_config (id integer PRIMARY KEY, annual_property_tax numeric);
+        INSERT INTO public.units (id, unit_number) VALUES (1, '001');
+        INSERT INTO public.financing_config (id, annual_property_tax) VALUES (1, 0.8);
+      `)
+      const migration = fs.readFileSync(ecuadorMigrationPath, 'utf8')
+      await db.exec(migration)
+      const unit = await db.query<{ unit_number: string; cadastral_value: number | null; monthly_building_fee: number | null; estimated_monthly_rent: number | null }>(
+        'SELECT unit_number, cadastral_value, monthly_building_fee, estimated_monthly_rent FROM public.units WHERE id = 1',
+      )
+      assert.deepEqual(unit.rows[0], { unit_number: '001', cadastral_value: null, monthly_building_fee: null, estimated_monthly_rent: null })
+
+      const config = await db.query<{ annual_property_tax: number; default_tax_profile: string; income_tax_table_year: number; income_tax_brackets: unknown }>(
+        'SELECT annual_property_tax, default_tax_profile, income_tax_table_year, income_tax_brackets FROM public.financing_config WHERE id = 1',
+      )
+      assert.equal(Number(config.rows[0].annual_property_tax), 0.8)
+      assert.equal(config.rows[0].default_tax_profile, '45_80')
+      assert.equal(config.rows[0].income_tax_table_year, 2026)
+      assert.equal((config.rows[0].income_tax_brackets as unknown[]).length, 10)
+    } finally {
+      await db.close()
+    }
   })
 })

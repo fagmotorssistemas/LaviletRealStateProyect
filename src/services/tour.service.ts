@@ -128,7 +128,7 @@ export async function getUnitsByType(
   const { data, error } = await supabase
     .from('units')
     .select(
-      'id, unit_number, floor, published_commercial_price, status, area_total_m2, bedrooms, bathrooms, slug, category',
+      'id, unit_number, floor, published_commercial_price, status, area_total_m2, bedrooms, bathrooms, slug, category, cadastral_value, monthly_building_fee, estimated_monthly_rent',
     )
     .eq('tenant_id', tenantId)
     .eq('unit_type_id', unitTypeId)

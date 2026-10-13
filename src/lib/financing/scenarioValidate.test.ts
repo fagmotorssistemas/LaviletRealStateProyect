@@ -5,12 +5,20 @@ import {
   parseExpenseBreakdown,
   parseSimulationMode,
   parseRateType,
+  parseTaxProfile,
+  validateEcuadorTaxSnapshot,
   resolveOperatingExpenses,
 } from '@/lib/financing/scenarioValidate'
 import { assessScenarioFidelity } from '@/lib/financing/scenarioFidelity'
 import { CALCULATION_VERSION } from '@/lib/financing/calculator'
 
 describe('scenarioValidate', () => {
+  it('valida perfil y snapshots tributarios v6', () => {
+    assert.equal(parseTaxProfile('company', '45_80'), 'company')
+    assert.throws(() => parseTaxProfile('invalid', '45_80'), ScenarioValidationError)
+    assert.doesNotThrow(() => validateEcuadorTaxSnapshot({ taxProfile: 'none_other', cadastralValue: 144000, cadastralIsEstimated: false, acquisitionCostBreakdown: { percentage: 1.3, fixed: 500 } }))
+    assert.throws(() => validateEcuadorTaxSnapshot({ rentGrowthRate: 3 }), ScenarioValidationError)
+  })
   it('rechaza mode inválido sin coerción', () => {
     assert.throws(() => parseSimulationMode('contado'), ScenarioValidationError)
     assert.throws(() => parseSimulationMode(undefined), ScenarioValidationError)
