@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) {
       return NextResponse.json({ error: 'Fecha inválida' }, { status: 400 })
     }
-    if (!title || title.length > 160 || description.length > 5000) {
+    if (title.length > 160 || description.length > 5000) {
       return NextResponse.json({ error: 'Título o descripción inválidos' }, { status: 400 })
     }
     if (!Array.isArray(media) || !media.length || media.length > 30) {

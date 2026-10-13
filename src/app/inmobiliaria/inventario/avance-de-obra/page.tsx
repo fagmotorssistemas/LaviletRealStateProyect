@@ -21,8 +21,6 @@ export default function AvanceDeObraPage() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [date, setDate] = useState(localToday)
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
   const [media, setMedia] = useState<ConstructionMedia[]>([])
 
   const load = useCallback(async () => {
@@ -86,7 +84,7 @@ export default function AvanceDeObraPage() {
     if (!convertResponse.ok || !converted?.type || !converted.url) {
       throw new Error(converted?.error || 'No se pudo procesar el archivo')
     }
-    return { type: converted.type, url: converted.url, caption: file.name.replace(/\.[^.]+$/, '') }
+    return { type: converted.type, url: converted.url, caption: '' }
   }
 
   const onFiles = async (files: FileList | null) => {
@@ -110,8 +108,8 @@ export default function AvanceDeObraPage() {
   }
 
   const save = async () => {
-    if (!date || !title.trim() || !media.length) {
-      toast.error('Agrega fecha, título y al menos una foto o video')
+    if (!date || !media.length) {
+      toast.error('Agrega la fecha y al menos una foto o video')
       return
     }
     setSaving(true)
@@ -120,12 +118,10 @@ export default function AvanceDeObraPage() {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, title: title.trim(), description: description.trim(), media }),
+        body: JSON.stringify({ date, media }),
       })
       const data = (await response.json().catch(() => null)) as { error?: string } | null
       if (!response.ok) throw new Error(data?.error || 'No se pudo publicar el avance')
-      setTitle('')
-      setDescription('')
       setDate(localToday())
       setMedia([])
       await load()
@@ -138,7 +134,7 @@ export default function AvanceDeObraPage() {
   }
 
   const remove = async (item: ConstructionUpdate) => {
-    if (!window.confirm(`¿Borrar “${item.title}” y sus archivos?`)) return
+    if (!window.confirm(`¿Borrar el avance del ${item.date} y sus archivos?`)) return
     setDeleting(item.id)
     try {
       const response = await fetch(`/api/tour/construction-updates/${item.id}`, {
@@ -170,34 +166,25 @@ export default function AvanceDeObraPage() {
       {canWrite ? (
         <section className="space-y-4 rounded-xl border border-[#2B1A18]/10 bg-white p-4">
           <h2 className="text-lg font-semibold text-[#2B1A18]">Nueva entrada</h2>
-          <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
-            <label className="space-y-1 text-sm text-[#3a3d36]">Fecha
-              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="block h-11 w-full rounded-md border border-[#2B1A18]/20 px-3" />
-            </label>
-            <label className="space-y-1 text-sm text-[#3a3d36]">Título
-              <input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} className="block h-11 w-full rounded-md border border-[#2B1A18]/20 px-3" placeholder="Ej. Estructura del sexto piso" />
-            </label>
-          </div>
-          <label className="block space-y-1 text-sm text-[#3a3d36]">Descripción
-            <textarea value={description} maxLength={5000} onChange={(event) => setDescription(event.target.value)} rows={3} className="block w-full rounded-md border border-[#2B1A18]/20 p-3" />
+          <label className="block w-48 space-y-1 text-sm text-[#3a3d36]">Fecha
+            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="block h-11 w-full rounded-md border border-[#2B1A18]/20 px-3" />
           </label>
           <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-[#2B1A18]/20 bg-[#f7f6f2] px-4 py-6 text-sm text-[#3a3d36]">
             <ImagePlus size={18} /> {uploading ? 'Subiendo archivos…' : 'Agregar fotos o videos'}
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple disabled={uploading || saving} className="hidden" onChange={(event) => { void onFiles(event.target.files); event.target.value = '' }} />
           </label>
           {media.length ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {media.map((item) => (
-                <div key={item.url} className="overflow-hidden rounded-md border border-[#2B1A18]/10">
-                  {item.type === 'image' ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.url} alt={item.caption} className="aspect-video w-full object-cover" />
-                  ) : <video src={item.url} controls preload="metadata" className="aspect-video w-full object-cover" />}
-                  <div className="flex items-center gap-2 p-2">
-                    <input aria-label="Descripción del archivo" value={item.caption} maxLength={300} onChange={(event) => setMedia((current) => current.map((row) => row.url === item.url ? { ...row, caption: event.target.value } : row))} className="min-w-0 flex-1 rounded border border-[#2B1A18]/15 px-2 py-1 text-sm" />
-                    <button type="button" aria-label="Quitar archivo" onClick={() => setMedia((current) => current.filter((row) => row.url !== item.url))}><Trash2 size={16} /></button>
+                <figure key={item.url} className="flex flex-col overflow-hidden rounded-md border border-[#2B1A18]/10 bg-white">
+                  <div className="relative aspect-[4/3] bg-[#f4f4ef]">
+                    {item.type === 'image' ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.url} alt="" className="h-full w-full object-cover" />
+                    ) : <video src={item.url} controls preload="metadata" className="h-full w-full object-cover" />}
+                    <button type="button" aria-label="Quitar archivo" onClick={() => setMedia((current) => current.filter((row) => row.url !== item.url))} className="absolute top-2 right-2 rounded-full bg-white/95 p-1.5 text-[#8a5c58] shadow-sm"><Trash2 size={16} /></button>
                   </div>
-                </div>
+                </figure>
               ))}
             </div>
           ) : null}
@@ -214,16 +201,17 @@ export default function AvanceDeObraPage() {
         {items.map((item) => (
           <article key={item.id} className="space-y-3 rounded-xl border border-[#2B1A18]/10 bg-white p-4">
             <div className="flex items-start justify-between gap-3">
-              <div><time dateTime={item.date} className="text-xs text-[#8a8d87]">{item.date}</time><h3 className="font-semibold text-[#2B1A18]">{item.title}</h3><p className="whitespace-pre-line text-sm text-[#555850]">{item.description}</p></div>
-              {canWrite ? <button type="button" aria-label={`Borrar ${item.title}`} disabled={deleting === item.id} onClick={() => void remove(item)} className="rounded-full p-2 text-[#8a5c58] disabled:opacity-50"><Trash2 size={18} /></button> : null}
+              <time dateTime={item.date} className="text-xs text-[#8a8d87]">{item.date}</time>
+              {canWrite ? <button type="button" aria-label={`Borrar avance del ${item.date}`} disabled={deleting === item.id} onClick={() => void remove(item)} className="rounded-full p-2 text-[#8a5c58] disabled:opacity-50"><Trash2 size={18} /></button> : null}
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {item.media.map((file) => <figure key={file.url} className="overflow-hidden rounded-md border border-[#2B1A18]/10">
-                {file.type === 'image' ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={file.url} alt={file.caption} className="aspect-video w-full object-cover" />
-                ) : <video src={file.url} controls preload="metadata" className="aspect-video w-full object-cover" />}
-                {file.caption ? <figcaption className="p-2 text-xs text-[#555850]">{file.caption}</figcaption> : null}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {item.media.map((file) => <figure key={file.url} className="flex flex-col overflow-hidden rounded-md border border-[#2B1A18]/10 bg-white">
+                <div className="relative aspect-[4/3] bg-[#f4f4ef]">
+                  {file.type === 'image' ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={file.url} alt="" className="h-full w-full object-cover" />
+                  ) : <video src={file.url} controls preload="metadata" className="h-full w-full object-cover" />}
+                </div>
               </figure>)}
             </div>
           </article>

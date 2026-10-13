@@ -58,13 +58,16 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
       .then((data) => {
         if (cancelled) return
         const next = source === 'construction'
-          ? ((data.items ?? []) as ConstructionUpdate[]).flatMap((update) =>
-              update.media.filter((media) => media.type === 'image').map((media) => ({
+          ? ((data.items ?? []) as ConstructionUpdate[]).flatMap((update) => {
+              const dateLabel = new Date(`${update.date}T12:00:00Z`).toLocaleDateString('es-EC', {
+                day: 'numeric', month: 'long', year: 'numeric',
+              })
+              return update.media.filter((media) => media.type === 'image').map((media) => ({
                 imageUrl: media.url,
-                title: media.caption || update.title,
-                titleEn: media.caption || update.title,
-              })),
-            )
+                title: dateLabel,
+                titleEn: dateLabel,
+              }))
+            })
           : (data.items ?? []) as AmenitySlide[]
         setItems(next)
         setState('ready')
@@ -98,13 +101,14 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
   }, [open, items, index, count])
 
   const slide = open ? items[index] : undefined
-  const caption = slide
-    ? (locale === 'en' ? slide.titleEn : slide.title)
+  const rawCaption = slide ? (locale === 'en' ? slide.titleEn : slide.title) : ''
+  const caption = source === 'construction'
+    ? rawCaption
+    : rawCaption
         .replace(/[-_\s]?r\d{6,}/gi, '')
         .replace(/\s+\d+\s*$/u, '')
         .replace(/\s+/g, ' ')
         .trim()
-    : ''
   useEffect(() => {
     if (open) onCaptionChange?.(caption)
   }, [open, caption, onCaptionChange])
