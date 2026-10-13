@@ -1396,15 +1396,31 @@ html.tour-is-force-landscape body {
   }
 }
 
-.tour-root:has(.tour-ficha-sheet) .tour-modes-mobile,
-.tour-root:has(.tour-ficha-sheet) .tour-mobile-nav,
-.tour-root:has([role='dialog']) .tour-modes-mobile {
+.tour-root[data-ficha-open] .tour-modes-mobile,
+.tour-root[data-ficha-open] .tour-mobile-nav,
+.tour-root[data-dialog-open] .tour-modes-mobile {
   display: none !important;
 }
 
-.tour-root:has(.tour-modal-sheet) [data-rotate-toast],
-.tour-root:has([role='dialog']) [data-rotate-toast],
-.tour-root:has(.tour-ficha-sheet) [data-rotate-toast] {
+.tour-root:not([data-ficha-open]):not([data-dialog-open]) .tour-modes-mobile,
+.tour-root:not([data-ficha-open]) .tour-mobile-nav {
+  animation: tour-mobile-controls-in 150ms ease-out both;
+}
+
+@keyframes tour-mobile-controls-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-root .tour-modes-mobile,
+  .tour-root .tour-mobile-nav {
+    animation: none !important;
+  }
+}
+
+.tour-root[data-dialog-open] [data-rotate-toast],
+.tour-root[data-ficha-open] [data-rotate-toast] {
   display: none !important;
 }
 
@@ -1463,6 +1479,12 @@ html.tour-phone-preview .tour-mobile-nav {
   display: block !important;
 }
 
+html.tour-phone-preview .tour-root[data-ficha-open] .tour-modes-mobile,
+html.tour-phone-preview .tour-root[data-ficha-open] .tour-mobile-nav,
+html.tour-phone-preview .tour-root[data-dialog-open] .tour-modes-mobile {
+  display: none !important;
+}
+
 html.tour-phone-preview .tour-entry-video,
 html.tour-phone-preview .tour-pano-stage,
 html.tour-phone-preview .psv-container {
@@ -1509,7 +1531,7 @@ html.tour-phone-preview .tour-ficha-sheet--compact .tour-ficha-media {
 }
 
 @media (max-width: 900px) {
-  .tour-root:has(.tour-ficha-sheet) [data-showroom-toolbar] {
+  .tour-root[data-ficha-open] [data-showroom-toolbar] {
     z-index: 120;
   }
 }
@@ -1641,5 +1663,98 @@ html.tour-phone-preview .tour-ficha-tile {
     max-height: 9.5rem !important;
     aspect-ratio: auto !important;
   }
+
+  /* El resumen conserva el diseño del plano al pasar a la vista de unidad. */
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact.tour-modal-sheet {
+    top: calc(4rem + env(safe-area-inset-top, 0px) + var(--fab-gap) + var(--fab) + 0.9rem) !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-media {
+    display: block !important;
+    height: 9.5rem !important;
+    max-height: 9.5rem !important;
+    aspect-ratio: auto !important;
+  }
+
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-media-close {
+    display: flex !important;
+  }
+
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-shorthead {
+    display: none !important;
+  }
+
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-spec-full {
+    display: inline !important;
+  }
+
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-spec-short {
+    display: none !important;
+  }
+
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-specs {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.65rem !important;
+    margin-top: 0.35rem !important;
+    flex: 0 1 auto !important;
+    grid-auto-rows: auto !important;
+  }
+
+  .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-tile {
+    min-height: 4.85rem !important;
+    max-height: none !important;
+    height: auto !important;
+    padding: 0.85rem 0.75rem !important;
+    justify-content: center;
+  }
+}
+
+/* La vista de revisión usa un marco de celular dentro de un viewport ancho. */
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact.tour-modal-sheet {
+  top: calc(4rem + env(safe-area-inset-top, 0px) + var(--fab-gap) + var(--fab) + 0.9rem) !important;
+  right: auto !important;
+  bottom: calc(var(--edge-bottom) + var(--fab) + 0.55rem) !important;
+  left: var(--edge-left) !important;
+  width: min(22.5rem, calc(100% - var(--edge-left) - var(--edge-right) - clamp(56px, 5vw, 84px) - 1.15rem)) !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-media {
+  display: block !important;
+}
+
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-media-close {
+  display: flex !important;
+}
+
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-shorthead {
+  display: none !important;
+}
+
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-spec-full {
+  display: inline !important;
+}
+
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-spec-short {
+  display: none !important;
+}
+
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-specs {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0.65rem !important;
+  margin-top: 0.35rem !important;
+  flex: 0 1 auto !important;
+  grid-auto-rows: auto !important;
+}
+
+html.tour-phone-preview .tour-root:not(.is-plan-shell) .tour-ficha-sheet--compact .tour-ficha-tile {
+  min-height: 4.85rem !important;
+  max-height: none !important;
+  height: auto !important;
+  padding: 0.85rem 0.75rem !important;
+  justify-content: center;
 }
 

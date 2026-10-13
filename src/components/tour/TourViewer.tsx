@@ -1395,6 +1395,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [selectedTypology, setSelectedTypology] = useState('')
   const [gateOpen, setGateOpen] = useState(false)
   const [fichaOpen, setFichaOpen] = useState(false)
+  const fichaOriginRef = useRef<'plan' | 'menu' | 'favoritos' | 'enlace' | 'unidad' | 'similares'>('plan')
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
   const [amenityCaption, setAmenityCaption] = useState('')
   const [constructionOpen, setConstructionOpen] = useState(false)
@@ -1639,6 +1640,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     setPlanEntryOpen(false)
     setShellMode('unit')
     setViewMode('galeria')
+    fichaOriginRef.current = 'enlace'
     setFichaOpen(true)
     setFichaExpanded(true)
   }, [])
@@ -2347,6 +2349,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     setShellMode('unit')
     setViewMode('galeria')
     setGaleriaIndex(0)
+    fichaOriginRef.current = 'enlace'
     setFichaExpanded(true)
     setFichaOpen(true)
     writeUnitQueryParam(match.unit_number)
@@ -3702,11 +3705,27 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     if (tracking.shouldOfferGate) setGateOpen(true)
   }, [tracking.shouldOfferGate, tracking.identified])
 
+  const dialogOpen = simulatorOpen || saveUnitOpen || favoritesOpen || navChooserOpen || phoneUnlock.open || infoRequestOpen || gateOpen || voiceAssistOpen
+
+  const backToPlan = () => {
+    setShellMode('plan')
+    setViewMode('planos-3d')
+    setSelectedUnitId(null)
+    setFichaOpen(false)
+    setFichaExpanded(false)
+    setTerminacionesFocus(false)
+    setCompareOpen(false)
+    setFinishCompareOpen(false)
+    setMobilePanel(null)
+  }
+
   return (
     <div ref={slotRef} className={embedded ? 'relative h-full min-h-[320px] w-full' : 'h-full w-full'}>
     <div
       ref={rootRef}
       lang={locale}
+      data-ficha-open={fichaOpen ? '' : undefined}
+      data-dialog-open={dialogOpen ? '' : undefined}
       className={cn(
         'tour-root overflow-hidden bg-black overscroll-none',
         showPlanShell && 'is-plan-shell',
@@ -3718,10 +3737,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       )}
     >
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
-      <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
+      <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={showUnitChrome && !viewingCommonArea ? selectedUnit : null} root={rootRef}
         hideWebReturn={planEntryOpen}
-        onFavorites={() => setFavoritesOpen(true)}
-        place={constructionOpen ? 'progress' : amenitiesOpen ? 'amenities' : favoritesOpen ? 'favorites' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
+        onFavorites={() => {setAmenitiesOpen(false);setConstructionOpen(false);setLocationFromMenu(false);setFavoritesOpen(true)}}
+        place={favoritesOpen ? 'favorites' : constructionOpen ? 'progress' : (amenitiesOpen || viewingCommonArea) ? 'amenities' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : null}
         onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={(view) => {
           setAmenitiesOpen(false)
@@ -3738,9 +3757,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             drone.pause()
             if (drone.readyState > 0) drone.currentTime = 0
           }
-          setShellMode('plan')
-          setViewMode('planos-3d')
-          setPlanFloor(openingPlanFloor)
+          backToPlan()
           const reopen = view !== 'plan'
           if (reopen && entryCoarse) {
             const cover = coverVideoRef.current
@@ -3755,19 +3772,14 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             }
           }
           setPlanEntryOpen(reopen)
-          setFichaOpen(false)
-          setFichaExpanded(false)
-          setCompareOpen(false)
-          setFinishCompareOpen(false)
           setSimulatorOpen(false)
-          setTerminacionesFocus(false)
           setVoiceAssistOpen(false)
           if (reopen) void coverVideoRef.current?.play().catch(() => undefined)
         }}
-        onAmenities={()=>{setLocationFromMenu(false);setConstructionOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
-        onConstructionProgress={()=>{setLocationFromMenu(false);setAmenitiesOpen(false);setConstructionOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
-        onLocation={()=>{setAmenitiesOpen(false);setConstructionOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(true)}}
-        onPick={unit=>{setAmenitiesOpen(false);setConstructionOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
+        onAmenities={()=>{setFavoritesOpen(false);setLocationFromMenu(false);setConstructionOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onConstructionProgress={()=>{setFavoritesOpen(false);setLocationFromMenu(false);setAmenitiesOpen(false);setConstructionOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onLocation={()=>{setFavoritesOpen(false);setAmenitiesOpen(false);setConstructionOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(true)}}
+        onPick={unit=>{setAmenitiesOpen(false);setConstructionOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);fichaOriginRef.current='menu';setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
           setAmenitiesOpen(false)
           setConstructionOpen(false)
@@ -4175,6 +4187,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             }
             // Primera ficha (resumen). La expandida se abre con “Ver ficha”.
             setSimulatorOpen(false)
+            fichaOriginRef.current = 'plan'
             setFichaExpanded(false)
             setFichaOpen(true)
           }}
@@ -4433,12 +4446,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <button
                 type="button"
                 onClick={() => {
-                  setShellMode('plan')
-                  setViewMode('planos-3d')
-                  setFichaOpen(false)
-                  setTerminacionesFocus(false)
-                  setCompareOpen(false)
-                  setFinishCompareOpen(false)
+                  backToPlan()
                 }}
                 className="tour-glass inline-flex h-10 w-full items-center justify-start gap-1.5 px-3 text-[10px] font-medium tracking-[0.16em] text-[#f7f3ee] uppercase sm:text-[11px]"
               >
@@ -4453,6 +4461,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               <button
                 type="button"
                 onClick={() => {
+                  fichaOriginRef.current = 'unidad'
                   setFichaExpanded(true)
                   setSimulatorOpen(false)
                   setFichaOpen(true)
@@ -4502,13 +4511,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                     type="button"
                     onClick={() => {
                       if (viewingCommonArea) {
-                        setShellMode('plan')
-                        setViewMode('planos-3d')
-                        setFichaOpen(false)
-                        setTerminacionesFocus(false)
-                        setCompareOpen(false)
-                        setFinishCompareOpen(false)
-                        setMobilePanel(null)
+                        backToPlan()
                       } else {
                         setMobilePanel((value) => (value === 'nav' ? null : 'nav'))
                       }
@@ -4524,13 +4527,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   <button
                     type="button"
                       onClick={() => {
-                        setShellMode('plan')
-                        setViewMode('planos-3d')
-                        setFichaOpen(false)
-                        setTerminacionesFocus(false)
-                        setCompareOpen(false)
-                        setFinishCompareOpen(false)
-                        setMobilePanel(null)
+                        backToPlan()
                       }}
                       className="inline-flex h-10 w-full items-center gap-1.5 px-3 text-[10px] font-medium tracking-[0.14em] text-[#f7f3ee] uppercase"
                     >
@@ -4541,6 +4538,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                   <button
                     type="button"
                           onClick={() => {
+                            fichaOriginRef.current = 'unidad'
                             setFichaExpanded(true)
                             setSimulatorOpen(false)
                             setFichaOpen(true)
@@ -4789,6 +4787,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             setShellMode('unit')
             setViewMode('galeria')
             setGaleriaIndex(0)
+            fichaOriginRef.current = 'favoritos'
             setFichaExpanded(true)
             setFichaOpen(true)
             writeUnitQueryParam(match.unit_number)
@@ -4827,11 +4826,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           images={fichaImages}
           initialUnitId={selectedUnitId}
           onSelectUnit={(unit) => {
+            if (fichaExpanded) fichaOriginRef.current = 'similares'
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
             writeUnitQueryParam(unit.unit_number)
           }}
           onVerFicha={(unit) => {
+            fichaOriginRef.current = shellMode === 'plan' ? 'plan' : 'unidad'
             setSelectedUnitId(unit.id)
             if (unit.typology_code) setSelectedTypology(unit.typology_code)
             const floor = unitFloorNumber(unit)
@@ -4875,6 +4876,12 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           }}
           onBack={() => {
             if (fichaExpanded) {
+              if (fichaOriginRef.current === 'plan') {
+                setShellMode('plan')
+                setViewMode('planos-3d')
+              } else {
+                setFichaOpen(false)
+              }
               setFichaExpanded(false)
               return
             }
@@ -4971,6 +4978,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
             setShellMode('unit')
             setViewMode('galeria')
             setGaleriaIndex(0)
+            fichaOriginRef.current = 'similares'
             setFichaExpanded(true)
             setFichaOpen(true)
             writeUnitQueryParam(unit.unit_number)
@@ -5004,9 +5012,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
               return
             }
             if (action === 'OPEN_FLOOR_PLAN') {
-              setShellMode('plan')
-              setViewMode('planos-3d')
-              setFichaOpen(false)
+              backToPlan()
               return
             }
             if (action === 'OPEN_SIMULATOR') {

@@ -428,12 +428,13 @@ export function TourFichaDrawer({
           <motion.div
             aria-hidden="true"
             className={cn(
-              'tour-ficha-backdrop pointer-events-none z-[60] bg-[#14110e]/20 backdrop-blur-[6px]',
+              'tour-ficha-backdrop pointer-events-none z-[60] bg-[#14110e]/20',
               contained ? 'absolute inset-0' : 'fixed inset-0',
             )}
             initial={reduceMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={reduceMotion ? undefined : { opacity: 0 }}
+            animate={{ opacity: 1, backdropFilter: 'blur(6px)' }}
+            exit={reduceMotion ? undefined : { opacity: 0, backdropFilter: 'blur(0px)', transition: { opacity: { duration: 0.15, ease: 'easeOut' }, backdropFilter: { duration: 0 } } }}
+            transition={{ type: 'tween', duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
           />
 
           <motion.aside
@@ -452,7 +453,7 @@ export function TourFichaDrawer({
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+            transition={{ type: 'tween', duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
             onWheel={(event) => event.stopPropagation()}
             onPointerDown={(event) => {
               if (event.pointerType === 'mouse' && event.button !== 0) return
@@ -501,10 +502,10 @@ export function TourFichaDrawer({
                   type="button"
                   onClick={onBack}
                   className="flex h-8 items-center gap-1 rounded-full bg-[#f3f4f6] px-2.5 text-[11px] font-semibold tracking-[0.08em] text-[#1a2744] uppercase"
-                  aria-label={t(expanded ? 'Volver a ficha resumida' : 'Volver')}
+                  aria-label={t('Volver')}
                 >
                   <ChevronLeft size={16} strokeWidth={2.25} />
-                  {t(expanded ? 'Resumen' : 'Volver')}
+                  {t('Volver')}
                 </button>
               ) : (
                 <p className="text-[11px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
