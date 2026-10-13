@@ -17,9 +17,11 @@ import { cn } from '@/lib/utils'
 
 export function MisEscenariosView({
   embedded = false,
+  onBack,
   onReopen,
 }: {
   embedded?: boolean
+  onBack?: () => void
   onReopen?: (scenario: FinancingScenario) => void
 }) {
   const { t } = useTourLanguage()
@@ -28,6 +30,11 @@ export function MisEscenariosView({
   const [scenarios, setScenarios] = useState<FinancingScenario[]>([])
   const [identified, setIdentified] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const backButton = onBack ? (
+    <button type="button" onClick={onBack} className="text-sm font-medium text-[#6b645c] hover:text-[#1a2744]">
+      ← Volver al simulador
+    </button>
+  ) : null
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -70,15 +77,18 @@ export function MisEscenariosView({
 
   if (loading) {
     return (
-      <div className="flex min-h-[30vh] items-center justify-center">
-        <Spinner size="lg" />
+      <div className="space-y-4">
+        {backButton}
+        <div className="flex min-h-[30vh] items-center justify-center"><Spinner size="lg" /></div>
       </div>
     )
   }
 
   if (!identified) {
     return (
-      <div className="mx-auto max-w-xl space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-6 text-center">
+      <div className="space-y-4">
+        {backButton}
+        <div className="mx-auto max-w-xl space-y-4 rounded-3xl border border-[#ece6dc] bg-white p-6 text-center">
         {!embedded ? (
           <h1 className="font-serif text-3xl text-[#1f1a14]">{t("Cálculos guardados")}</h1>
         ) : (
@@ -91,12 +101,14 @@ export function MisEscenariosView({
           className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a2744] px-5 text-[11px] font-semibold tracking-[0.14em] text-white uppercase no-underline"
         >
           {t(" Ir al showroom ")}</Link>
+        </div>
       </div>
     )
   }
 
   return (
     <div className={cn('space-y-4', !embedded && 'mx-auto max-w-5xl')}>
+      {backButton}
       {!embedded ? (
         <header className="space-y-1">
           <h1 className="font-serif text-3xl text-[#1f1a14]">{t("Cálculos guardados")}</h1>

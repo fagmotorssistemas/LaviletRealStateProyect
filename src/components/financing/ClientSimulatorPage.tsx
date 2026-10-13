@@ -120,6 +120,10 @@ export function ClientSimulatorPage({ variant = 'public' }: { variant?: 'public'
           <h2 className="text-lg font-semibold text-[#1f1a14]">Cálculos guardados</h2>
           <MisEscenariosView
             embedded
+            onBack={() => {
+              setShowSaved(false)
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
             onReopen={(scenario) => {
               const unitNo = scenario.units?.unit_number
               if (unitNo) setSelectedUnit(unitNo)

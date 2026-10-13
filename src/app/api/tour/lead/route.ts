@@ -49,6 +49,9 @@ function identityErrorStatus(message: string) {
 }
 
 function humanIdentityError(message: string) {
+  if (/identify_tour_lead_with_meta_outbox|TimeoutError|tiempo de espera/i.test(message)) {
+    return 'No pudimos registrar tus datos, probá de nuevo en un momento'
+  }
   if (/IDENTITY_CONFLICT_PHONE_EMAIL/i.test(message)) {
     return 'El teléfono y el correo corresponden a contactos distintos. No se fusionan automáticamente.'
   }
@@ -200,6 +203,7 @@ export async function POST(request: Request) {
         payload: metaLeadPayload,
       })
     } catch (error) {
+      console.error('identify_tour_lead_with_meta_outbox', error)
       const message = error instanceof Error ? error.message : 'No se pudo guardar el contacto'
       return NextResponse.json(
         { error: humanIdentityError(message) },
