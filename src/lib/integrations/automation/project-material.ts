@@ -6,6 +6,14 @@ import { replyQuestions } from './reply-question'
 
 export const BROCHURE_PATH = '/materiales/brochure-la-vilet-v5.pdf'
 export const BROCHURE_URL = `https://www.lavilett.com${BROCHURE_PATH}`
+/** Description approved by the project owner; not a claim that the model has
+ * opened the PDF or verified room dimensions from its drawings. */
+export const BROCHURE_DESCRIPTION = Object.freeze({
+  kind: 'brochure', contains_floor_plans: true,
+  description: 'Brochure digital del proyecto con información y planos.',
+  source: 'approved_project_material_description',
+  room_dimensions_verified: false, model_has_examined_plans: false,
+})
 const rows = (history: unknown) => (Array.isArray(history) ? history : []).map(object)
 
 export const MATERIAL_REQUEST_SCHEMA = { type: 'object', additionalProperties: false,

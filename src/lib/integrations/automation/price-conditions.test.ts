@@ -1,6 +1,30 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ensureReferentialPriceConditions, REFERENTIAL_PRICE_NOTICE } from './price-conditions'
+import { ensureReferentialPriceConditions, REFERENTIAL_PRICE_NOTICE, priceNoticeForConversation, priceNoticeReceipt } from './price-conditions'
+
+test('price notice is shown once from registered bot history; customer text, unsent drafts and credit charges cannot suppress it', () => {
+  const info = { politica_comercial: { precios_autorizados: true, precios_aproximados: true, aviso_precios_referenciales: true } }
+  const notice = 'Los departamentos cuestan desde $250.000. Son precios referenciales y pueden cambiar.'
+  for (const history of [[], [{ role: 'cliente', content: notice }], [{ role: 'draft', content: notice }],
+    [{ role: 'bot', content: 'Las cuotas son referenciales y pueden cambiar. La cuota sería $965.' }]])
+    assert.equal(priceNoticeForConversation(info, history).aviso_precios_referenciales, true)
+  const policy = priceNoticeForConversation(info, [{ id: 'sent', role: 'bot', content: notice }])
+  assert.equal(policy.aviso_precios_referenciales, false)
+  assert.equal(policy.precios_aproximados, true)
+  assert.equal(policy.precios_autorizados, true)
+  assert.equal(policy.price_notice_previously_shared, true)
+  assert.deepEqual(ensureReferentialPriceConditions('El departamento cuesta $310.000.', { politica_comercial: policy }),
+    { reply: 'El departamento cuesta $310.000.', applied: false })
+  assert.equal(priceNoticeForConversation(info, []).aviso_precios_referenciales, true, 'A new conversation has its own first notice.')
+})
+
+test('accepted notice receipt survives a truncated history and is separate from a planned notice', () => {
+  const info = { politica_comercial: { precios_autorizados: true, precios_aproximados: true, aviso_precios_referenciales: true } }
+  const receipt = priceNoticeReceipt('Los departamentos cuestan desde $250.000. Son precios referenciales y pueden cambiar.', info, 'source-message')!
+  assert.equal(priceNoticeForConversation({ ...info, price_notice_receipt: receipt }, []).aviso_precios_referenciales, false)
+  assert.equal(priceNoticeForConversation({ ...info, price_notice_receipt: { ...receipt, source: 'prepared_bot_reply' } }, []).aviso_precios_referenciales, true)
+  assert.equal(priceNoticeReceipt('Su entrada será $100.000.', info, 'source-message'), null)
+})
 
 const verified = { politica_comercial: { precios_autorizados: true, precios_aproximados: true },
   catalogo: [{ published_commercial_price: 250000 }, { published_commercial_price: 310000 }, { published_commercial_price: 539900 }] }

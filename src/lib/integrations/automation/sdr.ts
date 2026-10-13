@@ -12,6 +12,7 @@ import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
 import { earlyPurchaseDiscountSettings } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
 import { earlyPurchaseDiscountContext } from './early-purchase-discount-context'
 import { financingPolicyContext } from './financing-quote'
+import { priceNoticeForConversation } from './price-conditions'
 import { recordDraftDecision } from './ai-execution-trace'
 import { db, object, scope, text, type Row } from './data'
 import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
@@ -108,7 +109,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
   const catalog = discounts.units
   const profile = confirmedLeadProfile(profileInput)
   const policies = publishedBusinessPolicies(projectData.policies_json, mode)
-  return { lead: { name: conversationalFirstName(text(profile.full_name)) || null,
+  const result = { lead: { name: conversationalFirstName(text(profile.full_name)) || null,
     name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null,
     preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage, unit_id: lead.unit_id, budget: lead.budget,
@@ -141,6 +142,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     horario_atencion: settings.business_hours,
     ubicacion: settings.visit_location_url,
     fecha: new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', dateStyle: 'full', timeStyle: 'short' }).format(new Date()) }
+  return { ...result, politica_comercial: priceNoticeForConversation(result, history) }
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
@@ -148,7 +150,8 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (project.name || project.public_name) info = { ...info, proyecto: { ...project,
     name: projectPublicName(project), public_name: projectPublicName(project) } }
   info = projectLocationForPrompt(info, locationDisclosurePolicy({ current, verified: info }))
-  info = { ...info, hechos_confirmados: confirmedInterpretationMemory(summary) }
+  info = { ...info, hechos_confirmados: confirmedInterpretationMemory(summary), price_notice_receipt: summary._price_notice }
+  info.politica_comercial = priceNoticeForConversation(info, info.historial)
   const contentScope = responseContentScope(current, info)
   info = { ...info, alcance_contenido_turno: contentScope, location_disclosure: { ...object(info.location_disclosure),
     general_location_allowed: object(object(contentScope.topics).general_location).allowed === true,

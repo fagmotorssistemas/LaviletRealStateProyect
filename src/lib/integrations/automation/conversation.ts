@@ -40,7 +40,7 @@ import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent, rememberTurnIntentAfterReply } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
-import { ensureReferentialPriceConditions } from './price-conditions'
+import { ensureReferentialPriceConditions, priceNoticeForConversation, priceNoticeReceipt } from './price-conditions'
 import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
@@ -1498,6 +1498,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
       contrato_turno: turnIntent,
       _sales_memory: previousSummary._sales_memory,
+      price_notice_receipt: summary._price_notice || previousSummary._price_notice,
       commercial_engagement: commercialEngagement(current, context.historial, previousSummary._sales_memory, {
         semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion,
       }),
@@ -1512,6 +1513,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     info.financiamiento = { ...object(info.financiamiento), journey: summary._financing_journey, entry: summary._financing_entry, amounts: summary._financing_amounts }
     audit.brochure_url = text(info.brochure_url) || BROCHURE_URL
     info.financing_amounts = summary._financing_amounts
+    info.politica_comercial = priceNoticeForConversation(info, context.historial)
     info.financing_balance = financingBalance(object(summary._financing_amounts), selectedFinancingUnit(info), object(info.politica_comercial).precios_autorizados === true)
     info.etapa_financiamiento = financingStage(info)
     if (quoteInquiry.requested) {
@@ -1832,7 +1834,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     unitsInPropertyReply(turnCatalog, reply).map(unit => text(unit.id)))
   summary._visit_dialogue = rememberVisitDialogue(previousSummary._visit_dialogue, visitDialoguePlan, audit,
     canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
+  const noticeReceipt = priceNoticeReceipt(reply, finalVerifiedContext, activeLast.externalId, audit)
+  if (noticeReceipt) audit.price_notice = noticeReceipt
   const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
+    _price_notice: noticeReceipt || summary._price_notice || previousSummary._price_notice || {},
     _turn_intent: rememberTurnIntentAfterReply(turnIntent, audit.turn_completeness, { accepted: true, recovery: pendingRecovery }),
     _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },
     _pending_requests: pendingRecovery ? pendingRequests : [],

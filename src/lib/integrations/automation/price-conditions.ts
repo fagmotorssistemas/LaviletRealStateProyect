@@ -1,4 +1,4 @@
-import { object, type Row } from './data'
+import { object, text, type Row } from './data'
 import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 
 export const REFERENTIAL_PRICE_NOTICE = 'Estos son los precios referenciales vigentes y pueden cambiar.'
@@ -9,9 +9,30 @@ export function referentialPriceNoticeRequired(policyInput: unknown): boolean {
   return policy.precios_aproximados === true && policy.aviso_precios_referenciales !== false && policy.precios_autorizados !== false
 }
 
-export const REFERENTIAL_PRICE_NOTICE_RULES = `AVISO AUTOMÁTICO DE PRECIOS: si politica_comercial.precios_aproximados=true y aviso_precios_referenciales no es false, al comunicar precios conserve su carácter referencial vigente y posibilidad de cambio con cualquier formulación equivalente. No exija mencionar lanzamiento ni otra etapa para cumplir el aviso. La etapa por sí sola no decide ese aviso; no la añada por costumbre. Si aviso_precios_referenciales=false, no añada automáticamente la aclaración «son referenciales y pueden cambiar» ni una equivalente. Ese ajuste solo controla el aviso rutinario: no cambia los precios, su naturaleza aproximada, sus permisos de publicación ni las condiciones comerciales verificadas. Si el cliente pregunta expresamente por vigencia, cambios o condiciones, responda esa consulta con los hechos y políticas disponibles; nunca deduzca que el precio es fijo o está garantizado por tener el aviso desactivado.`
+export const REFERENTIAL_PRICE_NOTICE_RULES = `AVISO AUTOMÁTICO DE PRECIOS: price_notice_frequency=once_per_conversation indica que el aviso rutinario se comunica una sola vez. price_notice_previously_shared=true acredita que ya apareció en una respuesta registrada del bot: no lo repita al dar otro precio, cambiar de unidad o explicar presupuesto. Su omisión posterior no cambia la naturaleza aproximada del precio. si politica_comercial.precios_aproximados=true y aviso_precios_referenciales no es false, al comunicar precios conserve su carácter referencial vigente y posibilidad de cambio con cualquier formulación equivalente. No exija mencionar lanzamiento ni otra etapa para cumplir el aviso. La etapa por sí sola no decide ese aviso; no la añada por costumbre. Si aviso_precios_referenciales=false, no añada automáticamente la aclaración «son referenciales y pueden cambiar» ni una equivalente. Ese ajuste solo controla el aviso rutinario: no cambia los precios, su naturaleza aproximada, sus permisos de publicación ni las condiciones comerciales verificadas. Si el cliente pregunta expresamente por vigencia, cambios o condiciones, responda esa consulta con los hechos y políticas disponibles; nunca deduzca que el precio es fijo o está garantizado por tener el aviso desactivado.`
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
+
+/** Previous bot messages are registered provider-accepted replies, not client
+ * claims or unsent drafts. Read no customer prose to decide the routine notice. */
+export function priceNoticeForConversation(verified: Row, history: unknown): Row {
+  const policy = object(verified.politica_comercial)
+  const saved = object(verified.price_notice_receipt)
+  const savedReceipt = saved.version === 'price-notice-v1' && saved.shared === true
+    && saved.source === 'accepted_bot_reply' && Boolean(text(saved.source_message_id))
+  const prior = rows(history).findLast(message => message.role === 'bot'
+    && completeNotice(text(message.content)) && disclosedPurchasePrice(text(message.content), verified, {}))
+  return { ...policy, price_notice_frequency: 'once_per_conversation',
+    price_notice_previously_shared: savedReceipt || Boolean(prior),
+    ...(savedReceipt || prior ? { aviso_precios_referenciales: false,
+      price_notice_receipt: savedReceipt ? saved : { source: 'registered_bot_reply', message_id: prior?.id || prior?.message_id || null } } : {}) }
+}
+
+/** Persisted only with the accepted reply's summary, never on preparation. */
+export function priceNoticeReceipt(reply: string, verified: Row, sourceMessageId: string, audit: Row = {}): Row | null {
+  return sourceMessageId && completeNotice(reply) && disclosedPurchasePrice(reply, verified, audit)
+    ? { version: 'price-notice-v1', shared: true, source: 'accepted_bot_reply', source_message_id: sourceMessageId } : null
+}
 
 function disclosedPurchasePrice(reply: string, verified: Row, audit: Row): boolean {
   const units = [...rows(verified.catalogo), ...rows(verified.catalogo_verificacion),

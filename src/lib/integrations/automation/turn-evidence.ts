@@ -1,7 +1,7 @@
 import { object, text, type Row } from './data'
 import { projectQuantityEvidence } from './project-quantities'
 import { numericMentions } from './semantic-review'
-import { BROCHURE_URL } from './project-material'
+import { BROCHURE_URL, BROCHURE_DESCRIPTION } from './project-material'
 import { confirmedLeadProfile } from './lead-profile'
 import { comparisonEvidence } from './comparison-evidence'
 import { DISCOUNT_NUMBER_FIELDS, compactDiscountEvidence, discountReferenceEvidence } from './discount-evidence'
@@ -18,6 +18,9 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
       { source: 'comparison_context', units: comparisonEvidence(verified, audit) }]
     : [{ source: 'context', units: rows(verified.catalogo) }]
   sources.push({ source: 'budget_alternatives', units: rows(object(verified.presupuesto_del_turno).alternatives) })
+  const categoryComparison = object(verified.category_price_comparison)
+  if (categoryComparison.version === 'category-price-comparison-v1')
+    sources.push({ source: 'category_price_comparison', units: rows(categoryComparison.units) })
   const proposed = object(verified.siguiente_paso_comercial)
   const budgetEvaluation = object(proposed.budget_guidance || verified.presupuesto_del_turno)
   const budgetQuery = object(object(verified.property_context).query || audit.catalog_query)
@@ -67,6 +70,8 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   }
   const units = [...byId.values()]
   const groups: Row[] = []
+  if (prices && categoryComparison.version === 'category-price-comparison-v1')
+    groups.push(...rows(categoryComparison.groups))
   const addGroup = (key: string, members: Row[], metadata: Row) => {
     if (!members.length && metadata.source_scope !== 'catalog_inventory'
       && !(metadata.source_scope === 'query' && metadata.complete_for_query === true)) return
@@ -89,6 +94,9 @@ export function turnEvidence(verified: Row, audit: Row = {}, currentQuoteUnits: 
   // A general price range cannot be attributed to one unit or to a fabricated
   // "price" identifier. Give the reviewer code-owned references for exact sets.
   for (const { source, units: sourceUnits } of sources) {
+    // The comparison has one independently verified range per category; do
+    // not add a mixed-category range that obscures which type costs more.
+    if (source === 'category_price_comparison') continue
     const ids = new Set(sourceUnits.map(unit => text(unit.id)))
     const result = object(audit.catalog_results)
     const queryScope = source === 'query' ? { query_scope: catalogFactScope(object(audit.catalog_query), [], audit.catalog_excluded_categories),
@@ -293,7 +301,7 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
   // it was already delivered in WhatsApp or that a reservation was performed.
   const profile = object(audit.profile_introduction), tour = object(audit.unit_model)
   add('materiales_configurados.brochure', 'project_fact', {
-    kind: 'brochure', url: text(profile.brochure_url) || text(verified.brochure_url) || BROCHURE_URL,
+    ...BROCHURE_DESCRIPTION, url: text(profile.brochure_url) || text(verified.brochure_url) || BROCHURE_URL,
   })
   if (text(tour.url)) add('estado_operativo.unit_model', 'project_fact', {
     kind: 'tour_360', unit_number: tour.unit_number || null, unit_id: tour.unit_id || null, url: tour.url,

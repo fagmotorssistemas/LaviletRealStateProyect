@@ -97,6 +97,13 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
       : generalPrice ? 'price_summary' : overview ? 'project_overview' : categoryOverview ? 'category_overview' : broadInformation ? 'catalog_overview'
         : domains.size > 1 || requests.length > 1 ? 'multiple_requests' : 'property'
   const result = withProjectIntroductionForTurn(verified)
+  const categoryComparison = object(verified.category_price_comparison)
+  if (categoryComparison.version === 'category-price-comparison-v1') {
+    // Validation keeps the source members; the models need only these ranges.
+    const { units: _members, ...summary } = categoryComparison
+    void _members
+    result.category_price_comparison = summary
+  }
   const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
   // Include facts requested by ANY current request, never only the primary intent.
   result.instalaciones = supplementaryFeatureFacts(verified, current,
@@ -195,6 +202,7 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     && evidence.groups.some(group => group.source_scope === 'complete_query' && group.unit_count === 0)
   const seen = new Set<string>()
   let groups = evidence.groups.filter(group => {
+    if (group.source_scope === 'category_price_comparison') return true
     if (budgetPresentation && (!Array.isArray(group.member_ids) || !group.member_ids.length
       || group.member_ids.some(id => !recommendationIds.has(text(id))))) return false
     if (group.source_scope === 'catalog_inventory' && !needsInventory) return false
@@ -213,6 +221,7 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   if (selection.task !== 'multiple_requests') {
     const scopes = new Set<string>()
     const sourcePriority = (group: Row) => Number(group.source_scope === 'complete_query')
+      + 4 * Number(group.source_scope === 'category_price_comparison')
       + (clarifyRequirements && !proposalInformationalTurn ? 2 * Number(group.source_scope === 'requirement_alternatives') : 0)
     groups = [...groups].sort((a, b) => sourcePriority(b) - sourcePriority(a))
       .filter(group => {

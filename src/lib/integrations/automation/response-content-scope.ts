@@ -6,6 +6,7 @@ import { normalizedRequestTopics } from './request-topics'
 import { asksUnitPrice } from './price-reply'
 import { replyQuestions } from './reply-question'
 import { budgetRecommendationPresentation } from './budget-presentation'
+import { interpretedPriceComparison } from './category-price-comparison'
 
 export const RESPONSE_CONTENT_SCOPE_VERSION = 'response-content-scope-v1'
 export const RESPONSE_CONTENT_SCOPE_WRITER_RULE = 'Cumpla response_content_scope y obligaciones_del_turno; los datos disponibles no autorizan contenido ajeno al turno.'
@@ -177,8 +178,8 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
       initialOverview ? 'approved_initial_overview' : locationRequested ? 'location_request' : 'verified_in_person_confirmation'),
     exact_location: topic(explicitExactLocation || inPersonConfirmation,
       explicitExactLocation ? 'explicit_location_request' : 'verified_in_person_confirmation'),
-    purchase_prices: topic(requested.has('purchase_price') || legacyPrice || pendingPriceClarification || budgetComparison || changedBudgetScopeComparison,
-      requested.has('purchase_price') ? 'unanswered_price_request' : legacyPrice ? 'current_legacy_price_request'
+    purchase_prices: topic(Boolean(interpretedPriceComparison(verified, current)) || requested.has('purchase_price') || legacyPrice || pendingPriceClarification || budgetComparison || changedBudgetScopeComparison,
+      interpretedPriceComparison(verified, current) ? 'current_category_price_comparison' : requested.has('purchase_price') ? 'unanswered_price_request' : legacyPrice ? 'current_legacy_price_request'
         : pendingPriceClarification ? 'pending_price_reference_clarification' : changedBudgetScopeComparison ? 'changed_budget_scope_comparison' : 'current_budget_comparison'),
     commercial_stage: topic(requested.has('commercial_stage'), 'commercial_stage_request'),
     construction_status: topic(requested.has('construction_status') || physicalVisitException || digitalException,

@@ -1,5 +1,5 @@
 import { applyTurnGreeting, CONVERSATION_WRITING_STYLE_RULES } from './conversation-style'
-import { ensureReferentialPriceConditions, REFERENTIAL_PRICE_NOTICE_RULES } from './price-conditions'
+import { ensureReferentialPriceConditions, REFERENTIAL_PRICE_NOTICE_RULES, priceNoticeForConversation } from './price-conditions'
 import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues, reconcileContinuationMetadata, completeRequiredContinuation } from './continuation-validation'
 import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { turnContinuationIssues } from './turn-continuation'
@@ -66,6 +66,8 @@ import { isVisitCopy, VISIT_COPY_RULES, VISIT_NATURAL_RULES, visitCopyIssues } f
 import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
+import { BROCHURE_DESCRIPTION } from './project-material'
+import { categoryPriceComparison } from './category-price-comparison'
 import { commercialMemory, experienceContext, residentialContinuationIssues, RESIDENTIAL_CONTINUITY_RULES, turnWritingRules } from './commercial-experience'
 import { commercialEngagement, passiveSalesCopy, passiveSalesRules } from './commercial-engagement'
 import { projectPublicName, PROJECT_NAME_WRITING_RULES } from './conversation-tone'
@@ -404,6 +406,9 @@ function missingRequestInventory(current: string, requests: Coverage[], verified
 
 /** Bounded semantic review; reads no DB and performs no commercial action. */
 export async function completeTurnReply(input: TurnCompletenessInput, generate: typeof aiJson = aiJson): Promise<TurnCompletenessResult> {
+  input = { ...input, verified: { ...input.verified,
+    politica_comercial: priceNoticeForConversation(input.verified, input.history),
+    category_price_comparison: categoryPriceComparison(input.verified, input.current) } }
   const observationOnly = responseReviewObservationOnly()
   const normalRuleSets = new Map<string, { actual: string; normal: string }>()
   // Diagnostic failure must never interrupt delivery or change model inputs.
@@ -693,7 +698,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     contexto_verificado: writerVerifiedContext, estado_operativo: input.audit || {}, preserveOperationalQuestion: input.preserveOperationalQuestion === true,
     referencias_solicitud: writerRequestRefs, obligaciones_del_turno: turnObligations,
     capacidades_disponibles: availableAssistance(input.verified),
-    material_protegido: { cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...approvedIntroductionNumbers(input.verified), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
+    material_protegido: { brochure_description: BROCHURE_DESCRIPTION,
+      cifras_obligatorias: writerContract.cifras_obligatorias, cifras_permitidas: [...new Set([...numbers(verifiedText(input.verified)), ...approvedIntroductionNumbers(input.verified), ...numbers(input.current), ...queryConstraintNumbers(input.audit)])],
       enlaces_obligatorios: linkContract.required_links, enlaces_permitidos: linkContract.allowed_links } }
   const optimizedPrompt = optimizedCatalogPrompt(context)
   // A known budget or accepted financing while choosing a property does not
