@@ -1,15 +1,13 @@
 'use client'
-/* eslint-disable @next/next/no-img-element -- QR is generated locally as a data URL. */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import type { TourLocale } from '@/lib/tour/tourMessages'
-import { Menu, X, Maximize, Minimize, ArrowLeft, Home, Search, Heart, Store, Scan, Trees, HardHat, MapPin, ChevronRight, ChevronDown, Mail, Ruler, BedDouble, Images, Box } from 'lucide-react'
+import { Menu, X, Maximize, Minimize, ArrowLeft, Home, Search, Heart, Store, Scan, Trees, HardHat, MapPin, ChevronRight, ChevronDown, Ruler, BedDouble, Images, Box } from 'lucide-react'
 import { FocusScope } from 'react-aria'
 import type { TourPublicCatalog, TourUnitSummary } from '@/types/tour'
 import { UNIT_STATUS_OPTIONS } from '@/types/inmobiliaria'
 import { unitModelUrl } from '@/lib/tour/unitModels'
 import { SITE } from '@/lib/marketing/site'
-import type { ConstructionUpdate } from '@/lib/tour/constructionProgress'
 import { emptyUnitFilters, filterShowroomUnits } from '@/lib/tour/showroomMenu'
 import { QrShareButton } from '@/components/tour/QrShareButton'
 import { parseFloorNumber } from '@/lib/tour/floorPlanHotspots'
@@ -101,15 +99,11 @@ function isInstalledShowroom() {
   return window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches
 }
 const HOME_HINT_KEY = 'lavilet-tour-a2hs'
-export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onPick,onTour,onAmenities,onLocation,onFavorites,onConstructionMedia,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onLocation?:()=>void;onFavorites?:()=>void;onConstructionMedia?:(slides:{url:string;caption:string}[],index:number)=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
+export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onPick,onTour,onAmenities,onConstructionProgress,onLocation,onFavorites,onClosePanels,root,hideWebReturn=false,hidden=false}:{units:TourUnitSummary[];catalog:TourPublicCatalog|null;selected:TourUnitSummary|null;place:Section;onHome:(view?:'image'|'plan')=>void;onPick:(u:TourUnitSummary)=>void;onTour:(u:TourUnitSummary)=>void;onAmenities:()=>void;onConstructionProgress:()=>void;onLocation?:()=>void;onFavorites?:()=>void;onClosePanels:()=>void;root:React.RefObject<HTMLDivElement|null>;hideWebReturn?:boolean;hidden?:boolean}){
  const [content,setContent]=useState(false)
  const [open,setOpen]=useState(false),[section,setSection]=useState<Section|null>(null)
  const [activeSection,setActiveSection]=useState<Section|null>(null)
- const [constructionUpdates,setConstructionUpdates]=useState<ConstructionUpdate[]>([])
- const [constructionLoading,setConstructionLoading]=useState(false)
- const [constructionError,setConstructionError]=useState(false)
  const {locale:lang,setLocale:setLang,t:translate}=useTourLanguage()
- const constructionSlides=useMemo(()=>constructionUpdates.flatMap(update=>update.media.filter(media=>media.type==='image').map(media=>({url:media.url,caption:translate(media.caption||update.title)}))),[constructionUpdates,translate])
  const [filters,setFilters]=useState(emptyUnitFilters),[full,setFull]=useState(false),[notice,setNotice]=useState(''),[ios,setIos]=useState(false),[homeHint,setHomeHint]=useState(false)
  const button=useRef<HTMLButtonElement>(null)
  const t=(es:string,en:string)=>lang==='es'?es:en
@@ -117,26 +111,13 @@ export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onP
  useEffect(()=>{setIos(isIosShowroom());if(!isIPhoneSafari()||isInstalledShowroom())return;try{if(localStorage.getItem(HOME_HINT_KEY)==='1')return}catch{return}setHomeHint(true)},[])
  useEffect(()=>{if(!notice)return;const timer=window.setTimeout(()=>setNotice(''),3000);return()=>window.clearTimeout(timer)},[notice])
  useEffect(()=>{if(!open)return;const close=(e:KeyboardEvent)=>{if(e.key==='Escape'){setOpen(false);button.current?.focus()}};document.addEventListener('keydown',close);return()=>document.removeEventListener('keydown',close)},[open])
- useEffect(()=>{
-  if(!open||section!=='progress')return
-  const controller=new AbortController()
-  void fetch('/api/tour/construction-updates',{cache:'no-store',signal:controller.signal})
-   .then(async response=>{
-    const data=await response.json() as {items?:ConstructionUpdate[]}
-    if(!response.ok)throw new Error('No se pudo consultar el avance de obra')
-    if(!controller.signal.aborted){setConstructionUpdates(data.items??[]);setConstructionError(false)}
-   })
-   .catch(()=>{if(!controller.signal.aborted)setConstructionError(true)})
-   .finally(()=>{if(!controller.signal.aborted)setConstructionLoading(false)})
-  return()=>controller.abort()
- },[open,section])
  const choices=(key:'floor'|'category'|'status'|'bedrooms')=>[...new Set(units.map(u=>u[key]).filter(v=>v!=null && v!==''))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}))
  const floorsFor=(next:typeof filters)=>[...new Set(filterShowroomUnits(units,{...next,floor:''},section==='shops').map(unit=>unit.floor).filter((floor):floor is string=>Boolean(floor)))].sort((a,b)=>(section==='shops'?shopFloorRank(a)-shopFloorRank(b):floorRank(a)-floorRank(b))||a.localeCompare(b,'es'))
  const optionValues=(key:'floor'|'category'|'status'|'bedrooms')=>key==='floor'?floorsFor(filters):choices(key).map(value=>String(value))
  const filtered=filterShowroomUnits(units,filters,section==='shops')
  const floorGroups=[...filtered.reduce((groups,unit)=>{const floor=unit.floor||'';const list=groups.get(floor)??[];list.push(unit);groups.set(floor,list);return groups},new Map<string,TourUnitSummary[]>())].sort(([a],[b])=>{if(section==='shops')return shopFloorRank(a)-shopFloorRank(b)||a.localeCompare(b,'es');const aHot=parseFloorNumber(a)===6;const bHot=parseFloorNumber(b)===6;if(aHot!==bHot)return aHot?-1:1;return floorRank(a)-floorRank(b)||a.localeCompare(b,'es')})
  const close=()=>{setOpen(false);button.current?.focus()}
- const go=(next:Section)=>{setNotice('');setActiveSection(next);if(next==='amenities'){onAmenities();close();return}if(next==='favorites'){onFavorites?.();close();return}if(next==='contact'){onLocation?.();close();return}if(next==='progress'){setConstructionLoading(true);setConstructionError(false)}setContent(true);setSection(next);if(next==='units'||next==='shops'||next==='tour')setFilters(emptyUnitFilters);if(next==='home'){onHome();close()}else onClosePanels()}
+ const go=(next:Section)=>{setNotice('');setActiveSection(next);if(next==='amenities'){onAmenities();close();return}if(next==='progress'){onConstructionProgress();close();return}if(next==='favorites'){onFavorites?.();close();return}if(next==='contact'){onLocation?.();close();return}setContent(true);setSection(next);if(next==='units'||next==='shops'||next==='tour')setFilters(emptyUnitFilters);if(next==='home'){onHome();close()}else onClosePanels()}
  async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else if(root.current?.requestFullscreen)await root.current.requestFullscreen();else setNotice(t('Este navegador no permite pantalla completa.','Fullscreen is unavailable in this browser.'))}catch{setNotice(t('No se pudo cambiar a pantalla completa.','Fullscreen could not be changed.'))}}
  const fields=[['floor',t('Piso','Floor')],['bedrooms',t('Dormitorios','Bedrooms')],['category',t('Tipo','Type')],['status',t('Disponibilidad','Availability')]] as const
  if (hidden) return null
@@ -168,16 +149,7 @@ export function ShowroomMenu({units,catalog,selected: _selected,place,onHome,onP
      {!filtered.length?<p className="py-4 text-sm">{t('No hay unidades que coincidan con estos filtros.','No units match these filters.')}</p>:null}
     </section>:null}
     {section==='home'?<button type="button" className="rounded border border-[#bda27e] p-3" onClick={()=>{onHome();close()}}>{t('Ver edificio y pisos','View building and floors')}</button>:null}
-    {section==='progress'?(
-     <section className="space-y-4">
-      <div><p className="text-[10px] tracking-[0.22em] text-[#8e7654] uppercase">{t('Obra','Site')}</p><h2 className="font-serif text-3xl text-[#29251e]">{t('Avance de obra','Construction progress')}</h2></div>
-      {constructionLoading?<p className="text-sm text-[#756044]">{t('Cargando avances…','Loading updates…')}</p>:
-       constructionError?<p role="alert" className="text-sm text-[#9a3b2f]">{t('No se pudo cargar el avance de obra.','Could not load construction progress.')}</p>:
-       constructionUpdates.length?constructionUpdates.map((update,updateIndex)=><article key={update.id} className="overflow-hidden rounded-2xl border border-[#bda27e]/35 bg-white/80"><div className="p-4"><time dateTime={update.date} className="text-[10px] tracking-[0.16em] text-[#8e7654] uppercase">{update.date}</time><h3 className="mt-1 font-serif text-xl">{translate(update.title)}</h3><p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-[#756044]">{translate(update.description)}</p></div>{update.media.map((media,mediaIndex)=><figure key={media.url}>{media.type==='image'?<button type="button" className="block w-full focus-visible:outline-2 focus-visible:outline-[#8e7654]" aria-label={`${t('Ver la foto','View photo')} ${translate(media.caption||update.title)}`} onClick={()=>{onConstructionMedia?.(constructionSlides,constructionUpdates.slice(0,updateIndex).reduce((total,item)=>total+item.media.filter(asset=>asset.type==='image').length,0)+update.media.slice(0,mediaIndex).filter(asset=>asset.type==='image').length);close()}}><span className="block aspect-[4/3] overflow-hidden"><img src={media.url} alt={media.caption} draggable={false} className="block h-full w-full object-cover"/></span></button>:<video src={media.url} controls preload="metadata" className="w-full"/>}</figure>)}</article>):
-       <div className="rounded-2xl border border-[#bda27e]/35 bg-white/80 px-5 py-8 text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#ded3c1] text-[#29251e]"><HardHat size={22} strokeWidth={1.5}/></span><p className="mt-4 font-serif text-2xl text-[#29251e]">{t('Registro en preparación','Log in preparation')}</p><p className="mx-auto mt-2 max-w-[18rem] text-sm leading-relaxed text-[#756044]">{t('Cuando haya fotos con fecha, se publican en esta misma vista.','Dated site photos are published in this same view.')}</p></div>}
-      <a href="mailto:lavilet.admin@gmail.com" className="flex items-center gap-3 rounded-2xl border border-[#bda27e]/35 bg-white/80 p-3 transition-colors hover:bg-white"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#ded3c1] text-[#29251e]"><Mail size={18} strokeWidth={1.5}/></span><span className="min-w-0"><span className="block text-[10px] tracking-[0.16em] text-[#8e7654] uppercase">{t('Pedir el avance','Ask for an update')}</span><span className="block truncate text-sm">lavilet.admin@gmail.com</span></span></a>
-     </section>
-    ):null}    </div>:null}
+    </div>:null}
     <footer className="mt-auto border-t border-[#bda27e]/30 pt-4"><label className="flex items-center justify-between gap-3 text-xs text-[#756044]">{t('Idioma','Language')}<MenuSelect label="Idioma / Language" value={lang} options={languageOptions} placement="above" align="end" onChange={value=>setLang(value as TourLocale)}/></label>{lang==='en'?<p className="mt-2 text-[11px] leading-relaxed text-[#756044]">Original plans, images, videos and published descriptions without an English version remain in their original language.</p>:null}<div className="mt-3 grid gap-2"><a href="/inicio" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-[#bda27e]/50 bg-white/70 px-3 text-xs text-[#29251e] transition-colors hover:bg-white"><ArrowLeft size={14}/>{t('Volver a la web','Back to website')}</a></div></footer>
     {notice?<p role="status" className="mt-3 text-sm">{notice}</p>:null}
    </aside></FocusScope>

@@ -1404,8 +1404,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [fichaOpen, setFichaOpen] = useState(false)
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
   const [amenityCaption, setAmenityCaption] = useState('')
-  const [constructionSlides, setConstructionSlides] = useState<{ url: string; caption: string }[]>([])
-  const [constructionIndex, setConstructionIndex] = useState(0)
+  const [constructionOpen, setConstructionOpen] = useState(false)
   const [locationFromMenu, setLocationFromMenu] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(false)
@@ -2291,6 +2290,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   )
   const openCommonArea = useCallback((code: string) => {
     const typ = publicCatalog?.typologies.find((item) => item.code === code) ?? null
+    setConstructionOpen(false)
     setCompareOpen(false)
     setFinishCompareOpen(false)
     setFichaOpen(false)
@@ -3724,10 +3724,11 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={selectedUnit} root={rootRef}
         hideWebReturn={planEntryOpen}
         onFavorites={() => setFavoritesOpen(true)}
-        place={amenitiesOpen ? 'amenities' : favoritesOpen ? 'favorites' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
-        onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
+        place={constructionOpen ? 'progress' : amenitiesOpen ? 'amenities' : favoritesOpen ? 'favorites' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
+        onClosePanels={()=>{setConstructionOpen(false);setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={(view) => {
           setAmenitiesOpen(false)
+          setConstructionOpen(false)
           setLocationFromMenu(false)
           setEntryVideo(false)
           setDroneOn(false)
@@ -3766,12 +3767,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           setVoiceAssistOpen(false)
           if (reopen) void coverVideoRef.current?.play().catch(() => undefined)
         }}
-        onAmenities={()=>{setLocationFromMenu(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
-        onConstructionMedia={(slides,index)=>{setAmenitiesOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(false);setConstructionSlides(slides);setConstructionIndex(index)}}
-        onLocation={()=>{setAmenitiesOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(true)}}
-        onPick={unit=>{setAmenitiesOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
+        onAmenities={()=>{setLocationFromMenu(false);setConstructionOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onConstructionProgress={()=>{setLocationFromMenu(false);setAmenitiesOpen(false);setConstructionOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onLocation={()=>{setAmenitiesOpen(false);setConstructionOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(true)}}
+        onPick={unit=>{setAmenitiesOpen(false);setConstructionOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
           setAmenitiesOpen(false)
+          setConstructionOpen(false)
           setSelectedUnitId(unit.id)
           if(unit.typology_code)setSelectedTypology(unit.typology_code)
           const local = isGalleryOnlyTypology({ code: unit.typology_code, category: unit.category })
@@ -3793,16 +3795,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }}
       />
       <TourAmenitiesGallery open={amenitiesOpen} onCaptionChange={setAmenityCaption} />
-      {constructionSlides.length > 0 ? (
-        <div className="absolute inset-0 z-[201]">
-          <TourAmenitiesGallery
-            open
-            slides={constructionSlides}
-            initialIndex={constructionIndex}
-            onClose={() => { setConstructionSlides([]); setConstructionIndex(0) }}
-          />
-        </div>
-      ) : null}
+      <TourAmenitiesGallery open={constructionOpen} source="construction" />
       <TourLocationView open={locationFromMenu} fromMenu onClose={() => setLocationFromMenu(false)} />
       <div
         className="absolute inset-0 overflow-hidden"
@@ -4027,10 +4020,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
                 stepStill(1)
               }}
               onPointerDown={(event) => event.stopPropagation()}
-              className={cn(
-                'tour-gallery-arrow tour-gallery-arrow--next pointer-events-auto',
-                terminacionesUiOpen && '!right-[min(21rem,calc(100%-2.75rem))]',
-              )}
+              className="tour-gallery-arrow tour-gallery-arrow--next pointer-events-auto"
               aria-label={t("Imagen siguiente")}
             >
               <ChevronRight size={18} strokeWidth={2} />
@@ -4239,7 +4229,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
       ) : null}
 
       {/* Modos PC / móvil: no en el plano del edificio (ahí solo 2D/3D). */}
-      {!booting && showModeSwitcher && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen && constructionSlides.length === 0 ? (
+      {!booting && showModeSwitcher && !isComparador && !isFinishCompare && !terminacionesUiOpen && !showPlanShell && !amenitiesOpen && !constructionOpen ? (
         <div
           className="tour-float-row tour-float-row--right pointer-events-auto z-[130]"
         >
@@ -5118,7 +5108,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
 
       {planTouchLock ? <div className="absolute inset-0 z-[35]" aria-hidden="true" /> : null}
 
-      <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} hidden={amenitiesOpen || constructionSlides.length > 0 || viewingCommonArea} />
+      <TourRotateHint contained target={rootRef} inTour={viewMode === 'tour'} hidden={amenitiesOpen || constructionOpen || viewingCommonArea} />
 
       {shellMode === 'plan' ? (
         <div
