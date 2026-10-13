@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import type { AutomationExecutionTrace } from './execution-trace'
-import { aiRequestRole, type ReviewReasoningEffort } from './ai-model-routing'
+import { aiRequestRole, type AIReasoningEffort } from './ai-model-routing'
 import type { ModelResponseDiagnostics } from './ai-output'
 import type { OpenAIRequestDiagnostics } from './openai-request'
 import { AI_USER_PREFIX } from './ai-request-body'
@@ -54,7 +54,7 @@ export function aiExecutionRequestOptions() {
 }
 
 /** Hash actual composed instructions; retain protected writer inputs for diagnosis. */
-export function beginModelTrace(instructions: string, model: string, task: string, input?: unknown, schema?: unknown, attachments = false, outputBudget?: number, reasoningEffort?: ReviewReasoningEffort) {
+export function beginModelTrace(instructions: string, model: string, task: string, input?: unknown, schema?: unknown, attachments = false, outputBudget?: number, reasoningEffort?: AIReasoningEffort) {
   const context = active.getStore()
   if (!context) return { finish: (_error?: unknown, _usage?: Usage, _result?: unknown, _diagnostics?: ModelResponseDiagnostics, _transport?: OpenAIRequestDiagnostics) => { void _error; void _usage; void _result; void _diagnostics; void _transport } }
   const role = aiRequestRole(schema, task, attachments)

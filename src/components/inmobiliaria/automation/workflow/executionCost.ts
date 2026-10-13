@@ -11,6 +11,8 @@ const prices: Record<string, { input: number; cached: number; output: number; ve
     source: 'https://developers.openai.com/api/docs/models/gpt-4.1-mini' },
   'gpt-5-mini': { input: 0.25, cached: 0.025, output: 2, version: '2026-09-30',
     source: 'https://developers.openai.com/api/docs/models/gpt-5-mini' },
+  'gpt-6-luna': { input: 0.1, cached: 0.01, output: 0.5, version: '2026-10-13',
+    source: 'https://developers.openai.com/api/docs/models/gpt-6-luna' },
 }
 
 export const tokens = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
@@ -44,6 +46,7 @@ export function sumPromptCharacters(steps: Pick<WorkflowExecutionStep, 'key' | '
 const modelName = (value: unknown) => {
   const name = typeof value === 'string' ? value.trim() : ''
   if (name === 'text-embedding-3-small') return name
+  if (name === 'gpt-6-luna') return name
   if (name === 'gpt-4.1' || /^gpt-4\.1-\d{4}-\d{2}-\d{2}$/.test(name)) return 'gpt-4.1'
   if (name === 'gpt-4.1-mini' || /^gpt-4\.1-mini-\d{4}-\d{2}-\d{2}$/.test(name)) return 'gpt-4.1-mini'
   if (name === 'gpt-5-mini' || /^gpt-5-mini-\d{4}-\d{2}-\d{2}$/.test(name)) return 'gpt-5-mini'

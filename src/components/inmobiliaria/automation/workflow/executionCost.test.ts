@@ -5,6 +5,19 @@ import { executionCost, promptCharacters, sumPromptCharacters } from './executio
 const call = (model: string, input: number, cached: number, output: number) => ({ key: 'model_request',
   input: { model }, output: { token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output } } })
 
+test('Luna extraction adds its dated rate while preserving mixed-role cost and reasoning accounting', () => {
+  const luna = call('gpt-6-luna', 1_000_000, 200_000, 100_000)
+  const result = executionCost([luna, call('gpt-4.1-mini', 1_000_000, 200_000, 100_000)])
+  assert.equal(result.complete, true)
+  assert.equal(result.pricedCalls, 2)
+  assert.ok(Math.abs(result.estimatedUsd - 0.632) < 1e-10)
+  assert.equal(result.priceVersion, '2026-09-30 y 2026-10-13')
+  assert.deepEqual(result.priceSnapshots[0], { model: 'gpt-6-luna', version: '2026-10-13',
+    source: 'https://developers.openai.com/api/docs/models/gpt-6-luna' })
+  assert.equal(executionCost([{ ...luna, output: { ...luna.output, token_usage: { ...luna.output.token_usage, reasoning_tokens: 50000 } } }]).estimatedUsd,
+    executionCost([luna]).estimatedUsd, 'reasoning is included in output tokens, not charged twice')
+})
+
 test('sums mixed model usage and charges cached input at each model rate', () => {
   const result = executionCost([call('gpt-4.1', 1_000_000, 200_000, 100_000),
     call('gpt-4o-mini', 1_000_000, 200_000, 100_000)])

@@ -33,3 +33,14 @@ test('invalid evaluation options fail explicitly and cannot be reported as a com
   assert.equal(data.calls, 0)
   assert.equal(data.stopped_reason, 'INVALID_EVALUATION_OPTIONS')
 })
+
+test('Luna comparison can be prepared without spending API credits', () => {
+  const { processResult, data } = run(['--models', 'gpt-4.1-mini,gpt-6-luna', '--case', fixtures.cases[0].id])
+  assert.equal(processResult.status, 0)
+  assert.equal(data.completed, true)
+  assert.equal(data.planned_runs, 2)
+  assert.equal(data.calls, 0)
+  assert.equal(data.estimated_usd_from_api_usage, 0)
+  assert.deepEqual(data.runs.map(run => run.model).sort(), ['gpt-4.1-mini', 'gpt-6-luna'])
+  assert.ok(data.runs.every(run => run.status === 'dry_run'))
+})

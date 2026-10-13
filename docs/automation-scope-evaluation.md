@@ -86,6 +86,32 @@ El clasificador conserva su configuración independiente. La traza registra
 modelo, esfuerzo, consumo y presupuesto; los tokens de razonamiento ya forman
 parte de los tokens de salida y no se suman dos veces.
 
+### Extractor con GPT-6 Luna — 13 de octubre de 2026
+
+El extractor usa `gpt-6-luna` y razonamiento `low` por defecto. Se mantienen
+el esquema JSON estricto, el límite de 4200 tokens de salida, los tiempos
+y reintentos existentes, los prompts y las reglas de conversación.
+El redactor conserva `gpt-4.1-mini`, el revisor `gpt-5-mini` y el clasificador
+`gpt-4o-mini`. `OPENAI_MODEL` sigue controlando interpretación auxiliar y medios.
+
+`OPENAI_MODEL_EXTRACTOR` prevalece sobre el valor predeterminado; una variable
+antigua del despliegue debe actualizarse a `gpt-6-luna` para aplicar el cambio.
+`OPENAI_EXTRACTOR_REASONING_EFFORT` acepta `none`, `low`, `medium`, `high`,
+`xhigh` o `max` únicamente para el extractor Luna. Volver a
+`OPENAI_MODEL_EXTRACTOR=gpt-4.1-mini` no envía parámetros de razonamiento
+al modelo anterior. No se modifica el esfuerzo del revisor.
+
+La interfaz añade las tarifas estándar de Luna consultadas el 13 de octubre:
+USD 0,10 de entrada, 0,01 de entrada en caché y 0,50 de salida por millón de
+tokens. Las tarifas históricas de otros modelos permanecen intactas. Referencia:
+[GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
+
+El evaluador admite comparar `gpt-4.1-mini,gpt-6-luna`. Sin `--live` prepara
+los escenarios sin llamar a OpenAI; las pruebas de configuración y transporte
+simulado no demuestran calidad del nuevo modelo ni acceso de la cuenta.
+Este cambio no aplica las correcciones pendientes de presupuesto, presentación,
+repetición, revisión, selección de unidades o continuidad comercial.
+
 ### Prueba del redactor con GPT-4.1 mini — 6 de octubre de 2026
 
 El redactor final, sus borradores y sus reescrituras usan `gpt-4.1-mini` por

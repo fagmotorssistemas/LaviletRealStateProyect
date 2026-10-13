@@ -57,7 +57,7 @@ function save() {
     stopped_reason: fatal || null, runs }, null, 2))
 }
 async function main() {
-  if (!models.every(m => ['gpt-4.1', 'gpt-4.1-mini'].includes(m)) || !models.length || new Set(models).size !== models.length
+  if (!models.every(m => ['gpt-4.1', 'gpt-4.1-mini', 'gpt-6-luna'].includes(m)) || !models.length || new Set(models).size !== models.length
     || !Number.isInteger(maxCalls) || maxCalls < 1 || maxCalls > 150 || !Number.isFinite(maxUsd) || maxUsd <= 0 || maxUsd > 5
     || !Number.isInteger(repeat) || repeat < 1 || repeat > 3) throw Error('INVALID_EVALUATION_OPTIONS')
   if (live && !process.env.OPENAI_API_KEY) throw Error('OPENAI_NOT_CONFIGURED')
