@@ -2353,9 +2353,13 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   }, [allUnits])
 
   useEffect(() => {
-    if (!selectedUnit) return
-    writeUnitQueryParam(selectedUnit.unit_number)
-  }, [selectedUnit])
+    if (!deepLinkAppliedRef.current) return
+    if (shellMode === 'unit' && !isCommonAreaCode(areaCode) && selectedUnit) {
+      writeUnitQueryParam(selectedUnit.unit_number)
+    } else {
+      writeUnitQueryParam(null)
+    }
+  }, [selectedUnit, shellMode, areaCode])
 
   // Interés comercial: consulta de ficha de unidad concreta (mapa Marketing).
   useEffect(() => {
@@ -3718,7 +3722,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         hideWebReturn={planEntryOpen}
         onFavorites={() => setFavoritesOpen(true)}
         place={constructionOpen ? 'progress' : amenitiesOpen ? 'amenities' : favoritesOpen ? 'favorites' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : galleryOnly ? 'shops' : viewMode === 'tour' ? 'tour' : 'units'}
-        onClosePanels={()=>{setConstructionOpen(false);setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
+        onClosePanels={()=>{setFichaOpen(false);setSimulatorOpen(false);setVoiceAssistOpen(false)}}
         onHome={(view) => {
           setAmenitiesOpen(false)
           setConstructionOpen(false)

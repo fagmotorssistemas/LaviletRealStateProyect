@@ -169,6 +169,18 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
     >
       {slide ? (
         <>
+          {frontSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={frontSrc}
+              alt=""
+              aria-hidden
+              draggable={false}
+              decoding="async"
+              fetchPriority="low"
+              className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.55] transition-opacity duration-[400ms] ease-linear"
+            />
+          ) : null}
           {(['a', 'b'] as const).map((slot) => {
             const src = buffers.assigned[slot]
             if (!src) return null
