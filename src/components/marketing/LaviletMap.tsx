@@ -75,7 +75,7 @@ export function LaviletMap({ className, zoom = 17, latitude = SITE.location.lat,
   }, [zoom, reactId, latitude, longitude])
 
   return (
-    <div className={cn('lavilet-map relative h-full w-full overflow-hidden bg-[#ebe4da]', className)}>
+    <div className={cn('lavilet-map relative h-full w-full overflow-hidden bg-lv-bg', className)}>
       <div ref={containerRef} className="absolute inset-0 z-0 h-full w-full" />
     </div>
   )

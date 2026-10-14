@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 import { FullLanding } from '@/components/marketing/FullLanding'
 
@@ -10,6 +10,8 @@ export const metadata: Metadata = {
   description:
     'Explora en 360° suites, departamentos de 2 y 3 dormitorios y locales comerciales en Puertas del Sol, Cuenca.',
 }
+
+export const viewport: Viewport = { themeColor: '#2a2924' }
 
 export default async function InicioPage({
   searchParams,

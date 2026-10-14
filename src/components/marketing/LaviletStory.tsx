@@ -4,10 +4,12 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode 
 import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { LaviletLockup, useLockupDocked } from './LaviletLockup'
 import { AboutLetterPlay } from './AboutLetterPlay'
+import { ParallaxPhoto } from './ParallaxPhoto'
+import { gsap, ScrollTrigger, useGSAP } from '@/lib/marketing/gsap'
 
 const ABOUT = [
   'La Vilet, Suites & Apartments, se encuentra ubicado en una de las zonas residenciales más privilegiadas de la ciudad, en el sector Puertas del Sol.',
@@ -20,7 +22,7 @@ const ABOUT_BEATS = [
     kicker: 'El lugar',
     lead: 'La Vilet, Suites & Apartments, está en una de las zonas residenciales más',
     lines: ['privilegiadas'],
-    tone: 'text-[#72735A] mkt-dark:text-[#F2F2F2]',
+    tone: 'text-lv-ink-soft mkt-dark:text-[#F2F2F2]',
     align: 'text-left sm:text-right',
     note: 'de la ciudad: el sector Puertas del Sol, en Cuenca.',
   },
@@ -28,7 +30,7 @@ const ABOUT_BEATS = [
     kicker: 'El proyecto',
     lead: 'Nace para vivir y emprender en un solo sitio. Comercio en planta baja y primera alta; residencias arriba, con accesos independientes. Así se crea un',
     lines: ['entorno', 'funcional'],
-    tone: 'text-[#C45C3E]',
+    tone: 'text-lv-ink-soft',
     align: 'text-left',
     note: ', cómodo y lleno de vida, con privacidad para quien habita y movimiento para quien emprende.',
   },
@@ -36,7 +38,7 @@ const ABOUT_BEATS = [
     kicker: 'El diseño',
     lead: 'Ese lugar se dibuja desde un concepto',
     lines: ['contemporáneo'],
-    tone: 'text-[#BDA27E]',
+    tone: 'text-lv-ink-soft',
     align: 'text-left sm:text-right',
     note: 'Arquitectura limpia, elegante y atemporal, pensada para el bienestar y la luz que entra.',
   },
@@ -44,7 +46,7 @@ const ABOUT_BEATS = [
     kicker: 'El paisaje',
     lead: 'El resultado es una conexión',
     lines: ['armoniosa', 'con el entorno'],
-    tone: 'text-[#72735A] mkt-dark:text-[#F2F2F2]',
+    tone: 'text-lv-ink-soft mkt-dark:text-[#F2F2F2]',
     align: 'text-left',
     note: 'Nada interrumpe el Tomebamba ni el verde de alrededor: se habita con el paisaje, no contra él.',
   },
@@ -96,18 +98,18 @@ export function AboutEditorial() {
   const trackRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState(0)
   const beat = ABOUT_BEATS[active] ?? ABOUT_BEATS[0]
-  const { scrollYProgress } = useScroll({
-    target: trackRef,
-    offset: ['start 80px', 'end end'],
-  })
-
-  useMotionValueEvent(scrollYProgress, 'change', (value) => {
-    const next = Math.min(
-      ABOUT_BEATS.length - 1,
-      Math.max(0, Math.floor(value * ABOUT_BEATS.length)),
-    )
-    setActive((current) => (current === next ? current : next))
-  })
+  useGSAP(() => {
+    if (reduce || !trackRef.current) return
+    ScrollTrigger.create({
+      trigger: trackRef.current,
+      start: 'top 80px',
+      end: 'bottom bottom',
+      onUpdate: ({ progress }) => {
+        const next = Math.min(ABOUT_BEATS.length - 1, Math.max(0, Math.floor(progress * ABOUT_BEATS.length)))
+        setActive((current) => current === next ? current : next)
+      },
+    })
+  }, { scope: trackRef, dependencies: [reduce], revertOnUpdate: true })
 
   function goToBeat(index: number) {
     const track = trackRef.current
@@ -124,13 +126,13 @@ export function AboutEditorial() {
         <p className="sr-only">{ABOUT.join(' ')}</p>
         {ABOUT_BEATS.map((item) => (
           <article key={item.kicker} className={cn('grid gap-2', item.align)}>
-            <p className="text-[11px] font-medium tracking-[0.34em] text-white/70 uppercase [text-shadow:0_2px_12px_rgba(20,14,10,0.5)]">
+            <p className="text-[11px] font-medium tracking-[0.34em] text-lv-ink-soft uppercase ">
               {item.kicker}
             </p>
-            <h3 className="font-serif text-[clamp(2.4rem,7vw,4.2rem)] leading-[0.88] tracking-[-0.045em] text-white [text-shadow:0_3px_20px_rgba(20,14,10,0.55)]">
+            <h3 className="font-serif text-[clamp(2.4rem,7vw,4.2rem)] leading-[0.88] tracking-[-0.045em] text-lv-ink ">
               {item.lines.join(' ')}
             </h3>
-            <p className="max-w-xl text-[17px] leading-[1.6] font-medium text-white [text-shadow:0_2px_16px_rgba(20,14,10,0.72)] sm:text-[19px]">
+            <p className="max-w-xl text-[17px] leading-[1.6] font-medium text-lv-ink  sm:text-[19px]">
               {item.note}
             </p>
           </article>
@@ -143,8 +145,8 @@ export function AboutEditorial() {
     <div
       className={cn(
         'relative isolate w-full overflow-hidden rounded-[1.75rem] px-5 py-8 sm:px-8 sm:py-12 lg:px-12 lg:py-16',
-        'bg-[linear-gradient(165deg,rgba(64,65,47,0.78),rgba(83,84,62,0.7)_46%,rgba(53,54,39,0.8))]',
-        'shadow-[0_24px_70px_rgba(43,26,24,0.24)] ring-1 ring-white/14 backdrop-blur-md',
+        'bg-lv-bg',
+        'ring-1 ring-lv-line',
         'mkt-dark:bg-[linear-gradient(165deg,rgba(242,242,242,0.1),rgba(139,140,116,0.22)_48%,rgba(242,242,242,0.08))]',
         'mkt-dark:ring-[#F2F2F2]/14',
       )}
@@ -168,7 +170,7 @@ export function AboutEditorial() {
             transition={{ duration: 0.35, ease: kineticEase }}
           >
             <motion.p
-              className="text-[11px] font-medium tracking-[0.34em] text-white/70 uppercase [text-shadow:0_2px_12px_rgba(20,14,10,0.5)]"
+              className="text-[11px] font-medium tracking-[0.34em] text-lv-ink-soft uppercase "
               initial={{ x: -40, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 32, opacity: 0 }}
@@ -178,7 +180,7 @@ export function AboutEditorial() {
             </motion.p>
             <motion.p
               className={cn(
-                'max-w-xl text-[17px] leading-[1.6] font-medium text-white [text-shadow:0_2px_16px_rgba(20,14,10,0.72)] sm:text-[19px]',
+                'max-w-xl text-[17px] leading-[1.6] font-medium text-lv-ink  sm:text-[19px]',
                 beat.align.includes('right') && 'sm:ml-auto',
               )}
               initial={{ x: active % 2 === 0 ? -48 : 48, opacity: 0 }}
@@ -190,7 +192,7 @@ export function AboutEditorial() {
             </motion.p>
             <h3
               className={cn(
-                'font-serif font-normal tracking-[-0.045em] leading-[0.84] text-white [text-shadow:0_3px_20px_rgba(20,14,10,0.55)]',
+                'font-serif font-normal tracking-[-0.045em] leading-[0.84] text-lv-ink ',
                 beat.lines.length > 1
                   ? 'text-[clamp(2rem,8vw,5.4rem)]'
                   : 'text-[clamp(2.35rem,9.5vw,6.4rem)]',
@@ -200,7 +202,7 @@ export function AboutEditorial() {
             </h3>
             <motion.p
               className={cn(
-                'max-w-xl text-[17px] leading-[1.6] font-medium text-white [text-shadow:0_2px_16px_rgba(20,14,10,0.72)] sm:text-[19px]',
+                'max-w-xl text-[17px] leading-[1.6] font-medium text-lv-ink  sm:text-[19px]',
                 beat.align.includes('right') && 'sm:ml-auto',
               )}
               initial={{ x: active % 2 === 0 ? 48 : -48, opacity: 0 }}
@@ -223,7 +225,7 @@ export function AboutEditorial() {
             onClick={() => goToBeat(index)}
             className={cn(
               'h-1.5 rounded-full transition-all duration-300',
-              index === active ? 'w-8 bg-white' : 'w-1.5 bg-white/35 hover:bg-white/60',
+              index === active ? 'w-8 bg-lv-bg' : 'w-1.5 bg-lv-bg hover:bg-lv-bg',
             )}
           />
         ))}
@@ -317,8 +319,7 @@ function StoryCard({
   plain = false,
   kicker = 'El proyecto',
   className,
-  x,
-  opacity,
+  index,
   delay = 0,
   invert = false,
 }: {
@@ -329,57 +330,56 @@ function StoryCard({
   plain?: boolean
   kicker?: string
   className?: string
-  x: MotionValue<number>
-  opacity: MotionValue<number>
+  index: number
   delay?: number
   invert?: boolean
 }) {
   if (plain) {
     return (
-      <motion.article
+      <article
+        data-story-card={index}
         className={cn(
           'relative z-0 min-h-0 hover:z-20 sm:min-h-[18rem] lg:min-h-0 lg:flex-1',
           className,
         )}
-        style={{ x, opacity }}
       >
         <AirPiece
           delay={delay}
           invert={invert}
-          className="flex h-full flex-col justify-between rounded-[1.6rem] bg-[#ffffff] p-5 text-[#72735A] shadow-[0_18px_40px_-28px_rgba(114,115,90,0.22)] ring-1 ring-[#72735A]/10 sm:p-7 mkt-dark:bg-[#8B8C74] mkt-dark:text-[#F2F2F2] mkt-dark:ring-[#F2F2F2]/12"
+          className="flex h-full flex-col justify-between rounded-[1.6rem] bg-lv-bg p-5 text-lv-ink-soft  ring-1 ring-lv-line sm:p-7 mkt-dark:bg-[#8B8C74] mkt-dark:text-[#F2F2F2] mkt-dark:ring-[#F2F2F2]/12"
         >
           <div>
-            <p className="text-[11px] font-medium tracking-[0.22em] text-[#8B8C74] uppercase mkt-dark:text-[#F2F2F2]/75">
+            <p className="text-[11px] font-medium tracking-[0.22em] text-lv-ink-soft uppercase mkt-dark:text-[#F2F2F2]/75">
               {kicker}
             </p>
             <h3 className="mt-2.5 font-serif text-[1.55rem] leading-[1.12] font-semibold sm:mt-3 sm:text-[1.85rem]">
               {title}
             </h3>
             {body ? (
-              <p className="mt-2.5 text-[15px] leading-relaxed text-[#2B1A18]/80 sm:mt-3 mkt-dark:text-[#f4efe8]/80">
+              <p className="mt-2.5 text-[15px] leading-relaxed text-lv-ink sm:mt-3 mkt-dark:text-[#f4efe8]/80">
                 {body}
               </p>
             ) : null}
           </div>
           <Link
             href="#por-que-lavilet"
-            className="mt-5 inline-flex items-center text-[13px] font-semibold tracking-[0.04em] text-[#72735A] transition-colors hover:text-[#C45C3E] mkt-dark:text-[#F2F2F2]"
+            className="mt-5 inline-flex items-center text-[13px] font-semibold tracking-[0.04em] text-lv-ink-soft transition-colors hover:text-lv-ink-soft mkt-dark:text-[#F2F2F2]"
           >
             Ver por qué La Vilet
             <ArrowRight size={15} className="ml-1.5" />
           </Link>
         </AirPiece>
-      </motion.article>
+      </article>
     )
   }
 
   return (
-    <motion.article
+    <article
+      data-story-card={index}
       className={cn(
         'relative z-0 min-h-[16rem] hover:z-20 sm:min-h-[18rem] lg:min-h-0 lg:flex-1',
         className,
       )}
-      style={{ x, opacity }}
     >
       <AirPiece delay={delay} invert={invert} className="relative overflow-hidden rounded-[1.6rem]">
         <Image
@@ -389,19 +389,19 @@ function StoryCard({
           className="object-cover"
           sizes="(max-width: 1024px) 100vw, 28vw"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-6">
+        <div className="absolute inset-0 bg-gradient-to-t from-lv-bg/80 via-lv-bg/20 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 p-5 text-lv-ink sm:p-6">
           <h3 className="font-serif text-[1.35rem] leading-[1.15] font-semibold sm:text-2xl">
             {title}
           </h3>
           {body ? (
-            <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-white/82 sm:text-sm">
+            <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-lv-ink sm:text-sm">
               {body}
             </p>
           ) : null}
         </div>
       </AirPiece>
-    </motion.article>
+    </article>
   )
 }
 
@@ -410,43 +410,39 @@ function PromoCard({
   body,
   href,
   cta,
-  x,
-  opacity,
 }: {
   title: string
   body: string
   href: string
   cta: string
-  x: MotionValue<number>
-  opacity: MotionValue<number>
 }) {
   return (
-    <motion.article
+    <article
+      data-story-promo
       className="relative z-0 min-h-0 hover:z-20 sm:min-h-[18rem] lg:min-h-0 lg:flex-1"
-      style={{ x, opacity }}
     >
       <AirPiece
         delay={0.35}
-        className="flex h-full flex-col justify-between rounded-[1.6rem] bg-[#ffffff] p-5 text-[#72735A] shadow-[0_18px_40px_-28px_rgba(114,115,90,0.22)] ring-1 ring-[#72735A]/10 sm:p-7 mkt-dark:bg-[#8B8C74] mkt-dark:text-[#F2F2F2] mkt-dark:ring-[#F2F2F2]/12"
+        className="flex h-full flex-col justify-between rounded-[1.6rem] bg-lv-bg p-5 text-lv-ink-soft  ring-1 ring-lv-line sm:p-7 mkt-dark:bg-[#8B8C74] mkt-dark:text-[#F2F2F2] mkt-dark:ring-[#F2F2F2]/12"
       >
         <div>
-          <p className="text-[11px] font-medium tracking-[0.22em] text-[#8B8C74] uppercase mkt-dark:text-[#F2F2F2]/75">Recorrido 360°</p>
+          <p className="text-[11px] font-medium tracking-[0.22em] text-lv-ink-soft uppercase mkt-dark:text-[#F2F2F2]/75">Recorrido 360°</p>
           <h3 className="mt-2.5 font-serif text-[1.55rem] leading-[1.12] font-semibold sm:mt-3 sm:text-[1.85rem]">
             {title}
           </h3>
-          <p className="mt-2.5 text-[15px] leading-relaxed text-[#2B1A18]/80 sm:mt-3 mkt-dark:text-[#f4efe8]/80">
+          <p className="mt-2.5 text-[15px] leading-relaxed text-lv-ink sm:mt-3 mkt-dark:text-[#f4efe8]/80">
             {body}
           </p>
         </div>
         <Link
           href={href}
-          className="mt-5 inline-flex items-center text-[13px] font-semibold tracking-[0.04em] text-[#72735A] transition-colors hover:text-[#8B8C74] sm:mt-6 mkt-dark:text-[#F2F2F2]"
+          className="mt-5 inline-flex items-center text-[13px] font-semibold tracking-[0.04em] text-lv-ink-soft transition-colors hover:text-lv-ink-soft sm:mt-6 mkt-dark:text-[#F2F2F2]"
         >
           {cta}
           <ArrowRight size={16} className="ml-1.5" />
         </Link>
       </AirPiece>
-    </motion.article>
+    </article>
   )
 }
 
@@ -467,10 +463,10 @@ function StoryHeading({
         className={cn(
           'text-[11px] font-medium tracking-[0.28em] uppercase',
           light
-            ? 'text-[#8B8C74] lg:text-white/75 lg:[text-shadow:0_2px_14px_rgba(20,14,10,0.55)]'
+            ? 'text-lv-ink-soft lg:text-lv-ink '
             : stepped
-            ? 'text-[#8B8C74] mkt-dark:text-[#F2F2F2]/75 lg:mkt-dark:text-[#BFBFB8]'
-            : 'text-white/80',
+            ? 'text-lv-ink-soft mkt-dark:text-[#F2F2F2]/75 lg:mkt-dark:text-[#BFBFB8]'
+            : 'text-lv-ink',
         )}
       >
         {eyebrow}
@@ -479,10 +475,10 @@ function StoryHeading({
         className={cn(
           'mt-2 font-serif leading-[0.96] font-semibold tracking-tight text-balance',
           light
-            ? 'text-[clamp(1.72rem,7.6vw,2.35rem)] leading-[1.04] text-[#2B1A18] lg:text-[3.15rem] lg:leading-[0.96] lg:!text-white lg:[text-shadow:0_3px_20px_rgba(20,14,10,0.6)]'
+            ? 'text-[clamp(1.72rem,7.6vw,2.35rem)] leading-[1.04] text-lv-ink lg:text-[3.15rem] lg:leading-[0.96] lg:!text-lv-ink '
             : stepped
-            ? 'text-[clamp(1.72rem,7.6vw,2.35rem)] leading-[1.04] text-[#2B1A18] lg:text-[3.15rem] lg:leading-[0.96] mkt-dark:text-[#f4efe8]'
-            : 'max-w-xl text-[clamp(1.7rem,7.2vw,2.1rem)] text-white sm:text-5xl lg:text-[3.35rem]',
+            ? 'text-[clamp(1.72rem,7.6vw,2.35rem)] leading-[1.04] text-lv-ink lg:text-[3.15rem] lg:leading-[0.96] mkt-dark:text-[#f4efe8]'
+            : 'max-w-xl text-[clamp(1.7rem,7.2vw,2.1rem)] text-lv-ink sm:text-5xl lg:text-[3.35rem]',
         )}
       >
         {heading}
@@ -550,7 +546,7 @@ function EditorialSequence({
           transition={{ duration: 0.65, ease: kineticEase }}
         >
           <motion.p
-            className="text-[11px] font-medium tracking-[0.3em] text-white/70 uppercase [text-shadow:0_2px_12px_rgba(20,14,10,0.5)]"
+            className="text-[11px] font-medium tracking-[0.3em] text-lv-ink-soft uppercase "
             initial={{ opacity: 0, y: 18 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: false, amount: 0.7 }}
@@ -565,7 +561,7 @@ function EditorialSequence({
                 <p
                   key={line}
                   className={cn(
-                    'border-l border-white/35 pl-4 font-serif text-[clamp(1.5rem,3vw,2.45rem)] leading-[1.08] font-semibold tracking-[-0.025em] text-white [text-shadow:0_3px_20px_rgba(20,14,10,0.55)] sm:pl-5',
+                    'border-l border-lv-line pl-4 font-serif text-[clamp(1.5rem,3vw,2.45rem)] leading-[1.08] font-semibold tracking-[-0.025em] text-lv-ink  sm:pl-5',
                     index === 1 && 'ml-8 sm:ml-12',
                     index === 2 && 'ml-16 sm:ml-24',
                   )}
@@ -575,7 +571,7 @@ function EditorialSequence({
               ))}
             </div>
           ) : (
-            <h3 className="mt-5 max-w-xl font-serif text-[clamp(2.7rem,5.4vw,5.7rem)] leading-[0.9] font-normal tracking-[-0.045em] text-white [text-shadow:0_3px_24px_rgba(20,14,10,0.55)]">
+            <h3 className="mt-5 max-w-xl font-serif text-[clamp(2.7rem,5.4vw,5.7rem)] leading-[0.9] font-normal tracking-[-0.045em] text-lv-ink ">
               <RisingWords text={item.title} />
             </h3>
           )}
@@ -595,16 +591,16 @@ function EditorialSequenceMobile({
       {items.map((item, itemIndex) => (
         <motion.article
           key={item.title}
-          className="border-t border-white/25 py-9 first:border-t-0"
+          className="border-t border-lv-line py-9 first:border-t-0"
           initial={{ opacity: 0, x: itemIndex % 2 === 0 ? -64 : 64, y: 24 }}
           whileInView={{ opacity: 1, x: 0, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
           transition={{ duration: 0.8, ease: kineticEase }}
         >
-          <p className="text-[10px] font-medium tracking-[0.28em] text-white/70 uppercase [text-shadow:0_2px_12px_rgba(20,14,10,0.55)]">
+          <p className="text-[10px] font-medium tracking-[0.28em] text-lv-ink-soft uppercase ">
             {String(itemIndex + 1).padStart(2, '0')} · {item.kicker}
           </p>
-          <h3 className="mt-4 max-w-md font-serif text-[clamp(2.5rem,13vw,4rem)] leading-[0.92] tracking-[-0.04em] text-white [text-shadow:0_3px_20px_rgba(20,14,10,0.62)]">
+          <h3 className="mt-4 max-w-md font-serif text-[clamp(2.5rem,13vw,4rem)] leading-[0.92] tracking-[-0.04em] text-lv-ink ">
             {item.title}
           </h3>
           <div className="mt-8 space-y-6">
@@ -612,7 +608,7 @@ function EditorialSequenceMobile({
               <motion.p
                 key={line}
                 className={cn(
-                  'border-l border-white/35 pl-4 font-serif text-[1.35rem] leading-[1.15] font-semibold text-white [text-shadow:0_2px_14px_rgba(20,14,10,0.58)]',
+                  'border-l border-lv-line pl-4 font-serif text-[1.35rem] leading-[1.15] font-semibold text-lv-ink ',
                   lineIndex === 1 && 'ml-6',
                   lineIndex === 2 && 'ml-12',
                 )}
@@ -668,38 +664,42 @@ export function StoryBoard({
   const reduceMotion = useReducedMotion()
   const wide = useWideBoard()
   const [sequenceStep, setSequenceStep] = useState(0)
-  const { scrollYProgress } = useScroll({
-    target: boardRef,
-    offset: ['start 0.98', 'start 0.28'],
-  })
-  const { scrollYProgress: sequenceProgress } = useScroll({
-    target: boardRef,
-    offset: ['start 80px', 'end end'],
-  })
-
-  useMotionValueEvent(sequenceProgress, 'change', (value) => {
-    if (!sequence?.length) return
-    const totalSteps = sequence.length * 2
-    const next = Math.min(
-      totalSteps - 1,
-      Math.max(0, Math.floor(value * totalSteps)),
-    )
-    setSequenceStep((current) => (current === next ? current : next))
-  })
-
-  const idle = reduceMotion ? 0 : wide ? 1 : 0.32
-  const leftX = useTransform(scrollYProgress, [0, 0.62], [-200 * idle, 0])
-  const leftOpacity = useTransform(scrollYProgress, [0, 0.28], [reduceMotion ? 1 : 0, 1])
-  const promoX = useTransform(scrollYProgress, [0.14, 0.78], [170 * idle, 0])
-  const promoOpacity = useTransform(scrollYProgress, [0.14, 0.4], [reduceMotion ? 1 : 0, 1])
-  const card0X = useTransform(scrollYProgress, [0.28, 0.9], [190 * idle, 0])
-  const card0Opacity = useTransform(scrollYProgress, [0.28, 0.52], [reduceMotion ? 1 : 0, 1])
-  const card1X = useTransform(scrollYProgress, [0.4, 1], [190 * idle, 0])
-  const card1Opacity = useTransform(scrollYProgress, [0.4, 0.64], [reduceMotion ? 1 : 0, 1])
-  const cardMotion = [
-    { x: card0X, opacity: card0Opacity },
-    { x: card1X, opacity: card1Opacity },
-  ]
+  useGSAP(() => {
+    const board = boardRef.current
+    if (!board || reduceMotion) return
+    if (sequence?.length) {
+      ScrollTrigger.create({
+        trigger: board,
+        start: 'top 80px',
+        end: 'bottom bottom',
+        onUpdate: ({ progress }) => {
+          const totalSteps = sequence.length * 2
+          const next = Math.min(totalSteps - 1, Math.max(0, Math.floor(progress * totalSteps)))
+          setSequenceStep((current) => current === next ? current : next)
+        },
+      })
+    }
+    const idle = wide ? 1 : 0.32
+    const timeline = gsap.timeline({
+      scrollTrigger: { trigger: board, start: 'top 98%', end: 'top 28%', scrub: true },
+    })
+    timeline.to({}, { duration: 1 }, 0)
+    const featuredPhoto = board.querySelector('[data-story-featured]')
+    if (featuredPhoto) {
+      timeline.fromTo(featuredPhoto, { x: -200 * idle, opacity: 0 }, { x: 0, duration: 0.62, ease: 'none' }, 0)
+      timeline.to(featuredPhoto, { opacity: 1, duration: 0.28, ease: 'none' }, 0)
+    }
+    const promoCard = board.querySelector('[data-story-promo]')
+    if (promoCard) {
+      timeline.fromTo(promoCard, { x: 170 * idle, opacity: 0 }, { x: 0, duration: 0.64, ease: 'none' }, 0.14)
+      timeline.to(promoCard, { opacity: 1, duration: 0.26, ease: 'none' }, 0.14)
+    }
+    board.querySelectorAll('[data-story-card]').forEach((card, index) => {
+      const start = index === 0 ? 0.28 : 0.4
+      timeline.fromTo(card, { x: 190 * idle, opacity: 0 }, { x: 0, duration: index === 0 ? 0.62 : 0.6, ease: 'none' }, start)
+      timeline.to(card, { opacity: 1, duration: 0.24, ease: 'none' }, start)
+    })
+  }, { scope: boardRef, dependencies: [reduceMotion, wide, sequence?.length], revertOnUpdate: true })
 
   return (
     <div
@@ -734,7 +734,8 @@ export function StoryBoard({
           </div>
         ) : null}
 
-        <motion.article
+        <article
+          data-story-featured
           className={cn(
             'relative z-0 hover:z-20',
             stepped
@@ -745,7 +746,6 @@ export function StoryBoard({
                 )
               : 'min-h-[22rem] sm:min-h-[28rem] lg:min-h-[38rem]',
           )}
-          style={{ x: leftX, opacity: leftOpacity }}
         >
           <AirPiece
             invert
@@ -787,8 +787,8 @@ export function StoryBoard({
                 className={cn(
                   'absolute inset-0',
                   stepped
-                    ? 'bg-gradient-to-t from-black/25 via-transparent to-black/10 lg:from-black/35'
-                    : 'bg-gradient-to-t from-black/80 via-black/15 to-black/10',
+                    ? 'bg-gradient-to-t from-lv-bg/25 via-transparent to-lv-bg/10 lg:from-lv-bg/35'
+                    : 'bg-gradient-to-t from-lv-bg/80 via-lv-bg/15 to-lv-bg/10',
                 )}
               />
             </div>
@@ -797,8 +797,8 @@ export function StoryBoard({
                 'absolute z-10',
                 stepped
                   ? [
-                      'inset-x-3 bottom-3 max-w-none rounded-[1.35rem] bg-[#ffffff] p-5',
-                      'shadow-[0_18px_40px_-28px_rgba(114,115,90,0.28)] ring-1 ring-[#72735A]/10',
+                      'inset-x-3 bottom-3 max-w-none rounded-[1.35rem] bg-lv-bg p-5',
+                      'shadow-[0_18px_40px_-28px_rgba(63,66,49,0.28)] ring-1 ring-lv-line',
                       'sm:inset-x-auto sm:left-4 sm:right-auto sm:bottom-4 sm:max-w-[22.5rem] sm:p-6',
                       'lg:inset-auto lg:bottom-0 lg:left-0 lg:w-fit lg:max-w-[min(52%,26rem)]',
                       'lg:rounded-none lg:bg-transparent lg:p-0 lg:px-1 lg:pb-1 lg:pt-3',
@@ -816,7 +816,7 @@ export function StoryBoard({
               />
             </div>
           </AirPiece>
-        </motion.article>
+        </article>
 
         {sequence?.length ? (
           <>
@@ -829,7 +829,7 @@ export function StoryBoard({
           </>
         ) : (
           <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex lg:gap-5">
-            {promo ? <PromoCard {...promo} x={promoX} opacity={promoOpacity} /> : null}
+            {promo ? <PromoCard {...promo} /> : null}
             {cards.map((card, index) => (
               <StoryCard
                 key={card.title}
@@ -839,8 +839,7 @@ export function StoryBoard({
                 body={card.body}
                 plain={card.plain}
                 kicker={card.kicker}
-                x={cardMotion[index]?.x ?? card0X}
-                opacity={cardMotion[index]?.opacity ?? card0Opacity}
+                index={index}
                 delay={0.45 + index * 0.55}
                 invert={index % 2 === 0}
               />
@@ -857,16 +856,16 @@ export function LaviletStory() {
   const reduce = useReducedMotion()
 
   return (
-    <section id="nosotros" className="relative z-20 scroll-mt-28 bg-[#e8dcc8] pb-16 lg:pb-24 mkt-dark:bg-[#cfc3b3]">
+    <section id="nosotros" className="relative z-20 scroll-mt-28 bg-lv-bg pb-16 lg:pb-24 mkt-dark:bg-[#cfc3b3]">
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <Image
+        <ParallaxPhoto
           src={INTERIOR.wall}
           alt=""
-          fill
           sizes="100vw"
-          className="object-cover object-left"
+          className="absolute inset-0"
+          imageClassName="object-left"
         />
-        <div className="absolute inset-0 bg-[#f3ece4]/28 backdrop-blur-[8px] mkt-dark:bg-[#8c8478]/24" />
+        <div className="absolute inset-0 bg-lv-bg/85 backdrop-blur-[8px] mkt-dark:bg-[#8c8478]/24" />
             </div>
       <div className="relative z-10 mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12">
         <StoryBoard
@@ -898,7 +897,7 @@ export function LaviletStory() {
         />
 
         <motion.div
-          className="grid gap-8 border-t border-[#72735A]/18 py-12 sm:py-16 lg:grid-cols-[minmax(14rem,0.65fr)_minmax(0,1.35fr)] lg:items-center lg:gap-16"
+          className="grid gap-8 border-t border-lv-line py-12 sm:py-16 lg:grid-cols-[minmax(14rem,0.65fr)_minmax(0,1.35fr)] lg:items-center lg:gap-16"
           initial={reduce ? false : { opacity: 0, y: 44 }}
           whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.35 }}
@@ -908,13 +907,13 @@ export function LaviletStory() {
             <AboutLetterPlay />
           </div>
           <div>
-            <p className="text-[11px] font-medium tracking-[0.3em] text-[#8B8C74] uppercase">
+            <p className="text-[11px] font-medium tracking-[0.3em] text-lv-ink-soft uppercase">
               Nosotros
             </p>
-            <h2 className="mt-3 max-w-2xl font-serif text-[clamp(2.35rem,5vw,4.8rem)] leading-[0.92] tracking-[-0.04em] text-[#72735A]">
+            <h2 className="mt-3 max-w-2xl font-serif text-[clamp(2.35rem,5vw,4.8rem)] leading-[0.92] tracking-[-0.04em] text-lv-ink-soft">
               Diseño para vivir la ciudad sin llevarla dentro de casa.
           </h2>
-            <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-[#2B1A18]/72 sm:text-[17px]">
+            <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-lv-ink sm:text-[17px]">
               La actividad comercial permanece cerca y la vivienda conserva su propio recorrido.
               Una relación clara entre movimiento, privacidad y vida cotidiana.
             </p>

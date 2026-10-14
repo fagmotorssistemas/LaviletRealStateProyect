@@ -70,16 +70,16 @@ export function EspaciosAccordion() {
 
   return (
     <section
-      className="relative z-20 bg-[#efece4] pt-20 pb-20 text-[#72735A] mkt-dark:bg-[#cfc3b3] sm:pt-28 sm:pb-28"
+      className="relative z-20 bg-lv-bg pt-20 pb-20 text-lv-ink-soft mkt-dark:bg-[#cfc3b3] sm:pt-28 sm:pb-28"
       aria-labelledby="espacios-title"
     >
       <div className="mx-auto max-w-[1400px] px-5 pb-10 sm:px-8 sm:pb-12">
-        <p className="text-[11px] font-medium tracking-[0.34em] text-[#8B8C74] uppercase">
+        <p className="text-[11px] font-medium tracking-[0.34em] text-lv-ink-soft uppercase">
           por dentro
         </p>
         <h2
           id="espacios-title"
-          className="mt-3 font-serif text-[clamp(2.4rem,6vw,4.6rem)] leading-[0.86] font-normal tracking-[-0.045em] text-[#72735A] mkt-dark:text-[#F2F2F2]"
+          className="mt-3 font-serif text-[clamp(2.4rem,6vw,4.6rem)] leading-[0.86] font-normal tracking-[-0.045em] text-lv-ink-soft mkt-dark:text-[#F2F2F2]"
         >
           los espacios
         </h2>
@@ -126,7 +126,7 @@ export function EspaciosAccordion() {
                 <div
                   className={cn(
                     'absolute inset-0 transition-colors duration-500',
-                    isActive ? 'bg-black/20' : 'bg-black/45',
+                    isActive ? 'bg-lv-bg' : 'bg-lv-bg',
                   )}
                 />
 
@@ -147,7 +147,7 @@ export function EspaciosAccordion() {
                         <p className="font-serif text-[clamp(1.8rem,4vw,3.1rem)] leading-[0.9] tracking-[-0.04em]">
                           {space.title}
                         </p>
-                        <p className="mt-3 max-w-sm text-sm leading-relaxed text-[#F2F2F2]/85 sm:text-[15px]">
+                        <p className="mt-3 max-w-sm text-sm leading-relaxed text-lv-ink sm:text-[15px]">
                           {space.body}
                         </p>
                       </div>
@@ -174,16 +174,16 @@ export function EspaciosAccordion() {
         </div>
 
         <div className="pointer-events-none absolute right-4 bottom-4 z-10 flex items-center gap-3 sm:right-6 sm:bottom-6">
-          <p className="pointer-events-none font-serif text-sm tracking-[0.12em] text-[#F2F2F2]/90">
+          <p className="pointer-events-none font-serif text-sm tracking-[0.12em] text-lv-ink">
             {String(active + 1).padStart(2, '0')}
-            <span className="mx-1.5 text-[#F2F2F2]/45">/</span>
+            <span className="mx-1.5 text-lv-ink-soft">/</span>
             {String(total).padStart(2, '0')}
           </p>
           <div className="pointer-events-auto flex gap-1">
             <button
               type="button"
               aria-label="Espacio anterior"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F2F2F2]/90 text-[#72735A] transition-colors hover:bg-[#F2F2F2]"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-lv-bg text-lv-ink-soft transition-colors hover:bg-lv-bg"
               onClick={() => go(active - 1)}
             >
               <ArrowLeft size={16} strokeWidth={1.75} />
@@ -191,7 +191,7 @@ export function EspaciosAccordion() {
             <button
               type="button"
               aria-label="Espacio siguiente"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F2F2F2]/90 text-[#72735A] transition-colors hover:bg-[#F2F2F2]"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-lv-bg text-lv-ink-soft transition-colors hover:bg-lv-bg"
               onClick={() => go(active + 1)}
             >
               <ArrowRight size={16} strokeWidth={1.75} />

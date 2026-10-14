@@ -7,11 +7,10 @@ import { ArrowRight, Home, Leaf, Waves } from 'lucide-react'
 import {
   AnimatePresence,
   motion,
-  useMotionValueEvent,
   useReducedMotion,
-  useScroll,
 } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { ScrollTrigger, useGSAP } from '@/lib/marketing/gsap'
 
 const AMENITIES = [
   {
@@ -56,7 +55,7 @@ function ExperiencePoster({
   return (
     <motion.article
       key={item.id}
-      className="absolute inset-0 flex flex-col overflow-hidden rounded-[1.5rem] bg-[#f7f2eb] shadow-[0_22px_48px_rgba(30,28,18,0.22)]"
+      className="absolute inset-0 flex flex-col overflow-hidden rounded-[1.5rem] bg-lv-bg "
       initial={
         instant
           ? false
@@ -80,10 +79,10 @@ function ExperiencePoster({
           sizes="360px"
         />
       </div>
-      <div className="flex flex-1 flex-col px-5 pt-4 pb-4 sm:px-6 sm:pt-5 sm:pb-5" style={{ color: '#2B1A18' }}>
+              <div className="flex flex-1 flex-col px-5 pt-4 pb-4 text-lv-ink sm:px-6 sm:pt-5 sm:pb-5">
         <p className="flex items-center gap-3 text-[10px] font-medium tracking-[0.22em] uppercase opacity-50">
           {item.kicker}
-          <span className="h-px w-7 bg-[#2B1A18] opacity-35" />
+          <span className="h-px w-7 bg-lv-bg opacity-35" />
         </p>
         <h3 className="mt-2 font-serif text-[1.5rem] leading-[1.08] tracking-[-0.03em] sm:text-[1.75rem]">
           {item.label}
@@ -122,14 +121,14 @@ function ExperienceStage({
         <div className="relative z-20">
           <h2
             id="experiencia-title"
-            className="font-serif text-[clamp(2.8rem,15vw,4.6rem)] leading-[0.86] font-normal tracking-[-0.04em] text-[#72735A]"
+            className="font-serif text-[clamp(2.8rem,15vw,4.6rem)] leading-[0.86] font-normal tracking-[-0.04em] text-lv-ink-soft"
           >
             Experiencia
           </h2>
-          <p className="mt-3 font-serif text-[1.25rem] leading-none text-[#72735A]/90">
+          <p className="mt-3 font-serif text-[1.25rem] leading-none text-lv-ink-soft">
             Vivir en La Vilet.
           </p>
-          <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-[#2B1A18]/70">
+          <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-lv-ink-soft">
             Última planta alta. Un lugar para desconectarse y encontrarse.
           </p>
         </div>
@@ -150,7 +149,7 @@ function ExperienceStage({
               key={amenity.id}
               className={cn(
                 'h-1.5 rounded-full transition-all duration-300',
-                index === active ? 'w-8 bg-[#72735A]' : 'w-1.5 bg-[#72735A]/25',
+                index === active ? 'w-8 bg-lv-bg' : 'w-1.5 bg-lv-bg',
               )}
             />
           ))}
@@ -166,21 +165,21 @@ function ExperienceStage({
           <div className="relative z-20 w-full max-w-[32rem]">
             <h2
               id="experiencia-title"
-              className="mt-2 lg:mt-4 font-serif text-[clamp(2.8rem,6.4vw,6.15rem)] leading-[0.86] font-normal tracking-[-0.04em] text-[#72735A]"
+              className="mt-2 lg:mt-4 font-serif text-[clamp(2.8rem,6.4vw,6.15rem)] leading-[0.86] font-normal tracking-[-0.04em] text-lv-ink-soft"
             >
               Experiencia
             </h2>
-            <p className="mt-2 lg:mt-6 font-serif text-[1.2rem] lg:text-[1.55rem] leading-none text-[#72735A]/90 sm:text-[1.8rem]">
+            <p className="mt-2 lg:mt-6 font-serif text-[1.2rem] lg:text-[1.55rem] leading-none text-lv-ink-soft sm:text-[1.8rem]">
               Vivir en La Vilet.
             </p>
-            <span className="mt-4 lg:mt-8 block h-px w-10 bg-[#72735A]/30" />
+            <span className="mt-4 lg:mt-8 block h-px w-10 bg-lv-bg" />
 
-            <p className="mt-6 lg:mt-16 max-w-[15.5rem] text-[15px] lg:text-[16px] leading-snug text-[#2B1A18]/70 sm:text-[17px]">
+            <p className="mt-6 lg:mt-16 max-w-[15.5rem] text-[15px] lg:text-[16px] leading-snug text-lv-ink-soft sm:text-[17px]">
               Última planta alta. Un lugar para desconectarse y encontrarse.
             </p>
             <Link
               href="/proyectos"
-              className="mt-6 lg:mt-12 inline-flex items-center gap-2 rounded-full border border-[#72735A]/30 px-5 py-2 lg:px-6 lg:py-2.5 text-[13px] lg:text-[14px] text-[#72735A] transition-colors hover:border-[#72735A] hover:bg-[#72735A]/5"
+              className="mt-6 lg:mt-12 inline-flex items-center gap-2 rounded-full border border-lv-line px-5 py-2 lg:px-6 lg:py-2.5 text-[13px] lg:text-[14px] text-lv-ink-soft transition-colors hover:border-lv-line hover:bg-lv-bg"
             >
               Conocer más
               <ArrowRight size={15} />
@@ -214,13 +213,13 @@ function ExperienceStage({
           </div>
 
           <div className="hidden lg:block max-w-[18rem] lg:mt-[18rem] lg:justify-self-end">
-            <p className="max-w-[15.5rem] border-l border-[#72735A]/30 pl-5 text-[16px] leading-snug text-[#2B1A18]/70">
+            <p className="max-w-[15.5rem] border-l border-lv-line pl-5 text-[16px] leading-snug text-lv-ink-soft">
               Espacios pensados para un equilibrio entre lo urbano y lo natural.
             </p>
             <ul className="mt-14 space-y-7">
               {PILLARS.map(({ icon: Icon, label }) => (
-                <li key={label} className="flex items-center gap-4 text-[#72735A]">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#72735A]/30">
+                <li key={label} className="flex items-center gap-4 text-lv-ink-soft">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-lv-line">
                     <Icon size={22} strokeWidth={1.25} />
                   </span>
                   <span className="text-[15px] leading-tight">{label}</span>
@@ -238,7 +237,7 @@ function ExperienceStage({
                   key={amenity.id}
                   className={cn(
                     'h-1.5 rounded-full transition-all duration-300',
-                    index === active ? 'w-8 bg-[#72735A]' : 'w-1.5 bg-[#72735A]/25',
+                    index === active ? 'w-8 bg-lv-bg' : 'w-1.5 bg-lv-bg',
                   )}
                 />
               ))}
@@ -257,10 +256,18 @@ export function ExperienceLiving() {
   const [mobile, setMobile] = useState(true)
   const left = AMENITIES[active] ?? AMENITIES[0]
   const right = AMENITIES[(active + 1) % AMENITIES.length] ?? AMENITIES[0]
-  const { scrollYProgress } = useScroll({
-    target: trackRef,
-    offset: ['start 80px', 'end end'],
-  })
+  useGSAP(() => {
+    if (reduce || !trackRef.current) return
+    ScrollTrigger.create({
+      trigger: trackRef.current,
+      start: 'top 80px',
+      end: 'bottom bottom',
+      onUpdate: ({ progress }) => {
+        const next = Math.min(AMENITIES.length - 1, Math.max(0, Math.floor(progress * AMENITIES.length)))
+        setActive((current) => current === next ? current : next)
+      },
+    })
+  }, { scope: trackRef, dependencies: [reduce], revertOnUpdate: true })
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 1023px)')
@@ -270,17 +277,9 @@ export function ExperienceLiving() {
     return () => media.removeEventListener('change', sync)
   }, [])
 
-  useMotionValueEvent(scrollYProgress, 'change', (value) => {
-    const next = Math.min(
-      AMENITIES.length - 1,
-      Math.max(0, Math.floor(value * AMENITIES.length)),
-    )
-    setActive((current) => (current === next ? current : next))
-  })
-
   return (
     <section
-      className="relative z-20 text-[#72735A] mkt-dark:text-[#F2F2F2]"
+      className="relative z-20 text-lv-ink-soft mkt-dark:text-[#F2F2F2]"
       aria-labelledby="experiencia-title"
     >
       <div
@@ -289,7 +288,7 @@ export function ExperienceLiving() {
         style={{ height: reduce ? 'auto' : `calc(100svh + ${AMENITIES.length * 28}svh)` }}
       >
         <div className={cn('relative overflow-hidden', reduce ? 'min-h-svh' : 'sticky top-0 min-h-svh')}>
-          <div aria-hidden className="absolute inset-0 bg-[#f4f1ea]" />
+          <div aria-hidden className="absolute inset-0 bg-lv-bg" />
           
           <div
             aria-hidden

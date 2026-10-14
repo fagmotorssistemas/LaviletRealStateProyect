@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { LayoutGroup, motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { BrandLetter } from './BrandName'
 
 export const LETTERS_LA = [
   { id: 'lockup-L-la', ch: 'L' },
@@ -17,24 +18,14 @@ export const LETTERS_VILET = [
   { id: 'lockup-T-v4', ch: 't' },
 ] as const
 
-const TILE_BG: Record<string, string> = {
-  'lockup-L-la': '#C45C3E',
-  'lockup-A-la': '#BDA27E',
-  'lockup-V-v0': '#72735A',
-  'lockup-I-v1': '#8B8C74',
-  'lockup-L-v2': '#C45C3E',
-  'lockup-E-v3': '#BDA27E',
-  'lockup-T-v4': '#72735A',
-}
-
-const HERO_TILE_BG: Record<string, string> = {
-  'lockup-L-la': '#A77855',
-  'lockup-A-la': '#D7D9C4',
-  'lockup-V-v0': '#686C55',
-  'lockup-I-v1': '#484C3B',
-  'lockup-L-v2': '#A77855',
-  'lockup-E-v3': '#D7D9C4',
-  'lockup-T-v4': '#686C55',
+const TILE_BORDER: Record<string, string> = {
+  'lockup-L-la': 'var(--color-lv-line)',
+  'lockup-A-la': 'var(--color-lv-ink-soft)',
+  'lockup-V-v0': 'var(--color-lv-line)',
+  'lockup-I-v1': 'var(--color-lv-line)',
+  'lockup-L-v2': 'var(--color-lv-bronze)',
+  'lockup-E-v3': 'var(--color-lv-ink-soft)',
+  'lockup-T-v4': 'var(--color-lv-line)',
 }
 
 const Dock = createContext({ docked: false })
@@ -75,7 +66,6 @@ function LockupLetter({
   variant,
   quiet = false,
   noLayoutId = false,
-  heroPalette = false,
 }: {
   id: string
   letter: string
@@ -86,7 +76,7 @@ function LockupLetter({
   heroPalette?: boolean
 }) {
   const story = variant === 'story'
-  const tile = story ? (heroPalette ? HERO_TILE_BG[id] : TILE_BG[id]) : undefined
+  const tile = story ? TILE_BORDER[id] : undefined
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
 
   return (
@@ -95,13 +85,9 @@ function LockupLetter({
       className={cn(
         'inline-block cursor-pointer select-none',
         tile &&
-          'inline-flex h-[3.6rem] w-[2.85rem] items-center justify-center font-serif text-[2.35rem] leading-none text-[#F2F2F2] sm:h-[4.8rem] sm:w-[3.8rem] sm:text-[3.2rem] lg:h-[5.8rem] lg:w-[4.6rem] lg:text-[3.9rem]',
-        heroPalette && 'font-[inherit] font-extralight',
-        heroPalette && (id === 'lockup-A-la' || id === 'lockup-E-v3')
-          ? 'text-[#484C3B]'
-          : heroPalette && 'text-[#F5F3EB]',
+          'inline-flex h-[3.6rem] w-[2.85rem] items-center justify-center border bg-lv-bg font-lv-display text-[2.35rem] font-normal leading-none text-lv-ink sm:h-[4.8rem] sm:w-[3.8rem] sm:text-[3.2rem] lg:h-[5.8rem] lg:w-[4.6rem] lg:text-[3.9rem]',
       )}
-      style={tile ? { backgroundColor: tile } : undefined}
+      style={tile ? { borderColor: tile } : undefined}
       initial={story ? { opacity: 0, x: -40 } : { y: 140, scale: 1.85, opacity: 0 }}
       animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
       whileHover={
@@ -155,7 +141,7 @@ function LockupLetter({
         }
       }}
     >
-      {letter}
+      <BrandLetter letter={letter} />
     </motion.span>
   )
 }
@@ -178,17 +164,19 @@ export function LaviletLockup({
 
   return (
     <div
+      role="img"
+      aria-label="La Vilēt"
       className={cn(
         'flex w-fit flex-col items-start origin-left',
         heroPalette
-          ? 'text-[#484C3B]'
+          ? 'text-lv-ink-soft'
           : story
-          ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
+          ? 'text-lv-ink-soft mkt-dark:text-[#F2F2F2]'
           : backdrop || (mist && variant === 'hero')
-            ? 'text-[#2B1A18] mkt-dark:text-[#F2F2F2]'
+            ? 'text-lv-ink mkt-dark:text-[#F2F2F2]'
             : mist
-              ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
-              : 'text-white',
+              ? 'text-lv-ink-soft mkt-dark:text-[#F2F2F2]'
+              : 'text-lv-ink',
       )}
       style={
         backdrop
@@ -202,22 +190,22 @@ export function LaviletLockup({
       <motion.p
         layoutId={noLayoutId ? undefined : "lockup-suites"}
         className={cn(
-          'mb-3 font-serif font-medium tracking-[0.42em] uppercase',
+          'mb-3 font-lv-text font-normal tracking-[0.22em] uppercase',
           story
             ? 'hidden'
               : backdrop
-              ? 'text-[10px] text-[#2B1A18]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/80'
+              ? 'text-[10px] text-lv-ink-soft sm:text-xs mkt-dark:text-[#F2F2F2]/80'
               : mist
-                ? 'text-[10px] text-[#72735A]/70 sm:text-xs mkt-dark:text-[#F2F2F2]/75'
-                : 'text-[10px] text-white/80 sm:text-xs',
+                ? 'text-[10px] text-lv-ink-soft sm:text-xs mkt-dark:text-[#F2F2F2]/75'
+                : 'text-[10px] text-lv-ink sm:text-xs',
         )}
       >
         Suites | Apartments
       </motion.p>
       <div
         className={cn(
-          'font-serif font-normal leading-[0.85] tracking-[-0.04em]',
-          heroPalette && 'font-[inherit] font-extralight tracking-[0.04em]',
+          'font-lv-display font-normal leading-[0.85] tracking-[-0.04em]',
+          heroPalette && 'tracking-[0.04em]',
           backdrop ? 'flex w-fit' : 'grid w-fit grid-cols-[auto_auto] grid-rows-2',
           story
             ? 'text-[clamp(3.25rem,8vw,5.25rem)]'

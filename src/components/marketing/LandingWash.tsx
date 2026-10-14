@@ -3,10 +3,10 @@ import type { ReactNode } from 'react'
 /** Sombreado de Nosotros que se dispersa, ligero, hacia abajo. */
 export function LandingWash({ children }: { children: ReactNode }) {
   return (
-    <div className="relative z-20 mkt-3:shadow-[0_-40px_80px_rgba(20,14,10,0.22)]">
+    <div className="relative z-20 bg-lv-bg">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#e8dcc8_0%,#ead9c4_42%,#efe8dc_100%)] mkt-dark:hidden"
+        className="pointer-events-none absolute inset-0 bg-lv-bg mkt-dark:hidden"
       />
       <div
         aria-hidden

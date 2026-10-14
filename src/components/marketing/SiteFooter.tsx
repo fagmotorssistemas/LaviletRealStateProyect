@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { SITE } from '@/lib/marketing/site'
 import { CookiePreferencesLink } from './CookiePreferencesLink'
 import { FooterWordmark } from './FooterWordmark'
+import { BrandName } from './BrandName'
 
 const FOOTER_NAV = [
   { href: '/inicio', label: 'Inicio' },
@@ -21,7 +22,7 @@ function formatWhatsApp(digits: string) {
   return `+${digits}`
 }
 
-export function SiteFooter() {
+export function SiteFooter({ publicSkin = false }: { publicSkin?: boolean }) {
   const year = new Date().getFullYear()
   const phone = formatWhatsApp(SITE.whatsapp)
   const wa = SITE.whatsapp
@@ -29,7 +30,7 @@ export function SiteFooter() {
     : null
 
   return (
-    <footer className="relative z-20 bg-[#eee6dc] text-[#2B1A18] mkt-dark:bg-[#cfc3b3] mkt-dark:text-[#2B1A18]">
+    <footer data-site-footer className="relative z-20 bg-[#eee6dc] text-[#2B1A18] mkt-dark:bg-[#cfc3b3] mkt-dark:text-[#2B1A18]">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.35] mix-blend-multiply mkt-dark:opacity-[0.12] mkt-dark:mix-blend-overlay"
@@ -46,7 +47,7 @@ export function SiteFooter() {
               Visítanos
             </p>
             <p className="mt-2 font-medium">
-              La Vilēt
+              {publicSkin ? <BrandName /> : 'La Vilēt'}
               <br />
               Puertas del Sol
               <br />
@@ -94,7 +95,7 @@ export function SiteFooter() {
         </div>
 
         <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center sm:gap-7 lg:justify-center">
-          <FooterWordmark />
+          <FooterWordmark publicSkin={publicSkin} />
           <p className="max-w-[10.5rem] font-serif text-[1.65rem] leading-[1.05] tracking-[-0.03em] text-[#8B8C74] sm:text-[1.9rem]">
             Si vives aquí,
             <br />

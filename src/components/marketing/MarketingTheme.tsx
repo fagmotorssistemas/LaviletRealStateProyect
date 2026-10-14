@@ -8,6 +8,7 @@ import { EspaciosAccordion } from './EspaciosAccordion'
 import { MarketingThemeProvider } from './theme'
 
 const ESPACIOS_PATHS = new Set(['/nosotros'])
+const PUBLIC_SKIN_PATHS = new Set(['/inicio', '/proyectos', '/proceso', '/ubicanos', '/contacto', '/nosotros'])
 
 export function MarketingFrame({
   children,
@@ -18,13 +19,14 @@ export function MarketingFrame({
 }) {
   const pathname = usePathname()
   const showEspacios = ESPACIOS_PATHS.has(pathname)
+  const publicSkin = PUBLIC_SKIN_PATHS.has(pathname)
 
   return (
-    <MarketingThemeProvider>
+    <MarketingThemeProvider publicSkin={publicSkin}>
       <SiteHeader />
       {children}
       {showEspacios ? <EspaciosAccordion /> : null}
-      {showFooter ? <SiteFooter /> : null}
+      {showFooter ? <SiteFooter publicSkin={publicSkin} /> : null}
     </MarketingThemeProvider>
   )
 }

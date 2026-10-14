@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from 'react'
 import Lenis from 'lenis'
+import { gsap, ScrollTrigger } from '@/lib/marketing/gsap'
 
 export function SmoothScrollProvider({ children }: { children: ReactNode }) {
   const lenisRef = useRef<Lenis | null>(null)
@@ -18,15 +19,14 @@ export function SmoothScrollProvider({ children }: { children: ReactNode }) {
     })
     lenisRef.current = lenis
 
-    let frame = 0
-    function raf(time: number) {
-      lenis.raf(time)
-      frame = requestAnimationFrame(raf)
-    }
-    frame = requestAnimationFrame(raf)
+    const tick = (time: number) => lenis.raf(time * 1000)
+    lenis.on('scroll', ScrollTrigger.update)
+    gsap.ticker.add(tick)
+    gsap.ticker.lagSmoothing(0)
 
     return () => {
-      cancelAnimationFrame(frame)
+      lenis.off('scroll', ScrollTrigger.update)
+      gsap.ticker.remove(tick)
       lenis.destroy()
       lenisRef.current = null
     }

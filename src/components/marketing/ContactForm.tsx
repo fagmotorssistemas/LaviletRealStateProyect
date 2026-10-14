@@ -90,10 +90,10 @@ export function ContactForm() {
         placeholder="Cuéntanos zona, presupuesto o fecha para visitar el showroom"
         rows={4}
       />
-      <Button type="submit" variant="gold" className="h-11 w-full" disabled={pending}>
+      <Button type="submit" variant="gold" className="lv-primary h-11 w-full" disabled={pending}>
         {pending ? 'Abriendo…' : SITE.whatsapp ? 'Escribir por WhatsApp' : 'Enviar consulta'}
       </Button>
-      <p className="text-center text-xs text-[#2B1A18]/45">
+      <p className="text-center text-xs text-lv-ink-soft">
         Al enviar, abriremos {SITE.whatsapp ? 'WhatsApp' : `tu correo hacia ${SITE.email}`} con los datos de esta consulta.
       </p>
     </form>

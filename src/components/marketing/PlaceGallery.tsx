@@ -4,9 +4,10 @@ import { useLayoutEffect, useRef, useState, type Ref } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { LaviletLockup } from './LaviletLockup'
+import { gsap, useGSAP } from '@/lib/marketing/gsap'
 
 const TERRAZA =
   'https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/lavilet_terraza.png'
@@ -94,14 +95,14 @@ function PhotoPanel({ slide }: { slide: PhotoSlide }) {
         className={cn('object-cover', slide.object)}
         priority={slide.kicker === 'Nosotros'}
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
+      <div className="absolute inset-0 bg-gradient-to-t from-lv-bg/70 via-lv-bg/10 to-lv-bg/20" />
       <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 px-[clamp(1rem,5vw,3rem)] py-5 sm:py-8 lg:py-10">
-        <div className="max-w-md text-white">
+        <div className="max-w-md text-lv-ink">
           <p className="text-[11px] font-medium tracking-[0.32em] uppercase">{slide.kicker}</p>
           <h3 className="mt-2 font-serif text-[clamp(1.7rem,4vw,3.1rem)] leading-[0.95] font-normal tracking-[-0.03em]">
             {slide.title}
           </h3>
-          <p className="mt-2 text-xs tracking-[0.16em] text-white/70 uppercase">{slide.credit}</p>
+          <p className="mt-2 text-xs tracking-[0.16em] text-lv-ink uppercase">{slide.credit}</p>
         </div>
       </div>
     </article>
@@ -138,7 +139,7 @@ function CardsPanel({ full = false }: { full?: boolean }) {
   return (
     <article
       className={cn(
-        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-[clamp(1rem,5vw,3rem)] py-12',
+        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-lv-bg px-[clamp(1rem,5vw,3rem)] py-12',
         full ? 'min-h-[32rem] w-full' : 'w-[min(calc(100vw-2rem),42rem)] sm:w-[56vw] lg:w-[48vw]',
       )}
     >
@@ -152,30 +153,30 @@ function CardsPanel({ full = false }: { full?: boolean }) {
         >
           <LaviletLockup variant="story" noLayoutId />
         </motion.div>
-        <p className="mt-4 sm:mt-6 text-[11px] sm:text-[13px] font-medium tracking-[0.2em] text-[#8B8C74] uppercase">
+        <p className="mt-4 sm:mt-6 text-[11px] sm:text-[13px] font-medium tracking-[0.2em] text-lv-ink-soft uppercase">
           49 unidades de vivienda
         </p>
         
         <div className="mt-10 sm:mt-16 grid w-full grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-6 lg:gap-10">
           {VIVIENDA_STATS.map((stat, i) => (
             <div key={i} className="flex flex-col items-center">
-              <p className="font-serif text-[clamp(2.8rem,5vw,3.8rem)] leading-none text-[#72735A]">
+              <p className="font-serif text-[clamp(2.8rem,5vw,3.8rem)] leading-none text-lv-ink-soft">
                 {stat.count}
               </p>
-              <p className="mt-2 text-[1.1rem] sm:text-[1.3rem] font-medium tracking-wide text-[#72735A] text-center">
+              <p className="mt-2 text-[1.1rem] sm:text-[1.3rem] font-medium tracking-wide text-lv-ink-soft text-center">
                 {stat.type}
               </p>
-              <p className="mt-2 text-[10px] sm:text-[11px] text-[#8B8C74] text-center">
+              <p className="mt-2 text-[10px] sm:text-[11px] text-lv-ink-soft text-center">
                 {stat.floors}
               </p>
               
-              <div className="my-5 sm:my-6 h-1 w-full max-w-[8rem] sm:max-w-none bg-[#72735A]" />
+              <div className="my-5 sm:my-6 h-1 w-full max-w-[8rem] sm:max-w-none bg-lv-bg" />
               
-              <p className="text-[12px] sm:text-[13px] lg:text-[14px] leading-relaxed text-[#2B1A18]/70 text-center sm:text-left">
+              <p className="text-[12px] sm:text-[13px] lg:text-[14px] leading-relaxed text-lv-ink-soft text-center sm:text-left">
                 {stat.desc}
               </p>
               
-              <p className="mt-4 sm:mt-auto pt-2 sm:pt-6 text-[13px] sm:text-[14px] text-[#8B8C74]">
+              <p className="mt-4 sm:mt-auto pt-2 sm:pt-6 text-[13px] sm:text-[14px] text-lv-ink-soft">
                 {stat.price}
               </p>
             </div>
@@ -183,7 +184,7 @@ function CardsPanel({ full = false }: { full?: boolean }) {
         </div>
         <Link
           href="/proyectos"
-          className="mt-9 inline-flex h-11 items-center rounded-full bg-[#72735A] px-5 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
+          className="mt-9 inline-flex h-11 items-center rounded-full bg-lv-bg px-5 text-[11px] font-semibold tracking-[0.14em] text-lv-ink uppercase transition-colors hover:bg-lv-bg"
         >
           Ver tipologías
           <ArrowRight size={14} className="ml-2" />
@@ -199,7 +200,7 @@ function CommercePanel({ full = false }: { full?: boolean }) {
   return (
     <article
       className={cn(
-        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-[#efece4] px-[clamp(1rem,5vw,3rem)] py-12',
+        'relative flex h-full shrink-0 flex-col justify-center overflow-hidden bg-lv-bg px-[clamp(1rem,5vw,3rem)] py-12',
         full ? 'min-h-[32rem] w-full' : 'w-[min(calc(100vw-2rem),42rem)] sm:w-[56vw] lg:w-[48vw]',
       )}
     >
@@ -220,7 +221,7 @@ function CommercePanel({ full = false }: { full?: boolean }) {
           viewport={{ once: false, amount: 0.3 }}
           transition={{ delay: 0.3, duration: 0.6 }}
         >
-          <h2 className="font-serif text-[clamp(2.5rem,5vw,4rem)] leading-none font-normal tracking-[-0.02em] text-[#72735A]">
+          <h2 className="font-serif text-[clamp(2.5rem,5vw,4rem)] leading-none font-normal tracking-[-0.02em] text-lv-ink-soft">
             comercio
           </h2>
         </motion.div>
@@ -229,7 +230,7 @@ function CommercePanel({ full = false }: { full?: boolean }) {
           initial={reduce ? false : { opacity: 0 }}
           whileInView={reduce ? undefined : { opacity: 1 }}
           transition={{ delay: 0.5, duration: 0.6 }}
-          className="mt-4 sm:mt-6 text-[11px] sm:text-[13px] font-medium tracking-[0.2em] text-[#8B8C74] uppercase"
+          className="mt-4 sm:mt-6 text-[11px] sm:text-[13px] font-medium tracking-[0.2em] text-lv-ink-soft uppercase"
         >
           16 unidades
         </motion.p>
@@ -240,7 +241,7 @@ function CommercePanel({ full = false }: { full?: boolean }) {
             whileInView={reduce ? undefined : { opacity: 1, x: 0 }}
             viewport={{ once: false, amount: 0.1 }}
             transition={{ delay: 0.6, duration: 0.6 }}
-            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-[#2B1A18]/80"
+            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-lv-ink"
           >
             Diseñado para ofrecer funcionalidad, visibilidad y autonomía. 16 unidades comerciales distribuidas en dos plantas.
           </motion.p>
@@ -249,7 +250,7 @@ function CommercePanel({ full = false }: { full?: boolean }) {
             whileInView={reduce ? undefined : { opacity: 1, x: 0 }}
             viewport={{ once: false, amount: 0.1 }}
             transition={{ delay: 0.8, duration: 0.6 }}
-            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-[#2B1A18]/80"
+            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-lv-ink"
           >
             Presencia urbana estratégica que aporta dinamismo al entorno, ideal para diferentes negocios y servicios.
           </motion.p>
@@ -258,14 +259,14 @@ function CommercePanel({ full = false }: { full?: boolean }) {
             whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
             viewport={{ once: false, amount: 0.1 }}
             transition={{ delay: 1.0, duration: 0.6 }}
-            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-[#2B1A18]/80"
+            className="text-[14px] sm:text-[15px] lg:text-[16px] leading-relaxed text-lv-ink"
           >
             Acceso completamente independiente al ingreso residencial, garantizando privacidad y una circulación organizada sin interferir con las viviendas.
           </motion.p>
         </div>
         <Link
           href="/contacto"
-          className="mt-9 inline-flex h-11 items-center rounded-full bg-[#72735A] px-5 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
+          className="mt-9 inline-flex h-11 items-center rounded-full bg-lv-bg px-5 text-[11px] font-semibold tracking-[0.14em] text-lv-ink uppercase transition-colors hover:bg-lv-bg"
         >
           Consultar locales
           <ArrowRight size={14} className="ml-2" />
@@ -300,7 +301,7 @@ function StackedGallery({
   return (
     <section
       ref={sectionRef}
-      className="relative z-20 space-y-1.5 bg-[#e4e4de] pb-20 mkt-dark:bg-[#72735A] sm:pb-28"
+      className="relative z-20 space-y-1.5 bg-lv-bg pb-20 mkt-dark:bg-[#72735A] sm:pb-28"
       aria-label="La ciudad alrededor"
     >
       <div className="relative h-[72vh] min-h-[24rem]">
@@ -351,11 +352,20 @@ export function PlaceGallery() {
     }
   }, [reduce])
 
-  const { scrollYProgress } = useScroll({
-    target: pinRef,
-    offset: ['start start', 'end end'],
-  })
-  const x = useTransform(scrollYProgress, [0, 1], [0, -travel])
+  const movingRef = useRef<HTMLDivElement>(null)
+  const progressRef = useRef<HTMLDivElement>(null)
+  useGSAP(() => {
+    if (reduce || !pinRef.current || !movingRef.current || !progressRef.current) return
+    const scrollTrigger = {
+      trigger: pinRef.current,
+      start: 'top top',
+      end: 'bottom bottom',
+      scrub: true,
+      invalidateOnRefresh: true,
+    }
+    gsap.fromTo(movingRef.current, { x: 0 }, { x: -travel, ease: 'none', scrollTrigger })
+    gsap.fromTo(progressRef.current, { scaleX: 0 }, { scaleX: 1, ease: 'none', scrollTrigger })
+  }, { scope: pinRef, dependencies: [reduce, travel], revertOnUpdate: true })
 
   if (reduce) {
     return <StackedGallery sectionRef={pinRef} />
@@ -368,15 +378,12 @@ export function PlaceGallery() {
       style={{ height: `calc(100svh + ${travel || 2800}px)` }}
       aria-label="La ciudad alrededor"
     >
-      <div ref={frameRef} className="sticky top-0 h-svh overflow-hidden bg-[#e4e4de] px-[clamp(1rem,5vw,3rem)] mkt-dark:bg-[#72735A]">
-        <motion.div className="h-full will-change-transform" style={{ x }}>
+      <div ref={frameRef} className="sticky top-0 h-svh overflow-hidden bg-lv-bg px-[clamp(1rem,5vw,3rem)] mkt-dark:bg-[#72735A]">
+        <div ref={movingRef} className="h-full will-change-transform">
           <Track trackRef={trackRef} />
-        </motion.div>
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-black/10 mkt-dark:bg-white/10">
-          <motion.div
-            className="h-full origin-left bg-[#C45C3E]"
-            style={{ scaleX: scrollYProgress }}
-          />
+        </div>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-lv-bg mkt-dark:bg-white/10">
+          <div ref={progressRef} className="h-full origin-left bg-lv-bg" />
         </div>
       </div>
     </section>

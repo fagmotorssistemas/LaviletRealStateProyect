@@ -33,6 +33,21 @@ const bodoni = localFont({
   variable: '--font-bodoni',
 })
 
+const italiana = localFont({
+  src: '../../public/fonts/Italiana/Italiana-Regular.ttf',
+  weight: '400',
+  variable: '--font-italiana',
+  display: 'swap',
+})
+
+const archivo = localFont({
+  src: '../../public/fonts/Archivo/Archivo-Variable.woff2',
+  weight: '100 900',
+  variable: '--font-archivo',
+  display: 'swap',
+  declarations: [{ prop: 'font-stretch', value: '62% 125%' }],
+})
+
 export const metadata: Metadata = {
   title: {
     default: 'Lavilet',
@@ -80,7 +95,7 @@ export default function RootLayout({
     <html
       lang="es"
       data-scroll-behavior="smooth"
-      className={`${satoshi.variable} ${cormorant.variable} ${bodoni.variable} h-full scroll-smooth antialiased`}
+      className={`${satoshi.variable} ${cormorant.variable} ${bodoni.variable} ${italiana.variable} ${archivo.variable} h-full scroll-smooth antialiased`}
     >
       <head>
         <link rel="preconnect" href={supabaseOrigin} crossOrigin="anonymous" />

@@ -15,11 +15,11 @@ import {
 import { MARKETING_NAV } from '@/lib/marketing/nav'
 import { cn } from '@/lib/utils'
 import { HERO_LOCKED_EVENT, isHeroLocked } from './heroLock'
-import { heroAntonio } from './heroFont'
 
 const ease = [0.22, 1, 0.36, 1] as const
 const HERO_PATHS = new Set(['/inicio', '/nosotros'])
 const HEADER_HIDDEN = new Set(['/proyectos', '/proceso'])
+const PUBLIC_BRAND_PATHS = new Set(['/inicio', '/proyectos', '/proceso', '/ubicanos', '/contacto', '/nosotros'])
 
 export function SiteHeader() {
   const pathname = usePathname()
@@ -28,6 +28,7 @@ export function SiteHeader() {
   const { theme } = useMarketingTheme()
   const nuvia = theme === 'dark'
   const editorial = theme === '3'
+  const publicBrand = editorial && PUBLIC_BRAND_PATHS.has(pathname)
   const waitsForHero = HERO_PATHS.has(pathname)
   const [scrolled, setScrolled] = useState(false)
   const heroHeader = pathname === '/inicio' && editorial && !scrolled
@@ -118,6 +119,7 @@ export function SiteHeader() {
   return (
     <motion.header
       data-site-header
+      data-hero-top={publicBrand && heroHeader ? '' : undefined}
       initial={reduceMotion || waitsForHero ? false : { y: -16, opacity: 0 }}
       animate={
         !headerReady ? { y: -16, opacity: 0 } : navHidden ? { y: '-110%', opacity: 1 } : { y: 0, opacity: 1 }
@@ -127,9 +129,10 @@ export function SiteHeader() {
       inert={!headerReady || navHidden ? true : undefined}
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
-        heroHeader && heroAntonio.className,
         solid
-          ? 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-white/10 mkt-dark:bg-[#16141c]/75 mkt-3:border-transparent mkt-3:!bg-transparent mkt-3:!backdrop-blur-none'
+          ? publicBrand
+            ? 'border-b border-transparent'
+            : 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-white/10 mkt-dark:bg-[#16141c]/75 mkt-3:border-transparent mkt-3:!bg-transparent mkt-3:!backdrop-blur-none'
           : 'border-b border-transparent bg-transparent',
         (!headerReady || navHidden) && 'pointer-events-none',
       )}
@@ -159,7 +162,7 @@ export function SiteHeader() {
                   ),
             )}
           >
-            {heroHeader ? 'LA VILĒT' : editorial ? 'La Vilet' : 'Lavilet'}
+            {publicBrand ? <><span className="sr-only">La Vilet</span><span aria-hidden className="lv-header-wordmark" /></> : editorial ? 'La Vilet' : 'Lavilet'}
           </Link>
         </motion.div>
 
@@ -180,11 +183,12 @@ export function SiteHeader() {
               >
                 <Link
                   href={item.href}
+                  aria-current={active ? 'page' : undefined}
                   className={cn(
                     'group relative inline-block py-1 text-[12px] tracking-[0.18em] uppercase transition-colors duration-300 lg:text-[13px]',
                     overPhoto ? 'font-medium' : 'font-semibold',
                     linkTone(item.href),
-                    heroHeader && '!font-normal !tracking-[0.32em] !text-[#484C3B]',
+                    heroHeader && !publicBrand && '!font-normal !tracking-[0.18em] !text-lv-ink',
                   )}
                 >
                   {item.label}
@@ -212,6 +216,11 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-6 lg:flex">
+          {publicBrand ? (
+            <Link href="/contacto" className="lv-primary lv-header-cta inline-flex items-center justify-center uppercase">
+              Agendar visita
+            </Link>
+          ) : null}
           {!isLoading && (
             <motion.div
               initial={reduceMotion ? false : { opacity: 0 }}
@@ -221,11 +230,11 @@ export function SiteHeader() {
               <Link
                 href={accountHref}
                 className={cn(
-                  'text-[13px] font-semibold tracking-[0.14em] uppercase transition-colors duration-300 lg:text-[14px]',
+                  'lv-account-link text-[13px] font-semibold tracking-[0.14em] uppercase transition-colors duration-300 lg:text-[14px]',
                   editorial || solid
                     ? 'text-[#2B1A18]/55 hover:text-[#2B1A18] mkt-dark:text-[#f4efe8]/55 mkt-dark:hover:text-[#f4efe8] mkt-3:text-[#3f3d2e]/55 mkt-3:hover:text-[#3f3d2e]'
                     : 'text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.55)] hover:text-white',
-                  heroHeader && '!font-normal !tracking-[0.32em] !text-[#484C3B]',
+                  heroHeader && !publicBrand && '!font-normal !tracking-[0.18em] !text-lv-ink',
                 )}
               >
                 {accountLabel}
@@ -283,24 +292,26 @@ export function SiteHeader() {
           <motion.div
             key="mobile-nav"
             initial={reduceMotion ? false : { height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
+            animate={{ height: publicBrand ? 'calc(100svh - 64px)' : 'auto', opacity: 1 }}
             exit={reduceMotion ? undefined : { height: 0, opacity: 0 }}
             transition={{ duration: 0.35, ease }}
-            className="overflow-hidden border-t border-[#72735A]/12 bg-[#F2F2F2] mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A] mkt-3:border-[#6d6c54]/12 mkt-3:bg-[#f3eee6] lg:hidden"
+            className={cn('overflow-hidden border-t border-[#72735A]/12 bg-[#F2F2F2] mkt-dark:border-[#F2F2F2]/12 mkt-dark:bg-[#72735A] mkt-3:border-[#6d6c54]/12 mkt-3:bg-[#f3eee6] lg:hidden', publicBrand && 'lv-glass-menu')}
           >
             <div className="px-5 pb-6 pt-2">
               <nav className="flex flex-col gap-1">
                 {navItems.map((item, i) => (
                   <motion.div
                     key={item.href}
+                    className={publicBrand && i > 0 ? 'lv-mobile-rule' : undefined}
                     initial={reduceMotion ? false : { opacity: 0, x: -12 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.35, delay: 0.06 + i * 0.05, ease }}
                   >
                     <Link
                       href={item.href}
+                      aria-current={pathname === item.href ? 'page' : undefined}
                       className={cn(
-                        'flex items-center justify-between rounded-lg px-3 py-3 text-sm tracking-[0.18em] uppercase transition-colors hover:bg-[#2B1A18]/5 mkt-dark:hover:bg-white/5',
+                        'relative flex items-center justify-between rounded-lg px-3 py-3 text-sm tracking-[0.18em] uppercase transition-colors hover:bg-[#2B1A18]/5 mkt-dark:hover:bg-white/5',
                         pathname === item.href
                           ? 'text-[#72735A] mkt-dark:text-[#F2F2F2]'
                           : 'text-[#72735A]/80 mkt-dark:text-[#F2F2F2]/80',
@@ -308,7 +319,7 @@ export function SiteHeader() {
                       onClick={() => setOpen(false)}
                     >
                       {item.label}
-                      {pathname === item.href ? (
+                      {!publicBrand && pathname === item.href ? (
                         <span className="h-1 w-1 rounded-full bg-[#C45C3E]" />
                       ) : null}
                     </Link>
@@ -323,7 +334,7 @@ export function SiteHeader() {
               >
                 <Link
                   href={accountHref}
-                  className="px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18]/40 uppercase mkt-dark:text-[#f4efe8]/40"
+                  className="lv-mobile-account px-3 py-2 text-sm tracking-[0.18em] text-[#2B1A18]/40 uppercase mkt-dark:text-[#f4efe8]/40"
                   onClick={() => setOpen(false)}
                 >
                   {accountLabel}

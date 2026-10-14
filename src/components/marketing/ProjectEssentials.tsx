@@ -95,7 +95,7 @@ export function ProjectEssentials() {
   return (
     <section
       id="informacion-proyecto"
-      className="relative z-20 overflow-hidden border-y border-[#72735A]/15 bg-[#f4f1ea] text-[#2B1A18]"
+      className="relative z-20 overflow-hidden border-y border-lv-line bg-lv-bg text-lv-ink"
       aria-labelledby="informacion-proyecto-title"
     >
       <div
@@ -103,20 +103,20 @@ export function ProjectEssentials() {
         className="pointer-events-none absolute inset-0 opacity-55 mix-blend-multiply"
         style={{
           backgroundImage:
-            'repeating-linear-gradient(0deg, transparent 0 4px, rgba(114,115,90,0.035) 4px 5px), repeating-linear-gradient(90deg, transparent 0 5px, rgba(114,115,90,0.028) 5px 6px)',
+            'repeating-linear-gradient(0deg, transparent 0 4px, rgba(63,66,49,0.035) 4px 5px), repeating-linear-gradient(90deg, transparent 0 5px, rgba(63,66,49,0.028) 5px 6px)',
         }}
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 right-0 hidden w-[59%] border-l border-[#72735A]/10 bg-[#f4f1ea]/42 lg:block"
+        className="pointer-events-none absolute inset-y-0 right-0 hidden w-[59%] border-l border-lv-line bg-lv-bg lg:block"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-32 -left-32 h-80 w-80 rounded-full border border-[#C45C3E]/14"
+        className="pointer-events-none absolute -top-32 -left-32 h-80 w-80 rounded-full border border-lv-line"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-20 -left-20 h-52 w-52 rounded-full border border-[#C45C3E]/12"
+        className="pointer-events-none absolute -top-20 -left-20 h-52 w-52 rounded-full border border-lv-line"
       />
 
       <div className="relative mx-auto grid w-full max-w-[1400px] gap-12 px-5 py-14 sm:px-8 sm:py-16 lg:grid-cols-[minmax(19rem,0.75fr)_minmax(0,1.25fr)] lg:gap-20 lg:px-12 lg:py-20">
@@ -127,41 +127,41 @@ export function ProjectEssentials() {
           viewport={{ once: true, amount: 0.35 }}
           transition={{ duration: 0.8, ease }}
         >
-          <p className="text-[11px] font-medium tracking-[0.34em] text-[#C45C3E] uppercase">
+          <p className="text-[11px] font-medium tracking-[0.34em] text-lv-ink-soft uppercase">
             Información del proyecto
           </p>
           <h2
             id="informacion-proyecto-title"
-            className="mt-4 max-w-xl font-serif text-[clamp(2.8rem,5vw,5rem)] leading-[0.9] font-normal tracking-[-0.045em] text-[#72735A]"
+            className="mt-4 max-w-xl font-serif text-[clamp(2.8rem,5vw,5rem)] leading-[0.9] font-normal tracking-[-0.045em] text-lv-ink-soft"
           >
             El edificio,
             <br />
             sin rodeos.
           </h2>
-          <p className="mt-7 max-w-md border-l-2 border-[#C45C3E]/55 pl-5 text-[15px] leading-relaxed text-[#2B1A18]/72 sm:text-[17px]">
+          <p className="mt-7 max-w-md border-l-2 border-lv-line pl-5 text-[15px] leading-relaxed text-lv-ink sm:text-[17px]">
             Aquí reuniremos la información verificable que necesitas conocer antes de elegir:
             quién construye, cómo avanza y qué respalda cada decisión.
           </p>
 
-          <div className="mt-8 inline-flex rounded-full border border-[#C45C3E]/30 px-4 py-2 text-[10px] font-semibold tracking-[0.2em] text-[#C45C3E] uppercase">
+          <div className="mt-8 inline-flex rounded-full border border-lv-line px-4 py-2 text-[10px] font-semibold tracking-[0.2em] text-lv-ink-soft uppercase">
             Datos por confirmar
           </div>
 
           <div className="mt-9 flex flex-wrap gap-3">
             <Link
               href="/contacto"
-              className="inline-flex h-11 items-center rounded-full bg-[#72735A] px-5 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
+              className="inline-flex h-11 items-center rounded-full bg-lv-bg px-5 text-[11px] font-semibold tracking-[0.14em] text-lv-ink uppercase transition-colors hover:bg-lv-bg"
             >
               Agendar visita
             </Link>
           </div>
         </motion.div>
 
-        <div className="border-b border-[#72735A]/18">
+        <div className="border-b border-lv-line">
           {PROJECT_DETAILS.map((group, index) => (
             <motion.article
               key={group.number}
-              className="border-t border-[#72735A]/18"
+              className="border-t border-lv-line"
               initial={
                 reduce
                   ? false
@@ -178,21 +178,21 @@ export function ProjectEssentials() {
                 aria-controls={`project-detail-${group.number}`}
                 onClick={() => setOpenGroup((current) => (current === index ? -1 : index))}
               >
-                <span className="text-[11px] font-semibold tracking-[0.2em] text-[#C45C3E]">
+                <span className="text-[11px] font-semibold tracking-[0.2em] text-lv-ink-soft">
                   {group.number}
                 </span>
                 <span>
-                  <span className="block text-[10px] font-medium tracking-[0.25em] text-[#8B8C74] uppercase">
+                  <span className="block text-[10px] font-medium tracking-[0.25em] text-lv-ink-soft uppercase">
                     {group.kicker}
                   </span>
-                  <span className="mt-1 block font-serif text-[clamp(1.65rem,3vw,2.55rem)] leading-[1] tracking-[-0.035em] text-[#72735A]">
+                  <span className="mt-1 block font-serif text-[clamp(1.65rem,3vw,2.55rem)] leading-[1] tracking-[-0.035em] text-lv-ink-soft">
                     {group.title}
                   </span>
                 </span>
                 <motion.span
                   animate={{ rotate: openGroup === index ? 180 : 0 }}
                   transition={{ duration: 0.3, ease }}
-                  className="flex h-10 w-10 items-center justify-center rounded-full border border-[#72735A]/20 text-[#72735A]"
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-lv-line text-lv-ink-soft"
                 >
                   <ChevronDown size={18} />
                 </motion.span>
@@ -225,10 +225,10 @@ export function ProjectEssentials() {
                             ease,
                           }}
                         >
-                          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#2B1A18]/78 uppercase">
+                          <p className="text-[11px] font-semibold tracking-[0.12em] text-lv-ink uppercase">
                             {field.label}
                           </p>
-                          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[#2B1A18]/60 sm:text-[15px]">
+                          <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-lv-ink-soft sm:text-[15px]">
                             {field.value}
                           </p>
                         </motion.div>

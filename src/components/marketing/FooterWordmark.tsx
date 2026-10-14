@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { motion, useInView, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { BrandLetter } from './BrandName'
 
 const FOOTER_LETTERS = [
   { ch: 'L', bg: '#C45C3E', row: 0, tilt: -11 },
@@ -16,7 +17,7 @@ const FOOTER_LETTERS = [
 
 const COUNT = FOOTER_LETTERS.length
 
-export function FooterWordmark() {
+export function FooterWordmark({ publicSkin = false }: { publicSkin?: boolean }) {
   const reduce = useReducedMotion()
   const wrapRef = useRef<HTMLDivElement>(null)
   const inView = useInView(wrapRef, { amount: 0.12, margin: '0px 0px -8% 0px' })
@@ -46,6 +47,7 @@ export function FooterWordmark() {
             inView={inView}
             hasEntered={hasEntered}
             reduce={Boolean(reduce)}
+            publicSkin={publicSkin}
           />
         ))}
       </div>
@@ -59,6 +61,7 @@ export function FooterWordmark() {
             inView={inView}
             hasEntered={hasEntered}
             reduce={Boolean(reduce)}
+            publicSkin={publicSkin}
           />
         ))}
       </div>
@@ -73,6 +76,7 @@ function FooterTile({
   inView,
   hasEntered,
   reduce,
+  publicSkin,
 }: {
   letter: (typeof FOOTER_LETTERS)[number]
   index: number
@@ -80,6 +84,7 @@ function FooterTile({
   inView: boolean
   hasEntered: boolean
   reduce: boolean
+  publicSkin: boolean
 }) {
   const land = reduce || inView
   const delay = land ? index * 0.07 : (COUNT - 1 - index) * 0.05
@@ -114,10 +119,10 @@ function FooterTile({
                 : { duration: 0.18, delay: delay + 0.32, ease: 'easeIn' },
             }
       }
-      className="relative z-40 inline-flex h-[2.7rem] w-[2.35rem] items-center justify-center font-serif text-[1.85rem] leading-none text-[#F2F2F2] will-change-transform sm:h-[3.35rem] sm:w-[2.9rem] sm:text-[2.35rem]"
-      style={{ backgroundColor: letter.bg, pointerEvents: land ? 'auto' : 'none' }}
+      className="lv-letter-tile relative z-40 inline-flex h-[2.7rem] w-[2.35rem] items-center justify-center font-serif text-[1.85rem] leading-none text-lv-ink will-change-transform sm:h-[3.35rem] sm:w-[2.9rem] sm:text-[2.35rem]"
+      style={{ backgroundColor: publicSkin ? 'var(--color-lv-bg)' : letter.bg, pointerEvents: land ? 'auto' : 'none' }}
     >
-      {letter.ch}
+      {publicSkin ? <BrandLetter letter={letter.ch} /> : letter.ch}
     </motion.span>
   )
 }
@@ -203,12 +208,12 @@ function TitleTile({
             }
       }
       className={cn(
-        'inline-flex items-center justify-center font-serif leading-none text-[#F2F2F2]',
+        'lv-letter-tile inline-flex items-center justify-center font-serif leading-none text-lv-ink',
         className,
       )}
-      style={{ backgroundColor: letter.bg }}
+      style={{ backgroundColor: 'var(--color-lv-bg)' }}
     >
-      {letter.ch}
+      <BrandLetter letter={letter.ch} />
     </motion.span>
   )
 }

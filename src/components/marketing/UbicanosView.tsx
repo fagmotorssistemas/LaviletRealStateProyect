@@ -3,11 +3,12 @@
 import { useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { motion, useScroll, useTransform } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 import { SITE } from '@/lib/marketing/site'
 import type { MarketingProjectLocation } from '@/lib/marketing/projectLocationTypes'
 import { NearbyAutoCarousel } from './NearbyAutoCarousel'
+import { gsap, useGSAP } from '@/lib/marketing/gsap'
 
 function PaperGrain() {
   return (
@@ -16,7 +17,7 @@ function PaperGrain() {
       className="pointer-events-none absolute inset-0 opacity-40 mix-blend-multiply"
       style={{
         backgroundImage:
-          'repeating-linear-gradient(0deg, rgba(114,115,90,0.04) 0px, rgba(114,115,90,0.04) 1px, transparent 1px, transparent 3px), repeating-linear-gradient(90deg, rgba(114,115,90,0.03) 0px, rgba(114,115,90,0.03) 1px, transparent 1px, transparent 4px)',
+          'repeating-linear-gradient(0deg, rgba(63,66,49,0.04) 0px, rgba(63,66,49,0.04) 1px, transparent 1px, transparent 3px), repeating-linear-gradient(90deg, rgba(63,66,49,0.03) 0px, rgba(63,66,49,0.03) 1px, transparent 1px, transparent 4px)',
       }}
     />
   )
@@ -24,107 +25,113 @@ function PaperGrain() {
 
 export function UbicanosView({ project }: { project: MarketingProjectLocation | null }) {
   const containerRef = useRef<HTMLDivElement>(null)
-
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ['start 80%', 'end 25%']
-  })
-
-  const lineScaleY = useTransform(scrollYProgress, [0, 0.08, 1], [0, 0, 1])
+  const lineRef = useRef<HTMLDivElement>(null)
+  useGSAP(() => {
+    if (!containerRef.current || !lineRef.current) return
+    const match = gsap.matchMedia()
+    match.add('(prefers-reduced-motion: no-preference)', () => {
+      gsap.fromTo(lineRef.current, { scaleY: 0 }, {
+        scaleY: 1,
+        ease: 'none',
+        scrollTrigger: { trigger: containerRef.current, start: 'top 80%', end: 'bottom 25%', scrub: true },
+      })
+    })
+    return () => match.revert()
+  }, { scope: containerRef })
 
   return (
-    <motion.div 
+    <motion.div
       ref={containerRef}
-      className="relative z-30 bg-[#efece4] py-20 sm:py-28 lg:py-32 mkt-dark:bg-[#0a0a0a] overflow-visible group"
+      className="relative z-30 bg-lv-bg py-20 sm:py-28 lg:py-32 mkt-dark:bg-[#0a0a0a] overflow-visible group"
       initial="idle"
       animate="active"
       whileHover="active"
       whileTap="active"
     >
       <PaperGrain />
-      
+
       {/* Contenedor de la línea vertical decorativa (estilo radar) */}
       <div className="pointer-events-none absolute -top-64 bottom-0 left-[50%] z-20 block w-2.5 overflow-visible sm:w-4 md:left-[64%] lg:-top-80 lg:left-[67%]">
-        
+
         {/* Línea que crece hacia abajo vinculada al scroll */}
-        <motion.div 
-          style={{ scaleY: lineScaleY }}
-          className="absolute inset-0 bg-[#C45C3E]/80 origin-top"
+        <div
+          ref={lineRef}
+          className="absolute inset-0 border-l border-lv-bronze bg-transparent origin-top"
         />
 
         {/* Círculo superior */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0 }}
           whileInView={{ opacity: 1, scale: 1 }}
           viewport={{ once: false, margin: "-50px" }}
           transition={{ duration: 0.6, ease: "backOut" }}
           className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center z-50"
         >
-          <div className="absolute h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-[#C45C3E] animate-ping opacity-80" />
-          <div className="relative h-8 w-8 sm:h-10 sm:w-10 rounded-full bg-[#C45C3E] shadow-[0_0_20px_rgba(196,92,62,1)]" />
+          <div className="absolute h-16 w-16 rounded-full border border-lv-line animate-ping opacity-80 sm:h-20 sm:w-20" />
+          <div className="relative h-8 w-8 rounded-full border border-lv-ink-soft bg-lv-bg sm:h-10 sm:w-10" />
         </motion.div>
-        
+
         {/* Círculos concéntricos */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: false, margin: "-100px" }}
           transition={{ duration: 1, delay: 0.3 }}
           className="absolute top-[calc(47%+1cm)] left-1/2 -translate-x-1/2 -translate-y-1/2 md:top-[calc(47%-5cm)]"
         >
-          <motion.div 
+          <motion.div
             variants={{
               idle: { scale: 1, opacity: 1 },
               active: { scale: [1, 1.1, 1], opacity: [0.9, 0.35, 0.9], transition: { repeat: Infinity, duration: 2.4, ease: "easeInOut", delay: 0 } }
             }}
-            className="absolute top-1/2 left-1/2 h-[360px] w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/30 sm:h-[600px] sm:w-[600px] md:h-[900px] md:w-[900px]" 
+            className="absolute top-1/2 left-1/2 h-[360px] w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-lv-line sm:h-[600px] sm:w-[600px] md:h-[900px] md:w-[900px]"
           />
-          <motion.div 
+          <motion.div
             variants={{
               idle: { scale: 1, opacity: 1 },
               active: { scale: [1, 1.16, 1], opacity: [0.9, 0.3, 0.9], transition: { repeat: Infinity, duration: 2.4, ease: "easeInOut", delay: 0.2 } }
             }}
-            className="absolute top-1/2 left-1/2 h-[260px] w-[260px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/40 sm:h-[400px] sm:w-[400px] md:h-[600px] md:w-[600px]" 
+            className="absolute top-1/2 left-1/2 h-[260px] w-[260px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-lv-line sm:h-[400px] sm:w-[400px] md:h-[600px] md:w-[600px]"
           />
-          <motion.div 
+          <motion.div
             variants={{
               idle: { scale: 1, opacity: 1 },
               active: { scale: [1, 1.24, 1], opacity: [0.95, 0.25, 0.95], transition: { repeat: Infinity, duration: 2.4, ease: "easeInOut", delay: 0.4 } }
             }}
-            className="absolute top-1/2 left-1/2 h-[160px] w-[160px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2px] border-[#C45C3E]/50 sm:h-[240px] sm:w-[240px] md:h-[300px] md:w-[300px]" 
+            className="absolute top-1/2 left-1/2 h-[160px] w-[160px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-lv-line sm:h-[240px] sm:w-[240px] md:h-[300px] md:w-[300px]"
           />
         </motion.div>
       </div>
 
       <div className="relative mx-auto max-w-[1600px] px-5 sm:px-8 lg:px-12">
         <div className="grid gap-16 md:grid-cols-[1fr_1.2fr] lg:grid-cols-[1fr_1.5fr] lg:gap-20 items-center">
-          
+
           {/* Columna Izquierda: Textos */}
           <div className="relative z-30 flex flex-col md:text-right md:items-end">
-            <p className="relative z-30 -mx-3 max-w-sm bg-[#efece4] px-3 py-4 text-[14px] leading-relaxed text-[#2B1A18]/70 sm:text-[15px] md:mx-0 md:bg-transparent md:p-0">
+            <p className="relative z-30 -mx-3 max-w-sm bg-lv-bg px-3 py-4 text-[14px] leading-relaxed text-lv-ink-soft sm:text-[15px] md:mx-0 md:bg-transparent md:p-0">
               En La Vilet lo cercano es parte del proyecto: el río, el parque lineal y el barrio de Puertas del Sol forman un sitio completo. Su ubicación en esquina crea vida peatonal, activación comercial y una conexión natural.
             </p>
-            
-            <h2 className="relative z-30 -mx-3 mt-12 bg-[#efece4] px-3 py-3 font-serif text-[clamp(4rem,9vw,8rem)] leading-none tracking-[-0.02em] text-[#72735A] sm:mt-20 md:mx-0 md:bg-transparent md:p-0">
+
+            <h2 className="relative z-30 -mx-3 mt-12 bg-lv-bg px-3 py-3 font-serif text-[clamp(4rem,9vw,8rem)] leading-none tracking-[-0.02em] text-lv-ink-soft sm:mt-20 md:mx-0 md:bg-transparent md:p-0">
               ubicación
             </h2>
-            
+
             <div className="mt-8 sm:mt-12 flex flex-col sm:flex-row items-start sm:items-center gap-8 md:justify-end">
-              <div className="relative z-30 -mx-3 flex flex-col bg-[#efece4] px-3 py-3 md:mx-0 md:bg-transparent md:p-0 md:text-right">
-                <p className="font-display text-[clamp(1.2rem,2vw,1.6rem)] leading-[1.2] font-semibold text-[#C45C3E] uppercase">
+              <div className="relative z-30 -mx-3 flex flex-col bg-lv-bg px-3 py-3 md:mx-0 md:bg-transparent md:p-0 md:text-right">
+                <p className="font-display text-[clamp(1.2rem,2vw,1.6rem)] leading-[1.2] font-semibold text-lv-ink-soft uppercase">
                   RICARDO DARQUEA GRANDA<br/>
                   & ELENA LANDÍVAR,<br/>
-                  <span className="text-[#2B1A18]">PUERTAS DEL SOL, CUENCA</span>
+                  <span className="text-lv-ink">PUERTAS DEL SOL, CUENCA</span>
                 </p>
               </div>
-              
+
               <a
                 href={project?.mapsUrl || SITE.location.mapsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group relative flex h-24 w-24 sm:h-28 sm:w-28 shrink-0 items-center justify-center rounded-full border border-[#C45C3E] text-center transition-all hover:bg-[#C45C3E] z-40 bg-[#efece4] hover:shadow-lg"
+                className="group relative flex h-24 w-24 sm:h-28 sm:w-28 shrink-0 items-center justify-center rounded-full border border-lv-line text-center transition-all hover:bg-lv-bg z-40 bg-lv-bg hover:shadow-lg"
               >
-                <span className="text-[9px] sm:text-[10px] font-semibold tracking-widest text-[#C45C3E] transition-colors group-hover:text-[#efece4]">
+                <span className="text-[9px] sm:text-[10px] font-semibold tracking-widest text-lv-ink-soft transition-colors group-hover:text-lv-ink">
                   ABRIR EN<br/>GOOGLE<br/>MAPS
                 </span>
               </a>
@@ -133,7 +140,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
 
           {/* Columna Derecha: Mapa Ilustrado */}
           <div className="relative w-full z-10">
-            <div className="relative w-full overflow-hidden shadow-2xl ring-1 ring-[#2B1A18]/10 bg-[#efece4]">
+            <div className="lv-frame relative w-full overflow-hidden ring-1 ring-lv-line bg-lv-bg">
               <Image
                 src="https://xhjnyntywqhczdtecgim.supabase.co/storage/v1/object/public/imagenes%20lavilet/ubicacion_lavilet.png"
                 alt="Mapa ilustrado de ubicación La Vilet"
@@ -145,7 +152,7 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
               />
             </div>
           </div>
-          
+
         </div>
 
         <div className="relative mt-20 lg:mt-32 z-30">
@@ -153,37 +160,37 @@ export function UbicanosView({ project }: { project: MarketingProjectLocation | 
         </div>
 
         <motion.div
-          className="relative z-30 mt-16 grid gap-8 border-t border-[#72735A]/25 pt-10 pb-2 text-[#2B1A18] lg:mt-20 lg:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)] lg:items-end lg:gap-16 lg:pt-12"
+          className="relative z-30 mt-16 grid gap-8 border-t border-lv-line pt-10 pb-2 text-lv-ink lg:mt-20 lg:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)] lg:items-end lg:gap-16 lg:pt-12"
           initial={{ opacity: 0, y: 44 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.45 }}
           transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
         >
           <div>
-            <p className="relative z-30 -mx-3 w-fit bg-[#efece4] px-3 py-2 text-[10px] font-medium tracking-[0.3em] text-[#C45C3E] uppercase md:mx-0 md:bg-transparent md:p-0">
+            <p className="lv-eyebrow relative z-30 -mx-3 w-fit bg-lv-bg px-3 py-2 text-[10px] font-medium tracking-[0.3em] text-lv-ink-soft uppercase md:mx-0 md:bg-transparent md:p-0">
               El siguiente paso
             </p>
-            <h2 className="relative z-30 -mx-3 mt-3 max-w-4xl bg-[#efece4] px-3 py-2 font-serif text-[clamp(2.5rem,5vw,5rem)] leading-[0.9] tracking-[-0.045em] text-[#72735A] md:mx-0 md:bg-transparent md:p-0">
+            <h2 className="relative z-30 -mx-3 mt-3 max-w-4xl bg-lv-bg px-3 py-2 font-serif text-[clamp(2.5rem,5vw,5rem)] leading-[0.9] tracking-[-0.045em] text-lv-ink-soft md:mx-0 md:bg-transparent md:p-0">
               Primero recórrelo.
-              <span className="block text-[#C45C3E]">Después ven a vivirlo.</span>
+              <span className="block text-lv-ink-soft">Después ven a vivirlo.</span>
             </h2>
           </div>
-          <div className="border-l-2 border-[#C45C3E]/45 pl-5 lg:pl-7">
-            <p className="relative z-30 -mx-3 max-w-md bg-[#efece4] px-3 py-2 text-[15px] leading-relaxed text-[#2B1A18]/68 sm:text-[16px]">
+          <div className="border-l-2 border-lv-line pl-5 lg:pl-7">
+            <p className="relative z-30 -mx-3 max-w-md bg-lv-bg px-3 py-2 text-[15px] leading-relaxed text-lv-ink-soft sm:text-[16px]">
               Explora las tipologías desde cualquier lugar o agenda una visita para conocer el
               proyecto en persona.
             </p>
-            <div className="relative z-30 -mx-3 mt-4 flex flex-wrap gap-3 bg-[#efece4] px-3 py-3">
+            <div className="relative z-30 -mx-3 mt-4 flex flex-wrap gap-3 bg-lv-bg px-3 py-3">
             <Link
               href="/tour"
-              className="inline-flex h-12 items-center rounded-full bg-[#72735A] px-6 text-[11px] font-semibold tracking-[0.14em] text-[#f4f1ea] uppercase transition-colors hover:bg-[#5f6049]"
+              className="lv-primary inline-flex h-12 items-center px-6 text-[11px] font-semibold tracking-[0.14em] uppercase"
             >
               Recorrer en 360°
               <ArrowRight size={14} className="ml-2" />
             </Link>
             <Link
               href="/contacto"
-              className="inline-flex h-12 items-center rounded-full px-6 text-[11px] font-semibold tracking-[0.14em] text-[#72735A] uppercase ring-1 ring-[#72735A]/30 transition-colors hover:bg-[#72735A]/7"
+              className="lv-secondary inline-flex h-12 items-center px-6 text-[11px] font-semibold tracking-[0.14em] uppercase"
             >
               Agendar visita
             </Link>

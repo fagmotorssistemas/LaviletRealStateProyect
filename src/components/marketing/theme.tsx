@@ -45,13 +45,13 @@ function parseStored(raw: string | null): MarketingFormat {
   return '1'
 }
 
-export function MarketingThemeProvider({ children }: { children: ReactNode }) {
-  const [format, setFormatState] = useState<MarketingFormat>('1')
+export function MarketingThemeProvider({ children, publicSkin = false }: { children: ReactNode; publicSkin?: boolean }) {
+  const [format, setFormatState] = useState<MarketingFormat>(publicSkin ? '3' : '1')
   const theme = themeFromFormat(format)
 
   useEffect(() => {
-    setFormatState(parseStored(window.localStorage.getItem(STORAGE_KEY)))
-  }, [])
+    setFormatState(publicSkin ? '3' : parseStored(window.localStorage.getItem(STORAGE_KEY)))
+  }, [publicSkin])
 
   const setFormat = useCallback((next: MarketingFormat) => {
     setFormatState(next)
@@ -71,6 +71,7 @@ export function MarketingThemeProvider({ children }: { children: ReactNode }) {
     <ThemeCtx.Provider value={{ format, theme, setFormat, toggle }}>
       <div
         data-mkt-theme={theme}
+        data-lv-public={publicSkin ? '' : undefined}
         className="min-h-screen bg-[var(--mkt-bg)] font-serif text-[var(--mkt-fg)] transition-colors duration-500"
       >
         {children}

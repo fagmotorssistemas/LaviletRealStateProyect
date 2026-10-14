@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 import { UbicanosView } from '@/components/marketing/UbicanosView'
 import { getMarketingProjectLocation } from '@/lib/marketing/location'
@@ -9,6 +9,8 @@ export const metadata: Metadata = {
 }
 
 export const dynamic = 'force-dynamic'
+
+export const viewport: Viewport = { themeColor: '#2a2924' }
 
 export default async function UbicanosPage() {
   const project = await getMarketingProjectLocation()

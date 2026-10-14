@@ -6,7 +6,6 @@ import { ArrowRight, Building2, DoorOpen, ScanLine } from 'lucide-react'
 import { CmafVideo } from '@/components/media/CmafVideo'
 import { notifyHeroLocked } from './heroLock'
 import { LaviletLockup } from './LaviletLockup'
-import { heroAntonio } from './heroFont'
 
 const FEATURES = [
   { label: 'Viviendas sobre el área comercial', Icon: Building2 },
@@ -28,7 +27,7 @@ export function HeroEditorial() {
   }, [])
 
   return (
-    <section id="inicio" className={`${heroAntonio.className} sticky top-0 z-0 h-svh overflow-hidden bg-[#F5F3EB] text-[#484C3B]`}>
+    <section id="inicio" className="sticky top-0 z-0 h-svh overflow-hidden bg-lv-bg text-lv-ink">
       <div className="absolute top-0 inset-x-0 h-[48svh] sm:h-[55svh] lg:h-full">
         {coverSrc ? (
           <CmafVideo
@@ -38,8 +37,9 @@ export function HeroEditorial() {
             className="absolute inset-0 h-full w-full object-cover object-[65%_center] lg:object-center"
           />
         ) : null}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#F5F3EB] via-[#F5F3EB]/25 to-transparent lg:hidden" />
-        <div className="absolute inset-0 hidden bg-gradient-to-r from-[#F5F3EB]/90 via-[#F5F3EB]/45 to-transparent lg:block" />
+        <div className="absolute inset-0 bg-gradient-to-t from-lv-bg via-lv-bg/25 to-transparent lg:hidden" />
+        <div className="absolute inset-0 hidden bg-gradient-to-r from-lv-bg/90 via-lv-bg/45 to-transparent lg:block" />
+        <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-lv-bg/90 to-transparent" />
       </div>
 
       <h1 className="sr-only">La Vilet</h1>
@@ -50,8 +50,8 @@ export function HeroEditorial() {
             <div className="mt-4">
               <LaviletLockup variant="story" heroPalette />
             </div>
-            <span aria-hidden className="mt-6 block h-px w-10 bg-[#A77855]" />
-            <p className="mt-6 max-w-sm text-[clamp(1.2rem,2.2vw,1.45rem)] font-light leading-snug tracking-[0.04em] text-[#484C3B] [text-shadow:0_1px_14px_rgba(245,243,235,0.7)]">
+            <span aria-hidden className="lv-bronze-line mt-6 block h-px w-10" />
+            <p className="mt-6 max-w-sm text-[clamp(1.2rem,2.2vw,1.45rem)] font-extralight leading-[1.7] tracking-[0.04em] text-lv-ink">
               Vivienda, comercio y ciudad,
               <em className="block not-italic">sin renunciar a tu privacidad.</em>
             </p>
@@ -59,9 +59,9 @@ export function HeroEditorial() {
               {FEATURES.map(({ label, Icon }) => (
                 <li
                   key={label}
-                  className="flex items-center gap-3.5 text-[18px] font-light tracking-[0.04em] text-[#484C3B] [text-shadow:0_1px_10px_rgba(245,243,235,0.7)] sm:text-[21px]"
+                  className="flex items-center gap-3.5 text-[18px] font-light tracking-[0.04em] text-lv-ink sm:text-[21px]"
                 >
-                  <Icon size={24} strokeWidth={1.4} className="shrink-0 text-[#686C55]" />
+                  <Icon size={24} strokeWidth={1.4} className="shrink-0 text-lv-ink-soft" />
                   {label}
                 </li>
               ))}
@@ -69,14 +69,14 @@ export function HeroEditorial() {
             <div className="mt-9 flex flex-wrap gap-3">
               <Link
                 href="/tour"
-                className="inline-flex h-12 items-center rounded-full bg-[#484C3B] px-7 text-[14px] font-normal tracking-[0.32em] text-[#F5F3EB] uppercase shadow-[0_10px_24px_rgba(48,49,44,0.22)] transition-colors hover:bg-[#30312C]"
+                className="lv-primary inline-flex h-12 items-center px-7 text-[12px] font-normal tracking-[0.18em] uppercase"
               >
                 Recorrer en 360°
                 <ArrowRight size={14} className="ml-2" />
               </Link>
               <Link
                 href="/contacto"
-                className="inline-flex h-12 items-center rounded-full bg-[#F5F3EB]/85 px-6 text-[14px] font-normal tracking-[0.32em] text-[#484C3B] uppercase ring-1 ring-[#484C3B]/30 backdrop-blur-sm transition-colors hover:bg-[#F5F3EB]"
+                className="lv-secondary inline-flex h-12 items-center px-6 text-[12px] font-normal tracking-[0.18em] uppercase"
               >
                 Agendar visita
               </Link>
@@ -84,7 +84,7 @@ export function HeroEditorial() {
           </div>
         </div>
 
-        <div className="mt-auto flex justify-end pt-4 text-[13px] font-light tracking-[0.32em] text-[#F5F3EB] uppercase [text-shadow:0_1px_10px_rgba(48,49,44,0.8)]">
+        <div className="mt-auto flex justify-end pt-4 text-[13px] font-normal tracking-[0.22em] text-lv-ink uppercase">
           <p>Puertas del Sol — Cuenca</p>
         </div>
       </div>

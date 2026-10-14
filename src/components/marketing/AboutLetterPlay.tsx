@@ -2,15 +2,16 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, useInView, useReducedMotion } from 'framer-motion'
+import { BrandLetter } from './BrandName'
 
 const PLAY = [
-  { ch: 'L', bg: '#C45C3E', row: 0, col: 0, tilt: -11, lane: 0 },
-  { ch: 'a', bg: '#BDA27E', row: 0, col: 1, tilt: 8, lane: 0 },
-  { ch: 'V', bg: '#72735A', row: 1, col: 0, tilt: 10, lane: 1 },
-  { ch: 'i', bg: '#8B8C74', row: 1, col: 1, tilt: -9, lane: 1 },
-  { ch: 'l', bg: '#C45C3E', row: 1, col: 2, tilt: 7, lane: 0 },
-  { ch: 'ē', bg: '#BDA27E', row: 1, col: 3, tilt: -12, lane: 1 },
-  { ch: 't', bg: '#72735A', row: 1, col: 4, tilt: 9, lane: 0 },
+  { ch: 'L', bg: 'var(--color-lv-bg)', row: 0, col: 0, tilt: -11, lane: 0 },
+  { ch: 'a', bg: 'var(--color-lv-bg)', row: 0, col: 1, tilt: 8, lane: 0 },
+  { ch: 'V', bg: 'var(--color-lv-bg)', row: 1, col: 0, tilt: 10, lane: 1 },
+  { ch: 'i', bg: 'var(--color-lv-bg)', row: 1, col: 1, tilt: -9, lane: 1 },
+  { ch: 'l', bg: 'var(--color-lv-bg)', row: 1, col: 2, tilt: 7, lane: 0 },
+  { ch: 'ē', bg: 'var(--color-lv-bg)', row: 1, col: 3, tilt: -12, lane: 1 },
+  { ch: 't', bg: 'var(--color-lv-bg)', row: 1, col: 4, tilt: 9, lane: 0 },
 ] as const
 
 type Phase = 'run' | 'hide' | 'form'
@@ -102,7 +103,7 @@ export function AboutLetterPlay() {
             hideDelay={index * 0.03}
             formDelay={0.08 + index * 0.06}
           >
-            {letter.ch}
+            <BrandLetter letter={letter.ch} />
           </PlayTile>
         )
       })}
@@ -133,7 +134,7 @@ function SmileFace({ wink }: { wink: boolean }) {
   return (
     <svg
       viewBox="0 0 32 32"
-      className="h-[2rem] w-[2rem] drop-shadow-[0_2px_5px_rgba(196,92,62,0.35)] sm:h-[2.25rem] sm:w-[2.25rem]"
+      className="h-[2rem] w-[2rem]  sm:h-[2.25rem] sm:w-[2.25rem]"
       aria-hidden
     >
       <motion.ellipse
@@ -141,7 +142,7 @@ function SmileFace({ wink }: { wink: boolean }) {
         cy="12"
         rx="2.7"
         ry="2.7"
-        fill="#C45C3E"
+        fill="var(--color-lv-ink-soft)"
         animate={wink ? { ry: [2.7, 2.7, 0.12, 0.12, 2.7] } : { ry: 2.7 }}
         transition={
           wink
@@ -154,12 +155,12 @@ function SmileFace({ wink }: { wink: boolean }) {
             : { duration: 0.15 }
         }
       />
-      <circle cx="21" cy="12" r="2.7" fill="#C45C3E" />
+      <circle cx="21" cy="12" r="2.7" fill="var(--color-lv-ink-soft)" />
       <path
         d="M10 20c2.2 3.2 9.8 3.2 12 0"
         fill="none"
-        stroke="#C45C3E"
-        strokeWidth="2.7"
+        stroke="var(--color-lv-bronze)"
+        strokeWidth="1"
         strokeLinecap="round"
       />
     </svg>
@@ -196,7 +197,7 @@ function PlayTile({
       className={
         round
           ? 'absolute top-1/2 left-1/2 inline-flex items-center justify-center rounded-full'
-          : 'absolute top-1/2 left-1/2 inline-flex items-center justify-center font-serif leading-none text-[#F2F2F2]'
+          : 'lv-letter-tile absolute top-1/2 left-1/2 inline-flex items-center justify-center font-serif leading-none text-lv-ink'
       }
       style={{
         backgroundColor: bg,
