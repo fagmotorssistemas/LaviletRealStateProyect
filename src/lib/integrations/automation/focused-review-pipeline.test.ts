@@ -50,8 +50,8 @@ test('outside-to-property transition carries both profile obligations through th
   const reply = 'La Vilet está en Cuenca. Para compartirle el brochure y darle una guía personalizada, ¿cómo se llama y dónde vive actualmente?'
   const mock = harness((context, task) => {
     const obligations = rows(context.obligaciones_del_turno).map(row => row.id)
-    assert.ok(obligations.includes('profile_full_name'))
-    assert.ok(obligations.includes('profile_current_residence'))
+    assert.equal(obligations.includes('profile_full_name'), task === 'writing')
+    assert.equal(obligations.includes('profile_current_residence'), task === 'writing')
     assert.equal(obligations.includes('profile_phone'), false)
     if (task === 'review') return pass
     return { ...writer(context, reply), question: { role: 'required_collection', purpose: 'collect_lead_profile',
@@ -87,11 +87,12 @@ for (const previouslyShared of [true, false]) test(`residence clarification shar
   let collectionInstruction = ''
   const mock = harness((context, task) => {
     const collection = rows(context.obligaciones_del_turno).find(row => row.id === 'profile_collection')
-    assert.equal(collection?.purpose, 'guia_personalizada')
-    assert.deepEqual(collection?.required_data, ['current_residence'])
-    assert.match(String(collection?.instruction), /no prometa enviarlo después/)
+    if (task === 'writing') assert.equal(collection?.purpose, 'guia_personalizada')
+    if (task === 'writing') assert.deepEqual(collection?.required_data, ['current_residence'])
+    if (task === 'writing') assert.match(String(collection?.instruction), /no prometa enviarlo después/)
     if (task === 'review') {
-      assert.equal(collection?.instruction, collectionInstruction)
+      assert.equal(collection, undefined)
+      assert.ok(collectionInstruction)
       assert.ok(String(context.borrador).includes(question))
       assert.equal(String(context.borrador).includes(BROCHURE_URL), !previouslyShared)
       assert.doesNotMatch(String(context.borrador), /para enviarle|así podré enviarle/i)
@@ -197,7 +198,7 @@ test('the same review gate catches unverified promises and missing turn obligati
     let writes = 0
     const mock = harness((context, task) => {
       if (task === 'writing') return writer(context, ++writes === 1 ? scenario.bad : scenario.good)
-      if (scenario.category === 'turn_goal') assert.ok(rows(context.obligaciones_del_turno).some(row => row.id === 'profile_full_name'))
+      assert.equal(rows(context.obligaciones_del_turno).some(row => row.id === 'profile_full_name'), false)
       return context.borrador === scenario.bad
         ? block(scenario.category, scenario.bad, 'El borrador incumple la regla aplicable.', scenario.fact) : pass
     })
@@ -212,7 +213,7 @@ test('the same review gate catches unverified promises and missing turn obligati
 })
 
 test('the short reviewer contract cannot veto style or invent cross-reference requirements', () => {
-  assert.deepEqual(businessRiskDecision(pass), { valid: true, approved: true, findings: [] })
+  assert.deepEqual(businessRiskDecision(pass), { valid: true, approved: true, findings: [], ignoredFindings: [] })
   assert.equal(businessRiskDecision({ review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block',
     findings: [{ category: 'style', statement: 'Cambiar el saludo', reason: 'Suena mejor', authoritative_fact: '' }] }).valid, false)
   assert.equal(businessRiskDecision({ review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block', findings: [] }).valid, false)

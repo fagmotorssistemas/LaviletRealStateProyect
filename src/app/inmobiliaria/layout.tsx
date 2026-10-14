@@ -10,6 +10,7 @@ import { AutomationDeliveryBanner } from '@/components/layout/AutomationDelivery
 import { VisitInboxProvider } from '@/contexts/VisitInboxContext'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 import { AdvisorNotificationsProvider } from '@/contexts/AdvisorNotificationsContext'
+import { UrgentReservationAlert } from '@/components/layout/UrgentReservationAlert'
 
 /** Rutas de lead/cliente (cookies/teléfono) sin login CRM. */
 const PUBLIC_INMOBILIARIA_PREFIXES = ['/inmobiliaria/mis-escenarios']
@@ -32,6 +33,7 @@ export default function InmobiliariaLayout({ children }: { children: React.React
   return (
     <CrmRoleGate>
       <AdvisorNotificationsProvider>
+        <UrgentReservationAlert />
         <VisitInboxProvider>
           <div className="crm-app relative flex h-[100dvh] overflow-hidden">
             <InmobiliariaSidebar />

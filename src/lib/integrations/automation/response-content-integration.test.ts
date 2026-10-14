@@ -95,8 +95,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
       assert.equal(reviewedUnit.published_commercial_price, 550000, 'Reviewer still verifies complete authorized property facts')
       const obligations = reviewer.obligaciones_del_turno as Row[]
       const scope = obligations.find(row => row.id === 'response_content_scope')!
-      assert.deepEqual(scope.topics, object(context.response_content_scope).topics)
-      assert.match(String(scope.instruction), /dato verdadero también puede incumplir/)
+      assert.equal(scope, undefined, 'Factual reviewer does not decide content relevance')
     }
   })
 }
@@ -202,7 +201,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('a del
   assert.equal(object(following.result.audit.question).continuation_id, 'financing_partner')
 })
 
-for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('irrelevant true prices are corrected by active semantic review while diagnostic controls retain their own behavior: '+mode, async () => {
+for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('content relevance remains a writer instruction, never a factual-review veto: '+mode, async () => {
   const current = 'Prefiero penthouse', verified = fixture(current, ['property_options'])
   const original = structuredClone(verified), calls: string[] = [], contexts: Row[] = []
   const validReply = 'Continuamos con la opción elegida. '+bankQuestion
@@ -234,10 +233,9 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('irrel
     }))
   assert.deepEqual(verified, original)
   assert.equal(topicAllowed(contexts[0], 'purchase_prices'), false)
-  assert.equal(result.reply, mode === 'normal' ? validReply : badReply, JSON.stringify(result.audit))
+  assert.equal(result.reply, badReply, JSON.stringify(result.audit))
   assert.equal(result.needsAdvisor, false)
-  assert.deepEqual(calls, mode === 'normal' ? ['writing', 'review', 'writing', 'review']
-    : mode === 'disabled' ? ['writing'] : ['writing', 'review'])
+  assert.deepEqual(calls, mode === 'disabled' ? ['writing'] : ['writing', 'review'])
   assert.equal(object(result.audit.question).continuation_id, 'financing_partner')
   assert.deepEqual(object(verified.property_context).selected_ids, ['ph602'])
   assert.equal(leadBudget(verified).status, 'initial_capital')

@@ -69,7 +69,7 @@ test('general 360 references are an explicit shared writer and reviewer obligati
   const result = await completeTurnReply({ current: '¿Cómo puedo ver el departamento?', baseReply: 'Aquí puede explorar las opciones del proyecto.', verified: { property_context: { selected_ids: [] } },
     audit: { source: 'virtual_showroom', unit_model: { unit_id: null }, semantic_review_enabled: true, business_risk_review_enabled: true } },
   async (_rules, raw, _schema, _image, _file, _tone, task) => {
-    assert.ok((object(raw).obligaciones_del_turno as Row[]).some(row => row.id === 'general_visualization_reference'))
+    assert.equal((object(raw).obligaciones_del_turno as Row[]).some(row => row.id === 'general_visualization_reference'), task === 'writing')
     return task === 'writing' ? candidate('Aquí puede explorar las opciones del proyecto.') : pass
   })
   assert.equal(result.audit.status, 'checked')

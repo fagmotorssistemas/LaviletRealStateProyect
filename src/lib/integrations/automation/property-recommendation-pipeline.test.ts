@@ -58,7 +58,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) for (const 
         async (_rules, raw, _schema, _image, _file, _tone, task) => {
           const context = object(raw); tasks.push(task || '')
           const obligation = rows(context.obligaciones_del_turno).find(row => row.id === 'commercial_next_step')!
-          assert.equal(obligation.question_id, plan.question_id)
+          assert.equal(obligation?.question_id, task === 'writing' ? plan.question_id : undefined)
           if (task === 'writing') {
             if (floor) assert.ok(rows(object(context.contexto_verificado).instalaciones).some(f => /2 ascensores/.test(text(f.amenity_name))))
             return { reply, question: metadata, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,

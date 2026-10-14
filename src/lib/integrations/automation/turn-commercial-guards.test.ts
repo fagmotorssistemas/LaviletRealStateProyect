@@ -4,6 +4,7 @@ import Ajv from 'ajv'
 import { completeTurnReply } from './turn-completeness'
 import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 import { object, text, type Row } from './data'
+import { factualReviewObligations } from './reviewer-authority'
 import { LOCATION_DISCLOSURE_RULES } from './location-policy'
 import { visitDialogueTurn, VISIT_DIALOGUE_RULES } from './visit-dialogue'
 import { earlyPurchaseDiscountContext } from './early-purchase-discount-context'
@@ -56,9 +57,9 @@ function sharedObligations(expected: string[], inspect: (context: Row, task: str
   let writerObligations: Row[] | undefined
   return (context: Row, task: string) => {
     const obligations = rows(context.obligaciones_del_turno)
-    for (const id of expected) assert.ok(obligations.some(obligation => obligation.id === id), `${task} lacks ${id}`)
+    for (const id of expected.filter(id => task === 'writing' || ['business_scope', 'project_context_truth', 'location_scope', 'early_purchase_discount', 'financing_balance', 'price_conditions'].includes(id))) assert.ok(obligations.some(obligation => obligation.id === id), `${task} lacks ${id}`)
     if (task === 'writing') writerObligations = obligations
-    else assert.deepEqual(obligations, writerObligations, 'The reviewer must check the same obligations the writer received.')
+    else assert.deepEqual(obligations, factualReviewObligations(writerObligations || []), 'The reviewer keeps factual authority without receiving writer workflow obligations.')
     inspect(context, task, obligations)
   }
 }
@@ -70,7 +71,7 @@ for (const current of ['Hola, quiero información de apartamentos', '¿En qué s
         const permission = obligations.find(obligation => obligation.id === 'location_scope')!
         assert.equal(permission.exact_location_allowed, false)
         assert.equal(permission.map_allowed, false)
-        assert.equal(permission.instruction, LOCATION_DISCLOSURE_RULES)
+        if (task === 'writing') assert.equal(permission.instruction, LOCATION_DISCLOSURE_RULES)
         const authority = task === 'writing' ? context.contexto_verificado : context.fuentes_autorizadas
         assert.ok(!JSON.stringify(authority).includes(address), `${task} received the exact address without permission`)
         assert.ok(!JSON.stringify(authority).includes(map), `${task} received the map without permission`)
@@ -97,7 +98,7 @@ test('an explicit direction request preserves the exact authorized facts in both
     const authority = task === 'writing' ? context.contexto_verificado : context.fuentes_autorizadas
     assert.ok(JSON.stringify(authority).includes(address), `${task} lost the requested address`)
     assert.ok(JSON.stringify(authority).includes(map), `${task} lost the requested map`)
-    if (task === 'review') assert.ok(rows(context.obligaciones_del_turno).some(row => row.id === 'current_request'))
+    if (task === 'review') assert.equal(rows(context.obligaciones_del_turno).some(row => row.id === 'current_request'), false)
   }))
   const result = await completeTurnReply({ current, baseReply: reply, verified, audit: { ...audit, source: 'location' } }, mock.generate)
   mock.assertContexts()
@@ -141,6 +142,14 @@ test('asking visit hours shares an informational plan without accepting the offe
   const reply = 'El horario de atención es de lunes a viernes, de 08:30 a 18:30; son horarios de atención y no cupos confirmados. ¿Desea coordinar una cita en la oficina?'
   const mock = harness(reply, sharedObligations(['visit_dialogue', 'project_context_truth', 'location_scope'],
     (context, task, obligations) => {
+      if (task === 'review') {
+        assert.equal(obligations.some(row => row.id === 'visit_dialogue'), false)
+        const operation = object(context.estado_del_turno)
+        assert.equal(operation.dialogo_visita, undefined)
+        assert.equal(operation.accion, null)
+        assert.equal(operation.visita, null)
+        return
+      }
       const visit = obligations.find(row => row.id === 'visit_dialogue')!
       assert.equal(visit.information_only, true)
       assert.equal(visit.operation_allowed, false)

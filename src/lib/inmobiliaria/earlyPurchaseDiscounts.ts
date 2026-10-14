@@ -16,7 +16,8 @@ export type DiscountRule = {
 export type EarlyPurchaseDiscountSettings = {
   enabled: boolean; stacking: false; rules: DiscountRule[]; updatedAt?: string; updatedBy?: string
 }
-export type EarlyPurchaseDiscountState = { settings: EarlyPurchaseDiscountSettings; version: string; saved: boolean }
+export type EarlyPurchaseDiscountState = { settings: EarlyPurchaseDiscountSettings; version: string; saved: boolean;
+  diagnostics?: import('./discountSettingsDiagnostics').DiscountSettingsDiagnostics }
 export type EarlyPurchaseDiscountResult = { ok: true; state: EarlyPurchaseDiscountState } | { ok: false; error: string }
 type Row = Record<string, unknown>
 const record = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}

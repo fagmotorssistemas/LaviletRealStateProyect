@@ -242,7 +242,7 @@ test('introduction and actual actions take precedence; failed delivery does not 
   assert.deepEqual(journeyPendingQuestion(String(plan.question), plan, false), {})
 })
 
-test('writer and independent reviewer receive the same reservation step through the final pipeline', async () => {
+test('writer retains the reservation step while factual review receives only operation evidence', async () => {
   const data = info(), calls: string[] = [], assertions: string[] = []
   data.solicitudes_interpretadas = [{ domain: 'property', request: 'Elegir el departamento 502', evidence: 'quiero el 502', confidence: 'high' }]
   const result = await completeTurnReply({ current: 'quiero el 502', baseReply: '', verified: data,
@@ -251,11 +251,11 @@ test('writer and independent reviewer receive the same reservation step through 
     const input = object(raw); calls.push(String(task))
     try {
       const obligations = (input.obligaciones_del_turno as Row[])
-      assert.equal(obligations.find(o => o.id === 'commercial_next_step')?.action, 'offer_reservation')
+      assert.equal(obligations.find(o => o.id === 'commercial_next_step')?.action, task === 'writing' ? 'offer_reservation' : undefined)
       if (task === 'writing') return { reply: '¿Le gustaría que le ayudemos a iniciar la reserva del departamento 502?',
         requests: [{ fragment: 'R1', intent: 'Elegir unidad', status: 'answered', evidence: 'Continúa con la unidad elegida', fact_key: null, request_type: 'general_information' }],
         question: { role: 'optional_continuation', purpose: 'permission_to_continue', missing_datum: '', next_decision: 'Solicitar reserva al equipo' } }
-      assert.equal(object(object(input.estado_del_turno).siguiente_paso_comercial).action, 'offer_reservation')
+      assert.equal(object(input.estado_del_turno).siguiente_paso_comercial, undefined)
       return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
     } catch (error) { assertions.push(String(error)); throw error }
   })
@@ -265,7 +265,7 @@ test('writer and independent reviewer receive the same reservation step through 
   assert.deepEqual(calls, ['writing', 'review'])
 })
 
-test('financing continuation sends the same type choice across compatible categories to writer and reviewer', async () => {
+test('financing continuation keeps the type choice in writer and receipt without giving it to the reviewer', async () => {
   const data = residentialSelection(), calls: string[] = [], assertions: string[] = []
   const categories = ['departamento', 'penthouse']
   const reply = 'Para continuar con el financiamiento, primero elijamos su vivienda. ¿Prefiere que revisemos los departamentos o los penthouses de 3 dormitorios?'
@@ -275,11 +275,11 @@ test('financing continuation sends the same type choice across compatible catego
     const input = object(raw); calls.push(String(task))
     try {
       const next = (input.obligaciones_del_turno as Row[]).find(o => o.id === 'commercial_next_step')
-      assert.deepEqual(object(next?.selection_scope).categories, categories)
-      assert.equal(next?.question_id, 'property_category')
+      assert.deepEqual(object(next?.selection_scope).categories, task === 'writing' ? categories : undefined)
+      assert.equal(next?.question_id, task === 'writing' ? 'property_category' : undefined)
       if (task === 'writing') return { reply, requests: [],
         question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'tipo de vivienda', next_decision: 'Presentar las plantas del tipo elegido' } }
-      assert.deepEqual(object(object(object(input.estado_del_turno).siguiente_paso_comercial).selection_scope).categories, categories)
+      assert.equal(object(input.estado_del_turno).siguiente_paso_comercial, undefined)
       return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
     } catch (error) { assertions.push(String(error)); throw error }
   })
@@ -290,7 +290,7 @@ test('financing continuation sends the same type choice across compatible catego
   assert.deepEqual(calls, ['writing', 'review'])
 })
 
-test('the early total-budget step is identical for the writer, reviewer and delivered pending question', async () => {
+test('the early total-budget step stays in the writer and delivered question, outside factual review', async () => {
   const data = info({ status: 'not_discussed' }, false), calls: string[] = [], failures: string[] = []
   data.lead = { purchase_purpose: 'vivir' }
   data.property_context = { query: { group: 'residential', operation: 'search', filters: {} }, selected_ids: [] }
@@ -302,16 +302,16 @@ test('the early total-budget step is identical for the writer, reviewer and deli
     const input = object(raw); calls.push(String(task))
     try {
       const next = (input.obligaciones_del_turno as Row[]).find(obligation => obligation.id === 'commercial_next_step')!
-      assert.equal(next.action, 'ask_budget')
-      assert.equal(next.question_id, 'budget_amount')
-      assert.equal(Boolean(next.requires_unit_presentation), false)
-      assert.match(String(next.question), /presupuesto total/)
+      if (task === 'writing') assert.equal(next.action, 'ask_budget')
+      if (task === 'writing') assert.equal(next.question_id, 'budget_amount')
+      if (task === 'writing') assert.equal(Boolean(next.requires_unit_presentation), false)
+      if (task === 'writing') assert.match(String(next.question), /presupuesto total/)
       if (task === 'writing') return { reply,
         requests: [{ fragment: 'R1', intent: 'Busca vivienda', status: 'answered', evidence: reply,
           fact_key: null, request_type: 'general_information' }],
         question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'presupuesto total',
           next_decision: 'Conocer los dormitorios que necesita', continuation_id: 'budget_amount', continuation_act: 'budget' } }
-      assert.equal(object(object(input.estado_del_turno).siguiente_paso_comercial).question_id, 'budget_amount')
+      assert.equal(object(input.estado_del_turno).siguiente_paso_comercial, undefined)
       return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
     } catch (error) { failures.push(String(error)); throw error }
   })

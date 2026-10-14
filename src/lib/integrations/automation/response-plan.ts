@@ -11,6 +11,7 @@ import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { CONTINUATION_QUESTION_RULE } from './continuation-question'
 import { CONTEXTUAL_NEEDS_WRITER_RULES } from './needs-guidance'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
+import { informationRequestOpening } from './response-openings'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -96,17 +97,23 @@ export function includeRequiredBrochure(reply: string, audit: Row = {}, context:
   return completed.length <= MAX_REPLY_CHARACTERS ? completed : reply
 }
 
-/** The approved initial summary is business copy owned by the application.
- * A model draft cannot omit it or expand it into the inventory, including in
- * observation mode. Subsequent and specific requests keep normal drafting. */
-export function protectInitialProjectPresentation(reply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}): string {
+/** The summary owns the facts, not the writer's wording. Only route templates
+ * and recovery replies need reconstruction; completed writer drafts keep the
+ * text whose facts, question and links were checked before delivery. */
+export function protectInitialProjectPresentation(reply: string, audit: Row = {}, context: { current?: string; verified?: Row; preserveWriter?: boolean } = {}): string {
   const opening = object(audit.profile_introduction), presentation = object(opening.presentation)
   const summary = text(presentation.approved_summary).trim()
   if (presentation.required !== true || !summary) return reply
+  const completion = object(audit.turn_completeness)
+  if (reply.trim() && (context.preserveWriter === true
+    || object(completion.initial_presentation).source === 'writer'
+      && ['checked', 'review_observed', 'review_disabled'].includes(text(completion.status)))) return reply
   const brochure = opening.brochure_required === true && /^https?:\/\/\S+$/.test(text(opening.brochure_url))
     ? `Brochure del proyecto: ${text(opening.brochure_url)}` : ''
   const question = text(responsePlan(reply, audit, context).next_question)
-  const protectedReply = [text(opening.name_acknowledgement), summary, brochure, question]
+  // Greetings are added by the shared delivery preparation, once, also when a
+  // verified handoff notice is prepended to this recovery template.
+  const protectedReply = [text(opening.name_acknowledgement), informationRequestOpening(summary), brochure, question]
     .filter(part => part.trim()).join('\n\n')
   return protectedReply.length <= MAX_REPLY_CHARACTERS ? protectedReply : reply
 }
@@ -256,8 +263,8 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
     pregunta_siguiente: plan.next_question,
     continuacion_del_turno: plan.continuation,
     pregunta_pendiente: object(audit.pending_question),
-    presentacion: approvedOpening ? { kind: 'approved_summary', policy: 'required_approved_business_copy',
-      summary: text(opening.approved_summary), instruction: 'Preserve el resumen aprobado y la única pregunta de perfil; no amplíe la apertura con fichas o datos del catálogo.' }
+    presentacion: approvedOpening ? { kind: 'approved_summary', policy: 'required_approved_facts_with_free_wording',
+      summary: text(opening.approved_summary), instruction: 'Incluya una presentación breve basada en los hechos del resumen aprobado, con redacción propia y una apertura amable. El resumen es una fuente de hechos, no texto para copiar literalmente; puede explicar sus categorías sin el tecnicismo «uso mixto». Conserve la finalidad de la pregunta de perfil pendiente y no amplíe la apertura con fichas o datos del catálogo.' }
       : { ...(isCategoryOverview(audit) ? object(audit.alternative_presentation)
         : { kind: text(object(audit.catalog_query).operation) || 'commercial' }), policy: 'suggestion_not_required_wording' },
     accion: text(audit.action) || null,

@@ -264,7 +264,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const)
         async (_rules, raw, _schema, _image, _file, _tone, task) => {
           const context = object(raw); tasks.push(task || '')
           const obligations = Array.isArray(context.obligaciones_del_turno) ? context.obligaciones_del_turno.map(object) : []
-          assert.equal(obligations.find(value => value.id === 'commercial_next_step')?.question_id, 'property_requirements')
+          assert.equal(obligations.find(value => value.id === 'commercial_next_step')?.question_id, task === 'writing' ? 'property_requirements' : undefined)
           if (task === 'writing') return { reply, question: metadata,
             requests: (Array.isArray(context.referencias_solicitud) ? context.referencias_solicitud.map(object) : []).map(ref => ({ fragment: ref.id,
               intent: 'Mantener la segunda propuesta pendiente de aceptación', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }

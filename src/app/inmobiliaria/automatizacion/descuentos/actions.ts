@@ -3,6 +3,8 @@
 import { assertAdmin, getSessionUser } from '@/lib/auth/session'
 import { LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '@/lib/integrations/lavilet'
 import { changeEarlyPurchaseDiscountSettings, earlyPurchaseDiscountSettings, validateEarlyPurchaseDiscountSettings, type EarlyPurchaseDiscountResult } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
+import { discountSettingsDiagnostics } from '@/lib/inmobiliaria/discountSettingsDiagnostics'
+import { botPricingPolicy, launchPricesVisible } from '@/lib/inmobiliaria/unitPrices'
 
 async function access() {
   const { user } = await assertAdmin()
@@ -14,9 +16,10 @@ async function access() {
 }
 export async function loadEarlyPurchaseDiscountSettings(): Promise<EarlyPurchaseDiscountResult> {
   try {
-    const { project } = await access()
+    const { project, supabase } = await access()
     return { ok: true, state: { settings: earlyPurchaseDiscountSettings(project.policies_json), version: project.updated_at,
-      saved: !!(project.policies_json as Record<string, unknown> | null)?.early_purchase_discounts } }
+      saved: !!(project.policies_json as Record<string, unknown> | null)?.early_purchase_discounts,
+      diagnostics: await diagnostics(supabase, project) } }
   } catch {
     return { ok: false, error: 'No se pudo cargar la configuración de descuentos. Compruebe su acceso de administrador y actualice.' }
   }
@@ -37,8 +40,24 @@ export async function saveEarlyPurchaseDiscountSettings(input: unknown, expected
       .eq('id', project.id).eq('tenant_id', project.tenant_id).eq('updated_at', expectedUpdatedAt).select('updated_at')
     if (error) return { ok: false, error: 'No se pudo confirmar el guardado. Actualice antes de volver a guardar.' }
     if (data?.length !== 1) return { ok: false, error: conflict }
-    return { ok: true, state: { settings: earlyPurchaseDiscountSettings(policies), version: data[0].updated_at, saved: true } }
+    return { ok: true, state: { settings: earlyPurchaseDiscountSettings(policies), version: data[0].updated_at, saved: true,
+      diagnostics: await diagnostics(supabase, { ...project, policies_json: policies }) } }
   } catch {
     return { ok: false, error: 'No se pudo guardar. Compruebe su acceso de administrador y actualice antes de intentarlo nuevamente.' }
   }
+}
+
+async function diagnostics(supabase: Awaited<ReturnType<typeof access>>['supabase'], project: Awaited<ReturnType<typeof access>>['project']) {
+  const unavailable = { mode: 'sin comprobar', today: '', rules: [], summary: 'Las reglas se cargaron, pero no se pudo comprobar su alcance. Actualice para revisar la etapa y el inventario.' }
+  try {
+    const [config, catalog] = await Promise.all([
+      supabase.from('project_automation_config').select('mode').eq('project_id', project.id).eq('tenant_id', project.tenant_id).abortSignal(AbortSignal.timeout(10_000)).maybeSingle(),
+      supabase.from('units').select('id,unit_number,category,status,is_published,published_commercial_price').eq('project_id', project.id).eq('tenant_id', project.tenant_id).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)),
+    ])
+    if (config.error || catalog.error) return unavailable
+    const mode = config.data?.mode || 'lanzamiento'
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date())
+    return discountSettingsDiagnostics(earlyPurchaseDiscountSettings(project.policies_json), catalog.data || [],
+      { mode, today, pricesAuthorized: botPricingPolicy(mode, launchPricesVisible(project.policies_json)).visible })
+  } catch { return unavailable }
 }

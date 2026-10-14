@@ -11,6 +11,7 @@ import { withProjectIntroductionForTurn } from './project-introduction-context'
 import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
 import { earlyPurchaseDiscountSettings } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
 import { earlyPurchaseDiscountContext } from './early-purchase-discount-context'
+import { cashPaymentContext } from '@/lib/inmobiliaria/cashPaymentRules'
 import { financingPolicyContext } from './financing-quote'
 import { priceNoticeForConversation } from './price-conditions'
 import { recordDraftDecision } from './ai-execution-trace'
@@ -121,6 +122,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     politica_visitas: botVisitPolicy(projectData.policies_json, mode),
     politicas_negocio: policies,
     politica_descuentos: discounts.policy,
+    politica_pago_contado: cashPaymentContext(projectData.policies_json, mode, discounts.policy.as_of),
     business_policy_context: { status: 'loaded', available_count: policies.length, mode },
     estado_proyecto: projectReadiness(projectData.policies_json,mode).configured ? projectReadiness(projectData.policies_json,mode).value : null,
     entrega_proyecto: deliveryContext(projectData.policies_json),

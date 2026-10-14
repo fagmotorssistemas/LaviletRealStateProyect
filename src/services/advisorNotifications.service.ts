@@ -17,7 +17,13 @@ export async function listAdvisorNotifications(
     .order('created_at', { ascending: false })
     .limit(100)
   if (signal) request = request.abortSignal(signal)
-  let result = await request
+  const urgentRequest = supabase.from('advisor_notifications').select('*').eq('recipient_id', recipientId)
+    .in('kind', ['reservation_requested', 'reservation_confirmed']).is('read_at', null)
+    .order('created_at', { ascending: true }).limit(100)
+    .abortSignal(signal ?? AbortSignal.timeout(10_000))
+  const responses = await Promise.all([request, urgentRequest])
+  let result = responses[0]
+  const urgent = responses[1]
 
   // If a relationship cache is temporarily stale just after applying the
   // migration, the private inbox remains usable without the optional joins.
@@ -32,7 +38,13 @@ export async function listAdvisorNotifications(
     result = await fallback
   }
   if (result.error) throw result.error
-  return (result.data ?? []) as unknown as AdvisorNotification[]
+  // Urgent unread reservations must not disappear behind the 100 newest
+  // ordinary assignments. As each is acknowledged, the next batch can load.
+  if (urgent.error) throw urgent.error
+  const joined = (result.data ?? []) as unknown as AdvisorNotification[]
+  const all = new Map((urgent.data as unknown as AdvisorNotification[] || []).map(item => [item.id, item]))
+  for (const item of joined) all.set(item.id, item)
+  return [...all.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
 }
 
 export async function markAdvisorNotificationRead(

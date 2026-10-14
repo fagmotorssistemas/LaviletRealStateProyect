@@ -31,8 +31,8 @@ export function conversationToneAudit() {
 const replacements: Partial<Record<keyof typeof CURRENT_TONE, string>> = {
   turnLength: 'Adapte la extensión al nivel de detalle seleccionado.',
   address: 'Mantenga el trato de usted.',
-  courtesy: 'No repita fórmulas ni elogie cualquier afirmación.',
-  commercialWarmth: 'Resuelva lo que la persona acaba de preguntar. No repita aperturas recientes.',
+  courtesy: 'Una cortesía breve puede expresar disposición para ayudar. Varíe las aperturas y no elogie cualquier afirmación.',
+  commercialWarmth: 'Resuelva lo que la persona acaba de preguntar con cercanía. Conecte la orientación con el siguiente paso cuando aporte claridad, sin repetir aperturas recientes.',
   commercialLanguage: 'Evite tecnicismos como «uso mixto», «circulación comercial independiente», «unidades residenciales», «expectativa de renta» y «metraje». No atribuya parqueo a visitantes o inclusión en la compra si no consta.',
   commercialLength: 'Prefiera brevedad según el detalle seleccionado. Atienda todas las consultas y capturas obligatorias; la extensión y el número de preguntas son preferencias editoriales.',
   projectExample: '',
@@ -44,8 +44,8 @@ const replacements: Partial<Record<keyof typeof CURRENT_TONE, string>> = {
   outsideTone: CURRENT_TONE.outsideTone
     .replace('2 frases breves, amables y naturales, normalmente 20 a 45 palabras.', 'Use solo la extensión necesaria para aclarar ese límite.')
     .replace('Incluya una cortesía breve de comprensión o disculpa; evite empezar con una negativa seca.', 'Reconozca una confusión o molestia real con tacto, según el perfil seleccionado.'),
-  storedCommercialTone: 'Habla de usted. Varía las aperturas y también puedes empezar directamente con la respuesta.',
-  storedCourtesy: 'No repitas fórmulas ni elogies una queja, un presupuesto insuficiente o cualquier afirmación por costumbre.',
+  storedCommercialTone: 'Habla de usted con disposición para ayudar. Varía las aperturas y conecta naturalmente la respuesta con el paso pertinente.',
+  storedCourtesy: 'Usa cortesías breves cuando encajen con el perfil seleccionado, variando la redacción. No elogies una queja, un presupuesto insuficiente o cualquier afirmación por costumbre.',
   storedLength: 'Conteste todas las dudas sin sacrificar respuestas por un límite de palabras.',
   storedReviewerTone: 'Evalúe la redacción según el perfil seleccionado. No exija cortesías ni agradecimientos.',
   openingInstructions: 'No copie la misma apertura en turnos consecutivos ni rote mecánicamente muletillas. Resuelva la consulta concreta sin inventar preferencias, beneficios o emociones. No elogie dudas, dificultades económicas ni quejas.\n',

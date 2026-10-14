@@ -158,7 +158,7 @@ test('completion cannot replace an actual question, closed step, priority operat
   ] as Array<[string, Row]>) assert.deepEqual(completeRequiredContinuation(reply, candidate), { reply, audit: null })
 })
 
-test('a later writer attempt with its own question does not inherit a previous completion audit', async () => {
+test('a reviewer flow finding cannot force a second writer attempt or replace the system continuation', async () => {
   const second = 'Continuemos con la búsqueda. ¿Cuántos dormitorios necesita para su vivienda?'
   let writerCalls = 0, reviewCalls = 0
   const result = await completeTurnReply({ current: moneyQuote, baseReply: draft,
@@ -171,9 +171,9 @@ test('a later writer attempt with its own question does not inherit a previous c
         authoritative_fact: 'Conserve únicamente la continuación de dormitorios.' }] }
       : { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
   })
-  assert.equal(result.reply, second)
-  assert.equal(writerCalls, 2)
-  assert.equal(result.audit.server_continuation_completion, null)
+  assert.ok(result.reply.startsWith(draft))
+  assert.equal(writerCalls, 1)
+  assert.ok(result.audit.server_continuation_completion)
 })
 
 test('completion retains the delivered concrete entry proposal and its amount reference', () => {

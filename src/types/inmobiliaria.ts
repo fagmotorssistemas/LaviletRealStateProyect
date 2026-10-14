@@ -414,7 +414,7 @@ export interface AdvisorNotification {
   project_id: string
   recipient_id: string
   lead_id: string
-  kind: 'lead_assigned'
+    kind: 'lead_assigned' | 'reservation_requested' | 'reservation_confirmed'
   title: string
   body: string
   assignment_at: string

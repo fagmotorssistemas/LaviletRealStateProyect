@@ -31,7 +31,7 @@ describe('authorized profile capture and continued needs identification', () => 
     assert.deepEqual(decision.allowed_fields, ['current_residence'])
     assert.deepEqual(decision.allowed_question_ids, ['lead_profile_residence'])
     assert.equal(decision.reminders_sent, 0)
-    assert.ok(partial.reply.includes(BROCHURE_URL))
+    assert.equal(partial.reply.includes(BROCHURE_URL), false)
     const sent = remember(partial)
     assert.equal(sent.reminder_count, 1)
     for (const current of ['Me llamo Carlos', '¿Y qué precio tiene?', 'Me llamo Carlos, ¿y qué precio tiene?']) {
@@ -58,7 +58,7 @@ describe('authorized profile capture and continued needs identification', () => 
     assert.ok(turn.reply.indexOf('Los precios son referenciales') < turn.reply.indexOf('reside actualmente'))
     assert.doesNotMatch(turn.reply, /¿Busca vivienda o un local/)
     assert.match(String(turn.state.continuation_reply), /vivienda o un local/)
-    assert.ok(turn.reply.includes(BROCHURE_URL))
+    assert.equal(turn.reply.includes(BROCHURE_URL), false)
     const contract = finalWriterContract(turn.reply, turn.audit, { current: 'Me llamo Carlos, y qué precio tiene?', verified: { perfil_lead: name } })
     assert.equal(object(contract.estado_comercial).requiere_captura, true)
     assert.deepEqual(object(object(contract.estado_comercial).profile_collection_decision), decision)
@@ -66,7 +66,7 @@ describe('authorized profile capture and continued needs identification', () => 
     const sent = remember(turn)
     assert.equal(sent.reminder_count, 1)
     assert.equal(sent.collection_status, 'awaiting')
-    assert.equal(sent.brochure_sent, true)
+    assert.equal(sent.brochure_sent, false)
     const ignored = step('Quiero una vivienda', sent, {}, { reply: 'Tenemos opciones para vivienda. ¿Cuántos dormitorios necesita?' })
     assert.equal(object(ignored.audit.profile_collection_decision).action, 'defer')
     assert.match(ignored.reply, /Cuántos dormitorios necesita/)
@@ -173,7 +173,7 @@ describe('authorized profile capture and continued needs identification', () => 
     assert.equal(withoutQuestion.brochure_sent, true)
   })
 
-  it('requires an explicit semantic no-capture verdict when profile collection has been deferred', () => {
+  it('enforces no-capture in system controls without asking the factual reviewer to judge capture', () => {
     const turn = step('¿Y qué precio tiene?', requested, {})
     const contract = finalWriterContract(turn.reply, turn.audit, { verified: { perfil_lead: name } })
     const permission = reviewObligations(turn.audit, {}, contract).find(row => row.id === 'profile_collection_permission')!
@@ -183,9 +183,10 @@ describe('authorized profile capture and continued needs identification', () => 
     const result = focusedReviewIssues({ review_contract: FOCUSED_REVIEW_VERSION, claims: [], factual_values: [], project_values: [],
       non_factual_sentence_ids: ['S1'], pending_checks: [], obligation_checks: [{ id: permission.id,
         verdict: 'violated', sentence_ids: ['S1'], reason: 'Solicita residencia a pesar de estar pospuesta.' }] }, sentences, [permission])
-    assert.ok(result.issues.some(issue => issue.kind === 'commercial_content' && issue.obligation_id === permission.id))
+    assert.deepEqual(result.issues, [])
+    assert.deepEqual(leadProfileQuestionIssues(profileQuestion, turn.audit), ['lead_profile_question_not_authorized'])
     const unanswered = focusedReviewIssues({ review_contract: FOCUSED_REVIEW_VERSION, claims: [], factual_values: [], project_values: [],
       non_factual_sentence_ids: ['S1'], pending_checks: [], obligation_checks: [] }, sentences, [permission])
-    assert.ok(unanswered.issues.some(issue => issue.code === 'invalid_obligation_review'))
+    assert.deepEqual(unanswered.issues, [])
   })
 })

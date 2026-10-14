@@ -173,7 +173,7 @@ test('a reviewed empty-search answer passes in one draft and retains the alterna
     verified: { ...verified, property_context: { query } }, audit }, async (_rules, data, schema, _image, _file, _tone, task) => {
     calls.push(task || '')
     const result: Row = task === 'writing' ? { reply, question, requests: [{ fragment: 'R1', intent: 'Vivienda de cinco dormitorios', request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: 'bedrooms' }] }
-      : { verdict: 'pass', review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [fact(emptyId)], findings: [], question: { ...question, offered_action: 'information' } }
+      : { verdict: 'pass', review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [fact(emptyId)], findings: [], question: null }
     assert.equal(new Ajv({ allErrors: true }).compile(schema)(result), true)
     if (task === 'review') assert.equal(object(object(data).fuentes_autorizadas).unidades instanceof Array && (object(object(data).fuentes_autorizadas).unidades as Row[]).length, 0)
     return result

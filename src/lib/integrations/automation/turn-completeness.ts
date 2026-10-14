@@ -3,7 +3,7 @@ import { ensureReferentialPriceConditions, REFERENTIAL_PRICE_NOTICE_RULES, price
 import { actualContinuation, continuationMetadataIssues, validContinuationMetadata, continuationContentIssues, reconcileContinuationMetadata, completeRequiredContinuation } from './continuation-validation'
 import { responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply, InvalidWriterTransportError } from './response-review-policy'
 import { turnContinuationIssues } from './turn-continuation'
-import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts, STRUCTURED_FACT_RULES } from './structured-facts'
+import { structuredFactIssues, structuredProjectIssues, structuredReviewSchema, normalizeStructuredFacts } from './structured-facts'
 import { reviewDisposition } from './review-disposition'
 import { scopeTurnCatalog } from './turn-context-scope'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
@@ -27,17 +27,16 @@ import { buildNumericReferences, numericCoverageIssues, numericReferencesForProm
 import { numericPatchScope, numericPatchSchema, mergeNumericPatch, NUMERIC_PATCH_RULES } from './atomic-numeric-review'
 import { COMPARISON_EVIDENCE_RULES, EVIDENCE_VERDICT_RULES } from './comparison-evidence'
 import { semanticPendingScope, semanticPendingSchema, mergeSemanticPendingPatch, SEMANTIC_PENDING_RULES } from './semantic-pending-patch'
-import { sentenceInventoryIssues, SENTENCE_INVENTORY_RULES } from './review-inventory'
+import { sentenceInventoryIssues } from './review-inventory'
 import { FOCUSED_REVIEW_VERSION, FOCUSED_REVIEW_RULES, FOCUSED_EVIDENCE_RULES, RELATIONAL_FACT_RULES, reviewObligations, focusedReviewSchema, focusedReviewContext,
   focusedReviewIssues, adaptFocusedReview, focusedRepairScope, focusedRepairNumericReferences, mergeFocusedRepair, rowsForRepair, observedNumericIssues, claimReferencesForRepair,
   pendingReferencesForRepair, pendingResolutionSchema } from './focused-review'
-import { requestReferences, questionReferenceSchema, coverageReferenceSchema, resolveRequestReference, resolveQuestionReferences, type RequestReference } from './question-references'
+import { requestReferences, questionReferenceSchema, coverageReferenceSchema, resolveRequestReference, type RequestReference } from './question-references'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
-import { DIALOGUE_WRITING_RULES, DIALOGUE_REVIEW_RULES } from './dialogue-writing-rules'
-import { checkReviewDecision, reviewIssuesSchema, REVIEW_CHECK_RULES, FACTUAL_REVIEW_SCOPE_RULES } from './turn-review-checks'
-import { OPERATIONAL_REVIEW_RULES } from './operational-review'
+import { DIALOGUE_WRITING_RULES } from './dialogue-writing-rules'
+import { checkReviewDecision, reviewIssuesSchema } from './turn-review-checks'
 import { finalWriterContract, FINAL_WRITER_RULES, CATALOG_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues, includeRequiredBrochure, reservationOperationalIssues, protectInitialProjectPresentation } from './response-plan'
-import { leadIntroductionIssues, leadIntroductionRepairs, leadIntroductionReviewIssues, leadIntroductionReviewSchema, leadProfileQuestionIssues, LEAD_INTRODUCTION_RULES, LEAD_INTRODUCTION_REVIEW_RULES } from './lead-introduction'
+import { leadIntroductionIssues, leadIntroductionRepairs, leadIntroductionReviewSchema, leadProfileQuestionIssues, LEAD_INTRODUCTION_RULES } from './lead-introduction'
 import { confirmedLeadProfile } from './lead-profile'
 import { canRecoverAbsence, verifiedAbsenceReply } from './catalog-absence'
 import { BUSINESS_POLICY_RULES } from '@/lib/inmobiliaria/businessPolicies'
@@ -66,6 +65,7 @@ import { isVisitCopy, VISIT_COPY_RULES, VISIT_NATURAL_RULES, visitCopyIssues } f
 import 'server-only'
 import { aiJson } from './ai'
 import { object, text, type Row } from './data'
+import { REVIEWER_AUTHORITY_VERSION, REVIEWER_AUTHORITY_RULES, factualReviewObligations, factualReviewResult, factualReviewSchema } from './reviewer-authority'
 import { BROCHURE_DESCRIPTION } from './project-material'
 import { categoryPriceComparison } from './category-price-comparison'
 import { commercialMemory, experienceContext, residentialContinuationIssues, RESIDENTIAL_CONTINUITY_RULES, turnWritingRules } from './commercial-experience'
@@ -75,7 +75,7 @@ import { assessMissingFacts, catalogCoversFragment, coverageFactKeys } from './c
 import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
 import { decidedOpening, replyOpening, recentReplyOpenings, informationRequestOpening } from './response-openings'
-import { claimSchema, CLAIM_RULES, reviewClaims, factualValuesSchema, reviewedContextualGuidance, groundedClaimReviewSchema } from './semantic-review'
+import { claimSchema, reviewClaims, factualValuesSchema, reviewedContextualGuidance, groundedClaimReviewSchema } from './semantic-review'
 import { BUSINESS_RISK_REVIEW_RULES, businessRiskReviewInstructions, businessRiskSchemaForSources, businessRiskDecision, businessRiskContext,
   BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 import { validateBusinessFacts, factFindings, availableAssistance, ASSISTANCE_RULES } from './business-facts'
@@ -145,7 +145,6 @@ const evidenceReviewSchema: Row = { ...reviewSchema, properties: { ...object(rev
   required: [...reviewSchema.required as string[], 'claims', 'factual_values'] }
 
 const COVERAGE_RULES = DIALOGUE_WRITING_RULES
-const REVIEW_RULES = DIALOGUE_REVIEW_RULES + "\n" + REVIEW_CHECK_RULES
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const spaces = (value: string) => value.replace(/\s+/g, ' ').trim()
@@ -357,42 +356,6 @@ function questionRow(value: unknown, reply: string, issues: string[]): Question 
     : { text: '', purpose: 'none', missing_datum: '', next_decision: '' }
 }
 
-function reviewQuestion(raw: Row, reply: string, declared: Question, audit: Row, references: RequestReference[]) {
-  if (!replyQuestionText(reply)) return { question: { text: '', purpose: 'none', missing_datum: '', next_decision: '', clarifies: [] }, issues: [] as Row[], nextDecisionSource: 'no_question_in_reply' }
-  // Saved pre-contract reviews have no issue inventory or canonical question.
-  if (raw.review_issues === undefined && raw.question === undefined) return { question: declared, issues: [] as Row[], nextDecisionSource: 'legacy' }
-  const errors: string[] = [], question = questionRow(raw.question, reply, errors)
-  const links = resolveQuestionReferences(object(raw.question), references)
-  if (raw.question_has_purpose === false) errors.push('El revisor no aprobó esta pregunta como continuación automática; su observación no invalida por sí sola los hechos del mensaje.')
-  if (question?.text && (question.purpose === 'none' || question.role === 'none'))
-    errors.push('La ficha no identifica la función de la pregunta real; no se usará para avanzar el seguimiento.')
-  const needsDatum = question?.role === 'necessary_clarification' || question?.role === 'required_collection'
-    || !question?.role && ['clarify_request', 'collect_lead_profile', 'collect_financing_required'].includes(text(question?.purpose))
-  if (question?.text && needsDatum && !question.missing_datum.trim())
-    errors.push('La ficha de aclaración o captura no identifica el dato necesario; el contenido se revisa por separado.')
-  // Historical sheets did not distinguish an invitation from a selection. They
-  // may be delivered after factual approval but cannot authorize a next action.
-  if (question?.text && !question.role && !question.missing_datum.trim())
-    errors.push('La ficha histórica no distingue una invitación opcional de una solicitud de datos.')
-  let nextDecisionSource = question?.next_decision.trim() ? 'reviewer' : 'not_specified'
-  const profile = object(audit.profile_introduction)
-  if (question?.text && question.purpose === 'collect_lead_profile' && !question.next_decision.trim()) {
-    if (['collect_profile', 'collect_name', 'collect_residence'].includes(text(profile.question_purpose))) {
-      question.next_decision = profile.brochure_deferred === true
-        ? 'Entregar el brochure y continuar la guía personalizada al recibir los datos pendientes.'
-        : 'Continuar la guía personalizada al recibir los datos pendientes.'
-      nextDecisionSource = 'verified_profile_stage'
-    } else if (profile.question_purpose === 'confirm_residence') {
-      question.next_decision = 'Resolver la confirmación de residencia con la respuesta del lead y continuar la guía personalizada.'
-      nextDecisionSource = 'verified_profile_stage'
-    }
-  }
-  return { question: question ? { ...question, clarifies: links.clarifies, clarifies_request_ids: links.clarifies_request_ids } : declared,
-    referenceWarnings: links.warnings,
-    nextDecisionSource,
-    issues: errors.map(reason => ({ code: 'invalid_review_question_metadata', kind: 'follow_up_metadata', reason })) }
-}
-
 function missingRequestInventory(current: string, requests: Coverage[], verified: Row) {
   let remaining = spaces(current)
   for (const request of [...requests].sort((a, b) => b.fragment.length - a.fragment.length)) remaining = remaining.replace(spaces(request.fragment), '')
@@ -520,6 +483,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const introduction = object(input.audit?.profile_introduction)
   const informationOpeningRequired = introduction.generic_introduction === true
     && introduction.reason === 'first_substantive_project_contact' && introduction.stage === 'request'
+  const initialPresentationAudit = object(introduction.presentation).required === true
+    && text(object(introduction.presentation).approved_summary).trim()
+    ? { initial_presentation: { source: 'writer', policy: 'approved_summary_facts_with_free_wording' } } : {}
   const opening = { ...decidedOpening(input.baseReply, input.history),
     policy: informationOpeningRequired ? 'first_information_request' : 'editorial_suggestion', applied: false }
   const writerContract = finalWriterContract(input.baseReply, input.audit, input)
@@ -529,8 +495,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (completed.audit) serverContinuationCompletion = completed.audit
     return completed.reply
   }
-  const prepareReply = (reply: string) => completeContinuation(ensureReferentialPriceConditions(
-    applyTurnGreeting(protectInitialProjectPresentation(reply, input.audit || {}, input), text(input.audit?.writer_greeting)), input.verified, input.audit).reply)
+  const prepareReply = (reply: string, preserveWriter = false) => completeContinuation(ensureReferentialPriceConditions(
+    applyTurnGreeting(protectInitialProjectPresentation(reply, input.audit || {}, { ...input, preserveWriter }), text(input.audit?.writer_greeting)), input.verified, input.audit).reply)
   const profileQuestionAudit = { ...input.audit,
     profile_collection_decision: object(writerContract.estado_comercial).profile_collection_decision }
   const profileQuestionContentIssues = (actualQuestion: unknown): Row[] => leadProfileQuestionIssues(actualQuestion, profileQuestionAudit)
@@ -618,7 +584,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         writer_metadata_observations: observedMetadataIssues },
       question: deliveredQuestion, question_metadata_recovery: { ...writerMetadataRecovery,
         delivered_source: reviewedQuestionValid ? 'validated_reviewer' : recovery.corrected ? 'actual_question' : 'writer',
-        delivered_recovery: recovery }, requests: observedRequests, writer_contract: writerContract,
+        delivered_recovery: recovery }, requests: observedRequests, writer_contract: writerContract, ...initialPresentationAudit,
       commercial_journey: input.verified.siguiente_paso_comercial, commercial_continuation: continuationAudit(),
       resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
       text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
@@ -807,7 +773,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       // No model repair, reviewer call or extra writer attempt in disabled
       // mode. The emitted question still owns its locally recognized meaning.
       const transport = unreviewedWriterReply(proposedReply)
-      const reply = prepareReply(includeRequiredBrochure(transport.reply, input.audit, input))
+      const reply = prepareReply(includeRequiredBrochure(transport.reply, input.audit, input), true)
       const issues = [...mandatoryReplyIssues(input, reply),
         ...continuationContentIssues(reply, input.verified.siguiente_paso_comercial).map(issue => text(issue.code)),
         ...turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review_enabled: false } }, reply),
@@ -828,7 +794,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           final_validation: { passed: true, policy: 'mandatory_server_guards', issues: [], validated_text: reply },
           question: recoveredQuestion.question, question_metadata_recovery: recoveredQuestion,
           follow_up: { usable: questionUsable, source: 'validated_writer', warnings: continuationMetadataIssues(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial) },
-          writer_contract: writerContract } }
+          writer_contract: writerContract, ...initialPresentationAudit } }
     }
     if (attempt > 0 && object(repairAttempts.at(-1)?.rejected_review).review_contract === FOCUSED_REVIEW_VERSION
       && proposedReply.trim() === previousDraft.trim()) return fallback('rejected_review', requests, ['writer_repair_unchanged'])
@@ -852,7 +818,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     requests = rows || []
     const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
     const normalizedReply = protectInitialProjectPresentation(input.audit?.semantic_review_enabled === true
-      ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply, input.audit || {}, input)
+      ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply, input.audit || {}, { ...input, preserveWriter: true })
     const openedReply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
     opening.applied = openedReply !== normalizedReply
     const brochureReply = includeRequiredBrochure(openedReply, input.audit, input)
@@ -882,7 +848,13 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     }
     editorialObservations = turnEditorialObservations(input, reply, question)
     continuationChecks = {}
-    const allIssues = [...new Set([...mandatoryReplyIssues(input, reply), ...turnCompletenessIssues(input, reply)])]
+    const actualQuestion = actualContinuation(reply)
+    const systemProfileQuestion = text(actualQuestion.id).startsWith('lead_') && !financingCollectionActive(input.audit || {})
+      ? { continuation_id: actualQuestion.id, continuation_act: 'profile', purpose: 'collect_lead_profile' } : question
+    const systemQuestionIssues = [...profileQuestionContentIssues(systemProfileQuestion),
+      ...continuationContentIssues(reply, input.verified.siguiente_paso_comercial)]
+    const allIssues = [...new Set([...mandatoryReplyIssues(input, reply), ...turnCompletenessIssues(input, reply),
+      ...systemQuestionIssues.map(issue => text(issue.code))])]
     finalValidation = { passed: false, issues: allIssues,
       project_quantity_checks: input.audit?.semantic_review_enabled === true ? [] : validateProjectQuantities(reply, sharedEvidence.project_facts).details,
       validated_text: reply, policy: 'subject_attribute_quantity_v2' }
@@ -903,37 +875,31 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     let unresolved = [...new Set([...safeBase.unresolved, ...requests.filter(row => row.status === 'missing_fact').map(row => row.fragment)])]
     const reviewRequired = observationOnly || unresolved.length > 0 || !!question.text || !!input.audit?.profile_introduction || adaptiveContinuation || input.audit?.semantic_review_enabled === true || metadataDraft !== null || reply !== input.baseReply.trim() || missingRequestInventory(input.current, requests, input.verified)
     if (input.audit?.semantic_review_enabled === true && input.audit?.business_risk_review_enabled === true) {
-      const obligations = turnObligations
+      const obligations = factualReviewObligations(turnObligations)
       const riskContext = businessRiskContext({ current: input.current, reply, obligations,
         units: modelEvidence.units, groups: modelEvidence.groups, projectFacts: modelEvidence.project_facts,
         claimSources, verified: input.verified, audit: input.audit || {},
         allowedLinks: linkContract.allowed_links })
-      const riskRules = businessRiskReviewInstructions(optimizedPrompt && !financialTask) + '\n' + passiveSalesRules(engagement)
+      const riskRules = businessRiskReviewInstructions(optimizedPrompt && !financialTask)
       normalRuleSets.set('review', { actual: riskRules, normal: BUSINESS_RISK_REVIEW_RULES })
       const riskSchema = businessRiskSchemaForSources(modelEvidence.units, modelEvidence.groups)
-      let rawReview = await generate(riskRules, riskContext, riskSchema,
-        undefined, undefined, undefined, 'review')
+      let rawReview = factualReviewResult(await generate(riskRules, riskContext, riskSchema,
+        undefined, undefined, undefined, 'review'))
       let riskDecision = businessRiskDecision(rawReview)
       const checkFacts = (facts: unknown) => validateBusinessFacts(facts,
         [...new Map([...inventoryValidationUnits, ...sharedEvidence.units].map(unit => [unit.id, unit])).values()],
         sharedEvidence.groups, effectiveTurnBudget(input.verified), reasoningEvidence, reply)
       let factChecks = checkFacts(rawReview.facts)
       const originalChecks = factChecks
-      const writerQuestionValid = validContinuationMetadata(question, reply, input.verified.siguiente_paso_comercial)
-      const contentQuestionIssues = continuationContentIssues(reply, input.verified.siguiente_paso_comercial)
-      const originalQuestionChecks = rawReview.question
-        ? continuationMetadataIssues(rawReview.question, reply, input.verified.siguiente_paso_comercial) : []
-      const repairableChecks: Row[] = [...factChecks.filter(check => check.status === 'contradiction' || check.repairable),
-        ...originalQuestionChecks.map(code => ({ code, kind: 'review_metadata', actual_question: replyQuestionText(reply),
-          writer_question: question, reviewer_question: rawReview.question }))]
+      const repairableChecks: Row[] = factChecks.filter(check => check.status === 'contradiction' || check.repairable)
       // A valid content rejection already requires a rewrite. Rechecking its
       // auxiliary facts first adds latency without making that draft sendable.
       // Metadata recovery remains available for otherwise approved drafts.
-      if (!observationOnly && (!riskDecision.valid || riskDecision.approved && repairableChecks.length && !contentQuestionIssues.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
+      if (!observationOnly && (!riskDecision.valid || riskDecision.approved && repairableChecks.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
         const originalReview = rawReview
         let repairError = ''
         try {
-          rawReview = await generate(riskRules + '\nREPARE SOLO LA REVISIÓN del mismo borrador, sin redactar otro mensaje. question describe la última pregunta realmente escrita: purpose, continuation_id y continuation_act deben concordar. Pedir nombre o residencia usa profile y collect_lead_profile; elegir planta usa choose_floor. No cambie el texto ni reabra decisiones resueltas. Compruebe si las observaciones señaladas interpretan fielmente lo escrito. Si la extracción es correcta y el dato del borrador es falso, mantenga ese dato y señale el riesgo. Si era un error de ficha, corrija kind, referencia, scope o relación. Los filtros de scope describen el conjunto afirmado, no los requisitos del cliente; no cambie las cifras para acomodarlas a un grupo incorrecto. Conserve statement para vincular cada reparación; no elimine una contradicción sin resolverla. Conserve las observaciones no afectadas y las obligaciones. Un cálculo no soportado por código no es por sí mismo un error comercial.',
+          rawReview = await generate(riskRules + '\nREPARE SOLO LA REVISIÓN del mismo borrador, sin redactar otro mensaje. No evalúe preguntas, captura ni continuidad. No cambie el texto. Compruebe si las observaciones señaladas interpretan fielmente lo escrito. Si la extracción es correcta y el dato del borrador es falso, mantenga ese dato y señale el riesgo. Si era un error de ficha, corrija kind, referencia, scope o relación. Los filtros de scope describen el conjunto afirmado, no los requisitos del cliente; no cambie las cifras para acomodarlas a un grupo incorrecto. Conserve statement para vincular cada reparación; no elimine una contradicción sin resolverla. Conserve las observaciones no afectadas y las obligaciones. Un cálculo no soportado por código no es por sí mismo un error comercial.',
             { ...riskContext, revision_anterior: originalReview, comprobaciones_a_revisar: repairableChecks },
             riskSchema, undefined, undefined, undefined, 'review')
         } catch (error) {
@@ -944,6 +910,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           repairError = error instanceof Error ? error.message : 'REVIEW_METADATA_UNAVAILABLE'
           rawReview = originalReview
         }
+        rawReview = factualReviewResult(rawReview)
         const repairedDecision = businessRiskDecision(rawReview)
         if (!repairedDecision.valid && riskDecision.valid) {
           repairError = 'INVALID_REPAIRED_METADATA'
@@ -962,49 +929,30 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           issues: repairableChecks, original_review: originalReview, repaired_review: rawReview,
           proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) })
       }
-      const questionErrors: string[] = []
-      const reviewedQuestion = rawReview.question ? questionRow(rawReview.question, reply, questionErrors) : null
-      const reviewedQuestionChecks = rawReview.question
-        ? continuationMetadataIssues(rawReview.question, reply, input.verified.siguiente_paso_comercial) : []
-      const preserveWriterQuestion = writerQuestionValid && (questionErrors.length > 0 || reviewedQuestionChecks.length > 0)
-      // Metadata cannot invalidate an otherwise valid question in an approved draft.
-      // It has its own repair budget, even after the commercial text was repaired.
-      if (reviewedQuestion && !questionErrors.length && !reviewedQuestionChecks.length) question = reviewedQuestion
-      if (preserveWriterQuestion) questionErrors.length = 0
       proposedQuestion = question
       const numericFindings = factFindings(factChecks)
-      const actualQuestion = actualContinuation(reply)
-      const profileCheckQuestion = text(actualQuestion.id).startsWith('lead_') && !financingCollectionActive(input.audit || {})
-        ? { continuation_id: actualQuestion.id, continuation_act: 'profile', purpose: 'collect_lead_profile' } : question
-      const profileIssues = [...profileQuestionContentIssues(profileCheckQuestion),
-        ...contentQuestionIssues]
-      const riskFindings = [...riskDecision.findings, ...numericFindings,
-        ...profileIssues.map(issue => ({ category: issue.code, statement: question.text,
-          reason: issue.reason, authoritative_fact: issue.authoritative_fact || JSON.stringify(profileQuestionAudit.profile_collection_decision) }))]
-      const approved = riskDecision.approved && numericFindings.length === 0 && profileIssues.length === 0
+      const riskFindings = [...riskDecision.findings, ...numericFindings]
+      const approved = riskDecision.approved && numericFindings.length === 0
       const riskIssues: Row[] = [...riskDecision.findings, ...numericFindings].map(finding => ({ code: text(finding.category),
         kind: 'commercial_content', statement: text(finding.statement),
         reason: [text(finding.reason), text(finding.authoritative_fact) && `Dato o regla autorizada: ${text(finding.authoritative_fact)}`].filter(Boolean).join(' '),
         authoritative_fact: text(finding.authoritative_fact), owner: numericFindings.includes(finding) ? 'system' : 'reviewer', repair_owner: 'writer' }))
-      riskIssues.push(...profileIssues)
-      const usableQuestion = !question.text || (!!question.purpose && question.purpose !== 'none' && question.role !== 'none'
-        && (!reviewedQuestionChecks.length || preserveWriterQuestion))
-      const offeredAction = text(object(rawReview.question).offered_action)
+      const usableQuestion = !question.text || validContinuationMetadata(question, reply, input.verified.siguiente_paso_comercial)
       semanticReview = { status: riskDecision.valid ? approved ? 'checked' : 'rejected' : 'invalid_review',
         review_contract: BUSINESS_RISK_REVIEW_VERSION, validation_owner: BUSINESS_RISK_REVIEW_VERSION,
         findings: riskFindings, validation_details: riskIssues, query: input.audit?.catalog_query || null,
         claims: [], factual_values: [], extracted_facts: rawReview.facts || [], fact_checks: JSON.parse(JSON.stringify(factChecks)),
-        original_fact_checks: JSON.parse(JSON.stringify(originalChecks)), question, offered_action: offeredAction, quality_checks: 'not_requested',
-        question_metadata: { owner: preserveWriterQuestion ? 'validated_writer' : reviewedQuestion && !questionErrors.length && !reviewedQuestionChecks.length ? 'reviewer' : 'writer', text_source: 'actual_reply',
-          corrected: originalQuestionChecks.length > 0, original_issues: originalQuestionChecks, remaining_issues: reviewedQuestionChecks,
-          writer_preserved: preserveWriterQuestion, writer_recovery: writerMetadataRecovery },
-        turn_obligations: { status: riskDecision.valid ? 'checked' : 'invalid_review', ids: turnObligations.map(obligation => obligation.id) },
+        original_fact_checks: JSON.parse(JSON.stringify(originalChecks)), question, quality_checks: 'not_requested',
+        reviewer_authority: REVIEWER_AUTHORITY_VERSION, ignored_findings: riskDecision.ignoredFindings,
+        question_metadata: { owner: 'writer_and_system', text_source: 'actual_reply', writer_recovery: writerMetadataRecovery },
+        turn_obligations: { status: 'not_evaluated_by_reviewer', ids: obligations.map(obligation => obligation.id) },
+        system_flow_validation: { owner: 'system', passed: systemQuestionIssues.length === 0, issues: systemQuestionIssues },
         acceptance: { content_approved: approved, follow_up_usable: riskDecision.valid && usableQuestion } }
-      continuationChecks = { validation_scope: 'business_risks_and_explicit_turn_obligations', all_requests_considered: approved, answered_content_preserved: approved,
-        question_has_purpose: approved, answers_supported: approved,
-        operational_goal_preserved: approved }
+      continuationChecks = { validation_scope: 'facts_and_promises_with_system_owned_flow', all_requests_considered: approved, answered_content_preserved: approved,
+        question_has_purpose: usableQuestion, answers_supported: approved,
+        operational_goal_preserved: systemQuestionIssues.length === 0 }
       followUp = { usable: riskDecision.valid && usableQuestion,
-        warnings: [...questionErrors, ...(!preserveWriterQuestion ? reviewedQuestionChecks : []), ...(!usableQuestion ? ['question_metadata_unusable'] : [])], writer_metadata_observations: writerQuestionWarnings }
+        warnings: !usableQuestion ? ['writer_question_metadata_unusable'] : [], writer_metadata_observations: writerQuestionWarnings }
       if (!riskDecision.valid) return fallback('rejected_review', requests, ['invalid_business_risk_review'])
       if (!approved) {
         if (attempt === 0 && !observationOnly) {
@@ -1021,14 +969,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const numericCandidates = input.audit?.semantic_review_enabled === true ? [] : draftNumericCandidates(reply)
       Object.assign(context, { oraciones_borrador: sentenceReferences })
       const semanticEnabled = input.audit?.semantic_review_enabled === true
-      const reviewInstructions = (semanticEnabled ? FOCUSED_REVIEW_RULES + '\n' + FOCUSED_EVIDENCE_RULES + '\n' + RELATIONAL_FACT_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES + '\n' + EVIDENCE_VERDICT_RULES
-        : REVIEW_RULES + '\n' + BUSINESS_POLICY_RULES + '\n' + TURN_INTENT_RULES + RESIDENTIAL_CONTINUITY_RULES
-        + (input.audit?.profile_introduction ? '\n' + LEAD_INTRODUCTION_RULES + '\n' + LEAD_INTRODUCTION_REVIEW_RULES : '')
-        + (input.audit?.progressive_selection || input.audit?.post_tour_continuation ? '\n' + PROGRESSIVE_OPTIONS_RULES : '')
-        + visitRules
-        + (semanticEnabled ? '\n' + CLAIM_RULES : '')
-        + '\n' + FACTUAL_REVIEW_SCOPE_RULES + '\n' + OPERATIONAL_REVIEW_RULES + '\n' + SEMANTIC_POLICY_REVIEW_RULES + (semanticEnabled ? '\n' + STRUCTURED_FACT_RULES + '\n' + SENTENCE_INVENTORY_RULES : ''))
-        + '\n' + passiveSalesRules(engagement)
+      const reviewInstructions = (semanticEnabled
+        ? FOCUSED_REVIEW_RULES + '\n' + FOCUSED_EVIDENCE_RULES + '\n' + RELATIONAL_FACT_RULES + '\n' + TURN_CONTEXT_REFERENCE_RULES + '\n' + COMPARISON_EVIDENCE_RULES + '\n' + EVIDENCE_VERDICT_RULES
+        : 'Revise solo hechos y promesas que el borrador afirma. Use review_issues con answers_supported y referencias del borrador para contradicciones o afirmaciones sin respaldo; no evalúe solicitudes ni omisiones. Extraiga los datos que pida el esquema sin inventar ni copiar cifras ausentes del texto.\n' + SEMANTIC_POLICY_REVIEW_RULES)
+        + '\n' + REVIEWER_AUTHORITY_RULES
       const openingSchema = leadIntroductionReviewSchema(input.audit, sentenceReferences)
       const reviewContext = { ...(openingSchema.required.length ? { contrato_apertura: {
         etapa: 'presentacion_inicial_sin_tipos_de_inmueble',
@@ -1047,13 +991,15 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       if (semanticEnabled) activeReviewSchema = structuredReviewSchema(activeReviewSchema, sentenceReferences.map(row => text(row.id)), validationCatalog, sharedEvidence.project_facts)
       activeReviewSchema = questionReferenceSchema(activeReviewSchema, requestRefs)
       if (semanticEnabled) activeReviewSchema = groundedClaimReviewSchema(activeReviewSchema, claimSources)
-      const obligations = reviewObligations(input.audit || {}, input.verified, writerContract)
+      const obligations = factualReviewObligations(reviewObligations(input.audit || {}, input.verified, writerContract))
       if (semanticEnabled) activeReviewSchema = focusedReviewSchema(activeReviewSchema, sentenceReferences, obligations, validationCatalog, numericReferences)
-      const modelReviewContext = semanticEnabled ? focusedReviewContext(reviewContext, obligations) : reviewContext
+      activeReviewSchema = factualReviewSchema(activeReviewSchema)
+      const modelReviewContext = focusedReviewContext(reviewContext, obligations)
       const evaluateReview = (raw: Row) => {
         const focused = raw.review_contract === FOCUSED_REVIEW_VERSION
         raw = adaptFocusedReview(raw, question, requests.map(request => ({ ...request,
           reference_id: requestRefs.find(ref => ref.text === request.fragment)?.id })), claimSources)
+        raw = factualReviewResult(raw)
         raw = { ...raw, missing_fact_fragments: Array.isArray(raw.missing_fact_fragments)
           ? raw.missing_fact_fragments.map(entry => resolveRequestReference(entry, requestRefs)) : raw.missing_fact_fragments }
         const normalized = normalizeReviewReferences(raw, validationCatalog, reply, input.current, semanticEnabled)
@@ -1090,10 +1036,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           answers_supported: checked.valid && factIssues.length === 0,
           operational_goal_preserved: !inventory.issues.some(issue => issue.obligation_id),
         } } : checkReviewDecision(review, input.current, reply)
-        const openingIssues = focused ? [] : leadIntroductionReviewIssues(review, input.audit, sentenceReferences)
+        const openingIssues: Row[] = []
         if (openingIssues.some(issue => issue.kind === 'commercial_content')) decision.checks.operational_goal_preserved = false
-        const reviewedQuestion = reviewQuestion(review, reply, question, input.audit || {}, requestRefs)
-        const profileIssues = profileQuestionContentIssues(reviewedQuestion.question)
+        const reviewedQuestion = { question, issues: [] as Row[], nextDecisionSource: 'writer_and_system', referenceWarnings: [] as string[] }
+        const profileIssues: Row[] = []
         if (profileIssues.length) decision.checks.operational_goal_preserved = false
         const missingIssues = !Array.isArray(review.missing_fact_fragments)
           || review.missing_fact_fragments.some(fragment => typeof fragment !== 'string' || !literal(fragment, input.current))
@@ -1231,10 +1177,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         if (draftRepair) draftRepair.progress = numericRepairProgress(draftRepair.issues, reviewIssues)
         followUp = { usable: evaluated.disposition.follow_up_usable, warnings: evaluated.disposition.warnings,
           writer_metadata_observations: writerQuestionWarnings }
-        reviewMissing = Array.isArray(review.missing_fact_fragments) ? review.missing_fact_fragments.filter((fragment): fragment is string => typeof fragment === 'string' && literal(fragment, input.current)) : []
+        reviewMissing = []
         continuationChecks = decision.checks
         editorialObservations.push(...decision.editorial.map(issue => `review_editorial:${text(issue.check)}:${text(issue.reason)}`))
-        semanticReview = { status: reviewIssues.length === 0 ? 'checked' : 'rejected', validation_owner: semanticEnabled ? 'structured_facts_v1' : 'legacy', project_values: review.project_values || [], factual_inventory_complete: review.factual_inventory_complete, query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: evaluated.factIssues.length === 0, validation_details: reviewIssues, repair_eligibility: repairEligibility,
+        semanticReview = { reviewer_authority: REVIEWER_AUTHORITY_VERSION, status: reviewIssues.length === 0 ? 'checked' : 'rejected', validation_owner: semanticEnabled ? 'structured_facts_v1' : 'legacy', project_values: review.project_values || [], factual_inventory_complete: review.factual_inventory_complete, query: input.audit?.catalog_query || null, claims: checked.claims, factual_values: review.factual_values, factual_values_valid: evaluated.factIssues.length === 0, validation_details: reviewIssues, repair_eligibility: repairEligibility,
           opening_property_type_sentence_ids: review.opening_property_type_sentence_ids,
           opening_project_presentation_sentence_ids: review.opening_project_presentation_sentence_ids,
           sentence_inventory: review.sentence_inventory || null,
@@ -1259,10 +1205,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           ...(!checked.valid ? ['semantic_claims_unsupported_or_invalid'] : []),
           ...reviewIssues.map(issue => text(issue.code)),
         ])
-      // The independent reviewer supplies the meaning; the system supplies the
-      // exact text. Correcting this metadata never rewrites an approved draft.
+      // Tracking keeps the writer's question and actual text. Review metadata
+      // cannot classify it again, replace it or invent a subsequent action.
       const questionChanged = ['purpose', 'missing_datum', 'next_decision'].some(key => object(question)[key] !== object(evaluated.question)[key])
-      semanticReview.question_metadata = { owner: evaluated.focused ? 'writer' : 'reviewer', text_source: 'actual_reply', corrected: questionChanged, usable_for_tracking: followUp.usable,
+      semanticReview.question_metadata = { owner: 'writer_and_system', text_source: 'actual_reply', corrected: questionChanged, usable_for_tracking: followUp.usable,
         reference_warnings: evaluated.questionReferenceWarnings,
         next_decision_source: evaluated.nextDecisionSource,
         ...(questionChanged ? { proposed: question, reviewed: evaluated.question } : {}) }
@@ -1312,7 +1258,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         operational_action_verified: object(input.audit?.reservation).handoff_verified === true && continuationChecks.operational_goal_preserved === true && continuationChecks.answers_supported === true,
         text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
         commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
-        repair_budget: repairBudget(), independent_review: reviewRequired,
+        repair_budget: repairBudget(), independent_review: reviewRequired, ...initialPresentationAudit,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments, needs_advisor: unresolved.length > 0, unresolved,
         base_preview: traceText(originalBase, MAX_REPLY_CHARACTERS), proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS), final_preview: traceText(reply, MAX_REPLY_CHARACTERS) } }
     }

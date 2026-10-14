@@ -27,10 +27,11 @@ test('review receives the same semantic content scope without making allowed top
   assert.equal(reviewObligations({}, {}, {}).some(row => row.id === 'response_content_scope'), false)
   const context = focusedReviewContext({ mensaje_actual: current,
     contexto_verificado: { alcance_contenido_turno: scope }, evidencia_afirmaciones: [] }, [value])
-  assert.deepEqual(object(context.contexto_verificado).alcance_contenido_turno, scope)
+  assert.equal(object(context.contexto_verificado).alcance_contenido_turno, undefined)
+  assert.deepEqual(context.obligaciones_aplicables, [])
 })
 
-test('focused review treats irrelevant true content as a commercial scope issue, not a false catalogue price', () => {
+test('focused review cannot turn content relevance into a factual veto', () => {
   const obligations = [obligation()]
   const review = { claims: [], factual_values: [], project_values: [], non_factual_sentence_ids: ['S1'], pending_checks: [],
     obligation_checks: [{ id: 'response_content_scope', verdict: 'violated', sentence_ids: ['S1'],
@@ -40,12 +41,9 @@ test('focused review treats irrelevant true content as a commercial scope issue,
   // This isolated schema deliberately does not declare evidence lists; test the
   // live obligation item as well as the runtime disposition of its decision.
   const check = new Ajv().compile(object(object(schema.properties).obligation_checks).items)
-  assert.equal(check(review.obligation_checks[0]), true, JSON.stringify(check.errors))
+  assert.equal(check(review.obligation_checks[0]), false)
   const issues = focusedReviewIssues(value, sentences, obligations).issues
-  assert.equal(issues.length, 1)
-  assert.equal(issues[0].code, 'commercial_obligation_violated')
-  assert.equal(issues[0].kind, 'commercial_content')
-  assert.equal(issues[0].obligation_id, 'response_content_scope')
+  assert.deepEqual(issues, [])
 })
 
 test('courtesy and repetition alone do not invent a scope veto', () => {
@@ -57,9 +55,9 @@ test('courtesy and repetition alone do not invent a scope veto', () => {
 })
 
 test('all reviewer paths preserve relevance and dynamic price conditions without a launch-stage obligation', () => {
-  assert.match(businessRiskReviewInstructions(), /response_content_scope/)
-  assert.match(SEMANTIC_POLICY_REVIEW_RULES, /topics.allowed/)
-  assert.match(SEMANTIC_POLICY_REVIEW_RULES, /referencial vigente/)
+  assert.match(businessRiskReviewInstructions(), /No evalúe las obligaciones del redactor/)
+  assert.match(SEMANTIC_POLICY_REVIEW_RULES, /No decide qué comunicar ni qué preguntar/)
+  assert.match(SEMANTIC_POLICY_REVIEW_RULES, /fuente, vigencia y condiciones/)
   assert.match(PRICE_REPLY_RULES, /La etapa por sí sola no decide/)
   const prices = reviewObligations({}, { politica_comercial: { precios_aproximados: true } }, {})
     .find(row => row.id === 'price_conditions')!

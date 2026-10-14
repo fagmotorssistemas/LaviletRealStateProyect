@@ -67,7 +67,7 @@ test('known preferences choose the remaining decision rather than repeating the 
   assert.equal(obligation.question_id, contract.continuacion_del_turno.question_id)
 })
 
-test('writer and both review contracts share a semantic connection obligation, independent of a happy-path draft', () => {
+test('writer owns the connection obligation while both reviewer contracts exclude it', () => {
   const info = fresh(), journey = commercialJourneyPlan(info, audit)
   const verified = { ...info, siguiente_paso_comercial: journey }
   const contract = finalWriterContract('', audit, { verified })
@@ -75,9 +75,8 @@ test('writer and both review contracts share a semantic connection obligation, i
   assert.equal(contract.continuacion_del_turno.response_connection, 'answer_to_pending_decision')
   assert.equal(obligation.response_connection, contract.continuacion_del_turno.response_connection)
   for (const rules of [businessRiskReviewInstructions(), businessRiskReviewInstructions(true), DIALOGUE_REVIEW_RULES]) {
-    assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, 1)
-    assert.ok(rules.includes('no exige un conector, una frase literal'))
-    assert.ok(rules.includes('no es información faltante del proyecto ni requiere un asesor'))
+    assert.equal(rules.includes(CONVERSATION_BRIDGE_RULES), false)
+    assert.ok(rules.includes('No decide qué comunicar ni qué preguntar'))
   }
   for (const action of ['leave_open', 'await_reservation', 'visit_pending', 'current_operation']) {
     const plan = { action, question: '', question_id: '' }
@@ -98,7 +97,7 @@ test('an intermediate answer keeps its semantic connection contract in the real 
       calls.push(String(task))
       try {
         const context = object(raw)
-        assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, 1)
+        assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, task === 'writing' ? 1 : 0)
         assert.equal(object(object(context.contrato_redaccion).continuacion_del_turno).response_connection, 'answer_to_pending_decision')
         assert.equal((context.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')?.response_connection,
           'answer_to_pending_decision')
@@ -111,7 +110,7 @@ test('an intermediate answer keeps its semantic connection contract in the real 
   assert.equal(result.audit.status, 'review_disabled')
 })
 
-test('the existing reviewer can repair a disconnected answer with a present CTA without losing the factual answer', async () => {
+test('the factual reviewer cannot force an editorial transition rewrite with a valid factual answer', async () => {
   const answer = 'Aún no hay una fecha de entrega confirmada.'
   const disconnected = `${answer} El proyecto tendrá viviendas y locales. ¿Busca vivienda o un local?`
   const connected = `${answer} Mientras conoce las opciones del proyecto, ¿busca vivienda o un local?`
@@ -122,8 +121,8 @@ test('the existing reviewer can repair a disconnected answer with a present CTA 
       const data = object(raw)
       try {
         const step = (data.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
-        assert.equal(step.response_connection, 'answer_to_pending_decision')
-        assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, 1)
+        assert.equal(step?.response_connection, task === 'writing' ? 'answer_to_pending_decision' : undefined)
+        assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, task === 'writing' ? 1 : 0)
         if (calls.length === 3) {
           const repair = object(data.reparacion)
           assert.ok(JSON.stringify(repair.correcciones_concretas).includes('commercial_next_step.response_connection'))
@@ -137,11 +136,11 @@ test('the existing reviewer can repair a disconnected answer with a present CTA 
         authoritative_fact: 'Conserve la respuesta de entrega y enlace la decisión pendiente sin reiniciar la presentación.' }] } : reviewPass
     })
   assert.deepEqual(errors, [])
-  assert.deepEqual(calls, ['writing', 'review', 'writing', 'review'])
-  assert.equal(result.reply, connected)
+  assert.deepEqual(calls, ['writing', 'review'])
+  assert.equal(result.reply, disconnected)
   assert.equal(result.needsAdvisor, false)
   assert.equal(result.audit.status, 'checked')
-  assert.ok((result.audit.repair_attempts as Row[]).some(row => object(row.rejected_review).verdict === 'block'))
+  assert.deepEqual(result.audit.repair_attempts, [])
 })
 
 test('a delivery inquiry preserves known preferences and carries the same timeline to writer and reviewer', async () => {
@@ -155,7 +154,7 @@ test('a delivery inquiry preserves known preferences and carries the same timeli
     async(_rules,raw,_schema,_image,_file,_tone,task)=>{
       calls.push(String(task));const input=object(raw)
       try {
-        assert.equal((input.obligaciones_del_turno as Row[]).find(item=>item.id==='commercial_next_step')?.question_id,'budget_amount')
+        assert.equal((input.obligaciones_del_turno as Row[]).find(item=>item.id==='commercial_next_step')?.question_id,task==='writing'?'budget_amount':undefined)
         if(task==='writing')assert.deepEqual(object(input.contexto_verificado).entrega_proyecto,entrega_proyecto)
         else assert.deepEqual(object(input.fuentes_autorizadas).entrega_proyecto,entrega_proyecto)
       }catch(error){errors.push(error);throw error}
@@ -175,7 +174,7 @@ test('reviewed pipeline completes a missing canonical CTA without a second write
       const data = object(raw); calls.push(String(task))
       try {
         const obligation = (data.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
-        assert.equal(obligation.continuation_required, true)
+        assert.equal(obligation?.continuation_required, task === 'writing' ? true : undefined)
       } catch (error) { errors.push(error); throw error }
       return task === 'writing' ? draft(calls.length === 1 ? answer : reply) : reviewPass
     })
@@ -198,7 +197,7 @@ test('completion of a CTA cannot bypass an unavailable or invalid factual review
   assert.equal(object(result.audit.final_validation).passed, false)
 })
 
-test('the reviewer can reject a generic CTA that replaces the actual pending decision', async () => {
+test('a reviewer cannot veto a generic CTA; continuation instructions belong to the writer and system', async () => {
   const answer = 'El proyecto combina viviendas y espacios comerciales.'
   const generic = '¿Desea más información?', specific = '¿Busca una vivienda o un local para su negocio?'
   const calls: string[] = [], errors: unknown[] = []
@@ -207,9 +206,9 @@ test('the reviewer can reject a generic CTA that replaces the actual pending dec
       calls.push(String(task))
       if (task === 'writing') return draft(`${answer} ${calls.length === 1 ? generic : specific}`)
       try {
-        assert.match(rules, /continuation_required=true/)
+        assert.doesNotMatch(rules, /continuation_required=true/)
         const next = (object(raw).obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
-        assert.equal(next.question_id, 'property_category')
+        assert.equal(next, undefined)
       } catch (error) { errors.push(error); throw error }
       return calls.length === 2 ? { ...reviewPass, verdict: 'block', findings: [{ category: 'turn_goal', statement: generic,
         reason: 'commercial_next_step exige identificar vivienda o comercio; ofrecer más información no recoge esa decisión.',
@@ -217,8 +216,8 @@ test('the reviewer can reject a generic CTA that replaces the actual pending dec
     })
   assert.deepEqual(errors, [])
   assert.equal(result.audit.status, 'checked')
-  assert.equal(result.reply, `${answer} ${specific}`)
-  assert.deepEqual(calls, ['writing', 'review', 'writing', 'review'])
+  assert.equal(result.reply, `${answer} ${generic}`)
+  assert.deepEqual(calls, ['writing', 'review'])
   assert.equal(result.needsAdvisor, false)
 })
 

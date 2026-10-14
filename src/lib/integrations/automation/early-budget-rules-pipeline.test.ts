@@ -42,7 +42,7 @@ for (const mode of modes) test('early budget survives writer, reviewer and quest
         return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: { ...metadata, offered_action: 'none' } }
       }))
   assert.equal(result.reply, reply, String(result.audit.status))
-  for (const context of contexts) {
+  for (const context of contexts.filter((_value, index) => tasks[index] === 'writing')) {
     const obligation = rows(context.obligaciones_del_turno).find(row => row.id === 'commercial_next_step')!
     assert.equal(obligation.question_id, 'budget_amount')
     assert.equal(obligation.continuation_required, true)
@@ -57,7 +57,8 @@ for (const mode of modes) test('early budget survives writer, reviewer and quest
   if (contexts.length > 1) {
     const writerPlan = rows(contexts[0].obligaciones_del_turno).find(row => row.id === 'commercial_next_step')
     const reviewPlan = rows(contexts[1].obligaciones_del_turno).find(row => row.id === 'commercial_next_step')
-    assert.deepEqual(reviewPlan, writerPlan)
+    assert.ok(writerPlan)
+    assert.equal(reviewPlan, undefined)
   }
   const delivered = progressivePendingQuestion(result.reply, { ...stale, commercial_journey: plan, turn_completeness: result.audit })
   assert.equal(delivered.id, 'budget_amount')
