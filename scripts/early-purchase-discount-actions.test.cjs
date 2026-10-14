@@ -7,7 +7,7 @@ const ts = require('typescript')
 require('./test-typescript.cjs')
 const discounts = require('../src/lib/inmobiliaria/earlyPurchaseDiscounts.ts')
 
-function harness({ admin = true, readError = false, concurrent = false, writeError = false } = {}) {
+function harness({ admin = true, readError = false, concurrent = false, writeError = false, section = 'descuentos' } = {}) {
   const calls = [], project = { id: 'project', tenant_id: 'tenant', updated_at: 'version', policies_json: {
     response_review: { enabled: false }, financing_guidance: { preserve: true }, other: 'preserve' } }
   const supabase = { from(table) {
@@ -25,9 +25,12 @@ function harness({ admin = true, readError = false, concurrent = false, writeErr
   const loaded = { exports: {} }, mocks = {
     '@/lib/auth/session': { assertAdmin: async () => { if (!admin) throw Error('PRIVATE_AUTH'); return { user: { id: 'administrator' } } }, getSessionUser: async () => ({ supabase }) },
     '@/lib/inmobiliaria/earlyPurchaseDiscounts': discounts,
+    '@/lib/inmobiliaria/cashPaymentRules': require('../src/lib/inmobiliaria/cashPaymentRules.ts'),
+    '@/lib/inmobiliaria/discountSettingsDiagnostics': require('../src/lib/inmobiliaria/discountSettingsDiagnostics.ts'),
+    '@/lib/inmobiliaria/unitPrices': require('../src/lib/inmobiliaria/unitPrices.ts'),
     '@/lib/integrations/lavilet': { LAVILET_PROJECT_ID: 'project', LAVILET_TENANT_ID: 'tenant' },
   }
-  const source = fs.readFileSync(path.join(__dirname, '../src/app/inmobiliaria/automatizacion/descuentos/actions.ts'), 'utf8')
+  const source = fs.readFileSync(path.join(__dirname, `../src/app/inmobiliaria/automatizacion/${section}/actions.ts`), 'utf8')
   new Function('require', 'module', 'exports', ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(
     id => { if (!(id in mocks)) throw Error(id); return mocks[id] }, loaded, loaded.exports)
   return { ...loaded.exports, calls, project }
@@ -46,6 +49,25 @@ test('admin saves and reloads discount activation independently from automation 
   assert.deepEqual(h.project.policies_json.financing_guidance, { preserve: true })
   assert.deepEqual(h.project.policies_json.response_review, { enabled: false })
   assert.deepEqual(h.calls[0].filters, [['id', 'project'], ['tenant_id', 'tenant'], ['updated_at', 'version']])
+})
+
+test('cash rules save and reload without changing discounts and reject unauthorized or stale writes', async () => {
+  const { defaultCashPaymentRules } = require('../src/lib/inmobiliaria/cashPaymentRules.ts')
+  const rules = { ...defaultCashPaymentRules(), enabled: true, definition: 'Pago con fondos propios.', source: 'Responsable comercial', checkedOn: '2026-10-01' }
+  const h = harness({ section: 'contado' })
+  h.project.policies_json.early_purchase_discounts = { enabled: true, rules: ['preserve'] }
+  assert.equal((await h.saveCashPaymentRules(rules, 'version')).ok, true)
+  const loaded = await h.loadCashPaymentRules()
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.state.settings.definition, rules.definition)
+  assert.deepEqual(h.project.policies_json.early_purchase_discounts, { enabled: true, rules: ['preserve'] })
+  for (const options of [{ admin: false }, { readError: true }, { concurrent: true }, { writeError: true }]) {
+    const denied = harness({ ...options, section: 'contado' })
+    assert.equal((await denied.saveCashPaymentRules(rules, 'version')).ok, false)
+  }
+  const stale = harness({ section: 'contado' })
+  assert.equal((await stale.saveCashPaymentRules(rules, 'stale')).ok, false)
+  assert.equal(stale.calls.length, 0)
 })
 
 test('invalid rules, denied administrators and stale versions never execute a write', async () => {

@@ -60,6 +60,13 @@ export function EarlyPurchaseDiscountSettings({ initial }: { initial: EarlyPurch
           <p>Se utiliza una sola regla por unidad. Tiene prioridad una regla para esa unidad, después una para su tipo de inmueble y finalmente una general. Las reglas con la misma prioridad y vigencia no pueden coincidir.</p>
           {!state?.saved && <p className={styles.draft}>El 5 % es un borrador desactivado. No se comunicará como beneficio hasta confirmar sus condiciones, fuente y vigencia, activar la regla y guardar.</p>}
         </section>
+        <section className={styles.card}><h2>Qué puede comunicar el bot ahora</h2>
+          <p>Este diagnóstico corresponde a las reglas guardadas. Los cambios del formulario se aplican al guardar.</p>
+          <p role="status">{state?.diagnostics?.summary || 'Actualice la configuración para comprobar la etapa, la vigencia y el inventario.'}</p>
+          {state?.diagnostics && <p>Etapa actual: {state.diagnostics.mode}. {state.diagnostics.today && `Comprobado para el ${state.diagnostics.today}.`}</p>}
+          {state?.diagnostics?.rules.map(rule => <p key={rule.id}><strong>{state.settings.rules.find(value => value.id === rule.id)?.name}:</strong> {rule.message}</p>)}
+          <details><summary>Cómo configurar el 10 % de lanzamiento ya incluido</summary><p>Active el interruptor general y la regla. Indique 10 %, seleccione Lanzamiento o Todas las etapas, «Ya está incluido en el catálogo» y «Ya incluido en el precio publicado, sin trámite adicional». Complete las condiciones, fuente y fechas vigentes. Deje los códigos vacíos si aplica a todos los tipos elegidos y pulse Guardar descuentos. No lo configure como una rebaja adicional.</p></details>
+        </section>
         {draft.rules.map((rule, index) => <section className={styles.card} key={rule.id}>
           <div className={styles.heading}><h2>{rule.name || `Regla ${index + 1}`}</h2><button type="button" className={styles.remove} onClick={() => setDraft(previous => ({ ...previous, rules: previous.rules.filter(value => value.id !== rule.id) }))}>Eliminar regla</button></div>
           <Toggle label="Usar esta regla de descuento" value={rule.enabled} onChange={enabled => change(rule.id, { enabled })} />

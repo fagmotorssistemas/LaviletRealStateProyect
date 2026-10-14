@@ -13,6 +13,7 @@ export const KNOWLEDGE_SECTIONS = [
   ] },
   { id: 'politicas', label: 'Políticas comerciales', description: 'Condiciones confirmadas para comprar, reservar, pagar o visitar.', entries: [
     { title: 'Entrada y financiamiento', description: 'Entrada del proyecto, reserva y condiciones editables de JEP y Banco Pichincha.', href: 'financiamiento', owner: 'Administrador' },
+    { title: 'Pagos al contado', description: 'Definición, plazos, reserva, gastos y condiciones aprobadas de pago con fondos propios.', href: 'contado', owner: 'Administrador' },
     { title: 'Descuentos de lanzamiento y compra anticipada', description: 'Porcentaje editable, beneficio incluido en el precio o rebaja adicional, unidades y vigencia.', href: 'descuentos', owner: 'Administrador' },
   ] },
   { id: 'conversacion', label: 'Conversación', description: 'Preguntas, entrega de materiales y forma de comunicarse.', entries: [
