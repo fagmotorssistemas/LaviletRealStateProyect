@@ -12,6 +12,7 @@ import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
 import { isPassivePurchaseEvidence } from './purchase-evidence'
 import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy } from './budget-evaluation'
+import { selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, withoutBedroomConstraint, spaciousOptions } from './selection-preferences'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -70,6 +71,10 @@ export function commercialSelectionQuery(info: Row) {
   const category = commercialSelectionCategory(info)
   const interest = declaredCommercialInterest(info)
   const known = object(info.hechos_confirmados)
+  const preferences = selectionPreferences(known.selection_preferences || context.selection_preferences,
+    object(info.semantica_turno).selection_preferences)
+  if (unrestrictedBedrooms(preferences)) return catalogQuery({ ...withoutBedroomConstraint(query), category,
+    group: interest.group || assetGroup(category) || 'residential' })
   const quantities = rows(known.housing_quantities).filter(row => row.dimension === 'bedrooms' && row.role === 'requirement'
     && acceptedExtractorConfidence(row.confidence) && text(row.evidence).trim() && Array.isArray(row.values) && row.values.length === 1)
   const remembered = object(object(context.exploration_state).accepted_filters).bedrooms
@@ -433,13 +438,40 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   // but its absence must not interrupt asset -> budget -> physical needs.
   // Investment alone still reaches discover_use above until the asset is known.
   const bedroomCondition = rows(selectionQuery.requirements).some(requirement => requirement.field === 'bedrooms')
-  if (category !== 'local' && category !== 'suite' && !bedroomCondition && !filters.bedrooms && !(Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) && !lead.preferred_bedrooms)
-    return plan('discover_bedrooms', 'Use la familia conocida, pero no convierta personas en dormitorios. Reconozca brevemente su respuesta y pregunte cuántos necesita, sin repetir dimensiones o fichas ya entregadas ni enumerar categorías por rutina. Retome una medida solo si la consulta actual la solicita o una comparación la requiere.', '¿Cuántos dormitorios necesita?', 'property_bedrooms')
+  const preferences = selectionPreferences(object(info.hechos_confirmados).selection_preferences || context.selection_preferences,
+    object(info.semantica_turno).selection_preferences)
+  const spacePriority = prioritizesInteriorSpace(preferences)
+  if (category !== 'local' && category !== 'suite' && !unrestrictedBedrooms(preferences) && !bedroomCondition && !filters.bedrooms && !(Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) && !lead.preferred_bedrooms)
+    return plan('discover_bedrooms', 'Falta conocer la preferencia de dormitorios. Pregúntela con naturalidad únicamente si no está respondida ni declarada indiferente. Use la familia conocida sin convertir personas en dormitorios. Explique la utilidad de esa preferencia cuando aporte una conexión; no repita fichas ya entregadas.', '¿Cuántos dormitorios le gustaría que tuviera su vivienda?', 'property_bedrooms')
   const selection = plan('select_property', accepted
     ? 'Ya aceptó financiamiento: retome las opciones con las preferencias conocidas hasta elegir una unidad concreta. No repita que no alcanza, no pida otra aceptación, cédula ni datos laborales. No exija elegir una planta si ya la conoce.'
     : 'Ayude a comparar y elegir una unidad concreta con las preferencias conocidas. No vuelva a pedir datos ya respondidos.')
   {
     if (!candidates.length) return clarifyRequirements()
+    if (spacePriority) {
+      // Priorities rank within real constraints; they do not impose a bedroom
+      // count, select a unit or relax a declared minimum.
+      if (!category && categories.includes('departamento') && categories.includes('penthouse')) {
+        candidates = candidates.filter(unit => ['departamento', 'penthouse'].includes(text(unit.category)))
+        categories = ['departamento', 'penthouse']
+      }
+      if (category) {
+        const ranked = spaciousOptions(candidates)
+        if (ranked.length) {
+          candidates = ranked
+          floors = [...new Set(candidates.map(unit => unit.floor_number).filter(value => typeof value === 'number'))]
+          selectionScope = { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean), floors }
+          const alreadyPresented = candidates.every(unit => ids(state.presented_unit_ids).includes(text(unit.id)))
+          return { ...selection, question: '¿Cuál de estas opciones le gustaría conocer primero?',
+            question_id: 'unit_choice', question_act: 'choose_unit', selection_scope: selectionScope,
+            presentation: 'spacious_units', requires_unit_presentation: !alreadyPresented,
+            priority: 'interior_space',
+            instruction: `${text(selection.instruction)} Priorice las opciones de mayor superficie INTERIOR verificada del tipo elegido y dentro de las restricciones explícitas. ${alreadyPresented ? 'Las opciones ya fueron presentadas: responda la consulta sin repetir todas sus fichas.' : 'Presente estas opciones con su número, superficie interior y las diferencias útiles para elegir.'} No exija planta ni dormitorios indiferentes. Los dormitorios de las opciones son características, no una preferencia declarada del cliente. No juzgue negativamente su adecuación familiar ni describa búsquedas o filtros internos. Invite a conocer o comparar una de estas opciones con naturalidad.` }
+        }
+      }
+      selectionScope = { categories, unit_ids: candidates.map(unit => text(unit.id)).filter(Boolean), floors }
+      selection.instruction = `${text(selection.instruction)} El cliente prioriza amplitud interior; los dormitorios indiferentes no son un dato pendiente. Compare brevemente la mayor superficie interior verificada de cada tipo pertinente y ayúdele a elegir el tipo. No convierta esas superficies en una promesa de comodidad ni las características de las viviendas en restricciones solicitadas.`
+    }
     // Prefer affordable matches for presentation without changing the durable
     // query. A later explicit preference outside this set still gets evaluated.
     const affordableIds = new Set(affordable.map(unit => text(unit.id)))

@@ -1,5 +1,5 @@
 import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
-import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, FINANCING_REQUEST_TOPICS_RULES, normalizedRequestTopics } from './request-topics'
+import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, FINANCING_REQUEST_TOPICS_RULES, normalizedRequestTopics, COMMON_AREA_REQUEST_RULES } from './request-topics'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
 import { EXTRACTION_REQUEST_RULES } from './extraction-request-rules'
@@ -275,7 +275,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Solicitud de material', MATERIAL_REQUEST_RULES],
       ['Consultas y negociación de descuentos', DISCOUNT_REQUEST_EXTRACTION_RULES],
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
-      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES],
+      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Interpretación del perfil pendiente', nameAssessmentRequired && LEAD_PROFILE_EXTRACTION_RULES],
     ]) : promptSections([
@@ -291,7 +291,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
       ['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES],
       ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
-      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES],
+      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Formato de salida', 'El esquema JSON enviado con esta llamada es la única definición de campos y valores permitidos. Complete sus campos; use null solo donde el esquema lo permite y el dato sea desconocido. No añada un formato alternativo ni texto fuera del JSON.'],
     ])

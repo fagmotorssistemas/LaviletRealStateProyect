@@ -87,7 +87,7 @@ test('a concrete commercial block survives reviewer metadata repair', async () =
   assert.notEqual(result.reply, reply)
 })
 
-test('actual bedroom rediscovery is rejected even when attached metadata claims a floor question', async () => {
+test('the server does not veto writer questions through lexical inference when the factual reviewer passes', async () => {
   const wrong = 'Disponemos de departamentos de tres dormitorios. ¿Cuántos dormitorios necesita finalmente?'
   const correct = 'Disponemos de departamentos de tres dormitorios. ¿En qué planta le gustaría revisar las opciones?'
   const question = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Planta', next_decision: 'Mostrar unidades', continuation_id: 'property_floor', continuation_act: 'choose_floor' }
@@ -104,14 +104,14 @@ test('actual bedroom rediscovery is rejected even when attached metadata claims 
     return { ...pass, question: { ...question, offered_action: 'none' } }
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
-  assert.equal(result.reply, correct)
-  assert.deepEqual(tasks, ['writing', 'writing', 'review'])
+  assert.equal(result.reply, wrong)
+  assert.deepEqual(tasks, ['writing', 'review'])
   assert.equal(object(result.audit.question).continuation_id, 'property_floor')
 })
 
 test('unknown paraphrases are not relabeled from the plan and exploration is distinct from choosing a type', () => {
   const plan = { action: 'select_property', question_id: 'property_category', question_act: 'choose_category', question: '¿Prefiere departamentos o penthouses?' }
-  assert.ok(continuationContentIssues('¿Le gustaría revisar alternativas de tres dormitorios?', plan).length)
+  assert.deepEqual(continuationContentIssues('¿Le gustaría revisar alternativas de tres dormitorios?', plan), [])
   assert.deepEqual(continuationContentIssues('¿Prefiere departamentos o penthouses?', plan), [])
   assert.ok(continuationMetadataIssues({ ...profileQuestion, continuation_act: 'choose_unit' }, '¿Cuál es su nombre y dónde vive actualmente?').length)
 })
@@ -127,13 +127,13 @@ for (const [question, id] of [
   assert.equal(actualContinuation(question).id, id)
 })
 
-test('wrong labels from both agents cannot authorize an actual unsolicited profile question', async () => {
+test('writer metadata cannot be reclassified by a lexical system veto or by the factual reviewer', async () => {
   const reply = '¿Cuál es su nombre y dónde vive actualmente?'
   const wrong = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Unidad', next_decision: 'Continuar', continuation_id: 'unit_choice', continuation_act: 'choose_unit' }
   const result = await completeTurnReply({ current: 'No quiero dar datos, quiero información', baseReply: reply, verified: {}, audit }, async (_rules, _raw, _schema, _image, _file, _tone, task) => task === 'writing' ? writer(reply, wrong) : { ...pass, question: { ...wrong, offered_action: 'none' } })
-  assert.notEqual(result.audit.status, 'checked')
-  assert.notEqual(result.reply, reply)
-  assert.ok(JSON.stringify(result.audit).includes('lead_profile_question_not_authorized'))
+  assert.equal(result.audit.status, 'checked')
+  assert.equal(result.reply, reply)
+  assert.deepEqual(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }), {})
 })
 
 test('the full completion route retains the proposal through 360, then a yes asks type and a department preference asks floor', async () => {

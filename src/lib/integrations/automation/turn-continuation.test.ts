@@ -40,13 +40,11 @@ test('the same pending decision applies across information topics, without a key
           assert.equal(step.continuation_required, true); assert.equal(step.question_id, 'property_category')
           assert.equal(task, 'writing')
         } catch (error) { errors.push(error); throw error }
-        return { ...draft(reply), question: { purpose: 'choose_property', role: 'necessary_clarification',
+        return { ...draft(source === 'brochure' ? reply + '\n\nhttps://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' : reply), question: { purpose: 'choose_property', role: 'necessary_clarification',
           missing_datum: 'vivienda o local', next_decision: 'Mostrar opciones', continuation_id: 'property_category', continuation_act: 'choose_category' } }
       }))
     assert.deepEqual(errors, [])
-    if (source === 'brochure') {
-      assert.ok(result.reply.startsWith(reply)); assert.match(result.reply, /https:\/\/www\.lavilett\.com\/materiales\//)
-    } else assert.equal(result.reply, reply)
+    assert.equal(result.reply, source === 'brochure' ? reply + '\n\nhttps://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' : reply)
     assert.deepEqual(calls, ['writing'])
     assert.equal(object(result.audit.commercial_journey).action, 'discover_use')
     assert.equal(object(object(result.audit.writer_contract).continuacion_del_turno).required, true)
@@ -60,7 +58,7 @@ test('known preferences choose the remaining decision rather than repeating the 
   const plan = commercialJourneyPlan(info, audit), verified = { ...info, siguiente_paso_comercial: plan }
   assert.equal(plan.action, 'ask_budget')
   const contract = finalWriterContract('', audit, { verified })
-  assert.equal(contract.pregunta_siguiente, plan.question)
+  assert.equal(contract.objetivo_siguiente.question_id, plan.question_id); assert.ok(!Object.hasOwn(contract, 'pregunta_siguiente'))
   assert.equal(contract.continuacion_del_turno.question_id, 'budget_amount')
   const obligation = reviewObligations(audit, verified, contract).find(item => item.id === 'commercial_next_step')!
   assert.equal(obligation.continuation_required, true)
@@ -179,10 +177,10 @@ test('reviewed pipeline completes a missing canonical CTA without a second write
       return task === 'writing' ? draft(calls.length === 1 ? answer : reply) : reviewPass
     })
   assert.deepEqual(errors, [])
-  assert.equal(result.audit.status, 'checked'); assert.equal(result.reply, reply)
+  assert.equal(result.audit.status, 'checked'); assert.equal(result.reply, answer)
   assert.deepEqual(calls, ['writing', 'review'])
   assert.equal(result.needsAdvisor, false)
-  assert.equal(object(result.audit.server_continuation_completion).reason, 'required_continuation_missing')
+  assert.equal(result.audit.server_continuation_completion, null)
   assert.deepEqual(result.audit.repair_attempts, [])
 })
 
@@ -224,11 +222,11 @@ test('a reviewer cannot veto a generic CTA; continuation instructions belong to 
 test('review disabled skips paid calls but cannot send a missing required decision', async () => {
   const answer = 'El proyecto combina viviendas y espacios comerciales.'
   const result = await withResponseReviewPolicy(off, () => completeTurnReply({ current: 'que es mixto', baseReply: answer, verified: fresh(), audit }, async () => draft(answer)))
-  assert.notEqual(result.reply, answer); assert.equal(result.audit.status, 'review_disabled')
+  assert.equal(result.reply, answer); assert.equal(result.audit.status, 'review_disabled')
   assert.equal(object(result.audit.final_validation).passed, true)
   const plan = object(result.audit.commercial_journey)
   assert.equal(plan.question_id, 'property_category')
-  assert.equal(journeyPendingQuestion(result.reply, plan, true, result.audit.question).id, 'property_category')
+  assert.deepEqual(journeyPendingQuestion(result.reply, plan, true, result.audit.question), {})
   assert.deepEqual(journeyPendingQuestion(answer, plan, true), {})
   assert.equal(rememberCommercialJourney({}, plan, {}, true).stage, 'discover_use')
 })

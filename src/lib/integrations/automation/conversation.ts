@@ -6,7 +6,7 @@ import { currentTopicReply } from './current-topic'
 import { discountNegotiationForTurn } from './discount-request'
 import { withHandoffNotice } from './handoff-copy'
 import { replyQuestionText } from './reply-question'
-import { requiresContentReview, unverifiedReply } from './delivery-integrity'
+import { unverifiedReply } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
 import { loadResponseReviewPolicy } from './response-review-settings'
 import { responseReviewEnabled, responseReviewObservationOnly, withResponseReviewPolicy } from './response-review-policy'
@@ -41,7 +41,7 @@ import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent, rememberTurnIntentAfterReply } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
-import { ensureReferentialPriceConditions, priceNoticeForConversation, priceNoticeReceipt } from './price-conditions'
+import { priceNoticeForConversation, priceNoticeReceipt } from './price-conditions'
 import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
@@ -468,6 +468,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     handoffNotice = lead.handoff_status === 'queued'
       ? 'He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.'
       : 'He pasado su consulta a un asesor de nuestro equipo para que le ayude con ese detalle.'
+    audit.handoff_result = { verified: true, status: lead.handoff_status, advisor_assigned: Boolean(lead.assigned_to) }
     trace.finish(handoffStep, 'succeeded', {
       handoff_status: text(lead.handoff_status),
       assigned_advisor: Boolean(lead.assigned_to),
@@ -906,7 +907,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       historial: context.historial, financiamiento: finance, referencia_unidad: residualReference,
       property_context: residualReference.context, semantica_turno: residualSemantics,
       resultado_visita: { action: 'confirmed', request_id: proposal.request_id || proposal.id } }
-    const generated = await commercialReply(info, current, summary, guard)
+    const generated = await commercialReply({ ...info, material_request: extracted.material_request, brochure_intent: brochureIntent }, current, summary, guard)
     reply = generated.reply
     audit = { ...generated.audit, completed_visit_action: result, coverage_complete: false }
     if (audit.requires_advisor === true && !observing) {
@@ -1333,7 +1334,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           reply=placeClarification
           audit={source:'visit_place_clarification'}
         } else {
-          const generated = await commercialReply(info, current, summary, guard)
+          const generated = await commercialReply({ ...info, material_request: extracted.material_request, brochure_intent: brochureIntent }, current, summary, guard)
           audit = generated.audit
           if (audit.requires_advisor === true && !observing) {
             // A draft rejection is only a proposed handoff. Finish checking the
@@ -1464,6 +1465,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let reviewedText = ''
   let finalVerifiedContext: Row = context
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
+  let operationalRedraftRequired = false
   const catalogBaseReply = audit.verified_catalog === true ? reply : ''
   const recoveringTurn = () => object(object(audit.turn_completeness).recovery).pending === true
   const recoveryReply = (coverage: Row) => {
@@ -1567,6 +1569,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       catalog_coverage: audit.catalog_coverage,
     })
     finalVerifiedContext = info
+    info.avisos_operativos_confirmados = handoffNotice ? [handoffNotice] : []
+    if (handoffNotice) audit.handoff_result = { verified: true, status: lead.handoff_status, advisor_assigned: Boolean(lead.assigned_to) }
+    info.material_request = extracted.material_request
     const reviewed = await completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: reply,
       costBaseline,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
@@ -1684,20 +1689,18 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       const reason = reviewed.unresolved.length ? 'resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650) : pendingCommercialHandoff
       const notice = await transferToAdvisor(reason, { rule_id: 'advisor.verified_information_gap', origin: 'coverage_review', caused_by_step: coverageStep,
         facts: { unresolved: reviewed.unresolved, review_status: reviewed.audit.status, pending_commercial_handoff: pendingCommercialHandoff || null } })
-      const beforeHandoff = reply
-      reply = withHandoffNotice(reply, notice)
-      audit.handoff_text_transformations = [{ stage: 'Derivación por consultas pendientes: aviso añadido conservando la pregunta', before: beforeHandoff, after: reply }]
+      // The operation happened after drafting. Ask the writer for a complete
+      // updated message with its verified receipt, rather than append copy.
+      operationalRedraftRequired = !!notice
       audit = { ...audit, additional_questions_handoff: true }
     }
   }
   // A writer may improve the answer, but cannot hide a handoff already performed.
   const actionExplained = object(audit.turn_completeness).operational_action_verified === true
-  if (reviewing && handoffNotice && !reply.includes(handoffNotice) && !actionExplained) {
-    const beforeHandoff = reply
-    reply = withHandoffNotice(reply, handoffNotice)
-    audit.handoff_text_transformations = [{ stage: 'Aviso de derivación realizada: se conserva la pregunta', before: beforeHandoff, after: reply }]
+  if (reviewing && handoffNotice && !actionExplained && !reviewedText) {
+    operationalRedraftRequired = true
   }
-  if (reviewing && !recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
+  if (!reviewedText && reviewing && !recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
     const locationInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     const locationPolicy = locationDisclosurePolicy({ current, verified: locationInfo, audit })
     reply = withVisitLocation(reply, projectLocationForPrompt(locationInfo, locationPolicy), locationPolicy.exact_location_allowed === true)
@@ -1718,15 +1721,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const openingDecision = object(audit.turn_completeness).opening_decision
   const withOpening = (body: string) => reviewedText ? body : openingDecision ? applyDecidedOpening(body, text(object(openingDecision).prefix)) : variedReplyOpening(body, context.historial)
   reply = !reviewing || reviewedText ? direct : naturalConversationReply(withOpening(direct), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
-  // Every allowed reply, including direct templates and operational recovery,
-  // passes this idempotent preparation. Reviewed drafts already contain it.
-  reply = withHandoffNotice(protectInitialProjectPresentation(reply, audit,
-    { current: writingCurrent, verified: finalVerifiedContext }), handoffNotice)
-  const greetedFinal = applyTurnGreeting(reply, turnGreeting)
-  const greetingApplied = greetedFinal !== reply
-  const pricePreparedFinal = ensureReferentialPriceConditions(greetedFinal, finalVerifiedContext, audit)
-  reply = pricePreparedFinal.reply
-  audit.reply_preparation = { greeting_applied: greetingApplied, prices_applied: pricePreparedFinal.applied }
+  // System recovery templates have their own preparation. A successfully
+  // completed writer response is delivered intact in every review mode.
+  if (!reviewedText) {
+    reply = withHandoffNotice(protectInitialProjectPresentation(reply, audit,
+      { current: writingCurrent, verified: finalVerifiedContext }), handoffNotice)
+    reply = applyTurnGreeting(reply, turnGreeting)
+  }
+  audit.reply_preparation = { owner: reviewedText ? 'writer' : 'system_recovery', greeting_applied: false, prices_applied: false }
   // The last prose transformation is checked too, before any external send.
   const observedWriterResponse = observing && object(audit.turn_completeness).status === 'review_observed'
     && object(object(audit.turn_completeness).review_enforcement).blocking === false
@@ -1737,20 +1739,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       recovery: { version: 'turn-recovery-v1', pending: true, base_used: false, reason: 'final_catalog_guard' },
       fallback_validation: { passed: false, issues: ['response_requires_validation', finalCatalogValidation.reason].filter(Boolean) } }
     reply = approvedAllowed ? reviewedText : naturalConversationReply(withOpening(recoveryReply(object(audit.turn_completeness))), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
-    reply = ensureReferentialPriceConditions(applyTurnGreeting(reply, turnGreeting), finalVerifiedContext, audit).reply
-    if (handoffNotice && !reply.includes(handoffNotice)) reply = withHandoffNotice(reply, handoffNotice)
+    if (!approvedAllowed) reply = applyTurnGreeting(reply, turnGreeting)
     audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
     if (!approvedAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }
   }
-  if (!observedWriterResponse && reviewedText && reviewFinalContent && requiresContentReview(reviewedText, reply, handoffNotice)) {
+  if (!observedWriterResponse && reviewedText && reviewFinalContent && operationalRedraftRequired) {
     const step = trace.start('final_content_review', 'Revisar contenido modificado antes del envío', 'decision', 'delivery-integrity.ts', {
       approved_preview: reviewedText, candidate_preview: reply,
     })
     const checked = await reviewFinalContent(reply)
     const beforeReview = reply
-    const accepted = checked.audit.status === 'checked' && (!handoffNotice || checked.reply.includes(handoffNotice) || checked.audit.operational_action_verified === true)
+    const accepted = checked.audit.status === 'checked' && checked.audit.operational_action_verified === true
     // A failed second review never licenses the altered body or starts another handoff.
-    reply = accepted ? checked.reply : withHandoffNotice(reviewedText, handoffNotice)
+    reply = accepted ? checked.reply : recoveryReply(checked.audit)
+    audit.turn_completeness = checked.audit
     audit.delivery_integrity = { changed_content: true, status: accepted ? 'revalidated' : 'restored_approved',
       approved_text: reviewedText, candidate_text: beforeReview, final_text: reply, review: checked.audit }
     trace.finish(step, 'succeeded', audit.delivery_integrity as Row)
@@ -1760,7 +1762,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   // Recovery templates retain the approved opening facts. A completed writer
   // response retains its own wording, including warmth, after final review.
-  const protectedOpening = applyTurnGreeting(withHandoffNotice(protectInitialProjectPresentation(reply, audit,
+  const protectedOpening = reviewedText ? reply : applyTurnGreeting(withHandoffNotice(protectInitialProjectPresentation(reply, audit,
     { current: writingCurrent, verified: finalVerifiedContext }), handoffNotice), turnGreeting)
   if (protectedOpening !== reply) {
     audit.approved_opening_preparation = { applied: true, source: object(object(audit.profile_introduction).presentation).source }

@@ -67,6 +67,8 @@ export const CONVERSATION_WRITING_STYLE_RULES = [
   CURRENT_TONE.address,
   CURRENT_TONE.vocabulary,
   CURRENT_TONE.courtesy,
+  'Hable de usted con cercanía y disposición para ayudar. Reconozca la preferencia expresada y explique brevemente la utilidad del siguiente paso cuando aporte una conexión. Para preferencias use «le gustaría», «prefiere» o «tenía pensado»; evite formularios con «indique», «confirme» o «necesita» por rutina. No añada cortesías mecánicas ni repita preguntas respondidas o requisitos que el cliente declaró indiferentes. Los ejemplos son orientación, nunca plantillas obligatorias.',
+  'Use un solo saludo cuando corresponda, incluso si el cliente dice «Saludos». Evite signos de exclamación innecesarios; la calidez proviene del acompañamiento y de la respuesta útil, no de la puntuación.',
   CURRENT_TONE.commercialLength,
   'Una aceptación o confirmación se reconoce brevemente y continúa con la decisión pendiente. No repita la ficha, rangos de precios ni datos del cliente ya atendidos, salvo que la consulta actual los necesite.',
   'Cuando comunique precios, conserve una sola aclaración colectiva de sus condiciones aplicables; no añada varias advertencias equivalentes en el mismo mensaje.',

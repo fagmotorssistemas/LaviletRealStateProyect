@@ -77,6 +77,13 @@ export function reviewDiagnostics(step: WorkflowExecutionStep): ReviewDiagnostic
       fragment: text(issue.fragment), sentenceId: text(issue.sentence_id), numericId: text(issue.numeric_id), received: issue.received,
     })
   }
+  for (const code of Array.isArray(row(step.output.final_validation).issues) ? row(step.output.final_validation).issues as unknown[] : []) {
+    if (typeof code !== 'string' || result.some(issue => issue.code === code)) continue
+    result.push({ code, field: 'final_validation.issues', owner: 'Sistema · control final',
+      message: code === 'commercial_next_question_mismatch'
+        ? 'El código registró una diferencia entre la pregunta y el plan comercial. Este control histórico pertenece al sistema, no a la IA revisora, y puede ser un falso rechazo por reconocimiento limitado de palabras o actos. No demuestra que los datos del mensaje fueran incorrectos.'
+        : 'Este control está registrado en la validación final del sistema. Consulte el resultado separado de la IA revisora; no se atribuye automáticamente este código a un rechazo de esa IA.' })
+  }
   if (step.status === 'failed' && !result.length) result.push({ code: step.errorCode || 'step_failed', field: 'errorCode', owner: 'Sistema · ejecución',
     message: step.errorCode === 'TURN_INTERPRETATION_INVALID'
       ? 'La interpretación del mensaje no pasó los controles del servidor. Este registro no conserva el campo que falló; consulte las salidas del extractor. No se deduce que el lead pidiera un asesor ni que faltara saldo de API.'

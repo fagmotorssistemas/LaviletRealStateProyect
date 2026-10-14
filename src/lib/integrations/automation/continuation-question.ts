@@ -97,16 +97,17 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   if (!pending.id || !purposeSupports(pending.id, metadata.purpose)) return {}
   // Confirmation selects a known target: vague feedback cannot obtain this
   // effect solely from a label or a planned scope.
-  if (pending.id === 'unit_choice' && pending.act === 'confirm_unit'
+  if (!Object.keys(semantic).length && pending.id === 'unit_choice' && pending.act === 'confirm_unit'
     && pendingQuestionFromReply(reply).act !== 'confirm_unit') return {}
   const matching = matchingReceiptScope(matchingQuestions.filter(candidate => candidate.id === pending.id && candidate.act === pending.act))
   const planMatches = plan.question_id === pending.id && (!plan.question_act || plan.question_act === pending.act)
   const scope = object(plan.selection_scope)
+  const priorityContinuation = pending.id === 'property_priority' && pending.act === 'confirm_priority'
   const offeredCategories = ids(scope.categories)
   const categoryProposal = pending.id === 'property_category' && pending.act === 'choose_category'
     && categoryInvitationTarget(question) === object(plan.proposed_query).category
     && offeredCategories.length === 1 && offeredCategories[0] === object(plan.proposed_query).category
-  const scoped: Row = planMatches ? {
+  const scoped: Row = planMatches || priorityContinuation ? {
     target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : pending.act === 'confirm_unit' ? ids(scope.unit_ids) : [],
     candidate_ids: ids(pending.act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
     ...((pending.act === 'explore_alternatives' || categoryProposal) && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),

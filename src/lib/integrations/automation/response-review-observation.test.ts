@@ -109,8 +109,8 @@ test('recognized writer question recovers its meaning locally while other malfor
     assertObservation(result, false)
     assert.equal(result.reply, reply)
     assert.equal(object(result.audit.follow_up).usable, true)
-    assert.equal(object(result.audit.question).continuation_id, 'property_floor')
-    assert.equal(object(result.audit.question_metadata_recovery).corrected, true)
+    assert.equal(object(result.audit.question).continuation_id, 'unit_choice')
+    assert.equal(object(result.audit.question_metadata_recovery).corrected, false)
     assert.deepEqual(mock.calls, ['writing', 'review'])
   })
 })
@@ -191,7 +191,7 @@ for (const semantic of [false, true]) test('observation evaluates the '+(semanti
   })
 })
 
-test('observation preparation preserves the common greeting, required brochure and price conditions before monitoring', async () => {
+test('observation keeps writer omissions visible without adding greeting, brochure or price notice', async () => {
   const reply = 'El precio es $250,000.'
   const brochure = 'https://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf'
   const mock = harness(reply, pass)
@@ -199,10 +199,8 @@ test('observation preparation preserves the common greeting, required brochure a
     const result = await completeTurnReply({ ...input, verified: { politica_comercial: { precios_aproximados: true, precios_autorizados: true }, catalogo: [{ id: 'd202', category: 'departamento',
       unit_number: '202', published_commercial_price: 250000, is_published: true, status: 'disponible' }] },
       audit: { ...input.audit, writer_greeting: 'Hola', profile_introduction: { brochure_required: true, brochure_url: brochure } } }, mock.generate)
-    assert.ok(result.reply.startsWith('Hola'))
-    assert.ok(result.reply.includes(brochure))
-    assert.match(result.reply, /referencial/i)
-    assert.match(result.reply, /cambi/i)
+    assert.equal(result.reply, reply)
+    assert.ok((object(result.audit.final_validation).issues as string[]).includes('required_link_omitted'))
     assert.deepEqual(mock.calls, ['writing', 'review'])
   })
 })

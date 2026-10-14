@@ -1,4 +1,5 @@
 type Row = Record<string, unknown>
+import { reviewResponsibilities } from './reviewResponsibilities'
 const row = (v: unknown): Row => v && typeof v === 'object' && !Array.isArray(v) ? v as Row : {}
 const text = (v: unknown) => typeof v === 'string' ? v : ''
 const list = (v: unknown): Row[] => Array.isArray(v) ? v.map(row) : []
@@ -100,6 +101,7 @@ export type ReviewDecisionResult = {
 }
 
 export function reviewDecision(output: Row, catalog: Row[] = []): ReviewDecisionResult {
+  const responsibility = reviewResponsibilities(output)
   if (isObservedReview(output)) {
     const observation = row(output.observation), semantic = row(output.semantic_review)
     const recorded = text(observation.status) || text(output.observed_status) || text(semantic.status)
@@ -114,8 +116,10 @@ export function reviewDecision(output: Row, catalog: Row[] = []): ReviewDecision
       review_control: { ...row(output.review_control), observationOnly: false },
       final_validation: { ...row(output.final_validation), policy: 'observed_findings' },
       recovery: {}, fallback_validation: {}, turn_completeness: {} }, catalog)
-    return { ...assessed, tone: 'metadata', title: 'Modo demostración · Revisión sin bloqueo',
-      explanation: 'Se conservaron el resultado de la revisión y los controles del borrador. Su resultado no bloquea el mensaje preparado para este contacto de prueba y no certifica que su contenido esté aprobado. La interpretación, la planificación y la ruta mantienen sus controles. El envío se comprueba en Envío a Kommo.',
+    return { ...assessed, tone: 'metadata', title: responsibility.systemFlowObservation ? 'IA aprobó · Observación del sistema sin bloqueo' : 'Modo demostración · Revisión sin bloqueo',
+      explanation: responsibility.systemFlowObservation
+        ? 'La IA revisora aprobó los hechos y las promesas del borrador. La observación sobre la pregunta provino del código y no fue un rechazo de la IA; en demostración no bloqueó el mensaje. El envío se comprueba en Envío a Kommo.'
+        : 'Se conservaron el resultado de la revisión y los controles del borrador. Su resultado no bloquea el mensaje preparado para este contacto de prueba y no certifica que su contenido esté aprobado. La interpretación, la planificación y la ruta mantienen sus controles. El envío se comprueba en Envío a Kommo.',
       repair: 'En este modo no se exige corregir el mensaje ni reparar la ficha para permitir el envío.', recoveryPending: false,
     }
   }
@@ -255,5 +259,7 @@ export function reviewDecision(output: Row, catalog: Row[] = []): ReviewDecision
         : status === 'checked' ? 'No hubo intentos registrados; la propuesta quedó aprobada en este paso.'
           : errors.some(error => error.code === 'invalid_unit_fact') ? 'No hay intentos registrados. Este registro histórico no conserva la política que se ejecutó; no se atribuye a la política actual.'
             : 'No hay intentos registrados. Este registro no conserva un motivo específico para no reparar.') + reviewerNotAttempted
-  return { tone, title, explanation, details, causes, repair, resolvedDetails, recoveryPending }
+  return { tone, title: responsibility.systemFlowObservation ? 'IA aprobó · Control del sistema observado' : title,
+    explanation: responsibility.systemFlowObservation ? 'La IA revisora aprobó el contenido factual y las promesas. El código registró el control histórico sobre la pregunta; ese resultado no fue un rechazo de la IA. Consulte el detalle del sistema y compruebe el envío por separado.' : explanation,
+    details, causes, repair, resolvedDetails, recoveryPending }
 }

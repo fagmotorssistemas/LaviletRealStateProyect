@@ -1,5 +1,6 @@
 import type { WorkflowExecutionStep } from './executionWorkflow'
 import { isObservedReview } from './reviewDecision'
+import { reviewResponsibilities } from './reviewResponsibilities'
 
 type Row = Record<string, unknown>
 const row = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}
@@ -38,6 +39,10 @@ export function messageReviewMarker(steps: WorkflowExecutionStep[]): MessageRevi
     const observation = row(final.observation)
     const status = text(observation.status) || text(final.observed_status) || text(row(final.semantic_review).status)
     const rejected = rejectedStatus(status) || status === 'rejected' || row(final.final_validation).passed === false
+    if (rejected && reviewResponsibilities(final).systemFlowObservation) return {
+      tone: 'warning', kind: 'technical', label: 'Control del sistema · demo',
+      description: 'La IA revisora aprobó el contenido factual. El sistema registró una observación histórica sobre la pregunta; en demostración no bloqueó el mensaje. El envío se comprueba por separado.',
+    }
     if (rejected && questionMetadataOnly(final)) return {
       tone: 'warning', kind: 'technical', label: 'Ficha interna inconsistente · demo',
       description: 'El revisor aprobó el contenido, pero la ficha de la pregunta tiene una inconsistencia. En modo demostración no bloqueó el borrador; la aprobación no garantiza que el texto sea correcto y el envío se comprueba por separado.',

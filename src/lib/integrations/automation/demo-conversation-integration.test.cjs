@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- CommonJS loads the TypeScript test hook and replaces external module boundaries before the conversation runs. */
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { writerQuestion, writerProfileQuestion } = require('./fixtures/writer-objective.cjs')
 const path = require('node:path')
 const folder = __dirname
 const lib = name => require(path.join(folder, name+'.ts'))
@@ -235,7 +236,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
           proposed = [introduction.name_acknowledgement,
             introduction.generic_introduction
               ? 'Con gusto le comparto información. La Vilet está ubicada en Puertas del Sol, Cuenca, y cuenta con suites, departamentos, penthouses y locales comerciales.'
-              : '', introduction.question].filter(Boolean).join('\n\n')
+              : '', writerProfileQuestion(profileId, introduction)].filter(Boolean).join('\n\n')
           lastQuestion = { purpose: 'collect_lead_profile', role: 'required_collection', missing_datum: decision.allowed_fields.join(', '),
             next_decision: 'Continuar la guía personalizada.', continuation_id: profileId, continuation_act: 'profile' }
         } else {
@@ -245,15 +246,15 @@ async function conversationHarness({ current, messages, extractionFails = false,
               ? 'Con gusto. Podemos comparar el pago al contado con el financiamiento. Las condiciones adicionales por contado aún deben confirmarse.'
               : 'Con gusto. La aprobación y las condiciones del crédito dependen de la evaluación de la entidad financiera. Podemos orientarle con los datos de la vivienda que elija.'
           } else if (journey.action === 'discover_use') {
-            proposed = 'Gracias. '+journey.question
+            proposed = 'Gracias. '+writerQuestion(raw)
             lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Tipo de espacio',
               next_decision: 'Consultar el presupuesto.', continuation_id: 'property_category', continuation_act: 'choose_category' }
           } else if (journey.action === 'ask_budget') {
-            proposed = 'Gracias. '+journey.question
+            proposed = 'Gracias. '+writerQuestion(raw)
             lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Presupuesto total',
               next_decision: 'Identificar los dormitorios necesarios.', continuation_id: 'budget_amount', continuation_act: 'budget' }
           } else if (journey.action === 'discover_purpose') {
-            proposed = 'Gracias. '+journey.question
+            proposed = 'Gracias. '+writerQuestion(raw)
             lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Finalidad de la compra',
               next_decision: 'Orientar la vivienda según el uso declarado.', continuation_id: 'property_purpose', continuation_act: 'choose_category' }
           } else {
@@ -263,6 +264,9 @@ async function conversationHarness({ current, messages, extractionFails = false,
           }
         }
       }
+      if (raw.estado_operativo?.handoff_result?.verified) proposed = 'Con gusto. He pasado su consulta al equipo para que un asesor revise esa condición.'
+      if (raw.contrato_redaccion?.saludo?.requerido && !raw.historial_reciente?.some(item => item.role === 'bot') && !/^(?:hola|saludos|buenas)/i.test(proposed)) proposed = 'Hola. '+proposed
+      for (const link of raw.contrato_redaccion?.enlaces_obligatorios || []) if (!proposed.includes(link)) proposed += '\n\n'+link
       return { reply: proposed, question: lastQuestion,
         requests: raw.referencias_solicitud.map(reference => ({ fragment: reference.id, intent: 'Atender consulta',
           request_type: 'general_information', status: 'answered', evidence: 'Respuesta', fact_key: null })) }
@@ -478,7 +482,7 @@ test('normal and observation keep the same greeting, profile capture, one reside
     assert.equal(named.receipt.args.p_tool_calls.profile_collection_decision.action, 'remind')
     assert.deepEqual(named.receipt.args.p_tool_calls.profile_collection_decision.allowed_fields, ['current_residence'])
     assert.match(named.receipt.args.p_content, /Mucho gusto, Carlos/)
-    assert.match(named.receipt.args.p_content, /en qué ciudad o país reside actualmente/)
+    assert.match(named.receipt.args.p_content, /en qué ciudad o país reside actualmente/i)
     assert.equal(named.receipt.args.p_content.includes(BROCHURE_URL), false)
     assert.equal(named.summary._lead_introduction.reminder_count, 1)
     assert.equal(named.summary._lead_introduction.brochure_sent, false)
