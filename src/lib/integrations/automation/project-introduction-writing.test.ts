@@ -15,7 +15,7 @@ function verified(current: string, specific: boolean): Row {
     contrato_turno: resolveTurnIntent({ current, semantics, requests, scope: { kind: 'neutral', uncertain: false } }),
     configuracion_presentacion_proyecto: { available: true, summary, source: 'Responsable del proyecto' }, proyecto: { name: 'La Vilet' } }
 }
-test('the system preserves the approved initial description and profile question without a reviewer flow veto', async () => {
+test('the system preserves the writer presentation and profile question without a reviewer flow veto', async () => {
   const current = 'Saludos, quiero informacion por favor', info = verified(current, false)
   const requests = (info.solicitudes_interpretadas as Row[]).map(request => ({ ...request, topics: ['project_overview'] }))
   info.solicitudes_interpretadas = requests
@@ -33,7 +33,7 @@ test('the system preserves the approved initial description and profile question
     assert.equal(obligations.some(obligation => obligation.id === 'opening_presentation'), task === 'writing')
     if (task === 'writing') {
       writingCalls++
-      const draft = writingCalls === 1 ? 'Con gusto le orientamos. '+PROFILE_INVITATION : summary+' '+PROFILE_INVITATION
+      const draft = 'Con gusto le orientamos. '+summary+' '+PROFILE_INVITATION
       assert.equal(object(object(context.contexto_verificado).presentacion_general_proyecto).summary, summary)
       assert.equal(object(object(object(context.contrato_redaccion).estado_comercial).presentacion_proyecto).approved_summary, summary)
       if (writingCalls === 2) assert.ok(context.reparacion)
@@ -49,6 +49,7 @@ test('the system preserves the approved initial description and profile question
   assert.equal(writingCalls, 1)
   assert.equal(reviewCalls, 1)
   assert.match(result.reply, /La Vilet integra viviendas y espacios comerciales/)
+  assert.match(result.reply, /^Con gusto le orientamos\./)
   assert.ok(result.reply.endsWith(PROFILE_INVITATION))
   assert.equal(result.needsAdvisor, false)
   assert.equal(result.audit.status, 'checked')

@@ -11,6 +11,7 @@ import { resolvePropertyTurn, propertyContext } from './property-context'
 import { commercialJourneyPlan } from './commercial-journey'
 import { withHandoffNotice } from './handoff-copy'
 import { applyTurnGreeting } from './conversation-style'
+import { informationRequestOpening } from './response-openings'
 
 const summary = 'La Vilet es un proyecto de uso mixto ubicado en Puertas del Sol, Cuenca, con suites, departamentos, penthouses y locales comerciales.'
 const inventory: Row[] = [
@@ -48,9 +49,9 @@ for (const confidence of ['high', 'medium']) for (const current of ['Hola quiero
       assert.deepEqual(writer.proyecto, { name: 'La Vilet' })
       const contract = finalWriterContract(planned.reply, planned.audit, { current, verified: info })
       assert.equal(contract.base_role, 'approved_initial_presentation')
-      assert.equal(object(contract.presentacion).policy, 'required_approved_business_copy')
+      assert.equal(object(contract.presentacion).policy, 'required_approved_facts_with_free_wording')
       for (const draft of ['Para orientarle, ¿cómo se llama?', `${summary} Tiene 49 viviendas en 2 subsuelos y 8 pisos.`]) {
-        assert.equal(protectInitialProjectPresentation(draft, planned.audit, { current, verified: info }), `${summary}\n\n${PROFILE_INVITATION}`)
+        assert.equal(protectInitialProjectPresentation(draft, planned.audit, { current, verified: info }), `${informationRequestOpening(summary)}\n\n${PROFILE_INVITATION}`)
       }
     }
   })
@@ -84,7 +85,7 @@ test('a protected presentation preserves the next asset question for a previousl
     presentation: { required: true, approved_summary: summary }, question: '', brochure_required: true,
     brochure_url: 'https://example.com/brochure.pdf' } }, { verified: {
     siguiente_paso_comercial: { action: 'discover_use', question_id: 'property_category', question } } })
-  assert.equal(result, `${summary}\n\nBrochure del proyecto: https://example.com/brochure.pdf\n\n${question}`)
+  assert.equal(result, `${informationRequestOpening(summary)}\n\nBrochure del proyecto: https://example.com/brochure.pdf\n\n${question}`)
 })
 
 test('a verified late handoff remains visible after the final approved-summary preparation and stays idempotent', () => {

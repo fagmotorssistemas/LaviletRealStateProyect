@@ -1754,8 +1754,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     audit.delivery_integrity = { changed_content: false, status: observedWriterResponse ? 'observed_writer_preserved' : reviewing ? 'approved_content_preserved' : 'unreviewed_writer_preserved', ...(reviewing && !observedWriterResponse ? { approved_text: reviewedText } : { writer_text: reviewedText }), final_text: reply,
       confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
   }
-  // Final-review fallbacks may restore the writer's older draft. The approved
-  // opening is server-owned business content and must survive that restoration.
+  // Recovery templates retain the approved opening facts. A completed writer
+  // response retains its own wording, including warmth, after final review.
   const protectedOpening = applyTurnGreeting(withHandoffNotice(protectInitialProjectPresentation(reply, audit,
     { current: writingCurrent, verified: finalVerifiedContext }), handoffNotice), turnGreeting)
   if (protectedOpening !== reply) {

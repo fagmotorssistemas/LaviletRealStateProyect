@@ -223,7 +223,9 @@ async function conversationHarness({ current, messages, extractionFails = false,
         const profileId = decision.allowed_question_ids?.[0]
         if (profileId) {
           proposed = [introduction.name_acknowledgement,
-            introduction.generic_introduction ? 'La Vilet está ubicada en Puertas del Sol, Cuenca.' : '', introduction.question].filter(Boolean).join('\n\n')
+            introduction.generic_introduction
+              ? 'Con gusto le comparto información. La Vilet está ubicada en Puertas del Sol, Cuenca, y cuenta con suites, departamentos, penthouses y locales comerciales.'
+              : '', introduction.question].filter(Boolean).join('\n\n')
           lastQuestion = { purpose: 'collect_lead_profile', role: 'required_collection', missing_datum: decision.allowed_fields.join(', '),
             next_decision: 'Continuar la guía personalizada.', continuation_id: profileId, continuation_act: 'profile' }
         } else {
@@ -300,6 +302,8 @@ test('the actual opening and compound profile exchange preserve the recovered na
     assert.match(opening.receipt.args.p_content, /suites.*departamentos.*penthouses.*locales comerciales/,
       JSON.stringify({ introduction: opening.receipt.args.p_tool_calls.profile_introduction,
         query: opening.receipt.args.p_tool_calls.catalog_query, intent: opening.receipt.args.p_tool_calls.resolved_turn_intent }))
+    assert.match(opening.receipt.args.p_content, /Con gusto le comparto información\. La Vilet está ubicada/)
+    assert.equal(opening.receipt.args.p_tool_calls.turn_completeness.initial_presentation.source, 'writer')
     assert.doesNotMatch(opening.receipt.args.p_content, /49|subsuelos|pisos|m²/)
     assert.equal(declared.extractionCalls, 2, 'Only the missing name receives a focused repair')
     assert.equal(declared.summary._lead_profile.full_name, 'Carlos')

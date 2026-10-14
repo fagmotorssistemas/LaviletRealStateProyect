@@ -483,6 +483,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   const introduction = object(input.audit?.profile_introduction)
   const informationOpeningRequired = introduction.generic_introduction === true
     && introduction.reason === 'first_substantive_project_contact' && introduction.stage === 'request'
+  const initialPresentationAudit = object(introduction.presentation).required === true
+    && text(object(introduction.presentation).approved_summary).trim()
+    ? { initial_presentation: { source: 'writer', policy: 'approved_summary_facts_with_free_wording' } } : {}
   const opening = { ...decidedOpening(input.baseReply, input.history),
     policy: informationOpeningRequired ? 'first_information_request' : 'editorial_suggestion', applied: false }
   const writerContract = finalWriterContract(input.baseReply, input.audit, input)
@@ -492,8 +495,8 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (completed.audit) serverContinuationCompletion = completed.audit
     return completed.reply
   }
-  const prepareReply = (reply: string) => completeContinuation(ensureReferentialPriceConditions(
-    applyTurnGreeting(protectInitialProjectPresentation(reply, input.audit || {}, input), text(input.audit?.writer_greeting)), input.verified, input.audit).reply)
+  const prepareReply = (reply: string, preserveWriter = false) => completeContinuation(ensureReferentialPriceConditions(
+    applyTurnGreeting(protectInitialProjectPresentation(reply, input.audit || {}, { ...input, preserveWriter }), text(input.audit?.writer_greeting)), input.verified, input.audit).reply)
   const profileQuestionAudit = { ...input.audit,
     profile_collection_decision: object(writerContract.estado_comercial).profile_collection_decision }
   const profileQuestionContentIssues = (actualQuestion: unknown): Row[] => leadProfileQuestionIssues(actualQuestion, profileQuestionAudit)
@@ -581,7 +584,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         writer_metadata_observations: observedMetadataIssues },
       question: deliveredQuestion, question_metadata_recovery: { ...writerMetadataRecovery,
         delivered_source: reviewedQuestionValid ? 'validated_reviewer' : recovery.corrected ? 'actual_question' : 'writer',
-        delivered_recovery: recovery }, requests: observedRequests, writer_contract: writerContract,
+        delivered_recovery: recovery }, requests: observedRequests, writer_contract: writerContract, ...initialPresentationAudit,
       commercial_journey: input.verified.siguiente_paso_comercial, commercial_continuation: continuationAudit(),
       resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
       text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
@@ -770,7 +773,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       // No model repair, reviewer call or extra writer attempt in disabled
       // mode. The emitted question still owns its locally recognized meaning.
       const transport = unreviewedWriterReply(proposedReply)
-      const reply = prepareReply(includeRequiredBrochure(transport.reply, input.audit, input))
+      const reply = prepareReply(includeRequiredBrochure(transport.reply, input.audit, input), true)
       const issues = [...mandatoryReplyIssues(input, reply),
         ...continuationContentIssues(reply, input.verified.siguiente_paso_comercial).map(issue => text(issue.code)),
         ...turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review_enabled: false } }, reply),
@@ -791,7 +794,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
           final_validation: { passed: true, policy: 'mandatory_server_guards', issues: [], validated_text: reply },
           question: recoveredQuestion.question, question_metadata_recovery: recoveredQuestion,
           follow_up: { usable: questionUsable, source: 'validated_writer', warnings: continuationMetadataIssues(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial) },
-          writer_contract: writerContract } }
+          writer_contract: writerContract, ...initialPresentationAudit } }
     }
     if (attempt > 0 && object(repairAttempts.at(-1)?.rejected_review).review_contract === FOCUSED_REVIEW_VERSION
       && proposedReply.trim() === previousDraft.trim()) return fallback('rejected_review', requests, ['writer_repair_unchanged'])
@@ -815,7 +818,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     requests = rows || []
     const preparedReply = input.audit?.semantic_review_enabled === true ? text(candidate.reply).trim() : currentTopicReply(text(candidate.reply).trim(), input.current)
     const normalizedReply = protectInitialProjectPresentation(input.audit?.semantic_review_enabled === true
-      ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply, input.audit || {}, input)
+      ? preparedReply : input.normalizeReply?.(preparedReply) ?? preparedReply, input.audit || {}, { ...input, preserveWriter: true })
     const openedReply = informationOpeningRequired ? informationRequestOpening(normalizedReply) : normalizedReply
     opening.applied = openedReply !== normalizedReply
     const brochureReply = includeRequiredBrochure(openedReply, input.audit, input)
@@ -1255,7 +1258,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         operational_action_verified: object(input.audit?.reservation).handoff_verified === true && continuationChecks.operational_goal_preserved === true && continuationChecks.answers_supported === true,
         text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
         commercial_continuation: continuationAudit(), semantic_review: semanticReview, final_validation: finalValidation, opening_decision: opening, writer_contract: context.contrato_redaccion, price_evidence: evidence, repair_attempts: repairAttempts, status: 'checked', requests, question, repaired: reply !== originalBase.trim(), unsupported_rental_claim_removed: safeBase.removed,
-        repair_budget: repairBudget(), independent_review: reviewRequired,
+        repair_budget: repairBudget(), independent_review: reviewRequired, ...initialPresentationAudit,
         missing_fact_fragments: reviewMissing, handoff_assessments: assessed.assessments, needs_advisor: unresolved.length > 0, unresolved,
         base_preview: traceText(originalBase, MAX_REPLY_CHARACTERS), proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS), final_preview: traceText(reply, MAX_REPLY_CHARACTERS) } }
     }
