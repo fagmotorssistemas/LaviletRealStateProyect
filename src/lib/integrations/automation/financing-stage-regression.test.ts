@@ -127,13 +127,13 @@ test('legal-name collection uses selected-unit context, preserves the next field
         const obligations = rows(object(input).obligaciones_del_turno)
         if (task === 'writing') {
           assert.ok(instructions.includes(FINANCING_COLLECTION_WRITER_RULES))
-          assert.ok(instructions.length < 5000)
+          assert.equal(instructions.includes('AUTORIDAD LIMITADA DEL REVISOR'), false)
           assert.ok(obligations.some(o => o.id === 'financing_collection' && o.next_question === next))
           return { reply: next, requests: [{ fragment: 'R1', intent: 'Nombre', request_type: 'general_information',
             status: 'answered', evidence: 'Solicita nombre legal completo', fact_key: 'none' }],
           question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'nombres y apellidos completos', next_decision: 'continuar recopilación' } }
         }
-        assert.ok(obligations.some(o => o.id === 'financing_collection'))
+        assert.equal(obligations.some(o => o.id === 'financing_collection'), false)
         return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
       } catch (error) { failures.push(String(error)); throw error }
     })
@@ -338,7 +338,7 @@ test('accepted financing with answered entry asks property selection with shared
     try {
       calls.push(task!)
       const input = object(data), obligations = rows(input.obligaciones_del_turno)
-      assert.ok(obligations.some(o => o.id === 'financing_property_first'))
+      assert.equal(obligations.some(o => o.id === 'financing_property_first'), task === 'writing')
       assert.ok(!obligations.some(o => ['budget_continuation', 'current_budget_answer'].includes(String(o.id))))
       if (task === 'review') {
         assert.equal(object(object(input.estado_del_turno).etapa_financiamiento).collection_allowed, false)

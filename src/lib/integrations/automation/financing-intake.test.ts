@@ -155,10 +155,11 @@ test('the real final writer and review contracts preserve the consent invitation
       try {
         calls.push(task)
         const obligation = (object(input).obligaciones_del_turno as Row[]).find(row => row.id === 'financing_collection')!
-        assert.equal(obligation.collection_allowed, false)
-        assert.deepEqual(obligation.requested_fields, ['financing_consent'])
-        assert.equal(obligation.selected_partner, partner)
-        assert.match(String(obligation.instruction), /antes de la aceptación/)
+        if (task === 'writing') assert.equal(obligation.collection_allowed, false)
+        if (task === 'writing') assert.deepEqual(obligation.requested_fields, ['financing_consent'])
+        if (task === 'writing') assert.equal(obligation.selected_partner, partner)
+        if (task === 'writing') assert.match(String(obligation.instruction), /antes de la aceptación/)
+        else assert.equal(obligation, undefined)
         return task === 'writing' ? { reply: intake.reply, requests: [{ fragment: 'R1', intent: 'Elegir entidad',
           request_type: 'action', status: 'answered', evidence: `Conserva ${partner} y pide aceptación`, fact_key: 'none' }], question }
           : { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [],

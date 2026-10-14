@@ -15,7 +15,7 @@ function verified(current: string, specific: boolean): Row {
     contrato_turno: resolveTurnIntent({ current, semantics, requests, scope: { kind: 'neutral', uncertain: false } }),
     configuracion_presentacion_proyecto: { available: true, summary, source: 'Responsable del proyecto' }, proyecto: { name: 'La Vilet' } }
 }
-test('an omitted initial project description is repaired while preserving the approved summary and profile question', async () => {
+test('the system preserves the approved initial description and profile question without a reviewer flow veto', async () => {
   const current = 'Saludos, quiero informacion por favor', info = verified(current, false)
   const requests = (info.solicitudes_interpretadas as Row[]).map(request => ({ ...request, topics: ['project_overview'] }))
   info.solicitudes_interpretadas = requests
@@ -30,7 +30,7 @@ test('an omitted initial project description is repaired while preserving the ap
     current, baseReply: intro.reply, verified: info, audit: { ...intro.audit, semantic_review_enabled: true, business_risk_review_enabled: true },
   }, async (_rules, input, _schema, _image, _file, _tone, task) => {
     const context = object(input), obligations = context.obligaciones_del_turno as Row[]
-    assert.ok(obligations.some(obligation => obligation.id === 'opening_presentation'))
+    assert.equal(obligations.some(obligation => obligation.id === 'opening_presentation'), task === 'writing')
     if (task === 'writing') {
       writingCalls++
       const draft = writingCalls === 1 ? 'Con gusto le orientamos. '+PROFILE_INVITATION : summary+' '+PROFILE_INVITATION
@@ -46,8 +46,8 @@ test('an omitted initial project description is repaired while preserving the ap
         reason: 'Se omitió opening_presentation: ofrecer brochure y solicitar perfil no describe el proyecto.',
         authoritative_fact: summary }] : [], question: { ...question, offered_action: 'none' } }
   }))
-  assert.equal(writingCalls, 2)
-  assert.equal(reviewCalls, 2)
+  assert.equal(writingCalls, 1)
+  assert.equal(reviewCalls, 1)
   assert.match(result.reply, /La Vilet integra viviendas y espacios comerciales/)
   assert.ok(result.reply.endsWith(PROFILE_INVITATION))
   assert.equal(result.needsAdvisor, false)

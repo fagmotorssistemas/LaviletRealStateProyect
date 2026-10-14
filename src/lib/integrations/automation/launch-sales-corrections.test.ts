@@ -35,8 +35,13 @@ test('the actual selected-unit delivery opens and requires only its verified pri
     const input = object(raw)
     try {
       const obligation = (input.obligaciones_del_turno as Row[]).find(row => row.id === 'selected_unit_tour_price')!
-      assert.equal(obligation.unit_number, unit.unit_number)
-      assert.equal(obligation.published_commercial_price, 310000)
+      if (task === 'writing') {
+        assert.equal(obligation.unit_number, unit.unit_number)
+        assert.equal(obligation.published_commercial_price, 310000)
+      } else {
+        assert.equal(obligation, undefined)
+        assert.equal((object(input.fuentes_autorizadas).unidades as Row[])[0].published_commercial_price, 310000)
+      }
     } catch (error) { errors.push(error) }
     if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
     return { reply: `El departamento 502 tiene un precio de USD 310.000. ${model.caption}`,

@@ -22,7 +22,7 @@ for (const scenario of [
   { id: 'property_purpose', act: 'choose_category', purpose: 'choose_property', question: '¿Lo busca para vivir o como inversión?' },
   { id: 'financing_invitation', act: 'financing', purpose: 'permission_to_continue', question: '¿Desea que continuemos con el proceso de financiamiento?' },
   { id: 'visit_date_time', act: 'visit', purpose: 'coordinate_visit', question: '¿Qué día y a qué hora le gustaría visitarnos?' },
-]) test('review metadata repairs the emitted '+scenario.id+' question without rewriting valid content', async () => {
+]) test('review metadata cannot change the emitted '+scenario.id+' question without rewriting valid content', async () => {
   const reply = 'Con gusto podemos orientarle. '+scenario.question
   const question = { purpose: scenario.purpose, role: 'optional_continuation', missing_datum: 'Dato pendiente', next_decision: 'Continuar', continuation_id: scenario.id, continuation_act: scenario.act }
   const tasks: string[] = []
@@ -38,12 +38,12 @@ for (const scenario of [
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
-  assert.deepEqual(tasks, ['writing', 'review', 'review'])
-  assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 0 }, review_metadata: { limit: 1, used: 1 } })
+  assert.deepEqual(tasks, ['writing', 'review'])
+  assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 0 }, review_metadata: { limit: 1, used: 0 } })
   assert.equal(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }).id, scenario.id)
 })
 
-test('a consumed writer repair does not prevent fixing reviewer profile metadata', async () => {
+test('a repaired writer preserves its profile metadata without another reviewer classification', async () => {
   const wrong = 'El precio del departamento es $999. ¿Cuál es su nombre y en qué ciudad vive actualmente?'
   const correct = 'El precio se verificará en el catálogo. ¿Cuál es su nombre y en qué ciudad vive actualmente?'
   const tasks: string[] = []
@@ -58,8 +58,8 @@ test('a consumed writer repair does not prevent fixing reviewer profile metadata
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, correct)
-  assert.deepEqual(tasks, ['writing', 'review', 'writing', 'review', 'review'])
-  assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 1 } })
+  assert.deepEqual(tasks, ['writing', 'review', 'writing', 'review'])
+  assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 0 } })
   assert.equal(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }).id, 'lead_profile')
 })
 
@@ -73,7 +73,7 @@ test('an approved draft keeps validated writer metadata if optional reviewer met
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
-  assert.equal(object(object(result.audit.semantic_review).question_metadata).writer_preserved, true)
+  assert.equal(object(object(result.audit.semantic_review).question_metadata).owner, 'writer_and_system')
   assert.equal(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }).id, 'lead_profile')
 })
 
@@ -105,7 +105,7 @@ test('actual bedroom rediscovery is rejected even when attached metadata claims 
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, correct)
-  assert.deepEqual(tasks, ['writing', 'review', 'writing', 'review'])
+  assert.deepEqual(tasks, ['writing', 'writing', 'review'])
   assert.equal(object(result.audit.question).continuation_id, 'property_floor')
 })
 
@@ -168,7 +168,8 @@ test('the full completion route retains the proposal through 360, then a yes ask
     const result = await completeTurnReply({ current: turn.current, baseReply: reply, verified: info, audit: { ...audit, source: turn.source,
       ...(turn.source === 'virtual_showroom' ? { unit_model: { unit_id: null } } : {}) } },
     async (_rules, raw, _schema, _image, _file, _tone, task) => {
-      assert.equal(object(object(object(raw).contrato_redaccion).continuacion_del_turno).question_id || object(object(raw).fuentes_autorizadas).siguiente_paso_comercial && object(object(object(raw).fuentes_autorizadas).siguiente_paso_comercial).question_id, turn.expected)
+      if (task === 'writing') assert.equal(object(object(object(raw).contrato_redaccion).continuacion_del_turno).question_id, turn.expected)
+      else assert.equal(object(object(raw).fuentes_autorizadas).siguiente_paso_comercial, undefined)
       return task === 'writing' ? writer(reply, question) : { ...pass, question: { ...question, offered_action: 'information' } }
     })
     assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))

@@ -5,6 +5,7 @@ import { taskVerifiedContext } from './task-context'
 import { completeTurnReply } from './turn-completeness'
 import { unitPriceQuote } from './price-reply'
 import { LAUNCH_PRICE_COMPARISON_RULE } from './launch-price-policy'
+import { factualReviewObligations } from './reviewer-authority'
 import { object, type Row } from './data'
 import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 
@@ -84,7 +85,7 @@ for (const approximate of [true, false, undefined]) for (const withPublishedPoli
         question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' } }
     }
     reviewed = true
-    assert.deepEqual(context.obligaciones_del_turno, writerObligations)
+    assert.deepEqual(context.obligaciones_del_turno, factualReviewObligations(writerObligations))
     const otherSources = rows(object(context.fuentes_autorizadas).otros_hechos_y_politicas)
     assert.equal(otherSources.some(source => String(source.path).includes('politicas_negocio')), withPublishedPolicy)
     return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }

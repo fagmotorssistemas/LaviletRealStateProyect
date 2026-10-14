@@ -36,7 +36,7 @@ async function interpret(current: string, statements: Row[], budget: Row = noBud
 test('replacement output is a closed nullable contract; legacy independent declarations remain valid', () => {
   const item = FINANCING_AMOUNTS_SCHEMA.items
   assert.equal(item.additionalProperties, false)
-  assert.deepEqual(item.required, ['role', 'amount', 'evidence', 'replaces_role'])
+  assert.deepEqual(item.required, ['role', 'amount', 'amount_reference_id', 'evidence', 'replaces_role'])
   assert.deepEqual(item.properties.replaces_role.type, ['string', 'null'])
   assert.deepEqual(item.properties.amount.type, ['number', 'null'])
   assert.deepEqual(financingAmountStatements([{ role: 'loan', amount: 200000, evidence: 'Quiero financiar 200 mil' }],

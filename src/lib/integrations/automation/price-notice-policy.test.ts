@@ -38,7 +38,7 @@ test('a notice in a registered prior bot reply is not repeated in the next price
     const input = object(raw); tasks.push(task!)
     const obligations = input.obligaciones_del_turno as Row[]
     assert.equal(obligations.some(row => row.id === 'price_conditions'), false)
-    assert.equal(obligations.some(row => row.id === 'price_notice_disabled'), true)
+    assert.equal(obligations.some(row => row.id === 'price_notice_disabled'), task === 'writing')
     if (task === 'writing') return { reply, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' },
       requests: [{ fragment: 'R1', intent: 'Informar precio', request_type: 'general_information', status: 'answered', evidence: 'Precio actual de la unidad', fact_key: null }] }
     assert.equal(String(input.borrador).includes(REFERENTIAL_PRICE_NOTICE), false)
@@ -51,10 +51,14 @@ test('a notice in a registered prior bot reply is not repeated in the next price
 })
 
 test('all prompt and reviewer paths distinguish automatic notices from explicit price-condition questions', () => {
-  for (const rules of [PRICE_REPLY_RULES, SEMANTIC_POLICY_REVIEW_RULES, businessRiskReviewInstructions()]) {
+  for (const rules of [PRICE_REPLY_RULES]) {
     assert.match(rules, /aviso_precios_referenciales=false/)
     assert.match(rules, /cliente pregunta expresamente por vigencia, cambios o condiciones/)
     assert.match(rules, /nunca deduzca que el precio es fijo/)
+  }
+  for (const rules of [SEMANTIC_POLICY_REVIEW_RULES, businessRiskReviewInstructions()]) {
+    assert.match(rules, /No decide qué comunicar ni qué preguntar/)
+    assert.match(rules, /garantía/)
   }
 })
 

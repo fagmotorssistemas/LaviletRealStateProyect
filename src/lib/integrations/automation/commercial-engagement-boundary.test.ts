@@ -163,7 +163,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) for (const 
     assert.doesNotMatch(result.reply, /dormitorios|suites|penthouses|qué tipo|financiamiento/i)
     assert.equal(object(result.audit.final_validation).passed, true, JSON.stringify(result.audit))
     assert.deepEqual(tasks, mode === 'disabled' ? ['writing'] : ['writing', 'review'])
-    if (contexts.length > 1) assert.equal(rows(contexts[1].obligaciones_del_turno).find(row => row.id === 'commercial_next_step')?.question_id, 'budget_amount')
+    if (contexts.length > 1) assert.equal(rows(contexts[1].obligaciones_del_turno).find(row => row.id === 'commercial_next_step'), undefined)
     const receipt = journeyPendingQuestion(result.reply, plan, true, result.audit.question)
     assert.equal(receipt.id, 'budget_amount')
     assert.equal(receipt.act, 'budget')
