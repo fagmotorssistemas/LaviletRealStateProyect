@@ -423,8 +423,8 @@ test('choosing apartments clears old penthouse references without treating an ob
   const current='bueno, me interesa mas los departamentos por que los penthouse deben ser muy caros.'
   const semantic=semantics(current,{category:'departamento',excluded_categories:['penthouse'],reference_kind:'none'})
   const reference=resolvePropertyTurn(catalog,current,{_unit_reference:{ids:['u602']},_property_context:{selected_ids:['u602']}},penthouses,semantic)
-  assert.equal(reference.reason,'category_change')
-  assert.deepEqual(reference.matches,[])
+  assert.equal(reference.reason,'catalog_search')
+  assert.deepEqual(reference.matches.map(unit=>unit.id),['u202','u302'])
   assert.equal(reference.context.preference_category,'departamento')
   assert.deepEqual(reference.context.selected_ids,[])
   assert.equal(semantic.budget.status,'not_discussed')
@@ -482,7 +482,9 @@ test('a complete comparison survives the delivered answer and quotes both verifi
 test('negations and incidental comparisons cannot override an explicit category or choose a rejected unit',()=>{
   const current='prefiero departamentos, el penthouse es más grande'
   const reference=resolvePropertyTurn(catalog,current,{},penthouses,semantics(current,{category:'departamento',reference_kind:'none'}))
-  assert.equal(reference.reason,'category_change')
+  assert.equal(reference.reason,'catalog_search')
+  assert.deepEqual(reference.matches.map(unit=>unit.id),['u202','u302'])
+  assert.equal(reference.query.selector,null)
   for(const current of ['no quiero el más grande','el departamento 202 no me interesa','no quiero el departamento 202']) {
     const result=resolvePropertyTurn(catalog,current,{},penthouses,{})
     assert.equal(result.explicit,false,current)

@@ -9,7 +9,7 @@ import { bedroomComparison, bedroomCondition, matchesBedrooms, type BedroomCompa
 import { verifiedAbsenceReply } from './catalog-absence'
 import { requirementMatch, catalogNumber } from './catalog-request'
 import { unitModelDelivery } from './unit-model'
-import { leadBudget } from './budget-state'
+import { propertyPurchasePriceLimit } from './budget-state'
 import { budgetRecommendationPresentation } from './budget-presentation'
 
 type Operation = 'search' | 'rank' | 'compare' | 'select' | 'details' | 'none'
@@ -534,7 +534,8 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
           reason: 'budget_matching_recommendation_before_category' } })
     }
   }
-  if ((query.operation === 'compare' && (units.length < 2 || missingIds.length > 0 || reference.needsClarification === true))
+  if (scopedIds?.length === 0 && ['offered', 'comparison', 'selected'].includes(text(query.scope))
+    || (query.operation === 'compare' && (units.length < 2 || missingIds.length > 0 || reference.needsClarification === true))
     || ['details', 'select'].includes(query.operation) && (!units.length || missingIds.length > 0)) {
     const next = text(reference.clarification) || (query.operation === 'compare'
       ? '¿Qué unidades le gustaría que comparemos?' : '¿Qué unidad le gustaría conocer?')
@@ -552,10 +553,9 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
     const opening = unknown.length ? 'Falta información en las fichas para confirmar qué opciones cumplen todas esas características.'
       : verifiedAbsenceReply(baseAudit) || `Actualmente no contamos con ${subject} disponibles${conditions ? ` ${conditions}` : ''}.`
     if (unknown.length) return respond(opening)
-    const budget = leadBudget(info)
-    const cap = budget.status === 'maximum_total' && acceptedExtractorConfidence(budget.confidence)
-      && typeof budget.amount === 'number' && object(info.politica_comercial).precios_autorizados === true
-      ? { maximum: budget.amount } : undefined
+    const priceLimit = propertyPurchasePriceLimit(info)
+    const cap = priceLimit !== null && object(info.politica_comercial).precios_autorizados === true
+      ? { maximum: priceLimit } : undefined
     const declined = object(context.requirements_declined)
     const rejectionForThisQuery = Object.keys(declined).length > 0
       && JSON.stringify(catalogQuery({ ...object(declined.original_query), operation: 'search' }))

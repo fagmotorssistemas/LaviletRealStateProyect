@@ -2,7 +2,7 @@ import { acceptedExtractorConfidence } from './extractor-confidence'
 import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
 import { selectedFinancingUnit, financingStage } from './financing-stage'
-import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers } from './budget-state'
+import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers, propertyPurchasePriceLimit } from './budget-state'
 import { catalogQuery, filterCatalog, partitionCatalog, catalogRequirementAlternative, alternativeFloorQuestion,
   canOfferLowerFloorBedrooms, catalogLowerFloorBedroomAlternative } from './catalog-dialogue'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
@@ -69,10 +69,16 @@ export function commercialSelectionQuery(info: Row) {
     && typeof currentBedrooms === 'number' && currentBedrooms === bedroomConditions[0].value
   const category = commercialSelectionCategory(info)
   const interest = declaredCommercialInterest(info)
+  const known = object(info.hechos_confirmados)
+  const quantities = rows(known.housing_quantities).filter(row => row.dimension === 'bedrooms' && row.role === 'requirement'
+    && acceptedExtractorConfidence(row.confidence) && text(row.evidence).trim() && Array.isArray(row.values) && row.values.length === 1)
+  const remembered = object(object(context.exploration_state).accepted_filters).bedrooms
+    ?? object(object(known.property).filters).bedrooms
+    ?? (quantities.length === 1 ? (quantities[0].values as number[])[0] : null)
   return catalogQuery({ ...query, category,
     group: interest.group || assetGroup(category) || null,
     filters: { ...object(query.filters), bedrooms: bedroomConditions.length
-      ? sameBedroomCondition ? currentBedrooms : null : currentBedrooms ?? lead.preferred_bedrooms } })
+      ? sameBedroomCondition ? currentBedrooms : null : currentBedrooms ?? (interest.group === 'commercial' ? null : remembered ?? lead.preferred_bedrooms) } })
 }
 
 function commercialSelectionCategory(info: Row) {
@@ -127,6 +133,32 @@ export function purchaseReadiness(info: Row): Row {
 
 /** One shared next step for writer, reviewer, memory and the lead card. */
 export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
+  const plan = buildCommercialJourneyPlan(info, audit)
+  const requests = rows(info.solicitudes_interpretadas || object(info.semantica_turno).requests || object(info.contrato_turno).requests)
+    .filter(request => acceptedExtractorConfidence(request.confidence) && text(request.evidence).trim())
+  const topics = requests.flatMap(request => ids(request.topics))
+  const pending = object(object(info.property_context).pending_question)
+  const accepted = financingStage(info).accepted === true
+  const capture = ['clarify_financing_down_payment', 'discover_bedrooms', 'select_property', 'ask_budget', 'clarify_budget_kind'].includes(text(plan.action))
+  const hasInquiry = requests.some(request => ['financing', 'property', 'project'].includes(text(request.domain))
+    && ids(request.topics).some(topic => !['property_options', 'visualization'].includes(topic)))
+  const firstAcceptance = object(object(info.semantica_turno).answer_to_previous).question_id === 'financing_invitation'
+    && object(object(info.semantica_turno).answer_to_previous).kind === 'affirmative'
+  const cashInquiry = topics.includes('cash_payment') && (capture || plan.action === 'offer_financing')
+  if (cashInquiry || accepted && capture && hasInquiry && pending.id === plan.question_id && !firstAcceptance) {
+    return { ...plan, action: 'answer_current_question', question: '', question_id: '', question_act: 'other',
+      requires_unit_presentation: false,
+      deferred_question: { id: plan.question_id, act: plan.question_act || (plan.question_id === 'financing_down_payment' ? 'financing' : 'other'),
+        question: plan.question, candidate_ids: ids(object(plan.selection_scope).unit_ids),
+        ...(plan.question_amount_reference ? { amount_reference: plan.question_amount_reference } : {}) },
+      instruction: topics.includes('cash_payment')
+        ? 'Atienda primero las condiciones verificadas del pago al contado y la comparación con financiamiento. Si faltan condiciones, explique únicamente lo pendiente. Puede ofrecer comparar ambas modalidades sin exigir elegir una ni volver a solicitar ahora la entrada. Esta consulta no cambia la modalidad ni revoca la aceptación de financiamiento. Conserve internamente el siguiente dato pendiente.'
+        : 'Responda la duda actual con amabilidad. La aceptación de financiamiento y las preferencias conocidas siguen vigentes. No repita inmediatamente la misma captura ni la invitación a financiamiento: el dato queda pendiente para retomarlo cuando el cliente termine de resolver sus dudas. Si pregunta por aprobación, explique la decisión de la entidad sin introducir cuotas.' }
+  }
+  return plan
+}
+
+function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const state = object(info.recorrido_comercial), readiness = purchaseReadiness(info)
   const budget = object(readiness.budget), finance = object(info.financiamiento)
   const lead = object(info.lead), profile = object(info.perfil_lead)
@@ -207,6 +239,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const amount = typeof budget.amount === 'number' && Number.isFinite(budget.amount) && budget.amount > 0 ? budget.amount : null
   const comparable = budget.status === 'maximum_total' && amount !== null && acceptedExtractorConfidence(budget.confidence) && scopeKnown
   const authorizedPrices = object(info.politica_comercial).precios_autorizados === true
+  const priceLimit = authorizedPrices ? propertyPurchasePriceLimit(info) : null
   const physicalCandidates = physicalPartition.units.filter(unit => !excluded.has(text(unit.category)))
   const physicalCategories = Object.keys(labels).filter(type => physicalCandidates.some(unit => unit.category === type))
   const assessmentCandidates = selected ? physicalCandidates.filter(unit => unit.id === selected) : physicalCandidates
@@ -253,7 +286,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
           : pendingQuery.filters.floor_number !== selectionQuery.filters.floor_number ? 'floor_number'
           : pendingQuery.filters.bedrooms !== selectionQuery.filters.bedrooms ? 'bedrooms' : 'other'), query: pendingQuery, units: pendingUnits } : null
       : catalogRequirementAlternative(planningCatalog, selectionQuery, excluded, scopedIds,
-        comparable && authorizedPrices ? { maximum: amount! } : undefined)
+        priceLimit !== null ? { maximum: priceLimit } : undefined)
     const declined = object(context.requirements_declined)
     const adjustmentDeclined = Object.keys(declined).length > 0
       && JSON.stringify(normalizedPropertyQuery({ ...object(declined.original_query), operation: 'search', selector: null }))
@@ -262,7 +295,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
         === JSON.stringify(normalizedPropertyQuery(declined.proposed_query)))
     const lowerAlternative = adjustmentDeclined && canOfferLowerFloorBedrooms(info, selectionQuery, declined)
       ? catalogLowerFloorBedroomAlternative(planningCatalog, selectionQuery, declined, excluded, scopedIds,
-        comparable && authorizedPrices ? { maximum: amount! } : undefined) : null
+        priceLimit !== null ? { maximum: priceLimit } : undefined) : null
     const alternative = lowerAlternative || initialAlternative
     const bedroomCount = ['bedrooms', 'bedrooms_and_floor'].includes(text(alternative?.field)) ? alternative!.query.filters.bedrooms : null
     const strict = selectionQuery.filters.bedrooms_required === true

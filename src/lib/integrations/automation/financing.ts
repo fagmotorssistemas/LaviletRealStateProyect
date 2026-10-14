@@ -67,7 +67,8 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const semanticAcceptance = groundedInvitation && pendingAnswer.kind === 'affirmative'
     || asksConsent && extracted.financing_consent === true && currentFinancialRequest
   const conditional = /\b(?:solo si|siempre que|a condicion|si me (?:aprueban|aseguran|garantizan))\b/.test(message)
-    || /\b(?:pero|solo|credito directo|otra entidad)\b/.test(decision)
+    || /\b(?:solo|credito directo|otra entidad)\b/.test(decision)
+    || /\bpero\b/.test(decision) && !semanticAcceptance
     || (/[?¿]/.test(current) && !semanticAcceptance && !((asksConsent || acceptsFinancialHelp) && explicitHelp))
   const choice = object(extracted.financing_partner_choice)
   const choiceEvidence = text(choice.evidence).trim()

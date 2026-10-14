@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:conversation-continuity": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/conversation-continuity-corrections.test.ts src/lib/integrations/automation/requirement-consent.test.ts src/lib/integrations/automation/selected-property-operation-continuity.test.ts src/lib/integrations/automation/financing-consent-evidence.test.ts src/lib/integrations/automation/continuation-question.test.ts src/lib/integrations/automation/reviewer-authority.test.ts src/lib/integrations/automation/demo-conversation-integration.test.cjs",
     "test:cash-reservation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/cash-discount-notifications.test.ts src/services/advisorNotifications.service.test.ts scripts/urgent-reservation-notifications.pglite.test.cjs scripts/early-purchase-discount-actions.test.cjs",
     "test:cash-reservation-ui": "node --test scripts/cash-reservation-ui.test.cjs",
     "test:warm-opening": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/warm-opening-preservation.test.ts src/lib/integrations/automation/protected-opening-discovery.test.ts src/lib/integrations/automation/project-introduction-writing.test.ts src/lib/integrations/automation/lead-introduction.test.ts",

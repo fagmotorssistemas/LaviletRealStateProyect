@@ -3,8 +3,10 @@ export const REQUEST_TOPICS = [
   'project_overview', 'location', 'purchase_price', 'commercial_stage',
   'construction_status', 'delivery', 'spatial_fit', 'accessibility',
   'property_features', 'property_options', 'financing', 'visualization',
+  'cash_payment', 'credit_approval', 'financing_process', 'monthly_payment',
 ] as const
 export type RequestTopic = typeof REQUEST_TOPICS[number]
+export const FINANCING_REQUEST_TOPICS_RULES = 'Distinga en topics cash_payment (condiciones o comparación del pago al contado), credit_approval (si obtendría aprobación), financing_process (cómo funciona el procedimiento) y monthly_payment (consulta sobre cuota mensual). Añada financing cuando corresponda. Preguntar por contado no elige esa modalidad, ni rechaza financiamiento ya aceptado. No añada monthly_payment a una pregunta sobre aprobación. Una aceptación seguida de «pero cómo funciona» conserva answer_to_previous=affirmative si acepta continuar y solo añade una duda; «solo si me aprueban» sigue siendo una condición, nunca consentimiento.'
 export const REQUEST_TOPICS_SCHEMA = { type: 'array', items: { type: 'string', enum: [...REQUEST_TOPICS] } }
 
 /** Missing topics in historical extractions remain missing, not an assertion of absence. */

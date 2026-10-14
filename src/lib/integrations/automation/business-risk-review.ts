@@ -5,6 +5,7 @@ import { effectiveTurnBudget } from './turn-budget'
 import { catalogOverviewSummary } from './task-context'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { PROJECT_TRUTH_RULES } from './project-truth'
+import type { FactCheck } from './business-facts'
 
 export const BUSINESS_RISK_REVIEW_VERSION = 'business-risk-v2'
 
@@ -95,6 +96,21 @@ export function businessRiskReviewInstructions(optimizedCatalog = false): string
 }
 
 const categories = new Set(['hard_fact', 'business_guardrail'])
+
+/** Request a bounded second look when a block cites only numeric sources that
+ * its own fact inventory verifies. This never approves a draft or removes a
+ * finding: textual claims and business promises still belong to the reviewer. */
+export function supportedFindingRechecks(raw: Row, checks: FactCheck[]): Row[] {
+  if (raw.verdict !== 'block') return []
+  const findings = Array.isArray(raw.findings) ? raw.findings.map(object) : []
+  return findings.filter(finding => finding.category === 'hard_fact').flatMap(finding => {
+    const cited = checks.filter(check => text(check.fact.subject_id) && text(finding.authoritative_fact).includes(text(check.fact.subject_id)))
+    return cited.length && cited.every(check => check.status === 'verified')
+      ? [{ code: 'supported_source_in_blocked_finding', kind: 'review_metadata', statement: finding.statement,
+        finding, verified_facts: cited.map(check => check.fact),
+        instruction: 'Los datos numéricos citados están verificados. Identifique qué afirmación distinta es falsa o no respaldada; si no existe, retire el hallazgo y corrija el veredicto.' }] : []
+  })
+}
 
 export function businessRiskDecision(raw: Row): { valid: boolean; approved: boolean; findings: Row[]; ignoredFindings: Row[] } {
   const reported = Array.isArray(raw.findings) ? raw.findings.map(object) : []

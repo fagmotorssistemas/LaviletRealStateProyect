@@ -11,6 +11,7 @@ import { catalogQuery, filterCatalog, partitionCatalog } from './catalog-dialogu
 import { normalizeCatalogRequest } from './catalog-request'
 import { showroomRequest } from './virtual-showroom'
 import { groundedCurrentCategoryExclusions } from './purchase-evidence'
+import { confirmedInterpretationMemory } from './interpretation-memory'
 import { answersPendingQuestion, emptyPropertyFilters, normalizedPendingQuestion, normalizedPropertyFilters, normalizedPropertyQuery, pendingQuestionFromReply, propertyFiltersFromText, propertyFiltersWithQuantityMeaning, propertyPreferenceChange } from './turn-semantics'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
@@ -224,7 +225,17 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const groupChanged = !!group && !!previousGroup && group !== previousGroup
   // Choosing apartments within residential options refines the same search.
   // Only a change of use (housing/local) invalidates its previous constraints.
-  const filters = replaceBedroomComparison({ ...(groupChanged ? emptyPropertyFilters() : normalizedPropertyFilters(previousQuery.filters)),
+  const priorFilters = normalizedPropertyFilters(previousQuery.filters)
+  const known = confirmedInterpretationMemory(summary), knownProperty = object(known.property)
+  const rememberedFilters = acceptedExtractorConfidence(knownProperty.confidence) && text(knownProperty.evidence).trim()
+    ? object(knownProperty.filters) : {}
+  const acceptedFilters = object(object(context.exploration_state).accepted_filters)
+  const restoreKnownNeeds = !groupChanged && !previousSelectedIds.length && semanticValid
+    && (semanticOperation === 'search' || category && object(semantics).primary_intent === 'select_property')
+    && group !== 'commercial' && previousGroup !== 'commercial' && knownProperty.group !== 'commercial'
+  const inheritedNeeds = restoreKnownNeeds ? { ...rememberedFilters, ...acceptedFilters,
+    ...Object.fromEntries(Object.entries(priorFilters).filter(([, value]) => value != null)) } : priorFilters
+  const filters = replaceBedroomComparison({ ...(groupChanged ? emptyPropertyFilters() : normalizedPropertyFilters(inheritedNeeds)),
     ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }, suppliedFilters)
   if (suppliedFilters.bedrooms_any?.length && (lexicalFilters.bedrooms === null || suppliedFilters.bedrooms_any.includes(lexicalFilters.bedrooms))) { filters.bedrooms = null; filters.bedrooms_any = suppliedFilters.bedrooms_any }
   else if (suppliedFilters.bedrooms != null) delete filters.bedrooms_any
@@ -270,8 +281,18 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     : category === 'local' ? 'locales?(?: comerciales?)?' : `${category}s?`
   const categoryPreference = semanticValid && category && (
     new RegExp(`\\b(?:prefiero|elijo|escojo|me (?:interesan?|gustan?)|quiero (?:revisar|conocer)|quisiera (?:revisar|conocer))\\s+(?:mas\\s+)?(?:(?:los?|las?|un|una|esos?|esas?)\\s+)?${categoryNoun}\\b`).test(m)
-    || pending.act === 'choose_category' && /^(?:(?:los?|las?|un|una|de|mejor|entonces)\s+)*(?:departamentos?|penthouses?|suites?|locales?)(?:\s+comerciales?)?[.!\s]*$/.test(m))
-  if (categoryPreference) context.category_preference = { category, evidence: current, confirmed: true }
+    || pending.act === 'choose_category' && (
+      /^(?:(?:los?|las?|un|una|de|mejor|entonces)\s+)*(?:departamentos?|penthouses?|suites?|locales?)(?:\s+comerciales?)?[.!\s]*$/.test(m)
+      || ['select', 'search'].includes(semanticOperation) && (semanticOperation === 'select'
+        || object(semantics).primary_intent === 'select_property'
+        || ids(object(semantics).normalization_issues).includes('category_choice_refines_search'))
+        && acceptedExtractorConfidence(object(semantics).confidence) && text(semantic.evidence).trim() && m.includes(normalized(text(semantic.evidence)))
+        && !ids(semantic.unit_numbers).length && fromIds(pending.candidate_ids).some(unit => unit.category === category)))
+  if (categoryPreference) {
+    context.category_preference = { category, evidence: current, confirmed: true }
+    if (!ids(semantic.unit_numbers).length && !['rank', 'compare', 'details'].includes(operation)) query.operation = operation = 'search'
+    if (category !== previousCategory && query.scope === 'selected') query.scope = 'catalog'
+  }
   const explorationEvidence = normalized(text(structured.evidence))
   const asksToExplore = /\b(?:quiero|quisiera|deseo|me gustaria|prefiero)\s+(?:ver|conocer|revisar|explorar|saber)\b|\b(?:muestreme|muestrame|detalleme|expliqueme|indiqueme|indicame|revisemos|veamos)\b/.test(explorationEvidence)
     && !/\bno\s+(?:quiero|quisiera|deseo|me gustaria|prefiero|revisemos|veamos)\b/.test(explorationEvidence)
@@ -493,6 +514,25 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // Semantic explicit codes must actually occur in this message; history cannot fabricate them.
   const semanticNumbers = semanticValid ? ids(semantic.unit_numbers) : []
   const semanticExplicit = semanticValid && ['explicit', 'comparison'].includes(text(semantic.reference_kind))
+  // The extractor resolves natural references against the actually offered
+  // choice. Validate identity and availability, not a literal unit code that
+  // the client never needed to repeat. A price question can accompany a choice.
+  if (semanticValid && semanticOperation === 'select' && semantic.reference_kind === 'relative'
+    && semanticNumbers.length === 1 && text(semantic.evidence).trim() && m.includes(normalized(text(semantic.evidence)))) {
+    const offeredIds = ids(pending.candidate_ids).length ? ids(pending.candidate_ids) : ids(context.offered_ids)
+    const offered = fromIds(offeredIds)
+    const chosen = offered.filter(unit => semanticNumbers.some(number => code(number) === code(unit.unit_number)))
+    if (chosen.length === 1 && offered.length === offeredIds.length && !excluded.includes(text(chosen[0].category))) {
+      context.selected_ids = unitIds(chosen); context.focused_ids = unitIds(chosen); context.comparison_ids = []
+      context.pending_question = {}; context.preference_transition = {}
+      query.category = chosen[0].category; query.group = chosen[0].category === 'local' ? 'commercial' : 'residential'
+      query.operation = 'select'; query.scope = 'selected'; query.selector = null
+      context.category_preference = { category: chosen[0].category, confirmed: true, evidence: semantic.evidence }
+      return result(chosen, 'semantic_relative_choice', true)
+    }
+    return { ...result([], 'relative_choice_requires_clarification', false, true),
+      clarification: 'Para revisar la opción correcta, ¿cuál de las unidades presentadas prefiere?' }
+  }
   const literalNumbers = [...current.matchAll(/(?:^|[^\d])((?:LC-?)?\d{1,4})(?=[^\d]|$)/gi)].map(match => code(match[1]))
   const literalUnits = catalog.filter(unit => semanticNumbers.some(number => code(number) === code(unit.unit_number))
     && literalNumbers.includes(code(unit.unit_number)))
@@ -760,11 +800,12 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     delete filters.bedrooms_any
     Object.assign(filters, query.filters)
     context.offered_ids = ids(pending.candidate_ids)
-    context.selected_ids = activePreferenceTransition ? previousSelectedIds : []; context.comparison_ids = []; context.focused_ids = []
+    context.selected_ids = pending.act === 'confirm_bedrooms' || activePreferenceTransition ? previousSelectedIds : []; context.comparison_ids = []; context.focused_ids = []
     context.pending_question = {}
     delete context.requirements_declined
     context.phase = 'exploring_alternatives'
-    context.exploration_state = { version: 'property-exploration-v1', authorized: true, evidence: current }
+    context.exploration_state = { version: 'property-exploration-v1', authorized: true, evidence: current,
+      accepted_filters: { ...object(query.filters) } }
     context.query_transition = { reason: pending.act === 'confirm_bedrooms' ? 'accepted_bedroom_confirmation' : 'accepted_alternatives',
       before: previousQuery, after: { ...query }, original_requirement_retained: true }
   } else if (pending.act === 'choose_category' && acceptsPending && !category) {
@@ -823,7 +864,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // Search/ranking returns facts, not a selected unit. Ties are valid answers.
   // Resolve filters before unit-code guards, so "5ta planta" never becomes unit 5.
   if (['search', 'rank'].includes(operation) && (hasCurrentFilters || currentRequirements.length || broadResidential || operation === 'rank' || acceptedAlternative || requestsAlternativeExploration
-    || categoryPreference && object(context.exploration_state).authorized === true)) {
+    || categoryPreference)) {
     const progressionIds = object(context.exploration_state).authorized === true && ['choose_category', 'choose_floor'].includes(text(pending.act))
       ? ids(pending.candidate_ids) : []
     const scopeIds = query.scope === 'offered' ? ids(context.offered_ids).length ? ids(context.offered_ids) : progressionIds : query.scope === 'comparison' ? ids(context.comparison_ids)
@@ -840,7 +881,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     const source = acceptingOfferedFloor ? proposedOptions : scopeIds.length ? fromIds(scopeIds) : catalog
     const matchingIds = new Set(filterCatalog(source, catalogQuery(query)).map(unit => text(unit.id)))
     const candidates = source.filter(unit => matchingIds.has(text(unit.id)) && !excluded.includes(text(unit.category)))
-    context.selected_ids = activePreferenceTransition ? previousSelectedIds : []; context.comparison_ids = []
+    context.selected_ids = acceptedAlternative && pending.act === 'confirm_bedrooms' || activePreferenceTransition ? previousSelectedIds : []; context.comparison_ids = []
     if (operation === 'rank' && ['largest', 'smallest'].includes(selector)) {
       if (!candidates.length) return result([], 'catalog_no_match')
       if (candidates.some(unit => !(Number(unit.area_internal_m2) > 0))) return result(candidates, 'ranking_missing_area')
@@ -909,6 +950,9 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       return result(candidates, candidates.length ? 'catalog_search' : 'catalog_no_match')
     }
     context.selected_ids = []; context.comparison_ids = []; context.offered_ids = []; context.phase = null
+    // A category change is a fresh catalogue query, never an empty offered set
+    // masquerading as verified absence of inventory.
+    query.scope = 'catalog'; query.operation = 'search'
     return result([], 'category_change')
   }
   const neutralAnswer = acceptedExtractorConfidence(object(semantics).primary_intent === 'answer_previous' && object(semantics).confidence)

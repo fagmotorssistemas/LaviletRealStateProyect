@@ -76,8 +76,19 @@ export function rememberInterpretationFacts(summary: Row, current: string, extra
   const propertyHasValues = property.group || property.category || (Array.isArray(property.excluded_categories) && property.excluded_categories.length)
     || Object.keys(object(propertyValue(property).filters)).length
   if (propertyHasValues && acceptedExtractorConfidence(property.confidence) && literal(property.evidence, current)) {
-    // This is the last declaration, not a reusable search/select operation.
-    memory.property = { ...pick(property, [...propertyFields, 'evidence']), confidence: property.confidence }
+    // A category answer updates that field, not every previously declared need.
+    // A change between housing and commerce starts a different set of needs.
+    const previous = object(memory.property)
+    const group = property.group || (property.category === 'local' ? 'commercial' : property.category ? 'residential' : null)
+    const oldGroup = previous.group || (previous.category === 'local' ? 'commercial' : previous.category ? 'residential' : null)
+    const retained = group && oldGroup && group !== oldGroup ? {} : previous
+    const updates = propertyValue(property)
+    memory.property = { ...retained, ...Object.fromEntries(Object.entries(updates)
+      .filter(([key, value]) => key !== 'filters' && key !== 'excluded_categories' && value != null)),
+      excluded_categories: [...new Set([...(Array.isArray(retained.excluded_categories) ? retained.excluded_categories : []),
+        ...(Array.isArray(property.excluded_categories) ? property.excluded_categories : [])])].filter(value => value !== property.category),
+      filters: { ...object(retained.filters), ...object(updates.filters) },
+      evidence: property.evidence, confidence: property.confidence }
   }
   const quantities = rows(semantics.housing_quantities).filter(row => acceptedExtractorConfidence(row.confidence) && literal(row.evidence, current))
   if (quantities.length) {

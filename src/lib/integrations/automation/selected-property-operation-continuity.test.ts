@@ -67,7 +67,8 @@ test('descriptive categories preserve the selected subject during operational an
 test('a real category change or current search refinement still clears the old selection', () => {
   const changed = resolvePropertyTurn(units, 'Prefiero los penthouses', selectedSummary(), [],
     semantics('Prefiero los penthouses', 'select_property', { category: 'penthouse', unit_numbers: [], reference_kind: 'none' }))
-  assert.equal(changed.reason, 'category_change')
+  assert.equal(changed.reason, 'catalog_search')
+  assert.deepEqual(changed.matches.map(unit => unit.id), ['u602'])
   assert.deepEqual(changed.context.selected_ids, [])
   const current = 'Para el financiamiento prefiero otra opción en la planta 4'
   const refined = resolvePropertyTurn(units, current, selectedSummary(), [], semantics(current, 'ask_financing', {

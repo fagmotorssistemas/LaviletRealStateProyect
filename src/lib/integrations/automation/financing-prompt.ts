@@ -2,6 +2,7 @@ import { object, type Row } from './data'
 import { FINANCING_IDENTITY_RULES } from './financing-identity'
 import { FINANCING_AMOUNTS_RULES } from './financing-amounts'
 import { FINANCING_ENTRY_RULES } from './financing-entry'
+import { RELATIVE_PROPERTY_CHOICE_RULE } from './turn-semantics'
 
 /** The full output contract still accepts every domain. The selected intake
  * state changes instruction density, never what the customer may ask next. */
@@ -21,6 +22,7 @@ Use únicamente el question_id recibido en pregunta_pendiente; si no responde es
 Si pregunta_pendiente.id=financing_partner, «prefiero JEP» responde kind=value y financing_partner identifica la entidad elegida aunque primary_intent sea ask_financing. «¿Qué ofrece JEP?» pide información, no elige entidad. Una categoría no se deduce de dormitorios ni de los ejemplos del bot.
 Perfil: full_name es nombre de presentación; profile_evidence cita la declaración actual. Residencia describe dónde vive, no origen ni destino; no infiera país/ciudad. Rechazo y confirmación de residencia se separan en residence_response/residence_confirmation. Nombre o empleo no seleccionan una unidad. Datos laborales requieren declaración actual, no invente desde la ocupación ni copie ingresos del historial.
 No confunda visita del proyecto con otra cita. Fechas y horas requieren evidence actual, conserve visit_preference, visit_intent y solicitudes adicionales. Reserva: request inicia una petición de separación, information pregunta condiciones, declined rechaza; ninguna confirma una reserva. requested_advisor, opt_out y consent_granted requieren action_evidence literal actual de ese permiso. Aceptar ayuda financiera no pide asesor. Una baja de mensajes es global. Temas ajenos pertenecen a other; cortesía a courtesy.
+${RELATIVE_PROPERTY_CHOICE_RULE}
 ${FINANCING_IDENTITY_RULES}
 ${FINANCING_AMOUNTS_RULES}
 ${FINANCING_ENTRY_RULES}`

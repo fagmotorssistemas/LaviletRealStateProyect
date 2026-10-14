@@ -76,7 +76,7 @@ import { traceText } from './trace-summary'
 import { unitPriceQuote, priceEvidence, verifiedPriceReplyIssues } from './price-reply'
 import { decidedOpening, replyOpening, recentReplyOpenings, informationRequestOpening } from './response-openings'
 import { claimSchema, reviewClaims, factualValuesSchema, reviewedContextualGuidance, groundedClaimReviewSchema } from './semantic-review'
-import { BUSINESS_RISK_REVIEW_RULES, businessRiskReviewInstructions, businessRiskSchemaForSources, businessRiskDecision, businessRiskContext,
+import { BUSINESS_RISK_REVIEW_RULES, businessRiskReviewInstructions, businessRiskSchemaForSources, businessRiskDecision, businessRiskContext, supportedFindingRechecks,
   BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 import { validateBusinessFacts, factFindings, availableAssistance, ASSISTANCE_RULES } from './business-facts'
 
@@ -589,7 +589,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
       text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
       editorial_observations: editorialObservations, link_contract: linkContract,
-      repair_attempts: [], repair_budget: { writer: { limit: 0, used: 0 }, review_metadata: { limit: 0, used: 0 } },
+      repair_attempts: repairAttempts.filter(repair => repair.target === 'review_metadata'),
+      repair_budget: { writer: { limit: 0, used: 0 }, review_metadata: { limit: repairBudget().review_metadata.used ? 1 : 0,
+        used: repairBudget().review_metadata.used } },
       recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
       pending_missing_fact_fragments: reviewMissing,
       base_preview: traceText(originalBase, MAX_REPLY_CHARACTERS), proposed_preview: traceText(proposedReply, MAX_REPLY_CHARACTERS),
@@ -891,11 +893,13 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         sharedEvidence.groups, effectiveTurnBudget(input.verified), reasoningEvidence, reply)
       let factChecks = checkFacts(rawReview.facts)
       const originalChecks = factChecks
-      const repairableChecks: Row[] = factChecks.filter(check => check.status === 'contradiction' || check.repairable)
-      // A valid content rejection already requires a rewrite. Rechecking its
-      // auxiliary facts first adds latency without making that draft sendable.
-      // Metadata recovery remains available for otherwise approved drafts.
-      if (!observationOnly && (!riskDecision.valid || riskDecision.approved && repairableChecks.length) && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
+      const supportedRechecks = supportedFindingRechecks(rawReview, factChecks)
+      const repairableChecks: Row[] = [...factChecks.filter(check => check.status === 'contradiction' || check.repairable), ...supportedRechecks]
+      // Content rejections normally require a rewrite. A finding citing only
+      // verified numeric sources first gets one metadata recheck on the same
+      // draft; it remains blocking unless the reviewer resolves that finding.
+      if ((!observationOnly && (!riskDecision.valid || riskDecision.approved && repairableChecks.length) || supportedRechecks.length > 0)
+        && !repairAttempts.some(repair => repair.target === 'review_metadata')) {
         const originalReview = rawReview
         let repairError = ''
         try {

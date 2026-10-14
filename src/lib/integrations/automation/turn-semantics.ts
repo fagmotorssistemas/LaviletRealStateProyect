@@ -195,7 +195,10 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }
 
+export const RELATIVE_PROPERTY_CHOICE_RULE = 'Una elección relativa actual, como «prefiero el que tiene más baños», puede identificar en unit_numbers la única unidad que cumple esa referencia entre las opciones ofrecidas, aunque no escriba su código. Use operation=select, reference_kind=relative y evidencia literal de la elección. Si hay empate o falta el atributo, no elija ni invente un código. Preguntar cuál tiene más baños es información, no selección. Conserve la elección aunque el mismo grupo también pregunte el precio o añada comentarios; elegir categoría conserva las necesidades ya aceptadas.'
+
 export const TURN_SEMANTIC_EXTRACTION_RULES = `
+${RELATIVE_PROPERTY_CHOICE_RULE}
 ${DISCOUNT_REQUEST_EXTRACTION_RULES}
 Devuelva SIEMPRE turn_semantics conforme al esquema JSON estricto adjunto; sus campos, tipos y valores permitidos se definen allí.
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.

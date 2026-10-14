@@ -49,6 +49,24 @@ export function budgetQuestion(info: Row): string {
     : '¿Qué presupuesto total aproximado tiene previsto para la compra?'
 }
 
+/** Legacy summaries can keep the original funds figure as total_budget after
+ * the client accepts using that same sum for the down payment. Preserve both
+ * declarations, but never reuse that old figure as the property price ceiling.
+ * An independently declared/current total limit still bounds alternatives. */
+export function propertyPurchasePriceLimit(info: Row): number | null {
+  const budget = leadBudget(info), finance = object(info.financiamiento)
+  if (budget.status !== 'maximum_total' || !acceptedExtractorConfidence(budget.confidence)
+    || typeof budget.amount !== 'number' || !Number.isFinite(budget.amount) || budget.amount <= 0) return null
+  const accepted = object(finance.journey).status !== 'declined'
+    && (object(finance.journey).accepted === true || object(finance.current).explicit_consent === true)
+  const entry = object(info.financing_entry || finance.entry)
+  const down = object(object(info.financing_amounts || finance.amounts).down_payment)
+  const contribution = entry.status === 'amount' && text(entry.evidence).trim() ? entry : down
+  if (accepted && budget.source !== 'current_lead_statement' && contribution.amount === budget.amount
+    && text(contribution.evidence).trim() && contribution.evidence !== budget.evidence) return null
+  return budget.amount
+}
+
 export function reviewedFinancingCovers(info: Row, unit: Row | null): boolean {
   const review = object(object(object(info.lead).behavior_signals).financing_review)
   const qualification = object(object(info.financiamiento).current)

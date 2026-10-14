@@ -557,8 +557,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   const lastResponse = text(state.ultima_respuesta)
   const rememberedQuestion = normalizedPendingQuestion(previousSummary._pending_question || previousPropertyContext.pending_question, minimalTurn ? undefined : turnCatalog)
+  const deferredReceipt = object(previousSummary._deferred_question)
+  const deferredQuestionStillCurrent = deferredReceipt.last_reply === lastResponse
+    && deferredReceipt.question_id === rememberedQuestion.id && deferredReceipt.question === rememberedQuestion.question
   const pendingQuestion = pendingFollowUpNeedsInterpretation(previousSummary, lastResponse) ? {}
-    : replyQuestionText(text(rememberedQuestion.question)) && (lastResponse.includes(text(rememberedQuestion.question)) || previousSummary._interpretation_pending === true)
+    : replyQuestionText(text(rememberedQuestion.question)) && (lastResponse.includes(text(rememberedQuestion.question))
+      || previousSummary._interpretation_pending === true || deferredQuestionStillCurrent)
     ? rememberedQuestion
     : pendingQuestionFromReply(lastResponse)
   const interpretationInputForTurn = {
@@ -1777,6 +1781,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     metadata: object(audit.turn_completeness).question, plan: audit.commercial_journey,
     candidates: [profilePending, financePending, journeyPending, progressivePending, replyPending],
   }, turnCatalog) : {}
+  const deferred = object(object(audit.commercial_journey).deferred_question)
+  if (canTrackFollowUp && !object(audit.pending_question).id && deferred.id && pendingQuestion.id === deferred.id) {
+    // Preserve the last actually delivered question while answering doubts.
+    // Do not manufacture a new receipt from a plan that was not sent.
+    audit.pending_question = pendingQuestion
+    audit.continuation_deferred = true
+  }
   if (text(object(audit.pending_question).id).startsWith('lead_')) {
     const pending = object(audit.pending_question)
     const issues = leadProfileQuestionIssues({ continuation_id: pending.id, continuation_act: pending.act,
@@ -1871,6 +1882,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       ...(meaningfulText ? { pending_question: {}, focused_ids: [] } : {}) }
       : rememberPropertyReply(turnCatalog, summary._property_context || previousSummary._property_context, reply, audit),
     _pending_question: !meaningfulText ? previousSummary._pending_question || previousPropertyContext.pending_question || {} : audit.pending_question,
+    _deferred_question: audit.continuation_deferred === true && !pendingRecovery
+      ? { question_id: object(audit.pending_question).id, question: object(audit.pending_question).question,
+        last_reply: reply, source_message_id: activeLast.externalId } : {},
     _interpretation_pending: !meaningfulText && Boolean(text(rememberedQuestion.id)),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, pendingRecovery ? '' : reply,
       { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion }),

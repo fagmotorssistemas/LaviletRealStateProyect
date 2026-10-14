@@ -18,7 +18,17 @@ function extractionFixture(input, invalid = false) {
   raw.turn_semantics.primary_intent = 'other'
   raw.turn_semantics.primary_evidence = current
   raw.turn_semantics.answer_to_previous = { question_id: null, kind: 'none', evidence: '', confidence: 'high' }
-  if (current === '¿Me pueden hacer un descuento?' || current === '¿Ya está aplicado el descuento de lanzamiento?') {
+  if (current === 'Usaré los 50 mil como entrada') {
+    raw.turn_semantics.primary_intent = 'discuss_budget'
+    raw.turn_semantics.property = { ...raw.turn_semantics.property, group: null, category: null, operation: 'none', evidence: '', unit_numbers: [] }
+    raw.turn_semantics.budget = { status: 'initial_capital', amount: 50000, evidence: current, confidence: 'high' }
+    raw.financing_amounts = [{ role: 'down_payment', amount: 50000, evidence: current, replaces_role: null }]
+    raw.requests = [{ request: current, domain: 'financing', topics: [], evidence: current, confidence: 'high' }]
+  } else if (current === '¿Cómo funciona el financiamiento?' || current === '¿Me aprobarían el crédito?' || current === '¿Y si pago al contado?') {
+    raw.turn_semantics.primary_intent = 'ask_financing'
+    raw.turn_semantics.property = { ...raw.turn_semantics.property, group: null, category: null, operation: 'none', evidence: '', unit_numbers: [] }
+    raw.requests = [{ request: current, domain: 'financing', topics: ['financing', current.includes('aprobar') ? 'credit_approval' : current.includes('contado') ? 'cash_payment' : 'financing_process'], evidence: current, confidence: 'high' }]
+  } else if (current === '¿Me pueden hacer un descuento?' || current === '¿Ya está aplicado el descuento de lanzamiento?') {
     raw.turn_semantics.primary_intent = 'ask_price'
     raw.turn_semantics.discount_request = { kind: current === '¿Me pueden hacer un descuento?' ? 'negotiate_personal_discount' : 'published_offer_information',
       evidence: current, confidence: 'high' }
@@ -230,7 +240,11 @@ async function conversationHarness({ current, messages, extractionFails = false,
             next_decision: 'Continuar la guía personalizada.', continuation_id: profileId, continuation_act: 'profile' }
         } else {
           const journey = raw.contexto_verificado?.siguiente_paso_comercial || raw.estado_operativo.commercial_journey || {}
-          if (journey.action === 'discover_use') {
+          if (journey.action === 'answer_current_question') {
+            proposed = activeCurrent.includes('contado')
+              ? 'Con gusto. Podemos comparar el pago al contado con el financiamiento. Las condiciones adicionales por contado aún deben confirmarse.'
+              : 'Con gusto. La aprobación y las condiciones del crédito dependen de la evaluación de la entidad financiera. Podemos orientarle con los datos de la vivienda que elija.'
+          } else if (journey.action === 'discover_use') {
             proposed = 'Gracias. '+journey.question
             lastQuestion = { purpose: 'choose_property', role: 'necessary_clarification', missing_datum: 'Tipo de espacio',
               next_decision: 'Consultar el presupuesto.', continuation_id: 'property_category', continuation_act: 'choose_category' }
@@ -278,6 +292,44 @@ async function conversationHarness({ current, messages, extractionFails = false,
 }
 
 const outbound = execution => execution.rpcCalls.find(call => call.name === 'register_outbound_message')
+
+test('consecutive financial doubts deliver answer-only messages and preserve the previously sent entry question in both modes', async () => {
+  for (const observationOnly of [false, true]) {
+    const pending = { id: 'financing_down_payment', act: 'financing', question: '¿Qué monto tendría disponible para la entrada inicial?', target_ids: [], candidate_ids: [] }
+    const storedSummary = { _pending_question: pending,
+      _lead_profile: { full_name: 'Carlos', residence_city: 'Guayaquil', evidence: { full_name: 'Me llamo Carlos' } },
+      _lead_introduction: { request_sent: true, requested_fields: ['full_name', 'current_residence'], brochure_sent: true, presentation_sent: true },
+      _financing_journey: { accepted: true, status: 'accepted', source_message_id: 'prior-consent' },
+      _interpretation_memory: { budget: { status: 'maximum_total', amount: 50000, evidence: 'Tengo 50 mil', confidence: 'high' },
+        property: { group: 'residential', evidence: 'Quiero una vivienda', confidence: 'high' } },
+      _property_context: { selected_ids: [], offered_ids: [], query: { group: 'residential', operation: 'none' }, pending_question: pending, last_reply: pending.question } }
+    const execution = await conversationHarness({ messages: ['¿Cómo funciona el financiamiento?', '¿Me aprobarían el crédito?', '¿Y si pago al contado?', 'Usaré los 50 mil como entrada'],
+      observationOnly, reviewRejects: false, storedSummary, financeState: { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} },
+      history: [{ role: 'bot', content: pending.question, sent_at: new Date(Date.now()-60000).toISOString() }] })
+    for (const turn of execution.turns.slice(0, 3)) {
+      assert.equal(turn.failure, undefined, turn.failure?.stack)
+      assert.ok(turn.receipt)
+      assert.doesNotMatch(turn.receipt.args.p_content, /¿|\?|cuota|mensual|dormitorios|qué monto/i)
+      assert.equal(turn.summary._financing_journey.accepted, true)
+      assert.deepEqual(turn.summary._pending_question, pending, JSON.stringify({ current: turn.current, observationOnly,
+        journey: turn.receipt.args.p_tool_calls.commercial_journey, deferred: turn.receipt.args.p_tool_calls.continuation_deferred,
+        interpreted: turn.summary._property_context, completeness: turn.receipt.args.p_tool_calls.turn_completeness?.status }))
+      assert.equal(turn.receipt.args.p_tool_calls.continuation_deferred, true)
+      assert.equal(turn.rpcCalls.some(call => /process_financing|handoff_lead|reservation|visit/.test(call.name)), false)
+    }
+    const resumed = execution.turns[3]
+    assert.equal(resumed.failure, undefined, resumed.failure?.stack)
+    assert.equal(resumed.summary._financing_entry.amount, 50000)
+    assert.equal(resumed.summary._financing_journey.accepted, true)
+    assert.equal(resumed.summary._financing_amounts.down_payment.amount, 50000)
+    assert.equal(lib('budget-state').propertyPurchasePriceLimit({ hechos_confirmados: resumed.summary._interpretation_memory,
+      financiamiento: { journey: resumed.summary._financing_journey, entry: resumed.summary._financing_entry,
+        amounts: resumed.summary._financing_amounts } }), null)
+    assert.deepEqual(resumed.summary._deferred_question, {})
+    assert.match(resumed.receipt.args.p_content, /cuántos dormitorios/i)
+    assert.doesNotMatch(resumed.receipt.args.p_content, /entrada|desea.*financiamiento/i)
+  }
+})
 test('personal discount negotiation creates a real advisor handoff even when review is observational; published-offer information does not', async () => {
   for (const observationOnly of [true, false]) {
     const execution = await conversationHarness({ current: '¿Me pueden hacer un descuento?', observationOnly, reviewRejects: false })

@@ -114,6 +114,18 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   const result = normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
     target_ids: matching.target_ids ?? scoped.target_ids ?? pending.target_ids,
     candidate_ids: matching.candidate_ids ?? scoped.candidate_ids ?? pending.candidate_ids }, catalog)
+  if (result.act === 'confirm_bedrooms' && !Object.keys(object(result.proposed_query)).length && catalog) {
+    // Bind a confirmation to a verified subject, including a freely worded
+    // writer question. Never infer a number from a bare yes next turn.
+    const subjectIds = ids(result.target_ids).length ? ids(result.target_ids) : ids(result.candidate_ids)
+    const subjects = catalog.filter(unit => subjectIds.includes(text(unit.id)))
+    const bedrooms = [...new Set(subjects.map(unit => unit.bedrooms))]
+    if (subjectIds.length && subjects.length === subjectIds.length && bedrooms.length === 1
+      && typeof bedrooms[0] === 'number' && bedrooms[0] > 0) {
+      result.proposed_query = { group: 'residential', operation: 'search', scope: 'offered', selector: null,
+        filters: { bedrooms: bedrooms[0] } }
+    }
+  }
   if (result.id === 'reservation_invitation') {
     if (!operationalReservationInvitation(reply)) return {}
     const mentioned = reservationInvitationUnitNumbers(reply)

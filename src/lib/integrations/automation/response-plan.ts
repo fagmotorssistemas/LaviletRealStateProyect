@@ -159,6 +159,8 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
   const approvedOpening = presentation.required === true && !!text(presentation.approved_summary).trim()
   const locked = audit.coverage_complete !== false && !uncovered.length
     && (lockedSources.has(source) || approvedOpening)
+    && !(object(context.verified?.siguiente_paso_comercial || audit.commercial_journey).deferred_question
+      && source === 'financing_selection_required')
   return {
     source,
     locked,
@@ -172,7 +174,7 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
     required_numbers: strings(explicit.required_numbers),
     continuation,
     next_question: text(object(audit.profile_introduction).question || object(audit.financing_collection).next_question
-      || continuation.suggested_question || (continuation.action === 'leave_open' ? '' : pending.question
+      || continuation.suggested_question || (['leave_open', 'answer_current_question'].includes(text(continuation.action)) ? '' : pending.question
         || object(audit.progressive_selection).question || object(audit.post_tour_continuation).question)) || null,
     operational_state: { source, action: text(audit.action) || null, reservation: object(audit.reservation),
       registration_verified: audit.registration_verified === true, request_id: text(audit.request_id) || null,
