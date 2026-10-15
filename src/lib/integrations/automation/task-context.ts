@@ -156,7 +156,8 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   const selection = object(verified.prompt_context_selection)
   if (selection.version !== 'task-context-v1') return evidence
   let units = evidence.units
-  const priceSummary = ['price_summary', 'catalog_overview'].includes(text(selection.task))
+  const surfaceCalculation = ['interior', 'combined', 'compare'].includes(text(object(object(verified.semantica_turno).catalog_request).surface_basis))
+  const priceSummary = !surfaceCalculation && ['price_summary', 'catalog_overview'].includes(text(selection.task))
   if (selection.task === 'clarify_choice') return { ...evidence, units: [],
     groups: evidence.groups.filter(group => group.aggregation === 'range'
       && (group.bedrooms_filter === null || group.source_scope === 'context')),
@@ -174,6 +175,8 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   const recommendationIds = new Set(Array.isArray(budgetPresentation?.unit_ids) ? budgetPresentation.unit_ids.map(text) : [])
   const property = object(verified.property_context)
   const relatedIds = new Set([
+    ...(object(verified.siguiente_paso_comercial).presentation === 'recommended_unit'
+      ? [object(verified.siguiente_paso_comercial).selection_scope].flatMap(value => Array.isArray(object(value).unit_ids) ? object(value).unit_ids as string[] : []) : []),
     ...rows(object(verified.presupuesto_del_turno).alternatives).map(unit => text(unit.id)),
     ...[property.selected_ids, query.operation === 'compare' ? property.comparison_ids : [], object(evidence).alternative_ids]
       .flatMap(value => Array.isArray(value) ? value.map(text) : []),
@@ -266,7 +269,7 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
     const { member_ids, ...aggregate } = group
     return { ...aggregate, member_count: Array.isArray(member_ids) ? member_ids.length : group.unit_count }
   })
-  if (['category_overview', 'catalog_overview'].includes(text(selection.task))) {
+  if (!surfaceCalculation && ['category_overview', 'catalog_overview'].includes(text(selection.task))) {
     return { ...evidence, units: [], groups: groups.filter(group => group.aggregation === 'range').map(group => {
       const { member_ids, ...aggregate } = group
       return { ...aggregate, member_count: Array.isArray(member_ids) ? member_ids.length : group.member_count ?? group.unit_count ?? 0,

@@ -3,15 +3,17 @@ import { CONTEXTUAL_NEEDS_GUIDANCE } from './needs-guidance'
 
 /** Arithmetic evidence for this turn only. It never changes catalogue or lead state. */
 export const CONTEXTUAL_REASONING_VERSION = 'contextual-reasoning-v1' as const
-export type SpatialUnit = 'm' | 'cm' | 'mm' | 'm2' | 'cm2' | 'count' | 'ratio'
-export type ResultUnit = 'm' | 'm2' | 'count' | 'ratio'
-export type ContextualFact = { id: string; value: number; unit: SpatialUnit; subject: string; source: string }
+export type SpatialUnit = 'm' | 'cm' | 'mm' | 'm2' | 'cm2' | 'count' | 'ratio' | 'USD' | 'USD/m2'
+export type ResultUnit = 'm' | 'm2' | 'count' | 'ratio' | 'USD' | 'USD/m2'
+export type ContextualFact = { id: string; value: number; unit: SpatialUnit; subject: string; source: string; unit_id?: string }
 export type ContextualReasoningEvidence = {
   version: typeof CONTEXTUAL_REASONING_VERSION
   current_message: string
   facts: ContextualFact[]
   limits: { can_confirm_fit: false; can_infer_room_dimensions: false; can_persist_assumptions: false }
   guidance: string
+  surface_comparisons?: Row[]
+  surface_guidance?: string
 }
 export type ContextualOperand = { value: number; unit: SpatialUnit; source: {
   kind: 'lead_current' | 'project_fact' | 'illustrative_assumption'; reference: string; quote: string
@@ -30,12 +32,13 @@ const row = (value: unknown): Row => value && typeof value === 'object' && !Arra
 const text = (value: unknown) => typeof value === 'string' ? value : ''
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(row) : []
-const units: SpatialUnit[] = ['m', 'cm', 'mm', 'm2', 'cm2', 'count', 'ratio']
-const resultUnits: ResultUnit[] = ['m', 'm2', 'count', 'ratio']
+const units: SpatialUnit[] = ['m', 'cm', 'mm', 'm2', 'cm2', 'count', 'ratio', 'USD', 'USD/m2']
+const resultUnits: ResultUnit[] = ['m', 'm2', 'count', 'ratio', 'USD', 'USD/m2']
 const normalizedUnit: Record<SpatialUnit, { unit: ResultUnit; factor: number }> = {
   m: { unit: 'm', factor: 1 }, cm: { unit: 'm', factor: 0.01 }, mm: { unit: 'm', factor: 0.001 },
   m2: { unit: 'm2', factor: 1 }, cm2: { unit: 'm2', factor: 0.0001 },
   count: { unit: 'count', factor: 1 }, ratio: { unit: 'ratio', factor: 1 },
+  USD: { unit: 'USD', factor: 1 }, 'USD/m2': { unit: 'USD/m2', factor: 1 },
 }
 const sameNumber = (left: number, right: number) => Math.abs(left - right) <= 1e-8 * Math.max(1, Math.abs(left), Math.abs(right))
 const normalizedQuantity = (value: number, unit: SpatialUnit) => ({ value: value * normalizedUnit[unit].factor, unit: normalizedUnit[unit].unit })
@@ -64,26 +67,53 @@ export const CONTEXTUAL_REASONING_RULES = 'Puede explicar relaciones y calcular 
 /** Read only current, structured catalogue fields. Never read history, summaries,
  * AI extraction, client profile or illustrative examples as project evidence. */
 export function contextualReasoningEvidence(current: string, verified: Row): ContextualReasoningEvidence {
-  const catalog = rows(verified.catalogo)
+  const original = rows(verified.catalogo)
+  const sourceFields = ['area_internal_m2', 'area_exterior_m2', 'area_total_m2', 'length_m', 'width_m', 'height_m',
+    ...(row(verified.politica_comercial).precios_autorizados === true ? ['published_commercial_price'] : [])]
+  const catalog = original.filter((unit, index) => original.findIndex(other => other.id === unit.id) === index
+    && original.every(other => other.id !== unit.id || sourceFields.every(field => other[field] === unit[field])))
   const fields: Record<string, SpatialUnit> = { area_internal_m2: 'm2', area_exterior_m2: 'm2', area_total_m2: 'm2',
     length_m: 'm', width_m: 'm', height_m: 'm' }
   const facts: ContextualFact[] = []
+  const surfaceComparisons: Row[] = []
   for (const unit of catalog) {
     if (!text(unit.id)) continue
     for (const [field, measure] of Object.entries(fields)) {
       if (!finite(unit[field]) || unit[field] <= 0) continue
-      facts.push({ id: 'spatial:' + text(unit.id) + ':' + field, value: unit[field] as number, unit: measure,
+      facts.push({ id: 'spatial:' + text(unit.id) + ':' + field, value: unit[field] as number, unit: measure, unit_id: text(unit.id),
         subject: [text(unit.category), text(unit.unit_number), field].filter(Boolean).join(' '),
         source: 'catalogo.' + text(unit.id) + '.' + field })
     }
+  }
+  for (const unit of catalog) {
+    if (!text(unit.id)) continue
+    const interior = unit.area_internal_m2, exterior = unit.area_exterior_m2
+    const combined = finite(interior) && interior > 0 && finite(exterior) && exterior >= 0 ? interior + exterior : null
+    const price = row(verified.politica_comercial).precios_autorizados === true && finite(unit.published_commercial_price) && unit.published_commercial_price > 0
+      ? unit.published_commercial_price : null
+    if (combined !== null) facts.push({ id: `spatial:${unit.id}:combined_area`, value: combined, unit: 'm2', unit_id: text(unit.id),
+      subject: `${text(unit.category)} ${text(unit.unit_number)} suma calculada interior y exterior`,
+      source: `calculated:catalogo.${unit.id}.area_internal_m2+area_exterior_m2` })
+    if (price !== null) facts.push({ id: `price:${unit.id}`, value: price, unit: 'USD', unit_id: text(unit.id),
+      subject: `${text(unit.category)} ${text(unit.unit_number)} precio publicado autorizado`, source: `catalogo.${unit.id}.published_commercial_price` })
+    if (combined !== null || price !== null) surfaceComparisons.push({ unit_id: unit.id, unit_number: unit.unit_number,
+      area_internal_m2: interior ?? null, area_exterior_m2: exterior ?? null, combined_area_calculated_m2: combined,
+      published_commercial_price: price, price_per_interior_m2: price !== null && finite(interior) && interior > 0 ? price / interior : null,
+      price_per_combined_m2: price !== null && combined !== null && combined > 0 ? price / combined : null,
+      official_tariff: false, combined_area_is_official_total: false })
   }
   // A conflicting source cannot silently become an arithmetic authority.
   const unique = facts.filter((fact, index) => facts.findIndex(other => other.id === fact.id) === index
     && facts.every(other => other.id !== fact.id || other.value === fact.value && other.unit === fact.unit))
   return { version: CONTEXTUAL_REASONING_VERSION, current_message: current, facts: unique,
     limits: { can_confirm_fit: false, can_infer_room_dimensions: false, can_persist_assumptions: false },
-    guidance: CONTEXTUAL_NEEDS_GUIDANCE }
+    surface_comparisons: surfaceComparisons.filter(comparison => catalog.filter(unit => unit.id === comparison.unit_id).every(unit =>
+      (unit.area_internal_m2 ?? null) === comparison.area_internal_m2 && (unit.area_exterior_m2 ?? null) === comparison.area_exterior_m2
+      && (row(verified.politica_comercial).precios_autorizados !== true || (unit.published_commercial_price ?? null) === comparison.published_commercial_price))),
+    surface_guidance: SURFACE_COMPARISON_RULES, guidance: CONTEXTUAL_NEEDS_GUIDANCE }
 }
+
+export const SURFACE_COMPARISON_RULES = 'Cuando pregunta por áreas o precio por metro, responda con la unidad o el conjunto consultado, sin exigir otra elección previa si existen fuentes suficientes. Distinga interior y exterior y, si ambas constan, explique su suma calculada sin convertirla en area_total_m2 oficial. Un exterior desconocido no es cero. Para comparar el conjunto puede dividir el precio publicado autorizado por esa suma y mostrar el promedio aproximado en USD/m² con dos decimales; indique qué superficies incluye. Si pide solo interior, use esa base. Puede explicar ambas referencias cuando resuelva una confusión. El promedio no es una tarifa oficial ni asigna el mismo valor comercial al interior y al exterior; tampoco demuestra que el exterior se cobre aparte. No invente inclusión de parqueadero/bodega, ponderaciones, alícuotas ni la metodología comercial de otro proyecto. No repita el mismo aviso en cada turno.'
 
 const spanishUnit = (literal: string): SpatialUnit | null => {
   const value = literal.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
@@ -97,6 +127,9 @@ const spanishUnit = (literal: string): SpatialUnit | null => {
 const metricPattern = '(?:cent[ií]metros? cuadrados?|metros? cuadrados?|cm[2²]|m[2²]|cent[ií]metros?|mil[ií]metros?|metros?|cm|mm|m)'
 function citedQuantity(quote: string, value: number, unit: SpatialUnit): boolean {
   const target = normalizedQuantity(value, unit), mentions = numericMentions(quote)
+  if (unit === 'USD/m2') return mentions.some(mention => sameNumber(mention.value, value)
+    && /(?:\$|\bUSD|d[oó]lares?)/iu.test(quote.slice(Math.max(0, mention.index - 12), mention.end + 12))
+    && /(?:\/|\bpor\b|\bper\b)\s*(?:m[²2]|metros? cuadrados?|square met(?:er|re)s?)/iu.test(quote.slice(mention.end, mention.end + 65)))
   const candidates: { value: number; unit: SpatialUnit | 'scalar' | 'currency'; index: number }[] = []
   const metric = new RegExp('^\\s*(' + metricPattern + ')(?![\\p{L}\\d²])', 'iu')
   for (const mention of mentions) {
@@ -124,7 +157,7 @@ function citedQuantity(quote: string, value: number, unit: SpatialUnit): boolean
       && /^\s*(?:x|×|por)\s*$/iu.test(quote.slice(first.end, second.index))) firstCandidate.unit = secondCandidate.unit
   }
   return candidates.some(candidate => {
-    if (candidate.unit === 'currency') return false
+    if (candidate.unit === 'currency') return unit === 'USD' && sameNumber(candidate.value, value)
     if (candidate.unit === 'scalar') return ['count', 'ratio'].includes(target.unit) && sameNumber(candidate.value, value)
     const quantity = normalizedQuantity(candidate.value, candidate.unit)
     return quantity.unit === target.unit && sameNumber(quantity.value, target.value)
@@ -151,6 +184,7 @@ export function contextualCalculationCheck(raw: unknown, evidence: ContextualRea
     || Object.keys(proof).some(key => !['operation', 'operands', 'result', 'scope'].includes(key))) return fail('invalid_calculation_proof')
   if (['subtract', 'divide'].includes(text(proof.operation)) && operands.length !== 2) return fail('invalid_operation_arity')
   const normalized: { value: number; unit: ResultUnit }[] = []
+  const sourceSubjects: (string | undefined)[] = []
   let assumed = false
   for (const operand of operands) {
     if (!finite(operand.value) || !units.includes(operand.unit as SpatialUnit) || operand.value < 0
@@ -161,13 +195,18 @@ export function contextualCalculationCheck(raw: unknown, evidence: ContextualRea
       const references = evidence.facts.filter(fact => fact.id === source.reference)
       if (references.length !== 1) return fail('unknown_project_operand')
       const fact = references[0]
+      sourceSubjects.push(fact.unit_id)
       if (!finite(fact.value) || !units.includes(fact.unit)) return fail('invalid_project_operand_source')
       const expected = normalizedQuantity(fact.value, fact.unit)
       if (expected.unit !== quantity.unit || !sameNumber(expected.value, quantity.value)) return fail('project_operand_mismatch')
     } else if (kind === 'lead_current') {
+      sourceSubjects.push(undefined)
+      if (['USD', 'USD/m2'].includes(text(operand.unit))) return fail('currency_requires_published_source')
       if (!quote.trim() || !evidence.current_message.includes(quote) || !citedQuantity(quote, operand.value, operand.unit as SpatialUnit))
         return fail('ungrounded_lead_operand')
     } else if (kind === 'illustrative_assumption') {
+      sourceSubjects.push(undefined)
+      if (['USD', 'USD/m2'].includes(text(operand.unit))) return fail('currency_requires_published_source')
       if (!quote.trim() || !draft.includes(quote) || !/(?:\bsi\b|\bsupon(?:g|iendo)|\bhipot[eé]tic|\bpor ejemplo\b|\bcomo ejemplo\b)/iu.test(quote)
         || !citedQuantity(quote, operand.value, operand.unit as SpatialUnit)) return fail('assumption_not_explicit_in_draft')
       assumed = true
@@ -188,14 +227,18 @@ export function contextualCalculationCheck(raw: unknown, evidence: ContextualRea
     } else {
       if (next.value === 0) return fail('division_by_zero')
       if (computedUnit === next.unit) computedUnit = 'ratio'
+      else if (computedUnit === 'USD' && next.unit === 'm2') computedUnit = 'USD/m2'
       else if (!['count', 'ratio'].includes(next.unit)) return fail('unsupported_spatial_operation')
       computed /= next.value
     }
   }
   // Arithmetic may produce a difference or ratio, never a reconstructed room
   // dimension from catalogue area, nor a guarantee that furniture can be placed.
-  if (!finite(computed) || computedUnit !== result.unit || !sameNumber(computed, result.value as number))
+  const roundedCurrencyRatio = computedUnit === 'USD/m2' && Math.round((computed + Number.EPSILON) * 100) / 100 === result.value
+  if (computedUnit === 'USD/m2' && (!sourceSubjects[0] || sourceSubjects.some(id => id !== sourceSubjects[0])))
+    return fail('price_area_subject_mismatch')
+  if (!finite(computed) || computedUnit !== result.unit || !sameNumber(computed, result.value as number) && !roundedCurrencyRatio)
     return fail('calculation_result_mismatch')
-  return { valid: true, reason: 'arithmetic_verified_only', value: computed, unit: computedUnit,
+  return { valid: true, reason: 'arithmetic_verified_only', value: roundedCurrencyRatio ? result.value as number : computed, unit: computedUnit,
     scope: proof.scope as 'grounded' | 'illustrative', not_fit_guarantee: true }
 }

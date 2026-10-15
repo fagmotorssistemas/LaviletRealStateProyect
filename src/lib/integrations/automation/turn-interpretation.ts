@@ -1,4 +1,8 @@
 import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
+import { CONVERSATION_LANGUAGE_SCHEMA, CONVERSATION_LANGUAGE_RULES, conversationLanguage } from './conversation-language'
+import { reconcileInformationalEvidence, CURRENT_EVIDENCE_FRAGMENTS_RULES } from './current-evidence-fragments'
+import { RECOMMENDATION_REQUEST_SCHEMA, RECOMMENDATION_REQUEST_RULES, recommendationRequest } from './property-recommendation-request'
+import { SELECTION_PREFERENCES_RULES, VIEWS_PREFERENCE_RULES } from './selection-preferences'
 import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, FINANCING_REQUEST_TOPICS_RULES, normalizedRequestTopics, COMMON_AREA_REQUEST_RULES } from './request-topics'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
@@ -47,6 +51,8 @@ const nameResponseProperties = { status: { type: 'string', enum: ['declared', 'n
 
 /** One versioned extraction contract. Unknown values stay null; actions still require server validation. */
 export const TURN_EXTRACTION_SCHEMA = closedObject({
+  conversation_language: CONVERSATION_LANGUAGE_SCHEMA,
+  recommendation_request: RECOMMENDATION_REQUEST_SCHEMA,
   events: { type: 'array', items: { type: 'string', enum: [...EXTRACTED_CONVERSATION_EVENTS] } },
   preferred_category: { type: ['string', 'null'], enum: [...PROPERTY_CATEGORIES, null] },
   purchase_purpose: { type: ['string', 'null'], enum: ['vivir', 'invertir', 'segunda_vivienda', 'negocio', null] },
@@ -239,6 +245,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let raw: Row = {}, promptRevision: string | null = null
   const historicalFields = new Set<string>()
   const reconcile = (value: Row, budgetEchoAllowed = false) => {
+    value = reconcileInformationalEvidence(value, readable)
     value = resolveFinancingEntryReference(value, readable, normalizedPendingQuestion(input.pregunta_pendiente))
     value = reconcileMonetaryInterpretation(value, readable)
     // A recovery owns genuinely unresolved financial meaning. It cannot erase
@@ -272,7 +279,9 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     const currentInstructions = compactFinancingExtraction(input) ? promptSections([
       ['Función y configuración del extractor', prompt], ['Interpretación del turno y recopilación financiera', FINANCING_EXTRACTION_RULES],
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
+      ['Prioridades inmobiliarias durante una consulta financiera', SELECTION_PREFERENCES_RULES + '\n' + VIEWS_PREFERENCE_RULES],
       ['Solicitud de material', MATERIAL_REQUEST_RULES],
+      ['Idioma, recomendaciones y fuentes actuales', CONVERSATION_LANGUAGE_RULES + '\n' + RECOMMENDATION_REQUEST_RULES + '\n' + CURRENT_EVIDENCE_FRAGMENTS_RULES],
       ['Consultas y negociación de descuentos', DISCOUNT_REQUEST_EXTRACTION_RULES],
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
       ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
@@ -280,6 +289,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Interpretación del perfil pendiente', nameAssessmentRequired && LEAD_PROFILE_EXTRACTION_RULES],
     ]) : promptSections([
       ['Función y configuración del extractor', prompt],
+      ['Idioma, recomendaciones y fuentes actuales', CONVERSATION_LANGUAGE_RULES + '\n' + RECOMMENDATION_REQUEST_RULES + '\n' + CURRENT_EVIDENCE_FRAGMENTS_RULES],
       ['Fuente del turno y separación del historial', CURRENT_TURN_INTERPRETATION_RULE],
       ['Solicitudes, continuidad y autorizaciones', requestRules],
       ['Consultas pendientes sin respuesta', PENDING_REQUEST_RULES],
@@ -602,6 +612,8 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'floor_preference_is_not_unit_selection']
   }
+  extracted.conversation_language = conversationLanguage(object(input.resumen)._conversation_language, raw.conversation_language, readable)
+  semantics.recommendation_request = recommendationRequest(raw.recommendation_request, readable)
   semantics.catalog_request = catalogRequest
   semantics.catalog_request_status = catalogRequestStatus(raw.catalog_request, catalogRequest)
   extracted.household = semantics.household
@@ -862,6 +874,7 @@ export function rememberInterpretedTurn(previous: Row, current: string, extracte
   const memorySemantics = separateEntry ? { ...semantics, budget: { status: 'not_discussed' } } : semantics
   const memoryExtracted = separateEntry ? { ...extracted, qualification: { ...object(extracted.qualification), presupuesto_texto: null } } : extracted
   return { ...previous, solicitud_actual: current.slice(0, 1200), datos_confirmados: facts,
+    _conversation_language: conversationLanguage(previous._conversation_language, extracted.conversation_language, current),
     _financing_amounts: financingAmounts(object(previous._financing_amounts), amounts, current),
     _interpretation_memory: rememberInterpretationFacts(previous, current, memoryExtracted, memorySemantics),
     _turn_contract: CONVERSATION_CONTRACT_VERSION }

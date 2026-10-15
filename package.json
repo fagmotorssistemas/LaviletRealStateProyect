@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:language-guidance": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/language-guidance-corrections.test.ts",
     "test:writer-ownership": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/writer-ownership-and-space.test.ts src/components/inmobiliaria/automation/workflow/reviewDiagnostics.test.ts",
     "test:conversation-continuity": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/conversation-continuity-corrections.test.ts src/lib/integrations/automation/requirement-consent.test.ts src/lib/integrations/automation/selected-property-operation-continuity.test.ts src/lib/integrations/automation/financing-consent-evidence.test.ts src/lib/integrations/automation/continuation-question.test.ts src/lib/integrations/automation/reviewer-authority.test.ts src/lib/integrations/automation/demo-conversation-integration.test.cjs",
     "test:cash-reservation": "node --require ./scripts/test-typescript.cjs --test src/lib/inmobiliaria/cash-discount-notifications.test.ts src/services/advisorNotifications.service.test.ts scripts/urgent-reservation-notifications.pglite.test.cjs scripts/early-purchase-discount-actions.test.cjs",

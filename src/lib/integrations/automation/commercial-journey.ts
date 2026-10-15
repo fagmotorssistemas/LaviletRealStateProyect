@@ -12,7 +12,7 @@ import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
 import { isPassivePurchaseEvidence } from './purchase-evidence'
 import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy } from './budget-evaluation'
-import { selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, withoutBedroomConstraint, spaciousOptions } from './selection-preferences'
+import { selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, prioritizesViews, withoutBedroomConstraint, spaciousOptions } from './selection-preferences'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -150,7 +150,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const firstAcceptance = object(object(info.semantica_turno).answer_to_previous).question_id === 'financing_invitation'
     && object(object(info.semantica_turno).answer_to_previous).kind === 'affirmative'
   const cashInquiry = topics.includes('cash_payment') && (capture || plan.action === 'offer_financing')
-  if (cashInquiry || accepted && capture && hasInquiry && pending.id === plan.question_id && !firstAcceptance) {
+  if (cashInquiry || accepted && capture && hasInquiry && pending.id === plan.question_id && !firstAcceptance && plan.presentation !== 'recommended_unit') {
     return { ...plan, action: 'answer_current_question', question: '', question_id: '', question_act: 'other',
       requires_unit_presentation: false,
       deferred_question: { id: plan.question_id, act: plan.question_act || (plan.question_id === 'financing_down_payment' ? 'financing' : 'other'),
@@ -301,7 +301,22 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
     const lowerAlternative = adjustmentDeclined && canOfferLowerFloorBedrooms(info, selectionQuery, declined)
       ? catalogLowerFloorBedroomAlternative(planningCatalog, selectionQuery, declined, excluded, scopedIds,
         priceLimit !== null ? { maximum: priceLimit } : undefined) : null
-    const alternative = lowerAlternative || initialAlternative
+    let alternative = lowerAlternative || initialAlternative
+    // A larger optional alternative can be compared without changing the
+    // purchase budget. The proposed query still changes bedrooms only.
+    let outsideBudgetAlternatives: Row[] = []
+    if (alternative?.field === 'bedrooms' && !hasPendingProposal && !adjustmentDeclined
+      && selectionQuery.filters.bedrooms !== null && selectionQuery.filters.bedrooms > 3
+      && selectionQuery.filters.bedrooms_required !== true && !selectionQuery.category
+      && priceLimit !== null && object(info.catalog_read).complete === true) {
+      const largest = Math.max(...alternative.units.map(unit => Number(unit.area_internal_m2) || 0))
+      outsideBudgetAlternatives = filterCatalog(planningCatalog, alternative.query, scopedIds).filter(unit =>
+        !excluded.has(text(unit.category)) && unit.category === 'penthouse'
+        && typeof unit.area_internal_m2 === 'number' && unit.area_internal_m2 > largest
+        && typeof unit.published_commercial_price === 'number' && unit.published_commercial_price > priceLimit)
+      if (outsideBudgetAlternatives.length) alternative = { ...alternative,
+        units: [...alternative.units, ...outsideBudgetAlternatives.filter(unit => !alternative!.units.some(other => other.id === unit.id))] }
+    }
     const bedroomCount = ['bedrooms', 'bedrooms_and_floor'].includes(text(alternative?.field)) ? alternative!.query.filters.bedrooms : null
     const strict = selectionQuery.filters.bedrooms_required === true
     const blockedByBedrooms = strict && (!alternative || ['bedrooms', 'bedrooms_and_floor'].includes(alternative.field))
@@ -320,17 +335,28 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
     const floorInstruction = lowerFloorProposal
       ? 'El cliente rechazó la planta anterior, no aceptó reducir dormitorios. Proponga una única alternativa verificada en una planta inferior con menos dormitorios, indicando ambos cambios de proposed_query en la explicación y en la pregunta. Conserve la búsqueda original, categoría y presupuesto hasta recibir un sí a esta nueva propuesta; no insista en la planta rechazada ni seleccione una unidad. Rechazar también esta segunda propuesta deja abierta la conversación, sin una tercera oferta.'
       : floorQuestion ? 'Preserve los dormitorios y el presupuesto al proponer la planta compatible más cercana verificada. Explique la diferencia con la planta solicitada y pregunte por la planta concreta de proposed_query, sin enumerar todas las plantas ni reducir dormitorios. Use su denominación oficial: una segunda planta alta no es una segunda planta baja. No dé esa propuesta por elegida antes de la aceptación. Si falta cobertura completa o alguna planta está sin verificar, no afirme que es la más baja de todo el proyecto.' : ''
-    const consentInstruction = 'La explicación y la pregunta reales deben identificar el mismo ajuste de proposed_query, incluida la cantidad propuesta si existe. El revisor debe comprobar tanto la recomendación sustentada (o la respuesta a la consulta informativa) como esa equivalencia antes de aprobar: un sí autoriza explorar esa propuesta, no otra ni seleccionar una unidad. Admita redacción equivalente sin exigir una frase literal.'
-    return { ...plan('clarify_requirements',
+    const consentInstruction = 'Mantenga una recomendación sustentada en características verificadas. La explicación y la pregunta reales deben identificar el mismo ajuste de proposed_query, incluida la cantidad propuesta si existe. Un sí autoriza explorar esa propuesta, no otra ni seleccionar una unidad. Admita redacción equivalente sin exigir una frase literal.'
+    outsideBudgetAlternatives = alternative?.units.filter(unit => priceLimit !== null && unit.category === 'penthouse'
+      && typeof unit.published_commercial_price === 'number' && unit.published_commercial_price > priceLimit) || []
+    const optionalBudgetInstruction = outsideBudgetAlternatives.length
+      ? ' Puede ofrecer comparar los penthouses de mayor amplitud verificada, explicando claramente que superan el presupuesto. Presente las alternativas dentro del importe y las opcionales fuera de él y cierre con una elección natural entre categorías, dejando explícitos los dormitorios propuestos. Elegir una categoría de esta propuesta acepta explorar esa distribución; no vuelva a pedir dormitorios. Conserve el presupuesto original: no se convierte en entrada ni aumenta por explorar. No suponga que muchos dormitorios significan únicamente amplitud. Financiamiento se ofrece después cuando corresponda y nunca se autoriza por esta elección.' : ''
+    const result: Row = { ...plan('clarify_requirements',
       `${complete ? 'La consulta completa no tiene coincidencias con todos los requisitos actuales.'
         : 'No hay coincidencias confirmadas en el alcance consultado; faltan fichas o datos para afirmar ausencia en todo el proyecto.'} Reconozca el presupuesto solo si fue declarado, sin afirmar que alcanza para alternativas incompatibles. Explique el requisito que cambia y pregunte si aceptaría revisar ese cambio antes de pedir presupuesto, planta, unidad o financiamiento. No garantice que otra cantidad de dormitorios acomode a la familia.${alternative && !blockedByBedrooms && !declinedProposalBlocks ? ` ${recommendation} ${floorInstruction} ${consentInstruction}` : ''}${strict ? blockedByBedrooms ? ' La cantidad de dormitorios fue declarada indispensable: respétela y no insista en alternativas ni añada una pregunta de ajuste.' : ' La cantidad de dormitorios es indispensable: consérvela al proponer únicamente el cambio de planta u otro requisito.' : ''}${declinedProposalBlocks ? ' El cliente rechazó ajustar esta búsqueda: respete su negativa, no repita la propuesta ni pida presupuesto; atienda la consulta y deje abierta la conversación sin una nueva pregunta obligatoria. Rechazar otra planta no autoriza reducir dormitorios: cualquier propuesta con menos habitaciones necesita una aceptación específica.' : ''}${informationMissing ? ' Falta información para comprobar este requisito y tampoco hay una alternativa verificada: explique ese límite, sin pedir que cambie una condición cuya ausencia no se ha confirmado.' : ''}`,
-      question, question ? 'property_requirements' : ''), question_act: alternative ? 'explore_alternatives' : 'other',
+      question, question ? 'property_requirements' : ''),
+      question_act: alternative ? 'explore_alternatives' : 'other',
       ...(!alternative && question ? { adjustment_requires_specific_choice: true,
         instruction: 'No hay una propuesta concreta que un sí pueda aceptar. Explique los requisitos incompatibles verificados y pregunte cuál desea mantener o flexibilizar; conserve la búsqueda original hasta recibir una preferencia específica. No repita una invitación genérica a aceptar alternativas inexistentes.' } : {}),
       selection_scope: selectionScope, presentation: 'requirements', requested_query: selectionQuery,
       match_complete: complete, unknown_unit_ids: unknownIds,
       ...(alternative && !blockedByBedrooms && !declinedProposalBlocks ? { proposed_query: alternative.query, alternative_unit_ids: alternative.units.map(unit => text(unit.id)),
-        requirement_change: { field: alternative.field }, recommendation_mode: Object.keys(proposalInformation).length ? 'answer_then_confirm_alternative' : 'brief_verified_summary' } : {}) }
+        requirement_change: { field: alternative.field },
+        ...(outsideBudgetAlternatives.length ? { optional_outside_budget_ids: outsideBudgetAlternatives.map(unit => text(unit.id)),
+          comparison_budget: priceLimit } : {}),
+        recommendation_mode: Object.keys(proposalInformation).length ? 'answer_then_confirm_alternative' : 'brief_verified_summary' } : {}) }
+    if (optionalBudgetInstruction && alternative && !blockedByBedrooms && !declinedProposalBlocks)
+      result.instruction = `${text(result.instruction)} ${optionalBudgetInstruction}`
+    return result
   }
   // A tour, price question, courtesy or answer about use can interrupt this
   // decision, but cannot accept it or replace it with a fresh discovery step.
@@ -441,6 +467,24 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const preferences = selectionPreferences(object(info.hechos_confirmados).selection_preferences || context.selection_preferences,
     object(info.semantica_turno).selection_preferences)
   const spacePriority = prioritizesInteriorSpace(preferences)
+  const viewPriority = prioritizesViews(preferences)
+  const recommend = object(object(info.semantica_turno).recommendation_request).requested === true
+  if ((recommend || prioritizesViews(object(info.semantica_turno).selection_preferences)) && candidates.length) {
+    // A recommendation is a starting point, never an automatic selection.
+    const inBudget = priceLimit === null ? candidates : candidates.filter(unit =>
+      typeof unit.published_commercial_price === 'number' && unit.published_commercial_price <= priceLimit)
+    const pool = inBudget.length ? inBudget : candidates
+    const ranked = [...pool].sort((left, right) => viewPriority
+      ? (typeof right.floor_number === 'number' ? right.floor_number : -Infinity)
+        - (typeof left.floor_number === 'number' ? left.floor_number : -Infinity)
+      : spacePriority ? Number(right.area_internal_m2 || 0) - Number(left.area_internal_m2 || 0) : 0)
+    const suggested = ranked[0]
+    return { ...plan('select_property', 'El cliente solicita orientación concreta o prioriza vistas. Recomiende esta opción como punto de partida y explique su razón verificada. Responda también las consultas de precio o cálculo. No exija elegir primero categoría o planta ni repita dormitorios conocidos. La recomendación no selecciona ni reserva la unidad. Si prioriza vistas, una planta alta es una opción para comparar, no prueba de mejor vista: aproveche descripciones positivas del proyecto en su alcance real y proponga revisar el material de la unidad. Si falta un dato para resolver una condición indispensable, aclare solo ese dato.'),
+      presentation: 'recommended_unit', recommendation_unit_id: suggested.id,
+      selection_scope: { categories: [text(suggested.category)], unit_ids: [text(suggested.id)], floors: typeof suggested.floor_number === 'number' ? [suggested.floor_number] : [] },
+      requires_unit_presentation: true, question_id: 'unit_choice', question_act: 'show_unit_details',
+      priority: viewPriority ? 'views' : spacePriority ? 'interior_space' : null }
+  }
   if (category !== 'local' && category !== 'suite' && !unrestrictedBedrooms(preferences) && !bedroomCondition && !filters.bedrooms && !(Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length) && !lead.preferred_bedrooms)
     return plan('discover_bedrooms', 'Falta conocer la preferencia de dormitorios. Pregúntela con naturalidad únicamente si no está respondida ni declarada indiferente. Use la familia conocida sin convertir personas en dormitorios. Explique la utilidad de esa preferencia cuando aporte una conexión; no repita fichas ya entregadas.', '¿Cuántos dormitorios le gustaría que tuviera su vivienda?', 'property_bedrooms')
   const selection = plan('select_property', accepted

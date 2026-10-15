@@ -468,7 +468,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   // not send a second, unscoped copy as if it were another authority.
   input = { ...input, verified: { ...input.verified } }
   delete input.verified.catalogo_verificacion
-  const reasoningEvidence = contextualReasoningEvidence(input.current, { ...input.verified, catalogo: needsSupplementaryFeatures(input.verified) ? modelEvidence.units : [] })
+  const surfaceCalculation = ['interior', 'combined', 'compare'].includes(text(object(object(input.verified.semantica_turno).catalog_request).surface_basis))
+  const reasoningEvidence = contextualReasoningEvidence(input.current, { ...input.verified,
+    politica_comercial: { ...object(input.verified.politica_comercial), precios_autorizados: surfaceCalculation
+      && object(object(contentScope.topics).purchase_prices).allowed === true && object(input.verified.politica_comercial).precios_autorizados === true },
+    catalogo: needsSupplementaryFeatures(input.verified) || surfaceCalculation ? modelEvidence.units : [] })
   input.verified.razonamiento_contextual = reasoningEvidence
   const claimSources = verifiedClaimSources(input.verified, input.audit || {}, sharedEvidence, input.current)
   const validationCatalog = [...sharedEvidence.units, ...sharedEvidence.groups]

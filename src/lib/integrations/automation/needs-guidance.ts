@@ -32,7 +32,8 @@ export function needsSupplementaryFeatures(verified: Row): boolean {
     && property.operation === 'none' && request.purpose === 'none'
     && requests.some(value => value.domain === 'property' && acceptedExtractorConfidence(value.confidence)
       && value.source !== 'pending' && !!text(value.evidence).trim())
-  return initialInformation || ['details', 'compare'].includes(text(request.purpose))
+  return initialInformation || object(object(semantics.selection_preferences).priority).kind === 'views'
+    || object(semantics.recommendation_request).requested === true || ['details', 'compare'].includes(text(request.purpose))
     || ['details', 'compare'].includes(text(property.operation))
     || Array.isArray(request.semantic_preferences) && request.semantic_preferences.length > 0
     || Array.isArray(semantics.housing_quantities) && semantics.housing_quantities.some(value => {

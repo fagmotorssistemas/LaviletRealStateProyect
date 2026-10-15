@@ -1,4 +1,6 @@
 {
+  "conversation_language": { "kind": "unchanged", "tag": null, "evidence": "", "confidence": "high" },
+  "recommendation_request": { "requested": false, "evidence": "", "confidence": "high" },
   "financing_identity": null,
   "financing_amounts": [],
   "financing_quote": { "requested": false, "before_application": false, "evidence": "", "years": null, "years_evidence": "" },

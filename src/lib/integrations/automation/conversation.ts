@@ -8,6 +8,7 @@ import { withHandoffNotice } from './handoff-copy'
 import { replyQuestionText } from './reply-question'
 import { unverifiedReply } from './delivery-integrity'
 import { withConversationTone, conversationToneAudit } from './tone-settings'
+import { withConversationLanguage, setConversationLanguage } from './conversation-language'
 import { loadResponseReviewPolicy } from './response-review-settings'
 import { responseReviewEnabled, responseReviewObservationOnly, withResponseReviewPolicy } from './response-review-policy'
 import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
@@ -186,7 +187,7 @@ export async function processConversation(rows: Row[], guard: Guard, inferenceDe
   }
   try {
     const reviewPolicy = await loadResponseReviewPolicy(rows.length ? inboundFromRow(rows[rows.length - 1].payload).kommoId : undefined)
-    const result = await withResponseReviewPolicy(reviewPolicy, () => withAIExecutionTrace(trace, () => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery)), inferenceGuard, inferenceDeadlineAt))
+    const result = await withResponseReviewPolicy(reviewPolicy, () => withAIExecutionTrace(trace, () => withConversationLanguage(() => withConversationTone(() => processConversationWithTone(rows, guard, trace, delivery))), inferenceGuard, inferenceDeadlineAt))
     trace.add('execution_exit', 'Resultado de la ejecución', 'output', 'conversation.ts',
       ['accepted', 'confirmed'].includes(text(result.action)) ? 'succeeded' : 'skipped', {},
       { action: result.action, reason: object(result).reason || result.action })
@@ -420,6 +421,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let greeting = !inbound.mediaFailed && !pendingInputs.length && isGreetingOnly(current)
   const storedSummary = object(conversationBefore.summary)
   const previousSummary: Row = { ...storedSummary, _lead_profile: confirmedLeadProfile(storedSummary._lead_profile) }
+  setConversationLanguage(previousSummary._conversation_language)
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
   const financeContinuation = !inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)
     && financingFieldAnswer(current, context.historial, {explicit_consent:true})
@@ -611,6 +613,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       { scope: businessScope.kind, reason: businessScope.reason, grounded_requests: interpretation.requests.filter(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)).length })
   }
   const { extracted, semantics: turnSemantics } = interpretation
+  setConversationLanguage(extracted.conversation_language)
   const turnIntent = resolveTurnIntent({ current, history: context.historial, semantics: turnSemantics, requests: interpretation.requests,
     scope: businessScope, previous: previousSummary._turn_intent, pendingQuestion,
     profilePending: object(previousSummary._lead_introduction).status === 'pending' })

@@ -9,6 +9,7 @@ import { preserveCtwaForContact } from './ctwa-lead-store'
 import type { Guard } from './visits'
 import { normalized } from './sdr-rules'
 import { applyTurnGreeting, greetingForTurn } from './conversation-style'
+import { generationRecoveryNotice } from './conversation-language'
 
 export class GenerationRecoveryError extends Error {
   constructor(public original: unknown, public deliveryUncertain: boolean) { super('GENERATION_RECOVERY_FAILED') }
@@ -150,7 +151,9 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
       .eq('conversation_id', conversationId).in('role', ['bot', 'asesor']).order('sent_at', { ascending: false }).limit(50)
     if (previousMessages.error) throw Error('RECOVERY_CONTEXT_READ_FAILED')
     const greeting = greetingForTurn(current, previousMessages.data, lead.last_bot_message_at, last.sentAt)
-    const notice = applyTurnGreeting('Disculpe la demora. He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.', greeting)
+    const language = object(object(conversation.summary)._conversation_language)
+    const body = generationRecoveryNotice(language)
+    const notice = text(language.tag).split('-')[0] === 'en' ? body : applyTurnGreeting(body, greeting)
     if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
     await setKommoField(last.kommoId, 457014, notice)
     if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
