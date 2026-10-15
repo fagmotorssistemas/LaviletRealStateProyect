@@ -88,7 +88,7 @@ export function derivedFactualValueSchema(sentenceIds?: string[], focused = fals
     fragment: sentenceIds ? { type: 'string', enum: sentenceIds.length ? sentenceIds : ['none'] } : { type: 'string' },
     unit_id: { type: 'null', enum: [null], description: 'Un cálculo no es una nueva unidad ni un atributo publicado.' },
     field: { type: 'string', enum: ['derived_value'] }, value: { type: 'number' },
-    measurement_unit: { type: 'string', enum: ['m', 'm2', 'count', 'ratio'] },
+    measurement_unit: { type: 'string', enum: ['m', 'm2', 'count', 'ratio', 'USD', 'USD/m2'] },
     operator: { type: 'string', enum: ['eq'] }, upper_value: { type: 'null' },
     calculation: CONTEXTUAL_CALCULATION_SCHEMA,
     ...(focused ? { value_scope: { type: 'string', enum: ['individual'] }, subject_category: { type: 'null' } } : {}),
@@ -97,6 +97,7 @@ export function derivedFactualValueSchema(sentenceIds?: string[], focused = fals
 }
 
 export const CONTEXTUAL_CALCULATION_REVIEW_RULES = CONTEXTUAL_REASONING_RULES
+  + '\nUna referencia matemática de precio por superficie usa derived_value y measurement_unit=USD/m2, nunca un atributo publicado ni una tarifa oficial. Use el precio autorizado y la superficie interior o combined_area calculada de la MISMA unidad en razonamiento_contextual. El cociente admite redondeo a dos decimales. La suma interior más exterior se comprueba como aritmética; no es area_total_m2 oficial.'
   + '\nExtraiga el resultado aritmético en factual_values con field=derived_value, unit_id=null, measurement_unit, operator=eq y calculation. No lo registre como area_internal_m2, area_total_m2, bedrooms ni otra característica publicada. Cada resultado necesita la operación, operandos y procedencias de razonamiento_contextual. Los operandos del cliente solo se respaldan por citas medidas del mensaje ACTUAL; los supuestos necesitan una cita condicional o ilustrativa presente en el borrador real. El resultado es business_quantity enlazado a esa fila; los operandos declarados por el lead o supuestos se clasifican como lead_context/contextual_guidance sin convertirlos en atributos del inmueble. Revise por separado los hechos del inmueble y cualquier garantía de cabida, circulación, capacidad o redistribución: una aritmética correcta no demuestra esas garantías. Una explicación prudente sobre cómo comparar medidas puede aprobarse; no invente medidas típicas.'
 
 /** The proof is checked against actual writer text, not reviewer paraphrases. */

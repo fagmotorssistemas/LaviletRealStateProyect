@@ -7,14 +7,12 @@ import { UbicanosView } from './UbicanosView'
 import { WhyLavilet } from './WhyLavilet'
 import { ProjectEssentials } from './ProjectEssentials'
 import { EspaciosAccordion } from './EspaciosAccordion'
-import { LvPortal } from './LvPortal'
 
 /** Landing Lavilet: hero, nosotros y entrada al showroom 360°. */
 export function FullLanding() {
   return (
     <LockupProvider>
       <HeroLaVilet />
-      <LvPortal />
       <LandingWash>
         <WhyLavilet part="overview" />
         <LaviletStory />

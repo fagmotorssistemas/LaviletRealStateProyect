@@ -274,7 +274,7 @@ test('after exhausted inference the actual advisor queue is recorded before one 
   assert.equal(h.calls.filter(c => c.name === 'send').length, 1)
   assert.ok(h.calls.findIndex(c => c.name === 'handoff_lead') < h.calls.findIndex(c => c.name === 'send'))
   const out = h.calls.find(c => c.name === 'register_outbound_message').args
-  assert.match(out.p_content, /Disculpe la demora/)
+  assert.equal(out.p_content, 'Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.')
   assert.equal(out.p_tool_calls.source_message_id, 'source-message')
   assert.ok(h.calls.some(c => c.name === 'update:leads' && c.values.bot_enabled === true))
 })
@@ -362,12 +362,12 @@ test('a superseded recovery still preserves the inbound batch without sending or
 })
 
 for (const message of ['Cuál es el precio?', 'Hola, cuál es el precio?', 'Gracias', 'Quiero ver el proyecto']) {
-  test('initial recovery has a greeting for any incoming intent: ' + message, async () => {
+  test('initial recovery preserves the approved notice without adding a greeting: ' + message, async () => {
     const h = recoveryHarness({ message })
     await h.run()
     const out = h.calls.find(call => call.name === 'register_outbound_message').args
-    assert.match(out.p_content, /^Hola\. Disculpe la demora/)
-    assert.equal(out.p_tool_calls.writer_greeting, 'Hola')
+    assert.equal(out.p_content, 'Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.')
+    assert.equal(out.p_tool_calls.writer_greeting, '')
     assert.equal(h.calls.filter(call => call.name === 'send').length, 1)
   })
 }
@@ -377,13 +377,13 @@ for (const role of ['bot', 'asesor']) test('recovery preserves ongoing conversat
     tool_calls: { provider_status: 'accepted' } }] })
   await h.run()
   const out = h.calls.find(call => call.name === 'register_outbound_message').args
-  assert.match(out.p_content, /^Disculpe la demora/)
+  assert.equal(out.p_content, 'Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.')
   assert.equal(out.p_tool_calls.writer_greeting, '')
 })
 
-test('a rejected earlier send does not suppress the first greeting in recovery', async () => {
+test('a rejected earlier send does not alter the approved recovery notice', async () => {
   const h = recoveryHarness({ history: [{ role: 'bot', content: 'No enviado', sent_at: new Date(Date.now() - 5000).toISOString(),
     tool_calls: { provider_status: 'rejected' } }] })
   await h.run()
-  assert.match(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, /^Hola\./)
+  assert.equal(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, 'Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.')
 })

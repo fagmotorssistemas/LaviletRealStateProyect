@@ -305,7 +305,7 @@ test('the early total-budget step stays in the writer and delivered question, ou
       if (task === 'writing') assert.equal(next.action, 'ask_budget')
       if (task === 'writing') assert.equal(next.question_id, 'budget_amount')
       if (task === 'writing') assert.equal(Boolean(next.requires_unit_presentation), false)
-      if (task === 'writing') assert.match(String(next.question), /presupuesto total/)
+      if (task === 'writing') { assert.equal(next.question, undefined); assert.match(String(object(next.objetivo_conversacion).objective), /presupuesto/i) }
       if (task === 'writing') return { reply,
         requests: [{ fragment: 'R1', intent: 'Busca vivienda', status: 'answered', evidence: reply,
           fact_key: null, request_type: 'general_information' }],

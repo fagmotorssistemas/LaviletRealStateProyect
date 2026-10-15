@@ -1,7 +1,7 @@
 export const POLICY_TOPICS = {
   compra_exterior: 'Compra desde el extranjero', reserva: 'Reservas', pagos: 'Pagos',
   financiamiento: 'Financiamiento', documentos: 'Documentos y firma', cancelacion: 'Cancelaciones',
-  visitas: 'Condiciones de visitas', otros: 'Otras condiciones comerciales',
+  visitas: 'Condiciones de visitas', instalaciones: 'Acceso a áreas comunes', otros: 'Otras condiciones comerciales',
 } as const
 export type PolicyTopic = keyof typeof POLICY_TOPICS
 export type PolicyContent = {

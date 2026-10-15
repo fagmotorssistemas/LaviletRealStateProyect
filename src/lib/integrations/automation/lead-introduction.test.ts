@@ -583,7 +583,7 @@ describe('progressive lead introduction', () => {
     assert.equal(turn.reply.includes(BROCHURE_URL), false)
     assert.equal(turn.brochureDeferred, true)
     assert.equal(object(turn.audit.profile_introduction).brochure_required, false)
-    assert.match(turn.reply, /guía personalizada.*en qué ciudad o país reside actualmente/)
+    assert.match(turn.reply, /en qué ciudad o país reside actualmente/)
     assert.doesNotMatch(turn.reply, /su nombre|desde dónde|desde qué/)
     assert.equal(turn.state.reminder_count, 1)
     const following = leadIntroductionTurn(pending({ current: 'Vivo en Cuenca',
@@ -598,7 +598,7 @@ describe('progressive lead introduction', () => {
   it('accepts country-only residence and asks only the missing name', () => {
     const turn = leadIntroductionTurn(pending({ current: 'Vivo en Estados Unidos',
       extracted: { lead_profile: { residence_country: 'Estados Unidos' } } }))
-    assert.match(turn.reply, /podría indicarnos su nombre/)
+    assert.match(turn.reply, /podría indicarnos su nombre/i)
     assert.doesNotMatch(turn.reply, /reside actualmente/)
     assert.equal(turn.reply.includes(BROCHURE_URL), false)
     assert.equal(turn.brochureDeferred, true)
@@ -856,7 +856,8 @@ describe('profile collection across delivered conversation turns', () => {
     assert.equal(state.collection_status, 'not_requested')
     assert.equal(state.brochure_sent, true)
     const next = leadIntroductionTurn(input({ summary: { _lead_introduction: state }, history }))
-    assert.match(next.reply, /Con el brochure que le compartimos/)
+    assert.match(next.reply, /su nombre y en qué ciudad o país reside actualmente/)
+    assert.doesNotMatch(next.reply, /Con el brochure que le compartimos|guía personalizada/)
     assert.match(next.reply, /su nombre.*reside actualmente/)
   })
 

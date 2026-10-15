@@ -59,7 +59,7 @@ export const derivedBusinessFactSchema: Row = {
     kind: { type: 'string', enum: ['other_calculation'] }, field: { type: 'string', enum: ['derived_value'] },
     subject_id: { type: 'null' }, scope: { type: 'null' }, value: { type: 'number' },
     relation: { type: 'string', enum: ['eq'] }, upper_value: { type: 'null' },
-    unit: { type: 'string', enum: ['m', 'm2', 'count', 'ratio'] }, calculation: CONTEXTUAL_CALCULATION_SCHEMA,
+    unit: { type: 'string', enum: ['m', 'm2', 'count', 'ratio', 'USD', 'USD/m2'] }, calculation: CONTEXTUAL_CALCULATION_SCHEMA,
   }, required: [...businessFactSchema.required as string[], 'calculation'],
 }
 

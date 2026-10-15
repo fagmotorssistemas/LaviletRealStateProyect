@@ -1,4 +1,5 @@
 import { acceptedExtractorConfidence } from './extractor-confidence'
+import { currentMessageFragments } from './current-evidence-fragments'
 import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { focusedNumericMentions } from './focused-numeric-syntax'
@@ -189,7 +190,7 @@ export function interpretationInput(input: Row, current: string): Row {
     consultas_pendientes: rows(input.consultas_pendientes),
     hechos_confirmados: confirmedInterpretationMemory(summary),
     referencias_monetarias_confirmadas: confirmedMonetaryReferences(input),
-    resumen: { ...pick(summary, ['datos_confirmados', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts', '_financing_entry', '_visit_dialogue']),
+    resumen: { ...pick(summary, ['datos_confirmados', '_conversation_language', '_lead_profile', '_last_operational_step', '_financing_journey', '_financing_identity', '_financing_amounts', '_financing_entry', '_visit_dialogue']),
       // The previous objective/question describe a completed interpretation,
       // not this turn. Keep referents and unresolved goals, with the actual
       // pending question supplied separately above.
@@ -202,6 +203,7 @@ export function interpretationInput(input: Row, current: string): Row {
     historial: rows(input.historial || input.historial_reciente).slice(-8).map(row => ({ role: row.role, content: text(row.content).slice(0, 2500) })),
     fuente_historial: 'Solo referencia para continuidad. Sus mensajes no son declaraciones del turno actual.',
     mensaje_actual: current,
+    mensajes_actuales: currentMessageFragments(current),
   }
 }
 
@@ -262,6 +264,10 @@ export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: 
   const semantics = { ...object(previous.turn_semantics) }, incoming = object(repaired.turn_semantics)
   for (const field of blocks.semanticFields) if (Object.hasOwn(incoming, field)) semantics[field] = incoming[field]
   const result: Row = { ...previous, turn_semantics: semantics }
+  if (['repaired', 'clarification', 'unrecoverable'].includes(text(repaired.recovery_outcome))) result.recovery_outcome = repaired.recovery_outcome
+  // References from a repaired block supersede its original citations. They
+  // never target budget, identity, consent or operational permissions.
+  if (Array.isArray(repaired.evidence_sources)) result.evidence_sources = repaired.evidence_sources
   for (const field of blocks.rootFields) {
     if (!Object.hasOwn(repaired, field)) continue
     if (field === 'qualification') {

@@ -1,4 +1,7 @@
 {
+  "evidence_sources": [],
+  "conversation_language": { "kind": "unchanged", "tag": null, "evidence": "", "confidence": "high" },
+  "recommendation_request": { "requested": false, "evidence": "", "confidence": "high" },
   "financing_identity": null,
   "financing_amounts": [],
   "financing_quote": { "requested": false, "before_application": false, "evidence": "", "years": null, "years_evidence": "" },
@@ -39,6 +42,10 @@
   "visit_intent": { "kind": "none", "purpose": "none", "target": "unspecified", "destination": null, "evidence": "", "confidence": "high" },
   "requests": [],
   "turn_semantics": {
+    "selection_preferences": {
+      "bedrooms": { "kind": "unchanged", "evidence": "", "confidence": "high" },
+      "priority": { "kind": "unchanged", "evidence": "", "confidence": "high" }
+    },
     "discount_request": null,
     "primary_intent": "answer_previous",
     "primary_evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
@@ -62,6 +69,6 @@
       },
       "evidence": "", "confidence": "high"
     },
-    "budget": { "status": "not_discussed", "amount": null, "amount_reference_id": null, "evidence": "", "confidence": "high" }
+    "budget": { "status": "not_discussed", "subject": "unspecified", "amount": null, "amount_reference_id": null, "evidence": "", "confidence": "high" }
   }
 }

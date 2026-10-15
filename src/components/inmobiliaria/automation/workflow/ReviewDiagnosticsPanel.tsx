@@ -2,17 +2,24 @@ import type { ReactNode } from 'react'
 import type { WorkflowExecutionStep } from './executionWorkflow'
 import { reviewDiagnostics, reviewReferences, reviewStepRejected } from './reviewDiagnostics'
 import { isObservedReview } from './reviewDecision'
+import { reviewResponsibilities } from './reviewResponsibilities'
 import styles from './ReviewDiagnostics.module.css'
 
 export function ReviewDiagnostics({ step }: { step: WorkflowExecutionStep }) {
   const issues = reviewDiagnostics(step)
-  if (!issues.length) return null
+  if (!issues.length && step.key !== 'response_coverage') return null
+  const responsibilities = reviewResponsibilities(step.output)
   const observed = step.key === 'response_coverage' && isObservedReview(step.output)
   const previous = step.key === 'response_coverage' && !observed && !reviewStepRejected(step)
-  return <section className={styles.diagnostics} data-historical={previous} aria-label="Campos con errores identificados">
-    <h5>{observed ? 'Observaciones del modo demostración' : previous ? 'Incidencias registradas durante los intentos' : 'Qué falló y en qué campo'}</h5>
-    {observed && <p>Estos controles del borrador quedaron registrados y su resultado no bloqueó el mensaje del contacto de prueba. La interpretación y la ruta mantienen sus controles habituales. Permitir el envío no significa que las observaciones se hayan corregido.</p>}
-    {previous && <p>Estos detalles pertenecen a intentos anteriores; no se presentan como un fallo vigente de la respuesta final.</p>}
+  return <section className={styles.diagnostics} data-historical={previous} data-results-only={!issues.length}
+    aria-label={issues.length ? 'Campos con errores identificados' : 'Resultados separados de revisión'}>
+    {step.key === 'response_coverage' && <div aria-label="Responsables de la revisión">
+      <p>{responsibilities.reviewer}</p><p>{responsibilities.system}</p>
+      {responsibilities.separateRejection && <p>La aprobación de la IA y la observación del sistema son resultados distintos. Este control no fue un rechazo de la IA revisora.</p>}
+    </div>}
+    {!!issues.length && <h5>{observed ? 'Observaciones del modo demostración' : previous ? 'Incidencias registradas durante los intentos' : 'Qué falló y en qué campo'}</h5>}
+    {observed && !!issues.length && <p>Estos controles del borrador quedaron registrados y su resultado no bloqueó el mensaje del contacto de prueba. La interpretación y la ruta mantienen sus controles habituales. Permitir el envío no significa que las observaciones se hayan corregido.</p>}
+    {previous && !!issues.length && <p>Estos detalles pertenecen a intentos anteriores; no se presentan como un fallo vigente de la respuesta final.</p>}
     {issues.map((issue, i) => <div className={styles.issue} key={`${issue.code}-${i}`}>
       <strong>{issue.code}</strong><p>Campo: <code>{issue.field}</code>{issue.received !== undefined && <> · Valor recibido: <code>{JSON.stringify(issue.received)}</code></>}</p>
       <p>{issue.message}</p><small>{issue.owner}{issue.repairOwner ? ` · Encargado de corregir: ${issue.repairOwner}` : ''}</small>

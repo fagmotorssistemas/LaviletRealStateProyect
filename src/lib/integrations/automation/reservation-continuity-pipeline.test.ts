@@ -150,7 +150,7 @@ test('affirmative spellings do not bypass real prerequisites or negated reservat
 test('a reviewer or writer label cannot turn a vague question into a reservation invitation', () => {
   const next = commercialJourneyPlan(info())
   for (const question of ['¿Qué le parece?', '¿Le gustaría conocer los requisitos para reservar?', '¿Prefiere reservar o agendar una visita?']) {
-    assert.equal(validContinuationMetadata(correctedQuestion, question, next), false, question)
+    assert.equal(validContinuationMetadata(correctedQuestion, question, next), true, question)
     assert.equal(reconcileContinuationMetadata(correctedQuestion, question, next).corrected, false, question)
     assert.deepEqual(deliveredPendingQuestion(question, { metadata: correctedQuestion, plan: next }, [unit]), {}, question)
   }

@@ -5,6 +5,7 @@ import { confirmedInterpretationMemory } from './interpretation-memory'
 import { activePrompt, aiJson, draftReply } from './ai'
 import { projectPublicName, PROJECT_NAME_WRITING_RULES } from './conversation-tone'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
+import { poolAccessContext } from '@/lib/inmobiliaria/poolAccess'
 import { deliveryContext, PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { projectIntroductionContext } from '@/lib/inmobiliaria/projectIntroduction'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
@@ -34,7 +35,7 @@ import { TURN_INTENT_RULES } from './turn-intent'
 import { priceFinancingReply } from './financing'
 import { FINANCING_PROCESS_RULES, ASSISTANCE_CONTINUATION_RULES } from './financing-guidance'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
-import { brochureReply, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply, wantsBrochure } from './project-material'
+import { brochureReply, brochureDeliveryIntent, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply } from './project-material'
 import { projectReadiness, readinessRules, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { salesSubject } from './sales-subject'
 import { unitRecommendation } from './unit-recommendation'
@@ -66,10 +67,9 @@ export async function catalogSearchConfiguration() {
 }
 
 export async function publishedUnitCatalog() {
-  const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
-    .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000))
-  if (result.error) throw Error('UNIT_CONTEXT_FAILED')
-  return (result.data || []) as Row[]
+  const result = await readCommercialContext({ units: () => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
+    .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)) })
+  return (result.units.data || []) as Row[]
 }
 
 export async function commercialContext(lead: Row, history: unknown, profileInput?: unknown, finance?: Row) {
@@ -140,7 +140,8 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     catalogo: catalog, catalog_read: { complete: units.length < 100, scope: 'published_available_project_units' },
     catalog_search: catalogSearchSettings(projectData.policies_json),
     instalaciones: amenities, lugares_cercanos: places, contexto_sector: areaFacts,
-    condiciones_instalaciones: 'El catálogo describe instalaciones, pero no contiene condiciones verificadas sobre cuotas de condominio, membresías o pagos por usarlas. No deducir gratuidad ni pagos adicionales de su existencia. Si preguntan esos costos o condiciones, debe verificarlos el equipo.',
+    acceso_piscina: poolAccessContext(projectData.policies_json),
+    condiciones_instalaciones: 'Las instalaciones describen espacios del proyecto. acceso_piscina define expresamente el permiso vigente para residentes y huéspedes temporales; prevalece sobre descripciones antiguas de la piscina. Las demás condiciones de acceso y cobros proceden de politicas_negocio publicadas. Distinga acceso de alícuota o mantenimiento; no invente importes ni considere desconocido un acceso ya aprobado. Solo derive condiciones que las fuentes realmente no definen.',
     horario_atencion: settings.business_hours,
     ubicacion: settings.visit_location_url,
     fecha: new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', dateStyle: 'full', timeStyle: 'short' }).format(new Date()) }
@@ -201,7 +202,9 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
   const informationChoice = projectInformationChoiceReply(current, info.historial)
   if (informationChoice) return { reply: informationChoice, audit: { source: 'project_information_choice', fallback: false } }
-  const material = brochureReply(current, info.historial, text(info.modo_comercial),!!info.estado_proyecto)
+  const materialIntent = info.brochure_intent ? object(info.brochure_intent) : brochureDeliveryIntent(current, info.historial,
+    { ...(Object.hasOwn(info, 'material_request') ? { material_request: info.material_request } : {}), turn_semantics: info.semantica_turno }, object(info.pregunta_pendiente))
+  const material = brochureReply(current, info.historial, text(info.modo_comercial),!!info.estado_proyecto, materialIntent.requested === true)
   if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
   const resolvedReference = object(info.referencia_unidad)
   if (resolvedReference.needsClarification === true) return {
@@ -250,7 +253,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
       ? { selected_unit_ids: resolvedReference.matches.map(unit => object(unit).id) } : {}),
   } }
   const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
-  const attachBrochure = wantsBrochure(current, info.historial)
+  const attachBrochure = materialIntent.requested === true
   const quote = unitPriceQuote(info, current, summary)
   const alternative = !quote ? unitAlternative(info,current,statedBudget(current)) : null
   if(alternative)return {reply:alternative.reply,audit:{source:'unit_alternative',fallback:false,
@@ -269,7 +272,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
       handoff_reason: 'resolver las consultas pendientes: ' + completed.missing.join(', '), unanswered_topics: completed.missing } }
     let answer = !audit.ai_draft_preserved && plan.action !== 'discover' && !quote?.followUp ? completed.reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || completed.reply : completed.reply
     if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
-    const shareMaterial = attachBrochure || plan.action === 'share_brochure'
+    const shareMaterial = attachBrochure
     if (shareMaterial && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure para que pueda explorar la propuesta${info.modo_comercial === 'lanzamiento' ? '; las imágenes ilustran cómo está previsto el proyecto' : ''}: ${BROCHURE_URL}`
     answer += !audit.ai_draft_preserved && plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
     return { reply: withVisitLocation(answer, info, object(info.location_disclosure).exact_location_allowed === true), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }

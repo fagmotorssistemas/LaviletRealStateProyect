@@ -12,6 +12,7 @@ import { CONTINUATION_QUESTION_RULE } from './continuation-question'
 import { CONTEXTUAL_NEEDS_WRITER_RULES } from './needs-guidance'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
 import { informationRequestOpening } from './response-openings'
+import { conversationObjective } from './writer-objectives'
 
 /** Application delivery limit, independent of the preferred conversational length. */
 export const MAX_REPLY_CHARACTERS = 3000
@@ -64,7 +65,8 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   if (text(tour.url) && !tourDeclined && (selectedTour && !tourSent || showroom.reason === 'requested_visualization'
     || new RegExp(asksToReceive.source + '(?:recorrido|showroom|tour|360|modelo virtual)\\b').test(requested)
       && !/\bno\s+(?:me\s+)?(?:quiero|necesito|interesa|envie|mande|comparta).{0,45}(?:recorrido|showroom|tour|360|modelo)/.test(requested))) required.push(text(tour.url))
-  if (audit.source === 'brochure' || new RegExp(asksToReceive.source + '(?:brochure|folleto|brochur|pdf)\\b').test(requested)
+  if (audit.source === 'brochure' || !Object.hasOwn(context.verified || {}, 'material_request') && !Object.hasOwn(audit, 'brochure_intent')
+    && new RegExp(asksToReceive.source + '(?:brochure|folleto|brochur|pdf)\\b').test(requested)
     && !/\bno\s+(?:me\s+)?(?:quiero|necesito|interesa|envie|mande|comparta).{0,45}(?:brochure|folleto|brochur|pdf)/.test(requested)) {
     required.push(text(profile.brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL)
   }
@@ -86,15 +88,12 @@ export function replyLinkIssues(reply: string, contract: ReturnType<typeof reply
   ]
 }
 
-/** Complete a scheduled brochure delivery from configured material, without another model call. */
+/** Compatibility helper: delivery obligations never modify a writer draft. */
 export function includeRequiredBrochure(reply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
-  const contract = replyLinkContract('', audit, context)
-  const brochure = text(object(audit.profile_introduction).brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL
-  if (!reply.trim() || !contract.required_links.includes(brochure) || !contract.allowed_links.includes(brochure)
-    || urls(reply).includes(brochure) || !/^https?:\/\/\S+$/.test(brochure)) return reply
-  const completed = `${reply.trim()}\n\nBrochure del proyecto: ${brochure}`
-  // Never truncate the answer, substitute another link, or exceed the delivery limit.
-  return completed.length <= MAX_REPLY_CHARACTERS ? completed : reply
+  // Kept for historical callers: a required link is a writer obligation and
+  // missing material is diagnosed/repaired by the writer, never appended here.
+  void audit; void context
+  return reply
 }
 
 /** The summary owns the facts, not the writer's wording. Only route templates
@@ -198,7 +197,7 @@ ${CONTEXTUAL_NEEDS_WRITER_RULES}
 No narre su procesamiento interno ni las operaciones que realiza para preparar la respuesta: evite «descarto los penthouses», «me concentro en los departamentos», «he interpretado su intención» o «aplico el filtro». Exprese directamente la información útil para el cliente; por ejemplo, «Los departamentos de 3 dormitorios comparten estas características…». Puede reconocer brevemente su preferencia sin describir el trabajo interno. Esto no impide informar una acción real solicitada por el cliente cuando su resultado esté confirmado en el contexto operativo; nunca la invente.
 Responda datos_requeridos con los hechos verificados y conserve las condiciones operativas y enlaces obligatorios. No es obligatorio enumerar todas las cifras, atributos, unidades o frases de una respuesta anterior. cifras_obligatorias solo contiene obligaciones explícitas del contrato operativo, nunca números extraídos de una plantilla. Si menciona una cifra del inmueble o su precio, conserve exactamente el valor de la evidencia verificada, incluidos sus decimales: 142,09 m² puede expresarse como 142.09 m² o en palabras equivalentes, pero nunca como 142 m², ni siquiera diciendo «aproximadamente». Puede omitir una cifra que no sea necesaria; no la redondee, trunque ni calcule otra sin evidencia. Cuando continuacion_del_turno.required=true, atender la consulta no sustituye la pregunta necesaria para continuar.
 Si apertura_decidida.policy=first_information_request, abra con una disposición amable a compartir información, por ejemplo «Con mucho gusto le comparto información». En otros turnos apertura_decidida es orientación de tono: puede cambiarla u omitirla. Prefiera una cortesía breve pertinente, sin repetir aperturas recientes. No agregue una fórmula en todos los turnos.
-El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad sin copiar literalmente una fórmula. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado y formular el siguiente paso autorizado. pregunta_siguiente propone una formulación: puede cambiar sus palabras, pero no omitir la finalidad cuando continuacion_del_turno.required=true. Responda primero la solicitud actual.
+El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad con un único saludo natural. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado. objetivo_siguiente y objetivo_conversacion describen lo que sigue pendiente; no son preguntas literales ni exigen palabras fijas. Formule una continuación cercana cuando sea útil y omita requisitos indiferentes o ya resueltos. Responda primero la solicitud actual. El sistema conservará su mensaje completo, sin añadir saludos, preguntas, avisos o enlaces después: incluya usted lo pertinente y los materiales que corresponde compartir.
 Nunca invente datos para embellecer una explicación.`
 
 export const CATALOG_WRITER_RULES = FINAL_WRITER_RULES.replace(FINANCING_PROCESS_RULES, '').replace(ASSISTANCE_CONTINUATION_RULES, '')
@@ -262,7 +261,7 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
     price_evidence: audit.price_evidence || null,
     cifras_obligatorias: plan.required_numbers, enlaces_obligatorios: plan.required_links,
     enlaces_permitidos: plan.allowed_links,
-    pregunta_siguiente: plan.next_question,
+    objetivo_siguiente: conversationObjective(context.verified?.siguiente_paso_comercial || audit.commercial_journey || audit.pending_question),
     continuacion_del_turno: plan.continuation,
     pregunta_pendiente: object(audit.pending_question),
     presentacion: approvedOpening ? { kind: 'approved_summary', policy: 'required_approved_facts_with_free_wording',
@@ -273,6 +272,6 @@ export function finalWriterContract(baseReply: string, audit: Row = {}, context:
     resultado_operativo: object(audit.reservation),
     estado_operativo: plan.operational_state,
     limites_editoriales: { longitud_sugerida: 1200, preguntas_sugeridas: 1, rechazo_por_estilo: false, limite_entrega: MAX_REPLY_CHARACTERS },
-    saludo: { responsable: 'sistema', texto: text(audit.writer_greeting) || null },
+    saludo: { responsable: 'redactor', requerido: !!text(audit.writer_greeting), referencia_contextual: text(audit.writer_greeting) || null },
   }
 }

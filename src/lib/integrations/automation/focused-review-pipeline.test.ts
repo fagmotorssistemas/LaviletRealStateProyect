@@ -61,7 +61,7 @@ test('outside-to-property transition carries both profile obligations through th
     verified: { proyecto: { ubicacion: 'Cuenca' } },
     audit: { ...opening.audit, semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)
   assert.equal(result.audit.status, 'checked')
-  assert.equal(result.reply, `Con mucho gusto le comparto información. ${reply}`)
+  assert.equal(result.reply, reply)
   assert.deepEqual(result.audit.repair_attempts, [])
   assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])
   const audit = { ...opening.audit, semantic_review_enabled: true, turn_completeness: result.audit }
@@ -102,7 +102,7 @@ for (const previouslyShared of [true, false]) test(`residence clarification shar
     const stage = object(object(context.contrato_redaccion).estado_comercial)
     assert.equal(stage.proposito_captura, 'guia_personalizada')
     assert.equal(object(stage.brochure).accion, previouslyShared ? 'already_shared' : 'share_now')
-    return { ...writer(context, reply), question: { purpose: 'collect_lead_profile', role: 'required_collection',
+    return { ...writer(context, reply + (previouslyShared ? '' : `\n\nBrochure del proyecto: ${BROCHURE_URL}`)), question: { purpose: 'collect_lead_profile', role: 'required_collection',
       missing_datum: 'Confirmar si Cuenca es residencia actual', next_decision: 'Orientar según la residencia confirmada', continuation_id: 'lead_residence_confirmation', continuation_act: 'profile' } }
   })
   const result = await completeTurnReply({ current, baseReply: opening.reply,
@@ -199,7 +199,7 @@ test('the same review gate catches unverified promises and missing turn obligati
     const mock = harness((context, task) => {
       if (task === 'writing') return writer(context, ++writes === 1 ? scenario.bad : scenario.good)
       assert.equal(rows(context.obligaciones_del_turno).some(row => row.id === 'profile_full_name'), false)
-      return context.borrador === scenario.bad
+      return context.borrador === scenario.bad && scenario.category !== 'turn_goal'
         ? block(scenario.category, scenario.bad, 'El borrador incumple la regla aplicable.', scenario.fact) : pass
     })
     const result = await completeTurnReply({ current: 'Me interesa el proyecto.', baseReply: scenario.good,
@@ -208,7 +208,7 @@ test('the same review gate catches unverified promises and missing turn obligati
         profile_introduction: { generic_introduction: true, question_purpose: 'collect_profile', brochure_deferred: true } } : {}) },
     }, mock.generate)
     assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
-    assert.equal(result.reply, scenario.good)
+    assert.equal(result.reply, scenario.category === 'turn_goal' ? scenario.bad : scenario.good)
   }
 })
 

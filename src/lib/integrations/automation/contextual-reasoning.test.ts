@@ -43,7 +43,8 @@ test('only current canonical catalogue fields ground project calculations', () =
     illustrative_example: { room_width_m: 5 }, extraccion: { room_width_m: 3 } }
   const before = JSON.stringify(verified)
   const evidence = contextualReasoningEvidence('Quiero sumar las superficies.', verified)
-  assert.equal(evidence.facts.length, 2)
+  assert.equal(evidence.facts.length, 3)
+  assert.equal(evidence.facts[2].source, 'calculated:catalogo.u202.area_internal_m2+area_exterior_m2')
   const project = (index: number): ContextualOperand => ({ value: evidence.facts[index].value, unit: evidence.facts[index].unit,
     source: { kind: 'project_fact', reference: evidence.facts[index].id, quote: '' } })
   const result = contextualCalculationCheck(proof('add', [project(0), project(1)], 147.86, 'm2'), evidence, 'La suma aritmética es 147,86 m²; no representa una medida oficial del dormitorio.')

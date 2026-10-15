@@ -75,7 +75,7 @@ for (const enabled of [false, true]) for (const reviewEnabled of [false, true])
       const input = object(raw)
       const obligations = input.obligaciones_del_turno as Row[]
       assert.equal(obligations.some(row => row.id === 'price_conditions'), enabled)
-      if (task === 'writing') return { reply, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' },
+      if (task === 'writing') return { reply: reply + (enabled ? ' '+REFERENTIAL_PRICE_NOTICE : ''), question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' },
         requests: [{ fragment: 'R1', intent: 'Informar precio', request_type: 'general_information', status: 'answered', evidence: 'Precio actual de la unidad', fact_key: null }] }
       assert.equal(String(input.borrador).includes(REFERENTIAL_PRICE_NOTICE), enabled)
       return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }

@@ -3,6 +3,7 @@ import { CATALOG_NUMBER_FIELDS, catalogNumber, requirementMatch } from './catalo
 import { catalogQuery, filterCatalog, type CatalogQuery } from './catalog-dialogue'
 import { compactDiscountEvidence } from './discount-evidence'
 import { catalogFactScope } from './catalog-fact-scope'
+import { selectionPreferences, unrestrictedBedrooms } from './selection-preferences'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (units: Row[]) => units.map(unit => text(unit.id))
@@ -26,7 +27,9 @@ export function resolveCatalogRequirements(info: Row, query: CatalogQuery, reque
   const resolvedFields = new Set(rows(query.requirements).map(r => r.field))
   const inherited = [...rows(query.requirements), ...(prior.category === query.category && prior.group === query.group
     ? rows(prior.requirements).filter(r => !resolvedFields.has(r.field)) : [])].filter(r => !replaced.has(r.field))
-  const requirements = [...inherited, ...current]
+  const preferencesState = selectionPreferences(object(info.hechos_confirmados).selection_preferences || context.selection_preferences,
+    object(info.semantica_turno).selection_preferences)
+  const requirements = [...inherited, ...current].filter(r => !unrestrictedBedrooms(preferencesState) || r.field !== 'bedrooms')
   const covered = new Set(requirements.map(r => r.field))
   // Legacy filters cannot turn a preference into a requirement, or override gt/gte with eq.
   const resolved = catalogQuery({ ...query, requirements: [], filters: { ...query.filters,

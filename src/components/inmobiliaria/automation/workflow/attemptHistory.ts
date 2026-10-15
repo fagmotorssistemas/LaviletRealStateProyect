@@ -41,6 +41,8 @@ export function responseAttempts(steps: WorkflowExecutionStep[], coverage: Workf
     if (repair) attempt.systemResult = { status: String(repair.status || 'No registrado'), issues: repair.issues }
   }
   const last = attempts.at(-1)
-  if (last) last.systemResult = { status: String(coverage.output.status || 'No registrado'), issues: coverage.output.issues }
+  if (last) last.systemResult = { status: String(coverage.output.status || 'No registrado'),
+    issues: [...new Set([...(Array.isArray(coverage.output.issues) ? coverage.output.issues : []),
+      ...(Array.isArray(record(coverage.output.final_validation).issues) ? record(coverage.output.final_validation).issues as unknown[] : [])])] }
   return attempts
 }

@@ -135,7 +135,7 @@ test('housing proceeds from budget to bedrooms without requiring living versus i
     const info = journey(purpose, 'residential', budget)
     const plan = commercialJourneyPlan(info)
     assert.equal(plan.action, 'discover_bedrooms')
-    assert.equal(plan.question, '¿Cuántos dormitorios necesita?')
+    assert.equal(plan.question_id, 'property_bedrooms')
     assert.equal(object(info.lead).purchase_purpose, purpose)
   }
   const financed = journey(null)

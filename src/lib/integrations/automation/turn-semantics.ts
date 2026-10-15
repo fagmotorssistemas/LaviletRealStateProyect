@@ -14,6 +14,7 @@ import { operationalReservationInvitation, simpleReservationAcceptance, explicit
 import { categoryInvitationTarget } from './category-offer'
 import { AMOUNT_REFERENCE_SCHEMA } from './monetary-reference'
 import { DISCOUNT_REQUEST_SCHEMA, DISCOUNT_REQUEST_EXTRACTION_RULES, normalizedDiscountRequest } from './discount-request'
+import { SELECTION_PREFERENCES_SCHEMA, SELECTION_PREFERENCES_RULES, VIEWS_PREFERENCE_RULES, normalizedSelectionPreferences } from './selection-preferences'
 
 export const questionIds = [
   'reservation_invitation',
@@ -28,9 +29,11 @@ export const questionIds = [
   'budget_amount',
   'budget_kind',
   'property_category',
+  'property_comparison',
   'property_floor',
   'property_bedrooms',
   'property_area',
+  'property_priority',
   'property_requirements',
   'unit_choice',
   'purchase_timing',
@@ -58,7 +61,7 @@ const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'f
 const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'none'])
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
-export const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'budget', 'visit', 'profile', 'reservation', 'financing', 'material', 'other'])
+export const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'compare_properties', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'confirm_priority', 'budget', 'visit', 'profile', 'reservation', 'financing', 'material', 'other'])
 const profileQuestionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'])
 const reservationKinds = new Set(['request', 'information', 'declined', 'none'])
 
@@ -76,6 +79,7 @@ const housingQuantityBases = new Set(['total', 'excluding_speaker', 'unspecified
 export const TURN_SEMANTICS_SCHEMA = strictObject({
   primary_intent: enumSchema(primaryIntents), primary_evidence: { type: 'string' }, confidence: confidenceSchema,
   discount_request: DISCOUNT_REQUEST_SCHEMA,
+  selection_preferences: SELECTION_PREFERENCES_SCHEMA,
   housing_quantities: { type: 'array', description: 'Solo cantidades declaradas o evaluadas en mensaje_actual; [] si no hay. Nunca copie cantidades del catálogo, de una pregunta previa ni del historial. No cree elementos vacíos.', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
     values: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 1000 } },
     role: { ...enumSchema(housingQuantityRoles), description: 'requirement busca/restringe; evaluation consulta si las opciones sirven; context describe la familia; unknown es ambiguo. Evaluar capacidad no impone otra búsqueda.' }, count_basis: enumSchema(housingQuantityBases), evidence: { type: 'string' }, confidence: confidenceSchema }) },
@@ -91,7 +95,7 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
     filter_evidence: strictObject(Object.fromEntries(['floor_number', 'bedrooms', 'bedrooms_any', 'bedrooms_operator', 'bedrooms_upper', 'bedrooms_required', 'min_area_m2', 'max_area_m2'].map(key => [key, { type: 'string' }]))),
     evidence: { type: 'string' }, confidence: confidenceSchema,
   }),
-  budget: strictObject({ status: enumSchema(budgetStatuses), amount: { type: ['number', 'null'] }, amount_reference_id: AMOUNT_REFERENCE_SCHEMA,
+  budget: strictObject({ status: enumSchema(budgetStatuses), subject: enumSchema(new Set(['total_budget', 'down_payment', 'unspecified'])), amount: { type: ['number', 'null'] }, amount_reference_id: AMOUNT_REFERENCE_SCHEMA,
     evidence: { type: 'string' }, confidence: confidenceSchema }),
 })
 
@@ -185,12 +189,18 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   const validIds = catalog ? new Set(catalog.map(unit => text(unit.id))) : null
   const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.map(text).filter(id => id && (!validIds || validIds.has(id))))] : []
   const proposedQuery = ['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(text(row.act)) ? normalizedPropertyQuery(row.proposed_query) : {}
+  const comparisonCategories = id === 'property_comparison' && Array.isArray(row.comparison_categories)
+    ? [...new Set(row.comparison_categories.map(text).filter(category => propertyCategories.has(category)))] : []
+  const comparisonBedrooms = typeof row.comparison_bedrooms === 'number' && Number.isInteger(row.comparison_bedrooms) && row.comparison_bedrooms > 0 && row.comparison_bedrooms <= 30 ? row.comparison_bedrooms : null
+  const comparisonCandidates = comparisonCategories.length > 1 && catalog ? catalog.filter(unit => comparisonCategories.includes(text(unit.category))
+    && (comparisonBedrooms === null || unit.bedrooms === comparisonBedrooms) && unit.is_published !== false && (!unit.status || unit.status === 'disponible')).map(unit => text(unit.id)) : null
   const entryReference = id === 'financing_down_payment'
     ? deliveredFinancingEntryReference(text(object(row.amount_reference).question_source), object(row.amount_reference)) : null
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id === 'reservation_invitation' ? 'reservation' : id === 'brochure_offer' ? 'material'
     : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
-  question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids),
+  question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: comparisonCandidates ?? ids(row.candidate_ids),
+  ...(comparisonCategories.length > 1 ? { comparison_categories: comparisonCategories, comparison_bedrooms: comparisonBedrooms } : {}),
   ...(entryReference ? { amount_reference: entryReference } : {}),
   ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }
@@ -200,6 +210,8 @@ export const RELATIVE_PROPERTY_CHOICE_RULE = 'Una elección relativa actual, com
 export const TURN_SEMANTIC_EXTRACTION_RULES = `
 ${RELATIVE_PROPERTY_CHOICE_RULE}
 ${DISCOUNT_REQUEST_EXTRACTION_RULES}
+${SELECTION_PREFERENCES_RULES}
+${VIEWS_PREFERENCE_RULES}
 Devuelva SIEMPRE turn_semantics conforme al esquema JSON estricto adjunto; sus campos, tipos y valores permitidos se definen allí.
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
 reservation distingue la intención de iniciar la separación/reserva (request), consultar condiciones o requisitos sin iniciar (information), rechazar o posponer ese proceso (declined) y ausencia de esa intención (none). «Quiero separar el 605», «ayúdeme a iniciar la reserva de esa unidad» y sus errores evidentes de escritura son request; «¿cuánto se paga para reservar?» o «¿cómo funciona la separación?» son information. «Por ahora no, entonces quiero separar el departamento 605» responde negativamente a la propuesta anterior y pide una reserva NUEVA: conserve answer_to_previous y use primary_intent=request_reservation, reservation.kind=request. La unidad mencionada identifica el objeto de la reserva, no convierte el turno en una nueva presentación ni en un recorrido. Copie evidencia literal de la petición completa, incluidas negaciones, condiciones y correcciones relevantes; no cite solo el verbo de una frase negada. Una reserva hipotética o condicionada no satisfecha no inicia el trámite. primary_intent=ask_reservation para information. El evento asked_reservation sirve para puntuar interés, nunca demuestra por sí solo que desea iniciar ahora. unit_numbers conserva los códigos realmente referidos y el catálogo comprobará su existencia; en referencias como «esa» puede usar una unidad inequívoca del contexto, nunca elegir entre varias. Solicitar el proceso requiere atención del asesor; no afirma disponibilidad, pago, reserva confirmada, cita, consentimiento financiero ni asesor asignado. No convierta la aceptación de detalles, una cifra de precio, un «sí» sin pregunta de reserva ni el historial en una solicitud nueva.
@@ -624,6 +636,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     primary_evidence: primaryIntent === 'other' ? null : reservationIntent ? reservation.evidence : primaryEvidence,
     confidence: primaryIntent === 'other' ? 'low' : reservationIntent ? reservation.confidence : data.confidence,
     reservation,
+    selection_preferences: normalizedSelectionPreferences(data.selection_preferences, current),
     ...(data.discount_request !== undefined ? { discount_request: normalizedDiscountRequest(data.discount_request, current) } : {}),
     ...(hasQuantityContract ? { housing_quantities: housingQuantities, household: householdFromQuantities(housingQuantities) } : {}),
     interpretation: { extractor_primary_intent: extractedPrimaryIntent, canonical_primary_intent: primaryIntent, decisions },
@@ -645,6 +658,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     budget: budgetStatus === 'not_discussed' ? {
       status: 'not_discussed', amount: null, evidence: null, confidence: 'low',
     } : { status: budgetStatus, amount, evidence: budgetEvidence, confidence: budget.confidence,
+      ...(['total_budget', 'down_payment'].includes(text(budget.subject)) ? { subject: budget.subject } : {}),
       ...(budget.amount_reference_id != null ? { amount_reference_id: budget.amount_reference_id } : {}) },
     normalization_issues: normalizationIssues,
   }

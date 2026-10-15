@@ -128,7 +128,7 @@ test('legal-name collection uses selected-unit context, preserves the next field
         if (task === 'writing') {
           assert.ok(instructions.includes(FINANCING_COLLECTION_WRITER_RULES))
           assert.equal(instructions.includes('AUTORIDAD LIMITADA DEL REVISOR'), false)
-          assert.ok(obligations.some(o => o.id === 'financing_collection' && o.next_question === next))
+          assert.ok(obligations.some(o => o.id === 'financing_collection' && !o.next_question && object(o.objetivo_conversacion).objective))
           return { reply: next, requests: [{ fragment: 'R1', intent: 'Nombre', request_type: 'general_information',
             status: 'answered', evidence: 'Solicita nombre legal completo', fact_key: 'none' }],
           question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'nombres y apellidos completos', next_decision: 'continuar recopilación' } }

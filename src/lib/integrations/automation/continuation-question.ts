@@ -7,12 +7,14 @@ import { operationalReservationInvitation, reservationInvitationUnitNumbers } fr
 
 /** Shared by writer and reviewer. Meaning belongs to the emitted CTA, not the plan. */
 export const continuationQuestionProperties = {
+  comparison_categories: { type: 'array', items: { type: 'string', enum: ['suite', 'departamento', 'penthouse', 'local'] }, description: 'Solo al ofrecer comparar categorías: los tipos que efectivamente propone comparar. [] en las demás preguntas.' },
+  comparison_bedrooms: { type: ['integer', 'null'], description: 'Dormitorios de las opciones que propone comparar, o null; no establece una preferencia nueva del cliente.' },
   continuation_id: { type: 'string', enum: [...questionIds, 'none'],
     description: 'Significado de la última pregunta efectivamente escrita. brochure_offer solo ofrece enviar el brochure. none si no hay una continuación identificable; no copie el ID del plan si cambió la pregunta.' },
   continuation_act: { type: 'string', enum: [...questionActs],
     description: 'Acto de esa pregunta: elegir, confirmar, explorar alternativas, recopilar, ofrecer material u otro. No autoriza una operación.' },
 }
-export const CONTINUATION_QUESTION_RULE = 'question.continuation_id y continuation_act describen la última pregunta real de reply, no la pregunta prevista ni el tema del párrafo anterior. Una invitación a ver opciones no acepta financiamiento, reserva ni selecciona una unidad. Conserve el objetivo obligatorio; el revisor corrige estos metadatos según el texto.'
+export const CONTINUATION_QUESTION_RULE = 'question.continuation_id y continuation_act describen la última pregunta real de reply, no la prevista ni el tema anterior. Al ofrecer comparar dos tipos de inmueble use property_comparison y compare_properties, indique comparison_categories y comparison_bedrooms de esas opciones. No registre esa invitación como elegir categoría o dormitorios. Si el cliente ya aceptó, realice la comparación completa sin volver a solicitar permiso. Una invitación a ver opciones no acepta financiamiento, reserva ni selecciona una unidad. Conserve el objetivo obligatorio; el revisor corrige estos metadatos según el texto.'
 
 export function continuationMetadata(raw: unknown): Row {
   const row = object(raw)
@@ -85,7 +87,8 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   let pending: Row
   if (Object.keys(semantic).length && (!metadata.text || same(metadata.text, question))) {
     if (semantic.continuation_id === 'none') return {}
-    pending = normalizedPendingQuestion({ id: semantic.continuation_id, act: semantic.continuation_act, question })
+    pending = normalizedPendingQuestion({ id: semantic.continuation_id, act: semantic.continuation_act, question,
+      comparison_categories: metadata.comparison_categories, comparison_bedrooms: metadata.comparison_bedrooms }, catalog)
   } else {
     // Compatibility for historical/transport-only drafts: never label arbitrary
     // prose with the planned ID. Exact planned wording or actual-text meaning is required.
@@ -97,16 +100,17 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
   if (!pending.id || !purposeSupports(pending.id, metadata.purpose)) return {}
   // Confirmation selects a known target: vague feedback cannot obtain this
   // effect solely from a label or a planned scope.
-  if (pending.id === 'unit_choice' && pending.act === 'confirm_unit'
+  if (!Object.keys(semantic).length && pending.id === 'unit_choice' && pending.act === 'confirm_unit'
     && pendingQuestionFromReply(reply).act !== 'confirm_unit') return {}
   const matching = matchingReceiptScope(matchingQuestions.filter(candidate => candidate.id === pending.id && candidate.act === pending.act))
   const planMatches = plan.question_id === pending.id && (!plan.question_act || plan.question_act === pending.act)
   const scope = object(plan.selection_scope)
+  const priorityContinuation = pending.id === 'property_priority' && pending.act === 'confirm_priority'
   const offeredCategories = ids(scope.categories)
   const categoryProposal = pending.id === 'property_category' && pending.act === 'choose_category'
     && categoryInvitationTarget(question) === object(plan.proposed_query).category
     && offeredCategories.length === 1 && offeredCategories[0] === object(plan.proposed_query).category
-  const scoped: Row = planMatches ? {
+  const scoped: Row = planMatches || priorityContinuation ? {
     target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : pending.act === 'confirm_unit' ? ids(scope.unit_ids) : [],
     candidate_ids: ids(pending.act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
     ...((pending.act === 'explore_alternatives' || categoryProposal) && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),

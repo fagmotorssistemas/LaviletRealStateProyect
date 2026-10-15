@@ -99,7 +99,7 @@ test('disabled review does not send empty or oversized writer output', async () 
 })
 
 test('disabled review keeps the scheduled authorized brochure without another model call', async () => {
-  const reply = 'Uso mixto significa que combina espacios residenciales y comerciales.'
+  const reply = 'Uso mixto significa que combina espacios residenciales y comerciales.\n\nhttps://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf'
   const mock = writer(reply)
   const result = await withResponseReviewPolicy(off, () => completeTurnReply({ ...input,
     current: 'a que te refieres con uso mixto',

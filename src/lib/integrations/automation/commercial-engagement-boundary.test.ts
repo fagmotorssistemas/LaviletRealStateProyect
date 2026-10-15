@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { writerQuestion } from './fixtures/writer-objective.cjs'
 import { commercialEngagement, COMMERCIAL_ENGAGEMENT_VERSION, explicitPropertyInterest, type CommercialEngagementTurn } from './commercial-engagement'
 import { journeyPendingQuestion } from './commercial-journey'
 import { completeTurnReply } from './turn-completeness'
@@ -148,7 +149,8 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) for (const 
         tasks.push(task || ''); const context = object(raw); contexts.push(context)
         if (task === 'writing') {
           const plan = object(object(context.contexto_verificado).siguiente_paso_comercial)
-          const reply = 'Con gusto le orientamos para su vivienda. ' + String(plan.question)
+          const reply = 'Con gusto le orientamos para su vivienda. ' + writerQuestion(context)
+          assert.equal(plan.question, undefined)
           return { reply, question, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,
             intent: 'Atender su búsqueda de vivienda', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
         }

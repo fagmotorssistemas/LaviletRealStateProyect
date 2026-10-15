@@ -6,6 +6,7 @@ export const KNOWLEDGE_SECTIONS = [
     { title: 'Plazo de entrega', description: 'Fecha confirmada o estimada, mes y año, solo año, plazo en meses o fecha aún sin definir.', href: 'proyecto#project-delivery', owner: 'Administrador' },
     { title: 'Entorno y seguridad del sector', description: 'Hechos del barrio, fuente, verificación y autorización explícita para que el bot los comunique.', href: 'conocimiento?seccion=proyecto#entorno', owner: 'Administrador y hechos verificados' },
     { title: 'Ubicación', description: 'Punto de encuentro y ubicación compartida con el cliente.', href: 'ubicacion', owner: 'Datos del proyecto' },
+    { title: 'Instalaciones y piscina', description: 'Permitir o restringir el acceso de huéspedes de alquiler temporal a la piscina.', href: 'instalaciones', owner: 'Administrador' },
   ] },
   { id: 'catalogo', label: 'Catálogo y precios', description: 'Una sola fuente para las cifras que comunica el asistente.', entries: [
     { title: 'Unidades del inventario', description: 'Características, superficies y estado de las unidades del catálogo.', href: '/inmobiliaria/inventario', owner: 'Sistema y catálogo' },

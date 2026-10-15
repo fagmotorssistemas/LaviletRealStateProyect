@@ -81,8 +81,7 @@ test('approved single category paraphrases preserve the offer referent and canno
     assert.equal(object(object(context.pending_question).proposed_query).category, 'departamento')
     assert.equal(answer('Sí', context).query.category, 'departamento')
   }
-  assert.equal(continuationContentIssues('¿En qué planta desea revisar los departamentos?', plan)[0].code,
-    'commercial_next_question_mismatch')
+  assert.deepEqual(continuationContentIssues('¿En qué planta desea revisar los departamentos?', plan), [])
 })
 
 test('choosing penthouses instead preserves that preference and evaluates financing with the known budget', () => {

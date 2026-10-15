@@ -32,20 +32,20 @@ for (const initial of ['Hola. Con gusto.', 'Buenos días. Con gusto.', 'Buenas t
   test('shared greeting preparation preserves an existing opening: '+initial, () => assert.equal(applyTurnGreeting(initial, 'Hola'), initial))
 
 for (const source of ['catalog_search', 'commercial', 'virtual_showroom', 'brochure', 'visit_information', 'financing_orientation'])
-  test('reviewed '+source+' route receives the initial greeting before review', async () => {
+  test('reviewed '+source+' route preserves the complete writer opening before review', async () => {
     const tasks: string[] = []
     const result = await completeTurnReply({ current: 'Quiero información', baseReply: 'Con gusto le orientamos.', verified: {},
       audit: { source, semantic_review_enabled: true, business_risk_review_enabled: true, writer_greeting: 'Hola' } },
     async (_rules, raw, _schema, _image, _file, _tone, task) => {
       tasks.push(task!)
-      if (task === 'writing') return candidate('Con gusto le orientamos.')
+      if (task === 'writing') return candidate('Hola. Con gusto le orientamos.' + (source === 'brochure' ? '\n\nBrochure del proyecto: '+BROCHURE_URL : ''))
       assert.equal(object(raw).borrador, 'Hola. Con gusto le orientamos.' + (source === 'brochure' ? '\n\nBrochure del proyecto: '+BROCHURE_URL : ''))
       return pass
     })
     assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
     assert.equal(result.reply, 'Hola. Con gusto le orientamos.' + (source === 'brochure' ? '\n\nBrochure del proyecto: '+BROCHURE_URL : ''))
     assert.deepEqual(tasks, ['writing', 'review'])
-    assert.ok((result.audit.text_transformations as Row[]).some(row => row.stage === 'Saludo común antes de revisión'))
+    assert.deepEqual(result.audit.text_transformations, [])
   })
 for (const enabled of [true, false]) test('price conditions and greeting are prepared together with review '+enabled, async () => {
   const reply = 'Los departamentos tienen precios desde $250.000.'
@@ -55,7 +55,7 @@ for (const enabled of [true, false]) test('price conditions and greeting are pre
     audit: { semantic_review_enabled: true, business_risk_review_enabled: true, writer_greeting: 'Hola' } },
   async (_rules, raw, _schema, _image, _file, _tone, task) => {
     tasks.push(task!)
-    if (task === 'writing') return candidate(reply)
+    if (task === 'writing') return candidate('Hola. '+reply+' '+REFERENTIAL_PRICE_NOTICE)
     assert.ok(String(object(raw).borrador).startsWith('Hola.'))
     assert.ok(String(object(raw).borrador).includes(REFERENTIAL_PRICE_NOTICE))
     return pass

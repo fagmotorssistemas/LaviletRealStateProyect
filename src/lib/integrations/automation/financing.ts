@@ -1,4 +1,5 @@
 import { acceptedExtractorConfidence } from './extractor-confidence'
+import { readCommercialContext } from './context-read'
 import { db, object, scope, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
@@ -14,19 +15,18 @@ export const FINANCING_PARTNER_CHOICE_SCHEMA = { type: 'object', additionalPrope
 export const FINANCING_PARTNER_CHOICE_RULES = 'financing_partner_choice distingue elegir una entidad (select), rechazarla (decline) y mencionar/preguntar por ella (none). Nombre y evidencia literal ACTUAL; no arrastre la entidad del historial. Resuelva contrastes y cambios de preferencia. Un sí solo elige entidad si responde a una oferta inequívoca de una entidad concreta. La elección se conserva aunque falte unidad o perfil, pero no otorga consentimiento financiero.'
 
 export async function financingContext(lead: Row) {
-  const [partners, qualification] = await Promise.all([
-    db().from('project_financing_partners').select('public_enabled,test_only,test_phone,public_name,financing_options')
-      .match(scope).eq('public_enabled', true),
-    db().from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,job_title,employment_stability_months,applicant_type,monthly_income,legal_name,legal_name_confirmed,national_id,updated_at')
-      .match(scope).eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1),
-  ])
-  if (partners.error || qualification.error) throw new Error('FINANCING_CONTEXT_FAILED')
+  const { partners, qualification } = await readCommercialContext({
+    partners: () => db().from('project_financing_partners').select('public_enabled,test_only,test_phone,public_name,financing_options')
+      .match(scope).eq('public_enabled', true).abortSignal(AbortSignal.timeout(10_000)),
+    qualification: () => db().from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,job_title,employment_stability_months,applicant_type,monthly_income,legal_name,legal_name_confirmed,national_id,updated_at')
+      .match(scope).eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1).abortSignal(AbortSignal.timeout(10_000)),
+  })
   const digits = (value: unknown) => text(value).replace(/\D/g, '')
-  const eligible = (partners.data ?? []).filter(p => p.test_only !== true || (digits(lead.phone) && digits(lead.phone) === digits(p.test_phone)))
+  const eligible = (Array.isArray(partners.data) ? partners.data.map(object) : []).filter(p => p.test_only !== true || (digits(lead.phone) && digits(lead.phone) === digits(p.test_phone)))
   // Project agreements are authoritative; do not advertise entries from the global bank catalog.
   const names = [...new Set(eligible.flatMap(p => (Array.isArray(p.financing_options) ? p.financing_options : [])
     .map(option => text(object(option).name)).filter(Boolean)))]
-  return { partners: names, current: object(qualification.data?.[0]) }
+  return { partners: names, current: object(Array.isArray(qualification.data) ? qualification.data[0] : undefined) }
 }
 
 /** A budget worry deserves guidance, but does not authorize a credit application. */

@@ -36,7 +36,7 @@ test('extractor instructions describe one input and use the current schema inclu
   })
 })
 
-test('final writer gets one precision block and the same obligations as the business reviewer', async () => {
+test('final writer gets one precision block; the factual reviewer does not inherit editorial obligations', async () => {
   let writerObligations: unknown
   const reply = 'Podemos revisar las opciones publicadas del proyecto.'
   const errors: string[] = [], tasks: string[] = []
@@ -55,8 +55,12 @@ test('final writer gets one precision block and the same obligations as the busi
           intent: 'Informar', request_type: 'general_information', status: 'answered', evidence: 'Opciones', fact_key: null })),
           question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' } }
       }
-      assert.deepEqual(context.obligaciones_del_turno, writerObligations)
-      assert.match(instructions, /No cree obligaciones adicionales/)
+      assert.ok(Array.isArray(writerObligations))
+      const factualObligations = rows(context.obligaciones_del_turno)
+      assert.notDeepEqual(factualObligations, writerObligations)
+      assert.ok(factualObligations.some(obligation => obligation.id === 'business_scope'))
+      assert.ok(factualObligations.every(obligation => !['commercial_next_step', 'profile_introduction', 'greeting', 'turn_goal'].includes(String(obligation.id))))
+      assert.match(instructions, /hechos|promesas/i)
       return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
     } catch (error) { errors.push(String(error)); throw error }
   })
@@ -94,7 +98,8 @@ test('protected data, old snapshots, truncation and attachments never claim an e
     request_parameters: { model: 'synthetic', max_output_tokens: 2000 } }
   const protectedCopy = sanitizePromptSnapshot(raw)
   assert.equal(exported(protectedCopy).exact, false)
-  assert.doesNotMatch(exported(protectedCopy).text, /Dato personal|secret-value/)
+  assert.doesNotMatch(exported(protectedCopy).text, /secret-value/)
+  assert.match(exported(protectedCopy).text, /Dato personal/, 'Authorized business data is retained; credentials are protected.')
   assert.deepEqual(sanitizePromptSnapshot(protectedCopy), protectedCopy)
   const complete = sanitizePromptSnapshot({ ...raw, data: { message: 'x'.repeat(130000) } })
   assert.equal(complete.limited, false)

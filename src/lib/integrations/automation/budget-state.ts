@@ -9,6 +9,7 @@ export function leadBudget(info: Row): Row {
   const confirmed = confirmedInterpretationMemory({ _interpretation_memory: info.hechos_confirmados })
   const saved = object(confirmed.budget)
   const isCurrent = acceptedExtractorConfidence(current.confidence) && current.status && current.status !== 'not_discussed'
+    && !(current.subject === 'down_payment' && ['no_defined_budget', 'declines_to_disclose', 'amount_pending'].includes(text(current.status)))
   const declared = isCurrent ? current : saved
   const currentAmounts = Array.isArray(object(info.semantica_turno).financing_amounts)
     ? object(info.semantica_turno).financing_amounts as Row[]

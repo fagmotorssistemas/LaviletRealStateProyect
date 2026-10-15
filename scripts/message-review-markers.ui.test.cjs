@@ -10,7 +10,9 @@ const execution = (id, message, output, key) => ({ id, leadGroupId: 'synthetic',
 const executions = [
   execution('4', 'Borrador rechazado: consulta de precio', { status: 'rejected_review', draft_rejected: true }),
   execution('3', 'Borrador corregido: consulta de unidad', { status: 'checked', repair_attempts: [{ target: 'commercial_draft', status: 'rejected_guard' }] }),
-  execution('2', 'Rechazo observado: modo demostración', { status: 'review_observed', review_control: { observationOnly: true, source: 'project_setting' }, observation: { status: 'rejected_review' } }),
+  execution('2', 'Rechazo observado: modo demostración', { status: 'review_observed', review_control: { observationOnly: true, source: 'project_setting' },
+    observation: { status: 'rejected_guard' }, semantic_review: { status: 'checked', acceptance: { content_approved: true } },
+    final_validation: { passed: false, issues: ['commercial_next_question_mismatch'] } }),
   execution('1', 'Error del extractor: tres dormitorios', { status: 'invalid', issues: ['non_current_evidence:turn_semantics.budget.evidence'] }, 'semantic_extraction'),
 ]
 
@@ -58,6 +60,12 @@ test('review colours, explicit labels and selected borders survive on desktop an
       await page.mouse.move(0, 0)
       assert.equal(await corrected.getAttribute('aria-pressed'), 'true')
       assert.equal(await corrected.evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(255, 248, 236)')
+      await messages.getByRole('button').filter({ hasText: 'Rechazo observado: modo demostración' }).click()
+      const owners = page.getByLabel('Responsables de la revisión')
+      await owners.getByText('IA revisora: aprobó el contenido factual y las promesas comerciales.').waitFor()
+      assert.match(await owners.innerText(), /commercial_next_question_mismatch/)
+      assert.match(await owners.innerText(), /no fue un rechazo de la IA revisora/)
+      await owners.scrollIntoViewIfNeeded()
       const extraction = messages.getByRole('button').filter({ hasText: 'Error del extractor' })
       assert.equal(await extraction.getAttribute('data-review-tone'), null)
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)

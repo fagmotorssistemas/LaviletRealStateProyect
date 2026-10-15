@@ -24,11 +24,11 @@ test('an indirect current confirmation keeps the emitted question and its unit t
   assert.deepEqual(receipt.target_ids, ['ph602'])
 })
 
-test('unknown questions and conditional or negated requests cannot borrow a planned action', () => {
+test('valid writer metadata owns free wording while conditional or negated statements do not become questions', () => {
   assert.equal(reconcileContinuationMetadata(incorrect, '¿Qué le parece?', plan).corrected, false)
   const plausibleTag = { ...incorrect, purpose: 'choose_property', role: 'optional_continuation' }
-  assert.equal(validContinuationMetadata(plausibleTag, '¿Qué le parece?', plan), false)
-  assert.deepEqual(deliveredPendingQuestion('¿Qué le parece?', { metadata: plausibleTag, plan }, [{ id: 'ph602', unit_number: '602' }]), {})
+  assert.equal(validContinuationMetadata(plausibleTag, '¿Qué le parece?', plan), true)
+  assert.deepEqual(deliveredPendingQuestion('¿Qué le parece?', { metadata: plausibleTag, plan }, [{ id: 'ph602', unit_number: '602' }]).target_ids, ['ph602'])
   for (const text of ['Cuando tengamos más información, quisiera confirmar si desea continuar.', 'No necesito confirmar si desea continuar.', 'La oficina permite recibir orientación sobre la distribución.', 'Quisiera confirmar que hemos recibido su entrada declarada.']) {
     assert.deepEqual(replyQuestions(text), [], text)
   }

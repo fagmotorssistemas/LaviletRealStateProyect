@@ -20,11 +20,13 @@ export const MATERIAL_REQUEST_SCHEMA = { type: 'object', additionalProperties: f
   properties: { kind: { type: 'string', enum: ['request', 'accept', 'decline', 'none'] },
     evidence: { type: 'string' }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] } },
   required: ['kind', 'evidence', 'confidence'] }
-export const MATERIAL_REQUEST_RULES = 'material_request interpreta la solicitud del brochure: request si lo pide, accept si acepta una oferta anterior inequívoca de enviarlo, decline si lo rechaza y none en otro caso. Use evidencia literal ACTUAL. Un sí a elegir inmuebles, financiamiento o visita no acepta material. No convierta cualquier petición de información en solicitud del brochure.'
+export const MATERIAL_REQUEST_RULES = 'material_request interpreta la solicitud del brochure: request si lo pide, accept si acepta una oferta anterior inequívoca de enviarlo, decline si lo rechaza y none en otro caso. Mencionar el brochure que ya recibió, sus planos o instalaciones no solicita volver a enviarlo: kind=none. Use evidencia literal ACTUAL. Un sí a elegir inmuebles, financiamiento o visita no acepta material. No convierta cualquier petición de información en solicitud del brochure.'
 
 /** One material decision shared by opening, routing and the final link contract. */
 export function brochureDeliveryIntent(current: string, history: unknown = [], extracted: Row = {}, pending: Row = {}) {
   const material = object(extracted.material_request), evidence = text(material.evidence).trim()
+  if (material.kind === 'none' && acceptedExtractorConfidence(material.confidence))
+    return { requested: false, reason: 'not_requested', evidence: '' }
   const grounded = acceptedExtractorConfidence(material.confidence) && evidence.length > 0 && evidence.length <= 500
     && normalized(current).includes(normalized(evidence))
   const previous = text(rows(history).filter(row => row.role === 'bot').at(-1)?.content)
@@ -41,6 +43,7 @@ export function brochureDeliveryIntent(current: string, history: unknown = [], e
     return { requested: true, reason: 'accepted_offer', evidence: text(answer.evidence) }
   // Compatibility with earlier contracts. A general request for information
   // only accepts material when the actual preceding CTA offered that material.
+  if (Object.hasOwn(extracted, 'material_request')) return { requested: false, reason: 'not_requested', evidence: '' }
   const legacy = wantsBrochure(current, history)
   const direct = /brochure|brochur|folleto|\bpdf\b/.test(normalized(current))
   const requested = legacy && (direct || !Object.hasOwn(extracted, 'material_request') && offered)
@@ -72,7 +75,8 @@ export function vehicleScopeReply(current: string, history: unknown = []) {
 export function wantsBrochure(current: string, history: unknown = []) {
   const m = normalized(current)
   if (/\bno\b.{0,40}(?:envie|mande|quiero|necesito|compart|brochure|folleto|informacion)/.test(m)) return false
-  if (/brochure|brochur|folleto|catalogo|\bpdf\b/.test(m)) return true
+  if (/^(?:el |un )?(?:brochure|brochur|folleto|catalogo|pdf)(?: por favor)?[.?! ]*$/.test(m)
+    || /\b(?:envie(?:me|nos)?|envi[ae]r|manda(?:me|nos)?|mande(?:me|nos)?|compart\w*|pas[ae](?:me|nos)?|quiero|quisiera|deseo|ver)\b[^.!?\n]{0,50}\b(?:brochure|brochur|folleto|catalogo|pdf)\b/.test(m)) return true
   const previous = normalized(text(rows(history).filter(row => row.role === 'bot').at(-1)?.content))
   if (/^(?:si\s+)?(?:por favor\s+)?(?:envieme|mandeme|compartame|muestreme)\s+(?:los\s+)?detalles(?:\s+por favor)?$/.test(m)
     && /(?:ver|conocer|mostrar|enviar).{0,25}detalles.{0,30}(?:departamento|suite|penthouse|unidad)\s+\d{3,4}\b/.test(previous)) return false

@@ -1,6 +1,7 @@
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { financingAmountStatements } from './financing-amounts'
+import { normalizedSelectionPreferences, unrestrictedBedrooms, withoutBedroomConstraint } from './selection-preferences'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.map(key => [key, row[key] ?? null]))
@@ -12,6 +13,7 @@ const literal = (quote: unknown, source: unknown) => !!text(quote).trim()
 const quantityFields = ['dimension', 'values', 'role', 'count_basis']
 const propertyFields = ['group', 'category', 'excluded_categories', 'filters']
 const validBudget = (budget: Row) => budget.status && budget.status !== 'not_discussed' && acceptedExtractorConfidence(budget.confidence)
+  && !(budget.subject === 'down_payment' && ['no_defined_budget', 'declines_to_disclose', 'amount_pending'].includes(text(budget.status)))
   && text(budget.evidence).trim() && (!['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
     || typeof budget.amount === 'number' && Number.isFinite(budget.amount) && budget.amount > 0)
 const propertyValue = (row: Row): Row => ({ ...pick(row, propertyFields),
@@ -95,6 +97,17 @@ export function rememberInterpretationFacts(summary: Row, current: string, extra
     const domains = new Set(quantities.map(row => `${row.dimension}:${row.role}`))
     memory.housing_quantities = [...rows(memory.housing_quantities).filter(row => !domains.has(`${row.dimension}:${row.role}`)),
       ...quantities.map(row => pick(row, [...quantityFields, 'evidence', 'confidence']))]
+  }
+  const preferences = normalizedSelectionPreferences(semantics.selection_preferences, current)
+  const newBedroomNeed = quantities.some(row => row.dimension === 'bedrooms' && row.role === 'requirement')
+    || object(property.filters).bedrooms != null || rows(property.filters && object(property.filters).bedrooms_any).length > 0
+  if (Object.keys(preferences).length || Object.keys(object(memory.selection_preferences)).length) {
+    memory.selection_preferences = { ...object(memory.selection_preferences), ...preferences,
+      ...(newBedroomNeed && !preferences.bedrooms ? { bedrooms: { kind: 'constrained', evidence: property.evidence, confidence: property.confidence } } : {}) }
+  }
+  if (unrestrictedBedrooms(memory.selection_preferences)) {
+    if (memory.property) memory.property = withoutBedroomConstraint(object(memory.property))
+    memory.housing_quantities = rows(memory.housing_quantities).filter(row => row.dimension !== 'bedrooms' || row.role !== 'requirement')
   }
   const qualification = { ...object(memory.qualification) }
   for (const [key, value] of Object.entries(object(extracted.qualification))) if (literal(value, current)) qualification[key] = value

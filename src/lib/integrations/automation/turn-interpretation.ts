@@ -1,5 +1,10 @@
 import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
-import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, FINANCING_REQUEST_TOPICS_RULES, normalizedRequestTopics } from './request-topics'
+import { partiallyRecoverInterpretation } from './interpretation-partial-recovery'
+import { CONVERSATION_LANGUAGE_SCHEMA, CONVERSATION_LANGUAGE_RULES, conversationLanguage } from './conversation-language'
+import { reconcileInformationalEvidence, CURRENT_EVIDENCE_FRAGMENTS_RULES, EVIDENCE_SOURCES_SCHEMA, currentMessageFragments } from './current-evidence-fragments'
+import { RECOMMENDATION_REQUEST_SCHEMA, RECOMMENDATION_REQUEST_RULES, recommendationRequest } from './property-recommendation-request'
+import { SELECTION_PREFERENCES_RULES, VIEWS_PREFERENCE_RULES } from './selection-preferences'
+import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, FINANCING_REQUEST_TOPICS_RULES, normalizedRequestTopics, COMMON_AREA_REQUEST_RULES } from './request-topics'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
 import { EXTRACTION_REQUEST_RULES } from './extraction-request-rules'
@@ -47,6 +52,9 @@ const nameResponseProperties = { status: { type: 'string', enum: ['declared', 'n
 
 /** One versioned extraction contract. Unknown values stay null; actions still require server validation. */
 export const TURN_EXTRACTION_SCHEMA = closedObject({
+  evidence_sources: EVIDENCE_SOURCES_SCHEMA,
+  conversation_language: CONVERSATION_LANGUAGE_SCHEMA,
+  recommendation_request: RECOMMENDATION_REQUEST_SCHEMA,
   events: { type: 'array', items: { type: 'string', enum: [...EXTRACTED_CONVERSATION_EVENTS] } },
   preferred_category: { type: ['string', 'null'], enum: [...PROPERTY_CATEGORIES, null] },
   purchase_purpose: { type: ['string', 'null'], enum: ['vivir', 'invertir', 'segunda_vivienda', 'negocio', null] },
@@ -239,6 +247,16 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let raw: Row = {}, promptRevision: string | null = null
   const historicalFields = new Set<string>()
   const reconcile = (value: Row, budgetEchoAllowed = false) => {
+    value = reconcileInformationalEvidence(value, readable)
+    const entrySemantics = object(value.turn_semantics), entryBudget = object(entrySemantics.budget), entryAnswer = object(entrySemantics.answer_to_previous)
+    // The delivered question and typed answer identify the subject. Preserve
+    // this response for entry memory without replacing a known total budget.
+    if (object(input.pregunta_pendiente).id === 'financing_down_payment'
+      && entryAnswer.question_id === 'financing_down_payment' && acceptedExtractorConfidence(entryAnswer.confidence)
+      && ['no_defined_budget', 'declines_to_disclose', 'amount_pending'].includes(text(entryBudget.status))
+      && !['total_budget'].includes(text(entryBudget.subject)) && entryBudget.evidence === entryAnswer.evidence) {
+      value = { ...value, turn_semantics: { ...entrySemantics, budget: { ...entryBudget, subject: 'down_payment' } } }
+    }
     value = resolveFinancingEntryReference(value, readable, normalizedPendingQuestion(input.pregunta_pendiente))
     value = reconcileMonetaryInterpretation(value, readable)
     // A recovery owns genuinely unresolved financial meaning. It cannot erase
@@ -257,6 +275,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   let profileNameRecovery: Row = { attempted: false, status: 'not_needed' }
   let isolatedProperty = false
   let isolatedBudget = false
+  let clarificationFields: string[] = []
   const validationIssues = (value: Row) => [...new Set([
     ...interpretationSourceIssues(value, readable, pending, normalizedPendingQuestion(input.pregunta_pendiente), monetaryReferences), ...interpretationConsistencyIssues(value, readable),
   ])]
@@ -272,14 +291,17 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     const currentInstructions = compactFinancingExtraction(input) ? promptSections([
       ['Función y configuración del extractor', prompt], ['Interpretación del turno y recopilación financiera', FINANCING_EXTRACTION_RULES],
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
+      ['Prioridades inmobiliarias durante una consulta financiera', SELECTION_PREFERENCES_RULES + '\n' + VIEWS_PREFERENCE_RULES],
       ['Solicitud de material', MATERIAL_REQUEST_RULES],
+      ['Idioma, recomendaciones y fuentes actuales', CONVERSATION_LANGUAGE_RULES + '\n' + RECOMMENDATION_REQUEST_RULES + '\n' + CURRENT_EVIDENCE_FRAGMENTS_RULES],
       ['Consultas y negociación de descuentos', DISCOUNT_REQUEST_EXTRACTION_RULES],
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
-      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES],
+      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Interpretación del perfil pendiente', nameAssessmentRequired && LEAD_PROFILE_EXTRACTION_RULES],
     ]) : promptSections([
       ['Función y configuración del extractor', prompt],
+      ['Idioma, recomendaciones y fuentes actuales', CONVERSATION_LANGUAGE_RULES + '\n' + RECOMMENDATION_REQUEST_RULES + '\n' + CURRENT_EVIDENCE_FRAGMENTS_RULES],
       ['Fuente del turno y separación del historial', CURRENT_TURN_INTERPRETATION_RULE],
       ['Solicitudes, continuidad y autorizaciones', requestRules],
       ['Consultas pendientes sin respuesta', PENDING_REQUEST_RULES],
@@ -291,7 +313,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
       ['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES],
       ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
-      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES],
+      ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Formato de salida', 'El esquema JSON enviado con esta llamada es la única definición de campos y valores permitidos. Complete sus campos; use null solo donde el esquema lo permite y el dato sea desconocido. No añada un formato alternativo ni texto fuera del JSON.'],
     ])
@@ -318,6 +340,9 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       const quantityOnly = blocks.quantity && !blocks.property && !blocks.budget && !blocks.requests && !blocks.profile && blocks.semanticFields.length === 1
       const rootProperties = object(extractionSchema.properties), semanticProperties = object(TURN_SEMANTICS_SCHEMA.properties)
       const repairProperties: Row = Object.fromEntries(blocks.rootFields.map(field => [field, rootProperties[field]]))
+      repairProperties.recovery_outcome = { type: 'string', enum: ['repaired', 'clarification', 'unrecoverable'],
+        description: 'repaired si resolvió los bloques; clarification si solo una preferencia inmobiliaria sigue ambigua y puede aclararse sin acciones; unrecoverable si no hay interpretación segura.' }
+      if (blocks.property || blocks.requests || blocks.semanticFields.includes('primary_intent')) repairProperties.evidence_sources = EVIDENCE_SOURCES_SCHEMA
       if (blocks.budget) {
         repairProperties.qualification = closedObject({ presupuesto_texto: nullableString })
         repairProperties.budget_turn_use = closedObject({ kind: { type: 'string', enum: ['current_update', 'context_only', 'none', 'uncertain'] },
@@ -344,8 +369,13 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
         recuperacion_interpretacion: { issues: recoveryIssues,
           fields: [...blocks.semanticFields, ...blocks.rootFields], preserve_other_fields: true,
           instruction: 'Corrija únicamente los bloques del esquema. Las referencias conocidas no son declaraciones actuales; no copie citas del historial. Conserve las demás interpretaciones y permisos.' } }) as Row
+      repairInput.mensajes_actuales = currentMessageFragments(readable)
+      repairInput.interpretacion_propuesta = interpretationRepairContext({ property: object(object(raw.turn_semantics).property),
+        primary_intent: object(raw.turn_semantics).primary_intent,
+        requests: raw.requests, catalog_request: raw.catalog_request,
+        instruction: 'Esta propuesta no está validada. Si el único problema es la cita, conserve la elección y reconstruya su evidencia con los IDs actuales consecutivos. Si hay negación, condición o corrección posterior, resuelva el significado completo; si es ambiguo, no seleccione. No sustituya una elección clara por una comparación solo para reparar la cita.' })
       const repairInstructions = blocks.fullTurn ? currentInstructions : quantityOnly ? QUANTITY_RECOVERY_RULES
-        : BLOCK_RECOVERY_RULES + (blocks.budget ? '\n' + FINANCING_AMOUNTS_RULES + '\n' + EXTRACTION_CONSISTENCY_RULES : '')
+        : BLOCK_RECOVERY_RULES + '\n' + CURRENT_EVIDENCE_FRAGMENTS_RULES + (blocks.budget ? '\n' + FINANCING_AMOUNTS_RULES + '\n' + EXTRACTION_CONSISTENCY_RULES : '')
           + (blocks.profile ? '\n' + LEAD_PROFILE_EXTRACTION_RULES : '')
           + (blocks.property ? '\n' + CATALOG_REQUEST_RULES + '\n' + REQUEST_TOPICS_RULES : '')
       const repaired = await dependencies.aiJson(repairInstructions,
@@ -355,6 +385,8 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       const previous = raw
       raw = reconcile(mergeInterpretationRepair(raw, repaired, recoveryIssues))
       let remaining = validationIssues(raw)
+      if (!remaining.length && repaired.recovery_outcome === 'clarification' && blocks.property)
+        clarificationFields = ['property']
       if (blocks.budget && !blocks.fullTurn && remaining.length) {
         const isolated = isolateHistoricalBudget(previous, raw, repaired, input, readable, remaining,
           blocks.semanticFields.includes('primary_intent'))
@@ -378,7 +410,12 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
           isolatedProperty = !remaining.length
         }
       }
-      if (remaining.length) throw new TurnInterpretationError(remaining)
+      if (remaining.length) {
+        const partial = partiallyRecoverInterpretation(raw, readable, remaining)
+        if (!partial || validationIssues(partial).length) throw new TurnInterpretationError(remaining)
+        clarificationFields = [...new Set(remaining.map(issue => text(issue.split(':')[1]).split('.')[0]))]
+        raw = partial
+      }
     }
     if (needsProfileNameRecovery(raw, readable, input)) {
       // Only an omitted identity field is checked. Previously accepted profile,
@@ -407,6 +444,9 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     }
   }
   const withDiagnostics = (result: TurnInterpretation): TurnInterpretation => {
+    if (clarificationFields.length) result.semantics.interpretation_clarification = {
+      fields: clarificationFields, current_message: readable,
+      instruction: 'Se conservaron los datos válidos, pero una cita no permitió confirmar esta novedad. Responda las demás consultas verificadas y aclare únicamente ese punto con naturalidad. No afirme una nueva elección, no borre decisiones anteriores ni derive por rutina.' }
     result.diagnostic.interpretation_recovery = { attempted: recoveryIssues.length > 0, issues: recoveryIssues, status: recoveryIssues.length ? 'recovered' : 'not_needed',
       ...(isolatedProperty ? { contract: 'budget-property-isolation-v1', isolated_fields: ['property', 'catalog_request', 'preferred_category', 'unit_id'],
         preserved_fields: ['budget', 'financing_amounts'], reason: 'current_budget_answer_with_context_only_property' } : {}),
@@ -414,6 +454,8 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
         preserved_fields: ['property', 'requests', 'profile', 'permissions'], reason: 'current_request_with_context_only_budget' } : {}) }
     result.diagnostic.historical_reconciliation = { status: historicalFields.size ? 'confirmed_facts_preserved' : 'not_needed', fields: [...historicalFields] }
     result.diagnostic.profile_name_recovery = profileNameRecovery
+    if (clarificationFields.length) result.diagnostic.interpretation_recovery = { ...object(result.diagnostic.interpretation_recovery),
+      status: 'partial', clarification_fields: clarificationFields, preserved_valid_fields: true }
     const rebind = result.withActionMessage
     if (rebind) result.withActionMessage = message => withDiagnostics(rebind(message))
     return result
@@ -602,6 +644,8 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'floor_preference_is_not_unit_selection']
   }
+  extracted.conversation_language = conversationLanguage(object(input.resumen)._conversation_language, raw.conversation_language, readable)
+  semantics.recommendation_request = recommendationRequest(raw.recommendation_request, readable)
   semantics.catalog_request = catalogRequest
   semantics.catalog_request_status = catalogRequestStatus(raw.catalog_request, catalogRequest)
   extracted.household = semantics.household
@@ -862,6 +906,7 @@ export function rememberInterpretedTurn(previous: Row, current: string, extracte
   const memorySemantics = separateEntry ? { ...semantics, budget: { status: 'not_discussed' } } : semantics
   const memoryExtracted = separateEntry ? { ...extracted, qualification: { ...object(extracted.qualification), presupuesto_texto: null } } : extracted
   return { ...previous, solicitud_actual: current.slice(0, 1200), datos_confirmados: facts,
+    _conversation_language: conversationLanguage(previous._conversation_language, extracted.conversation_language, current),
     _financing_amounts: financingAmounts(object(previous._financing_amounts), amounts, current),
     _interpretation_memory: rememberInterpretationFacts(previous, current, memoryExtracted, memorySemantics),
     _turn_contract: CONVERSATION_CONTRACT_VERSION }

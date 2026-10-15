@@ -121,7 +121,7 @@ const plan = { action: 'discover_bedrooms', question_id: 'property_bedrooms', qu
 const draft = 'Hay opciones que se ajustan al importe. Aún necesitamos saber cuántos dormitorios requiere para orientar la búsqueda.'
 
 for (const mode of ['normal', 'demonstration', 'disabled'] as const) for (const metadataKind of ['absent', 'none'])
-test(`a missing required question is completed without another writer call and tracked: ${mode}/${metadataKind}`, async () => {
+test(`a missing writer question is never appended or tracked as delivered: ${mode}/${metadataKind}`, async () => {
   const calls: string[] = [], verified: Row = { siguiente_paso_comercial: plan, catalogo: [],
     semantica_turno: { primary_intent: 'discuss_budget', primary_evidence: moneyQuote, confidence: 'high', budget: storedBudget } }
   const result = await withResponseReviewPolicy({ enabled: mode !== 'disabled', observationOnly: mode === 'demonstration', updatedAt: null },
@@ -133,18 +133,16 @@ test(`a missing required question is completed without another writer call and t
         : { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
       return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
     }))
-  assert.equal(result.reply, `${draft} ${plan.question}`, JSON.stringify(result.audit.final_validation))
+  assert.equal(result.reply, draft, JSON.stringify(result.audit.final_validation))
   assert.equal(result.needsAdvisor, false)
   assert.equal(calls.filter(task => task === 'writing').length, 1)
   assert.deepEqual(calls, mode === 'disabled' ? ['writing'] : ['writing', 'review'])
   const correction = object(result.audit.server_continuation_completion)
-  assert.equal(correction.original_reply, draft)
-  assert.equal(correction.model_calls, 0)
-  assert.equal(correction.question_id, 'property_bedrooms')
+  assert.deepEqual(correction, {})
   const pending = progressivePendingQuestion(result.reply, { commercial_journey: plan, turn_completeness: result.audit })
-  assert.equal(pending.id, 'property_bedrooms')
+  assert.deepEqual(pending, {})
   assert.equal(object(result.audit.follow_up).usable, true)
-  assert.equal(object(result.audit.question).continuation_id, 'property_bedrooms')
+  assert.ok(!object(result.audit.question).continuation_id || object(result.audit.question).continuation_id === 'none')
 })
 
 test('completion cannot replace an actual question, closed step, priority operation or unrecognized plan', () => {
@@ -173,7 +171,7 @@ test('a reviewer flow finding cannot force a second writer attempt or replace th
   })
   assert.ok(result.reply.startsWith(draft))
   assert.equal(writerCalls, 1)
-  assert.ok(result.audit.server_continuation_completion)
+  assert.equal(result.audit.server_continuation_completion, null)
 })
 
 test('completion retains the delivered concrete entry proposal and its amount reference', () => {
@@ -181,8 +179,9 @@ test('completion retains the delivered concrete entry proposal and its amount re
   const candidate = { action: 'clarify_financing_down_payment', question_id: 'financing_down_payment', question_act: 'financing',
     question: entry.question, question_amount_reference: entry.amount_reference }
   const completed = completeRequiredContinuation('Continuemos con la orientación financiera.', candidate)
-  assert.ok(completed.audit)
-  const pending = deliveredPendingQuestion(completed.reply, { plan: candidate })
+  assert.equal(completed.audit, null)
+  assert.equal(completed.reply, 'Continuemos con la orientación financiera.')
+  const pending = deliveredPendingQuestion(String(entry.question), { plan: candidate })
   assert.equal(pending.id, 'financing_down_payment')
   assert.equal(object(pending.amount_reference).amount, 400000)
   assert.ok(String(object(pending.amount_reference).question_source).includes('presupuesto'))

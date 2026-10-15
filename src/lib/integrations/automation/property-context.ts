@@ -1,4 +1,5 @@
 import { acceptedExtractorConfidence } from './extractor-confidence'
+import { normalizedSelectionPreferences, selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, withoutBedroomConstraint } from './selection-preferences'
 import { object, text, type Row } from './data'
 import { isBareAffirmative, unresolvedChoice } from './conversation-next-step'
 import { categoryInvitationTarget } from './category-offer'
@@ -227,6 +228,15 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // Only a change of use (housing/local) invalidates its previous constraints.
   const priorFilters = normalizedPropertyFilters(previousQuery.filters)
   const known = confirmedInterpretationMemory(summary), knownProperty = object(known.property)
+  const preferenceUpdates = normalizedSelectionPreferences(object(semantics).selection_preferences, current)
+  const preferences = selectionPreferences(object(known.selection_preferences || context.selection_preferences), preferenceUpdates)
+  // A new evidenced quantity supersedes a prior waiver, without erasing the
+  // independent priority. Facts in presented units never enter suppliedFilters.
+  if (suppliedFilters.bedrooms != null || suppliedFilters.bedrooms_any?.length)
+    preferences.bedrooms = { kind: 'constrained', evidence: semantic.evidence, confidence: semantic.confidence }
+  context.selection_preferences = preferences
+  const roomsUnrestricted = unrestrictedBedrooms(preferences)
+  const preferencesChanged = Object.keys(preferenceUpdates).length > 0
   const rememberedFilters = acceptedExtractorConfidence(knownProperty.confidence) && text(knownProperty.evidence).trim()
     ? object(knownProperty.filters) : {}
   const acceptedFilters = object(object(context.exploration_state).accepted_filters)
@@ -239,6 +249,8 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     ...Object.fromEntries(Object.entries(suppliedFilters).filter(([, value]) => value !== null)) }, suppliedFilters)
   if (suppliedFilters.bedrooms_any?.length && (lexicalFilters.bedrooms === null || suppliedFilters.bedrooms_any.includes(lexicalFilters.bedrooms))) { filters.bedrooms = null; filters.bedrooms_any = suppliedFilters.bedrooms_any }
   else if (suppliedFilters.bedrooms != null) delete filters.bedrooms_any
+  if (roomsUnrestricted) Object.assign(filters, object(withoutBedroomConstraint({ filters }).filters))
+  if (roomsUnrestricted) for (const key of ['bedrooms_any', 'bedrooms_operator', 'bedrooms_upper']) delete (filters as Row)[key]
   const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(m)
   const selector = semanticValid ? semantic.reference_kind === 'relative' || semantic.operation === 'rank' ? text(semantic.selector) || relativeSelector(current) : '' : relativeSelector(current)
   const inheritedBedrooms = normalizedPropertyFilters(previousQuery.filters)
@@ -273,6 +285,13 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       && !(r.field === 'bedrooms' && suppliedFilters.bedrooms != null)
       && !(r.field === 'floor_number' && suppliedFilters.floor_number != null)) : []
   if (currentRequirements.length || inheritedRequirements.length) query.requirements = [...inheritedRequirements, ...currentRequirements]
+  if (roomsUnrestricted) query.requirements = (Array.isArray(query.requirements) ? query.requirements : []).filter(r => object(r).field !== 'bedrooms')
+  if (preferencesChanged && !ids(semantic.unit_numbers).length && semantic.operation !== 'select') {
+    query.operation = operation = 'search'; query.scope = 'catalog'
+    query.group = query.group || 'residential'
+    context.pending_question = {}; pending.id = ''; pending.act = ''
+    delete context.optimized_catalog_request
+  }
   if (currentRequirements.some(r => r.field === 'floor_number')) filters.floor_number = null
   const currentBedroomRequirements = currentRequirements.filter(requirement => requirement.field === 'bedrooms')
   const currentBedroom = currentBedroomRequirements.length === 1 && currentBedroomRequirements[0].operator === 'eq'
@@ -387,6 +406,16 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       ? `Entre las opciones que revisamos hay varias que encajan: ${matches.map(unit => `${text(unit.category)} ${text(unit.unit_number)}`).join(', ')}. ¿Cuál de estas opciones le gustaría conocer?`
       : 'Para orientarle con la opción correcta, ¿puede indicarme el número de la unidad que le interesa?') : '',
     }
+  }
+  if (pending.id === 'property_comparison' && pending.act === 'compare_properties'
+    && answersPendingQuestion(semantics, 'property_comparison', 'affirmative')) {
+    const expected = ids(pending.candidate_ids), compared = fromIds(expected)
+    if (expected.length > 1 && compared.length === expected.length) {
+      query.operation = 'compare'; query.scope = 'comparison'; query.category = null; query.filters = emptyPropertyFilters()
+      context.comparison_ids = expected; context.offered_ids = expected; context.pending_question = {}
+      return result(compared, 'accepted_category_comparison', true)
+    }
+    return { ...result([], 'comparison_scope_unavailable', false, true), clarification: '¿Qué opciones le gustaría que comparemos?' }
   }
   const proposal = normalizedPropertyQuery(pending.proposed_query)
   const proposalPending = pending.id === 'property_requirements' && pending.act === 'explore_alternatives'
@@ -702,7 +731,14 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // A reply to a durable, focused question names its subject without requiring
   // the customer to repeat a code. Accepting details never books a visit or purchase.
   const acceptsPending = positive || answersPendingQuestion(semantics, pending.id as Parameters<typeof answersPendingQuestion>[1], 'affirmative')
-  if (pending.act === 'confirm_bedrooms' && lexicalFilters.bedrooms === null
+  if (pending.id === 'property_priority' && pending.act === 'confirm_priority' && acceptsPending
+    && prioritizesInteriorSpace(preferences)) {
+    Object.assign(query, roomsUnrestricted ? withoutBedroomConstraint(normalizedPropertyQuery(previousQuery)) : normalizedPropertyQuery(previousQuery),
+      { operation: 'search', scope: 'catalog', selector: null })
+    context.pending_question = {}; context.selected_ids = previousSelectedIds
+    return result(filterCatalog(catalog, catalogQuery(query)), 'accepted_selection_priority')
+  }
+  if (!roomsUnrestricted && pending.act === 'confirm_bedrooms' && lexicalFilters.bedrooms === null
     && (/^(?:no|no gracias|no necesariamente|no importa)$/.test(m) || answersPendingQuestion(semantics, 'property_bedrooms', 'negative'))) {
     Object.assign(query, normalizedPropertyQuery(previousQuery))
     context.selected_ids = previousSelectedIds
@@ -864,7 +900,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   // Search/ranking returns facts, not a selected unit. Ties are valid answers.
   // Resolve filters before unit-code guards, so "5ta planta" never becomes unit 5.
   if (['search', 'rank'].includes(operation) && (hasCurrentFilters || currentRequirements.length || broadResidential || operation === 'rank' || acceptedAlternative || requestsAlternativeExploration
-    || categoryPreference)) {
+    || categoryPreference || preferencesChanged || prioritizesInteriorSpace(preferences))) {
     const progressionIds = object(context.exploration_state).authorized === true && ['choose_category', 'choose_floor'].includes(text(pending.act))
       ? ids(pending.candidate_ids) : []
     const scopeIds = query.scope === 'offered' ? ids(context.offered_ids).length ? ids(context.offered_ids) : progressionIds : query.scope === 'comparison' ? ids(context.comparison_ids)
@@ -878,6 +914,13 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
     // The current acceptance refers to the options actually offered. Keep its
     // receipt bounded without turning budget orientation into a durable cap;
     // a later budget correction may widen the physical query again.
+    // Fresh needs may search the catalog. A lost relative set cannot silently
+    // turn a ranking of "these" options into a ranking of every project unit.
+    if (!scopeIds.length && !acceptingOfferedFloor && query.scope !== 'catalog') {
+      if (operation === 'search' && (preferencesChanged || hasCurrentFilters || currentRequirements.length || categoryPreference || broadResidential))
+        query.scope = 'catalog'
+      else return result([], 'unresolved_search_scope', false, true)
+    }
     const source = acceptingOfferedFloor ? proposedOptions : scopeIds.length ? fromIds(scopeIds) : catalog
     const matchingIds = new Set(filterCatalog(source, catalogQuery(query)).map(unit => text(unit.id)))
     const candidates = source.filter(unit => matchingIds.has(text(unit.id)) && !excluded.includes(text(unit.category)))
