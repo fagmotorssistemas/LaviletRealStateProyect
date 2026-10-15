@@ -248,6 +248,8 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
     return plan('current_operation', 'Conserve la gestión y la pregunta operativa actual. No añada una oferta de reserva, financiamiento ni visita.')
   if (object(info.financing_quote).orientation_only === true) return plan('financing_orientation',
     'Responda la consulta de entrada y cuotas con las referencias verificadas y sus límites. No repita la invitación al trámite ni pida datos personales. Si falta unidad, retome las preferencias ya conocidas para elegir una referencia; si faltan condiciones, explique cuáles sin derivar automáticamente.')
+  if (object(info.material_visual).requested === true && object(info.material_visual).available === true)
+    return plan('visual_information', 'Responda con el material visual verificado y la galería de la tipología consultada. Explique que son representaciones de referencia; conserve la unidad, el tipo y la planta conocidos. No exija elegir una unidad antes de ver la galería ni vuelva a enumerar todas las opciones. Una continuación es opcional y debe ayudar a explorar el material.')
   if (visitPending) return plan('visit_pending', 'Atienda la consulta y la coordinación de visita vigente; no añada otras invitaciones.')
   const engagement = object(info.commercial_engagement)
   const passive = typeof engagement.passive === 'boolean' ? engagement.passive : sales.passive_sales === true

@@ -35,7 +35,7 @@ function verifiedUrls(verified: Row = {}): string[] {
   const authoritativeSources = ['brochure_url', 'visit_location_url', 'ubicacion', 'authorized_links',
     'catalogo', 'catalog_results', 'alternative_results', 'proyecto', 'project', 'politica_visitas',
     'politica_financiera', 'politica_comercial', 'estado_proyecto', 'instalaciones', 'lugares_cercanos',
-    'contexto_sector', 'modelo_3d']
+    'contexto_sector', 'modelo_3d', 'material_visual']
   return authoritativeSources.flatMap(key => sourceUrls(verified[key]))
 }
 
@@ -55,6 +55,8 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   const tourDeclined = declinesUnitTour(context.current || '')
   const showroom = object(audit.showroom_continuation)
   const required = strings(explicit.required_links)
+  if (object(audit.material_visual).available === true)
+    required.push(...rows(object(audit.material_visual).galleries).map(gallery => text(gallery.gallery_url)).filter(Boolean))
   const material = object(audit.brochure_intent).requested !== undefined ? object(audit.brochure_intent)
     : brochureDeliveryIntent(context.current || '', context.verified?.historial,
       { material_request: context.verified?.material_request, turn_semantics: context.verified?.semantica_turno },
@@ -71,7 +73,7 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
     required.push(text(profile.brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL)
   }
   const allowed = [BROCHURE_URL, ...verifiedUrls(context.verified), ...strings(explicit.allowed_links),
-    ...urls(text(profile.brochure_url)), ...urls(text(tour.url))]
+    ...sourceUrls(audit.material_visual), ...urls(text(profile.brochure_url)), ...urls(text(tour.url))]
   const brochureLinks = [BROCHURE_URL, text(profile.brochure_url), text(context.verified?.brochure_url)].filter(Boolean)
   const shared = profile.brochure_previously_sent === true || object(context.verified?.estado_conversacion).brochure_sent === true
   const resend = required.some(url => brochureLinks.includes(url))

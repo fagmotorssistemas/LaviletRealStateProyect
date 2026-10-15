@@ -43,6 +43,7 @@ import { progressivePendingQuestion } from './progressive-options'
 import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent, rememberTurnIntentAfterReply } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
+import { localVisualMaterialContext } from './visual-materials'
 import { priceNoticeForConversation, priceNoticeReceipt } from './price-conditions'
 import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, naturalConversationReply } from './conversation-style'
 
@@ -1548,6 +1549,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     info.financiamiento = { ...object(info.financiamiento), journey: summary._financing_journey, entry: summary._financing_entry, amounts: summary._financing_amounts }
     audit.brochure_url = text(info.brochure_url) || BROCHURE_URL
     info.financing_amounts = summary._financing_amounts
+    const visualMaterials = await localVisualMaterialContext(info, propertyTurn)
+    if (visualMaterials) {
+      info.material_visual = visualMaterials
+      audit.material_visual = visualMaterials
+    }
     info.politica_comercial = priceNoticeForConversation(info, context.historial)
     info.financing_balance = financingBalance(object(summary._financing_amounts), selectedFinancingUnit(info), object(info.politica_comercial).precios_autorizados === true)
     info.etapa_financiamiento = financingStage(info)
@@ -1561,6 +1567,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         status: object(info.financing_quote).status, orientation_only: quoteInquiry.beforeApplication,
         selected_unit_id: object(info.financing_quote).selected_unit_id,
         estimates: object(info.financing_quote).estimates,
+        illustrative_example: object(info.financing_quote).illustrative_example,
         setting: { href: '/inmobiliaria/automatizacion/financiamiento', label: 'Entrada y financiamiento' } })
     }
     if (!locationRequestKind(current)) delete (info as Row).ubicacion

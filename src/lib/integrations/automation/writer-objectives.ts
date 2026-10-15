@@ -9,9 +9,9 @@ export function conversationObjective(raw: unknown): Row {
     collect_residence: 'lead_profile_residence', confirm_residence: 'lead_residence_confirmation' }
   const id = text(plan.question_id || plan.id || profileIds[text(plan.question_purpose)])
   const goals: Record<string, string> = {
-    lead_profile: 'Responder primero la consulta y, si la captura está autorizada, conocer nombre y residencia actual con una pregunta natural. Ofrecer el brochure solo si corresponde; no exigir una justificación o frase fija.',
-    lead_profile_name: 'Conocer únicamente el nombre pendiente con naturalidad, sin repetir datos ni una fórmula sobre brochure o guía personalizada.',
-    lead_profile_residence: 'Conocer únicamente la ciudad o el país de residencia actual pendiente, conectando con la conversación sin una frase prefabricada.',
+    lead_profile: 'Responder primero la consulta y, si la captura está autorizada, conocer nombre de presentación y residencia actual con una pregunta natural. Cuando el brochure está pendiente de esos datos, ofrecer compartirlo y conectar la solicitud como paso previo de ese intercambio, con redacción libre y sin convertirlo en requisito absoluto fuera de esa secuencia.',
+    lead_profile_name: 'Conocer únicamente el nombre de presentación pendiente con naturalidad. Si el brochure sigue diferido por este dato, conectar el ofrecimiento de compartirlo con la solicitud, sin repetir residencia ni una frase fija.',
+    lead_profile_residence: 'Conocer únicamente la ciudad o el país de residencia actual pendiente. Si el brochure sigue diferido por este dato, conectar su ofrecimiento con la solicitud sin repetir el nombre ni una frase prefabricada.',
     budget_amount: 'Orientar las opciones con el presupuesto que tenía previsto para la compra, si todavía falta y desea compartirlo. Atienda sus dudas antes de retomarlo; no lo repita en cada respuesta ni lo convierta en condición para informar.',
     budget_kind: 'Aclarar únicamente el significado de un importe ambiguo, conservando la cifra y sin volver a pedir datos resueltos.',
     property_bedrooms: 'Conocer cuántos dormitorios le gustaría tener, únicamente si no lo ha respondido ni lo declaró indiferente.',

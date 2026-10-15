@@ -213,7 +213,7 @@ test('saved settings round trip without overwriting review and business policies
   ]) { const bad = structuredClone(draft); mutate(bad); assert.throws(() => validateFinancingGuidance(bad)) }
 })
 
-test('writer and reviewer receive the same current quote and orientation step with optimized context enabled', async () => {
+test('writer receives the orientation objective and reviewer receives the same current financial facts with optimized context enabled', async () => {
   const info = { ...fixture(), financing_quote: financingQuoteContext(fixture(), inquiry), recorrido_comercial: {}, catalog_search: { embeddingsEnabled: true },
     solicitudes_interpretadas: [{ domain: 'financing', request: 'Conocer entrada y cuota', evidence: inquiry.evidence, confidence: 'high' }] }
   const reply = 'Como referencia para esta unidad de $310.000, JEP publica un límite de crédito de $150.000: la diferencia sería $160.000 de recursos propios. Esto está sujeto a evaluación y falta confirmar la entrada del proyecto. Aún falta verificar el plazo para calcular una cuota básica.'
@@ -227,7 +227,7 @@ test('writer and reviewer receive the same current quote and orientation step wi
       const quote = object(task === 'writing' ? object(input.contexto_verificado).financing_quote : object(input.fuentes_autorizadas).orientacion_financiera)
       assert.equal(quote.orientation_only, true)
       assert.equal((quote.estimates as Row[])[0].maximum_loan_reference, 150000)
-      assert.equal((input.obligaciones_del_turno as Row[]).find(o => o.id === 'commercial_next_step')?.action, 'financing_orientation')
+      if (task === 'writing') assert.equal(object(object(input.contrato_redaccion).objetivo_siguiente).action, 'financing_orientation')
       if (task === 'writing') return { reply, requests: [{ fragment: 'R1', status: 'answered', intent: 'Entrada y cuota', evidence: reply, fact_key: 'policy', request_type: 'general_information' }],
         question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' } }
       return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }

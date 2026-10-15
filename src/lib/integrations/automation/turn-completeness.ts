@@ -1,5 +1,6 @@
 import { informationOnly, INFORMATION_ONLY_WRITER_RULES } from './interaction-mode'
 import { CONVERSATION_WRITING_STYLE_RULES } from './conversation-style'
+import { VISUAL_MATERIAL_WRITER_RULES } from './visual-materials'
 import { REFERENTIAL_PRICE_NOTICE_RULES, priceNoticeForConversation } from './price-conditions'
 import { continuationMetadataIssues, validContinuationMetadata, reconcileContinuationMetadata } from './continuation-validation'
 import { WRITER_OBJECTIVE_RULES, writerObjectiveContext } from './writer-objectives'
@@ -427,7 +428,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (budgetAssessment) budgetAssessment = budgetForCommercialPlan(budgetAssessment, journey)
     input = { ...input, verified: { ...input.verified, siguiente_paso_comercial: journey }, audit: { ...input.audit, commercial_journey: journey } }
     if (budgetAssessment) input.verified.presupuesto_del_turno = budgetAssessment
-    if (journey.question_id || ['leave_open', 'information_only', 'answer_project_categories'].includes(text(journey.action))) {
+    if (journey.question_id || ['leave_open', 'information_only', 'answer_project_categories', 'visual_information'].includes(text(journey.action))) {
       input.preserveOperationalQuestion = false
       delete input.audit!.progressive_selection
       delete input.audit!.post_tour_continuation
@@ -690,6 +691,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         : input.audit?.progressive_selection ? ' Mantenga el propósito de la pregunta indicado en progressive_selection cuando no haya un recorrido vigente que lo sustituya; puede reformularla.'
         : ' Las invitaciones adicionales son opcionales; la pregunta del siguiente paso vigente sigue siendo obligatoria si continuacion_del_turno.required=true. No afirme que una cita ya está agendada.')
     if (input.audit?.profile_introduction) writingRules += '\n' + LEAD_INTRODUCTION_RULES
+    if (input.verified.material_visual) writingRules += '\n' + VISUAL_MATERIAL_WRITER_RULES
     if (input.verified.prompt_context_selection) writingRules += '\n' + (object(input.verified.prompt_context_selection).version === 'task-context-v1' ? TASK_CONTEXT_RULES : SEMANTIC_OPENING_RULE)
     if (budgetAssessment) writingRules += '\nPRESUPUESTO: contexto_verificado.presupuesto_del_turno contiene la evaluación común por unidades y categorías. claim_contract limita cada afirmación al conjunto que describe; solo permite afirmar universalidad comprobada por código. ' + (budgetAssessment.mention_required === true
       ? 'Responda la relación necesaria con el presupuesto junto con las características solicitadas; si faltan precios, explique el límite de esa comparación. '

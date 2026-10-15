@@ -75,7 +75,7 @@ export async function publishedUnitCatalog() {
 
 export async function commercialContext(lead: Row, history: unknown, profileInput?: unknown, finance?: Row) {
   const sources = await readCommercialContext({
-    units: (attempt) => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces,is_published,status')
+    units: (attempt) => db().from('units').select('id,category,unit_number,unit_type_id,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,published_commercial_price,description,spaces,is_published,status')
       .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),
     amenities: (attempt) => db().from('project_amenities').select('category,amenity_name,description').eq('project_id', scope.project_id).limit(100)
       .abortSignal(AbortSignal.timeout(attempt ? 15_000 : 10_000)),

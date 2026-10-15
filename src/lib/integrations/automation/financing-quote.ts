@@ -6,6 +6,7 @@ import { normalized } from './sdr-rules'
 import { selectedFinancingUnit } from './financing-stage'
 import { simpleFinancingAcceptance } from './financing-invitation'
 import { MONTHLY_PAYMENT_POLICY, MONTHLY_PAYMENT_REPLY_RULES } from './monthly-payment-policy'
+import { publishedFinancingRequirements } from './financing-requirements'
 
 export const FINANCING_QUOTE_SCHEMA = { type: 'object', additionalProperties: false,
   properties: { requested: { type: 'boolean' }, before_application: { type: 'boolean' }, evidence: { type: 'string' },
@@ -48,10 +49,41 @@ export function financingPolicyContext(settings: FinancingGuidance, partners: st
       ? { ...settings.entry, value: settings.entry.requirement === 'not_required' ? null : settings.entry.value } : null,
     reservation: settings.enabled && settings.reservation.enabled && settings.reservation.requirement !== 'unconfirmed' && current(settings.reservation)
       ? { ...settings.reservation, amount: settings.reservation.requirement === 'not_required' ? null : settings.reservation.amount } : null,
-    lenders: settings.enabled ? settings.lenders.filter(l => l.enabled && current(l) && partners.some(p => alias(p) === l.id)) : [],
-    instruction: 'Solo estas condiciones activas son fuente de cifras financieras. null significa pendiente de confirmar, nunca cero ni ausencia de requisito. Respete categorías, unidades, etapa y elegibilidad de cada producto; si aún falta la unidad no afirme que una regla limitada ya aplica. La entrada del proyecto y la aportación propia del banco son condiciones distintas; pueden coexistir. Referencias públicas sujetas a evaluación, no convenios ni aprobación. Las condiciones actuales reemplazan cifras históricas de este tema.' }
+    lenders: settings.enabled ? settings.lenders.filter(l => l.enabled && current(l) && partners.some(p => alias(p) === l.id))
+      .map(lender => ({ ...lender, published_requirements: publishedFinancingRequirements(lender, today) })) : [],
+    instruction: 'Estas condiciones activas son las fuentes de las referencias bancarias. Un financing_quote.illustrative_example calculado por el servidor tiene sus propios supuestos explícitos y no completa ni modifica las condiciones del banco. null significa pendiente de confirmar, nunca cero ni ausencia de requisito. Respete categorías, unidades, etapa y elegibilidad de cada producto; si aún falta la unidad no afirme que una regla limitada ya aplica. La entrada del proyecto y la aportación propia del banco son condiciones distintas; pueden coexistir. Referencias públicas sujetas a evaluación, no convenios ni aprobación. Las condiciones actuales reemplazan cifras históricas de este tema.' }
 }
 export type ActiveFinancingPolicy = ReturnType<typeof financingPolicyContext>
+
+function illustrativePayment(info: Row, inquiry: FinancingInquiry, estimates: Row[]) {
+  const asksMonthly = /\b(?:cuotas?|mensualidad(?:es)?|pago mensual)\b/.test(normalized(inquiry.evidence))
+    || (Array.isArray(object(info.contrato_turno).requests) ? object(info.contrato_turno).requests as Row[] : [])
+      .some(request => Array.isArray(request.topics) && request.topics.includes('monthly_payment'))
+  if (!inquiry.requested || !asksMonthly || estimates.some(estimate => typeof estimate.basic_monthly_payment === 'number')) return null
+  const lenderKey = (value: unknown) => normalized(text(value)).replace(/^(?:banco|cooperativa)\s+/, '')
+  const chosen = lenderKey(object(object(info.financiamiento).current).selected_partner_name)
+  const compatible = estimates.filter(estimate => !chosen || lenderKey(estimate.entity) === chosen)
+    .filter(estimate => typeof estimate.loan_reference === 'number' && Number(estimate.loan_reference) > 0
+      && typeof estimate.contribution_reference === 'number' && Number(estimate.contribution_reference) >= 0
+      && !(Array.isArray(estimate.issues) ? estimate.issues : []).some(issue =>
+        ['entrada_y_prestamo_no_cubren_el_precio', 'prestamo_fuera_de_limites_publicados', 'aportacion_fuera_de_condiciones'].includes(String(issue))))
+    .sort((a, b) => Number(a.contribution_reference) - Number(b.contribution_reference))
+  const reference = compatible[0], assumptions = MONTHLY_PAYMENT_POLICY.illustrative_example
+  const years = inquiry.years ?? assumptions.default_years
+  if (!reference || years < assumptions.min_years || years > assumptions.max_years || !Number.isInteger(years * 12)) return null
+  return { kind: 'hypothetical_example', lender_offer: false, selected_lender: null,
+    unit_id: reference.unit_id, unit_number: reference.unit_number, price: reference.price,
+    down_payment: reference.contribution_reference, principal: reference.loan_reference,
+    contribution_basis: reference.uses_customer_proposal === true ? 'customer_proposal' : 'illustrative_coverage_reference',
+    contribution_reference_source: reference.source,
+    annual_rate: assumptions.annual_rate, rate_type: assumptions.rate_type, years,
+    term_basis: inquiry.years === null ? 'illustrative_assumption' : 'customer_requested_comparison',
+    amortization: 'constant_payment',
+    basic_monthly_payment: calculateMonthlyPayment(Number(reference.loan_reference), assumptions.annual_rate, years, assumptions.rate_type),
+    excludes: ['seguros', 'cargos adicionales', 'gastos financiados', 'periodos de gracia'],
+    persists_customer_decisions: false,
+    instruction: 'Puede responder con este ejemplo para dar una referencia: identifique como supuestos la tasa nominal anual fija y el plazo, y comunique capital, aporte y cuota básica. Es un ejercicio matemático separado de las ofertas bancarias, no una tasa de la entidad ni un mínimo aprobado de entrada. No diga que el cliente eligió estos valores. No garantiza elegibilidad, aprobación ni disponibilidad del crédito. No guarde el ejemplo como preferencia o consentimiento. La cuota final depende de la entidad y sus cargos.' }
+}
 
 /** Server arithmetic only, based on a published price and the actual selected unit. */
 export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row {
@@ -103,8 +135,11 @@ export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row
       issues, source: lender.source, checkedOn: lender.checkedOn,
       assumptions: 'Orientativo y sujeto a evaluación; porcentaje sobre precio publicado, no avalúo bancario. Cuota básica sin gracia, gastos financiados ni cargos desconocidos. No acredita capacidad de pago ni habilita reserva. Un presupuesto total no se convierte en entrada. La reserva no se descuenta sin un pago verificado.' }
   })
+  const example = illustrativePayment(info, inquiry, estimates)
   return { requested: inquiry.requested, orientation_only: inquiry.beforeApplication, selected_unit_id: unit?.id || null,
     monthly_payment_policy: MONTHLY_PAYMENT_POLICY,
+    illustrative_example: example,
+    illustrative_example_available: example !== null,
     monthly_estimate_available: estimates.some(estimate => estimate.basic_monthly_payment !== null),
     monthly_estimate_missing: !unit ? ['selected_unit'] : !priced ? ['authorized_unit_price']
       : !policy.estimatesEnabled ? ['estimates_enabled'] : !estimates.length ? ['active_applicable_lender_terms']
@@ -122,4 +157,4 @@ export function financingQuoteContext(info: Row, inquiry: FinancingInquiry): Row
 
 const QUOTE_REPLY_RULES = `Atienda primero la duda concreta sobre entrada o cuotas con politica_financiera.guidance y financing_quote; no repita únicamente los pasos del trámite. Cifre solo los cálculos del servidor. No use el porcentaje que incluye gastos como porcentaje del precio. Nunca diga que no se exige entrada porque la regla esté apagada, sin confirmar, vencida o fuera de su alcance. Tampoco atribuya toda entrada al banco cuando exista una exigencia propia del proyecto. Si no hay fuente activa, diga que falta confirmar ese dato, sin inventarlo ni rescatar cifras del historial. Explique las limitaciones que afectan la cifra; no prometa una cuota final. Una referencia «desde» no es tasa aprobada. La cuota básica no incluye gracia ni gastos no configurados. Con orientation_only=true, responda lo que ya se conoce antes de ofrecer iniciar evaluación: no pida cédula ni empleo, no repita la invitación al trámite y no derive automáticamente por faltar una tasa o plazo. Si falta unidad, ayude a elegirla para calcular una referencia con las preferencias conocidas. Si falta plazo o tipo de tasa, explique exactamente qué impide calcular la cuota; puede terminar sin otra pregunta. Respete una solicitud explícita de asesor por su ruta propia.`
 
-export const FINANCING_QUOTE_REPLY_RULES = `${MONTHLY_PAYMENT_REPLY_RULES}\n${QUOTE_REPLY_RULES}`
+export const FINANCING_QUOTE_REPLY_RULES = `${MONTHLY_PAYMENT_REPLY_RULES}\n${QUOTE_REPLY_RULES}\nSi illustrative_example existe y no hay cuota bancaria calculable, ofrezca ese ejemplo breve con los supuestos y exclusiones que afectan a la cifra. No deje la consulta sin una referencia diciendo únicamente que faltan condiciones. La falta de tasa o plazo bancarios limita la cotización de esa entidad, no el ejercicio hipotético ya calculado. No es obligatorio repetir porcentajes, tasas y advertencias de todas las entidades si no ayudan a responder la consulta actual.`

@@ -285,7 +285,7 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
   })
   const projectKeys = ['proyecto', 'presentacion_general_proyecto', 'alcance_producto', 'instalaciones', 'lugares_cercanos', 'contexto_sector', 'estado_proyecto', 'entrega_proyecto',
     'posicionamiento_proyecto', 'politica_comercial', 'politica_visitas', 'politica_financiera', 'politica_pago_contado', 'financing_policy', 'financiamiento',
-    'condiciones_instalaciones', 'acceso_piscina', 'horario_atencion', 'ubicacion', 'politicas_negocio']
+    'condiciones_instalaciones', 'acceso_piscina', 'horario_atencion', 'ubicacion', 'politicas_negocio', 'material_visual']
   for (const key of projectKeys) {
     const value = verified[key]
     if (Array.isArray(value)) value.forEach((item, index) => add(`contexto_verificado.${key}.${index}`, 'project_fact', item))
@@ -295,6 +295,8 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
   add('contexto_verificado.financing_quote.monthly_payment_policy', 'project_fact', financingQuote.monthly_payment_policy)
   add('contexto_verificado.financing_quote.estimates', 'project_fact', financingQuote.estimates,
     { scope: 'server_calculated_reference_not_credit_approval' })
+  add('contexto_verificado.financing_quote.illustrative_example', 'project_fact', financingQuote.illustrative_example,
+    { scope: 'hypothetical_arithmetic_not_lender_terms_or_customer_decision' })
   if (typeof financingQuote.project_entry_reference === 'number') add('contexto_verificado.financing_quote.project_entry_reference', 'project_fact',
     { amount: financingQuote.project_entry_reference, unit_id: financingQuote.selected_unit_id, applies: financingQuote.project_entry_applies })
   // Being able to share a configured material is a project fact, not proof that

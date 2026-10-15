@@ -454,4 +454,48 @@ Los diagnósticos anteriores describen las ejecuciones observadas antes de esta 
 - Pedir conocer el proyecto sin indicar tema conduce a una pregunta abierta, sin resumen automático. Una consulta ya concreta se responde directamente. Una petición expresa de búsqueda, recomendación para compra o trámite permite retomar el paso correspondiente; el modo no sustituye los permisos operativos.
 - Las consultas de todas u otras categorías usan un alcance temporal distinto de la búsqueda de compra. Se amplían las fuentes y se conserva la selección; una consulta no se convierte automáticamente en cambio de preferencia. Los grupos del catálogo distinguen coincidencias y datos desconocidos.
 
-Se actualizaron los diez escenarios y se añadió el eje de variación de modo de interacción. El registro mantiene 98 escenarios, no 98 pruebas ejecutadas. Se comprobaron TypeScript, ESLint y consistencia del diff; las pruebas de conversación y simulaciones quedan pospuestas como pidió el responsable. No se ha desplegado ni modificado el estado de leads en servicios externos durante esta implementación.
+Se actualizaron los diez escenarios y se añadió el eje de variación de modo de interacción. En esa revisión el registro mantenía 98 escenarios, no 98 pruebas ejecutadas. Se comprobaron TypeScript, ESLint y consistencia del diff; las pruebas de conversación y simulaciones quedan pospuestas como pidió el responsable. No se ha desplegado ni modificado el estado de leads en servicios externos durante esta implementación.
+
+## Implementación local: brochure, orientación financiera y galerías — 15 de octubre
+
+El registro incorpora ahora 106 escenarios. AUT-099, AUT-100, AUT-102 y AUT-103 a AUT-105 tienen correcciones locales; el texto generado y el despliegue siguen pendientes. Se conservan estas decisiones expresas del responsable:
+
+- La apertura conecta el ofrecimiento del brochure con la solicitud de nombre y ciudad o país de residencia actual. La redacción es libre y solo solicita datos pendientes. Se mantienen las excepciones actuales de entrega sin completar el perfil; no se convierte la presentación en una condición absoluta.
+- No cambia el flujo de identidad: nombre de presentación al inicio; identidad legal completa y cédula durante la revisión financiera autorizada, con unidad y entidad definidas. Informarse sobre requisitos o cuotas no inicia una solicitud.
+- Se conserva la aclaración de precios al concretar la categoría después de una consulta general de precios.
+- Sigue aplazada la presentación inicial de dos o tres locales. La excepción visual responde con material antes de exigir una unidad y no modifica la presentación ordinaria del inventario.
+
+La orientación financiera incorpora requisitos publicados por producto de Banco Pichincha y Cooperativa JEP, con fuentes consultadas el 15/10/2026 y revisión hasta el 15/11/2026. No se añaden documentos a la recopilación del chat. Las fuentes siguen sujetas al alcance, activación y vigencia de las fichas financieras; no se asignan a productos distintos ni se usan para afirmar elegibilidad. Fuentes: [Pichincha](https://www.pichincha.com/detalle-producto/personas-credito-hipotecario-de-vivienda) y [JEP](https://www.jep.coop/productos-servicios/creditos/credimivivienda).
+
+La política `monthly-payment-orientation-v2` separa las referencias bancarias del ejercicio ilustrativo. Si no existe cuota bancaria calculable, una consulta de mensualidad puede recibir un ejemplo calculado con tasa nominal anual fija hipotética del 8 % y plazo de 20 años, o el plazo que haya pedido comparar. El ejemplo utiliza una unidad y precio autorizados y conserva aportes declarados o referencias de cobertura válidas. No convierte presupuesto en entrada, no se guarda como decisión del lead y no se atribuye la tasa al banco. Se desactiva con los cálculos financieros y no rellena unidades, precios o productos no verificados. La cifra básica excluye seguros, gastos, cargos y gracia. Para USD 216.000 a 20 años con ese supuesto, la cuota de capital e intereses es USD 1.806,71.
+
+Las solicitudes interpretadas como `visualization` consultan las tipologías activas de los locales publicados resueltos y sus renders/planos. El mismo material llega al redactor, al contrato de enlaces y al revisor. La galería puede abrir una unidad como referencia de navegación de la tipología; no guarda esa unidad como elección del cliente ni acredita que cada render sea su diseño exacto. Una lectura incompleta no se interpreta como ausencia de imágenes. La comprobación real sin escrituras resolvió nueve locales y diez renders de planta alta. Se comparten enlaces a galería e imágenes; **el envío dinámico de imágenes adjuntas no se implementó ni se anuncia como capacidad disponible**.
+
+Se ajustaron las reglas comunes de cortesía, brevedad, lenguaje natural y formato de chat. El redactor sigue entregando el mensaje completo; no se añadió un posprocesador de saludos, preguntas, enlaces ni Markdown.
+
+Validación: 111 comprobaciones locales aprobadas con respuestas predefinidas, sin llamadas a modelos ni mensajes a leads; TypeScript y ESLint aprobados. Una prueba financiera antigua exigía el objetivo comercial también en las obligaciones del revisor: se reprodujo el fallo en HEAD y se ajustó para comprobar el objetivo del redactor y los hechos financieros compartidos, respetando la autoridad actual del revisor. La batería ampliada encontró otros seis fallos en `business-facts.test.ts`; se reprodujeron los mismos seis con el código de HEAD mediante una carga de fuentes de solo lectura, sin revertir archivos ni modificar esa batería. Las simulaciones de conversaciones reales siguen aplazadas.
+
+## Propuesta de manejo de objeciones — sin cambios en los prompts del bot
+
+La respuesta observada a «¿por qué tan caro?» confundió una objeción sobre valor con una solicitud de metodología de fijación de precios. La ausencia de una fórmula de precio no impide explicar las características aprobadas del proyecto. Tampoco conviene interpretar «caro» automáticamente como falta de presupuesto, petición de descuento o aceptación de financiamiento.
+
+Propuesta: reconocer la preocupación brevemente, explicar uno o dos atributos pertinentes a su objetivo y ofrecer una comparación o una pregunta útil cuando haga falta. No convertirlo en un discurso obligatorio ni volver a enumerar precios como sustituto del argumento.
+
+| Objeción | Enfoque propuesto | Respaldo necesario |
+| --- | --- | --- |
+| «¿Por qué tan caro?» | Explicar el concepto mixto y los atributos que aportan utilidad a vivienda o inversión; comparar contenido y condiciones de ofertas equivalentes. | Concepto aprobado, distribución, superficies, instalaciones y condiciones reales. No afirmar una causa contable del precio ni superioridad de mercado desconocida. |
+| «Está lejos» | Relacionar la ubicación con los trayectos del cliente y mostrar el mapa; el comercio del proyecto puede aportar comodidad cotidiana. | Dirección y servicios previstos/publicados. Tiempos de viaje solo con origen y datos adecuados. |
+| «La zona es insegura» | Atender la preocupación y explicar medidas verificadas del edificio, distinguiéndolas de la situación del barrio. | Accesos, controles y sistemas expresamente aprobados; no prometer seguridad absoluta ni desmentir experiencias personales sin evidencia. |
+| «En otro proyecto cuesta menos» | Comparar superficies, áreas exteriores, distribución, instalaciones, parqueos, bodegas y condiciones de compra realmente incluidas. | Datos de ambas ofertas. Lo referido por el cliente es una oferta reportada, no un precio de competencia verificado. |
+| «No sé si ese local se rentará» | Explicar la convivencia de comercio y viviendas y revisar usos, ubicación interna y características del local para su objetivo. | Usos y condiciones aprobados. No prometer ocupación, tránsito, arrendatarios, ingresos ni rentabilidad. |
+| «Todavía no comienza la obra» | Explicar la etapa real y el material de referencia disponible; responder condiciones concretas de la compra. | Estado, permisos, hitos y fechas oficialmente aprobados. No presentar renders como obra terminada. |
+
+La propuesta de «distrito comercial» puede desarrollarse como posicionamiento del proyecto, con aprobación del responsable. Dos plantas comerciales constituyen una característica concreta; variedad de productos o servicios debe presentarse como concepto previsto si todavía no hay operadores confirmados. «Somos el único en la zona» necesita definir la zona y contar con una comparación que respalde la exclusividad. «No tendrá que salir» promete demasiado: es preferible hablar de concentrar más actividades cotidianas en un mismo lugar, según los negocios que se instalen.
+
+Ejemplos de intención, pendientes de aprobación como argumentos del bot:
+
+> La Vilet combina viviendas y comercio en un mismo proyecto, con dos plantas comerciales. La propuesta busca reunir distintos productos y servicios para que más actividades cotidianas puedan resolverse en el mismo lugar. Al comparar opciones, podemos revisar qué incluye cada una y qué aporta a lo que usted busca.
+
+> Para su idea de comprar un local y rentarlo, el concepto reúne comercio y viviendas dentro del mismo proyecto. Podemos comparar la ubicación y distribución de los locales, junto con los usos permitidos, para valorar cuál encaja mejor con su inversión.
+
+Estos argumentos no se incorporaron a código ni prompts en este cambio. AUT-106 conserva el incidente para su futura validación; la definición de atributos diferenciales y el manejo completo de objeciones siguen pendientes.

@@ -59,6 +59,26 @@
         "ce760f8d2727c39d5927dbdf3a580bd815a7d826",
         "fa56c8fe7be4959e4af5a58ea52852b1d158f3df"
       ]
+    },
+    "oct15_financing_retail_runtime": {
+      "kind": "execution_trace_user_screenshots_and_official_lender_pages",
+      "date": "2026-10-15",
+      "versions": [
+        "fa56c8fe7be4959e4af5a58ea52852b1d158f3df",
+        "8ddb377e991caa4b64da2cded06bed2df9e4987b"
+      ],
+      "urls": [
+        "https://www.pichincha.com/detalle-producto/personas-credito-hipotecario-de-vivienda",
+        "https://www.pichincha.com/blog/precalificacion-hipotecaria",
+        "https://www.jep.coop/productos-servicios/creditos/credimivivienda"
+      ]
+    },
+    "oct15_brochure_visual_objections": {
+      "kind": "user_screenshots_and_readonly_runtime_review",
+      "date": "2026-10-15",
+      "versions": [
+        "8ddb377e991caa4b64da2cded06bed2df9e4987b"
+      ]
     }
   },
   "fixtures": {
@@ -2663,6 +2683,297 @@
         "summary": "Se distingue la declaración de modo sin tema de una consulta específica. La primera permite una pregunta abierta sin resumen; la segunda recibe su respuesta. Preguntar precios no reactiva la calificación.",
         "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
       }
+    },
+    {
+      "id": "AUT-099",
+      "group": "financing_orientation",
+      "title": "Consulta de cuota aproximada sin condiciones suficientes ni escenario ilustrativo configurado",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_financing_retail_runtime",
+      "evidence": {
+        "event_id": "d73fd2ea-51e2-43fa-9302-1118d6d27ec3",
+        "code_version": "fa56c8fe7be4959e4af5a58ea52852b1d158f3df"
+      },
+      "initial_state": {
+        "selected_unit_number": "304",
+        "authorized_price": 270000,
+        "down_payment_status": "undetermined",
+        "financing_consent": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me gustaría conocer las opciones de financiamiento y los plazos disponibles. ¿Podrían orientarme con una cuota mensual aproximada y los requisitos?"
+          ]
+        }
+      ],
+      "observed": "La respuesta enumera condiciones y limitaciones, pero no proporciona una cifra orientativa ni un ejemplo. JEP no tiene plazo configurado y Pichincha no tiene tipo de tasa confirmado; ambos tienen exampleYears=null.",
+      "diagnosis": "La política monthly-payment-orientation-v1 admite solo cálculos del servidor con condiciones verificadas y prohíbe completar una simulación inventando tasa o plazo. No existe un modo de ejemplo hipotético separado. La ausencia de cifra respeta el contrato vigente; habilitar ejemplos requiere modificarlo expresamente y conservar la distinción respecto de ofertas de entidades.",
+      "expected": [
+        "Explicar las opciones con brevedad y responder cada aspecto solicitado antes de avanzar al trámite.",
+        "Incorporar condiciones confirmadas para una referencia de entidad, o un modo separado de ejemplo con supuestos explícitos y configurados.",
+        "Calcular por servidor, mostrar capital, entrada supuesta, plazo, tipo de tasa, sistema de amortización y exclusiones relevantes; no inventar condiciones como si fueran de la entidad.",
+        "Un escenario ilustrativo no guarda su entrada o plazo como decisiones del cliente, no inicia evaluación ni confirma elegibilidad."
+      ],
+      "forbidden": [
+        "Atribuir una tasa hipotética a un banco o presentar la cuota básica como pago final con seguros incluidos.",
+        "Convertir la consulta por cifras en obligación de elegir una entidad antes de contestar."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Modo ilustrativo separado: cálculo del servidor con tasa nominal anual fija hipotética del 8 % y plazo de ejemplo de 20 años cuando no se pidió otro. Conserva unidad/precio autorizados, aportes declarados o referencias de cobertura activas, no altera las condiciones bancarias ni guarda los supuestos como decisiones del lead. Respeta pausa de cálculos, entidad conocida y límites monetarios.",
+        "validation": "Comprobaciones locales con respuestas de modelo simuladas en memoria, sin llamadas a modelos ni mensajes a leads; TypeScript y ESLint. Validación del texto generado y despliegue pendientes."
+      }
+    },
+    {
+      "id": "AUT-100",
+      "group": "financing_knowledge",
+      "title": "Requisitos publicados en fuentes oficiales ausentes de la ficha que recibe el redactor",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_financing_retail_runtime",
+      "evidence": {
+        "event_ids": [
+          "d73fd2ea-51e2-43fa-9302-1118d6d27ec3",
+          "cb6ca4d7-0cc5-42d0-abe6-fee1b50eee90"
+        ],
+        "code_versions": [
+          "fa56c8fe7be4959e4af5a58ea52852b1d158f3df",
+          "8ddb377e991caa4b64da2cded06bed2df9e4987b"
+        ]
+      },
+      "initial_state": {
+        "selected_unit_number": "304",
+        "down_payment_status": "undetermined"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cuáles son los requisitos principales para solicitar el financiamiento? ¿Es posible iniciar una evaluación sin tener definida todavía la entrada exacta?"
+          ]
+        }
+      ],
+      "observed": "El redactor dice que no dispone de una lista completa y vigente de requisitos. Las fichas contienen tasas y límites, pero no una lista estructurada de requisitos. Las páginas oficiales sí publican identificación, respaldo de ingresos y documentos según actividad; JEP además indica ser socio y producto para primera vivienda.",
+      "diagnosis": "Una URL como fuente de la ficha no supone que su contenido completo se haya consultado y suministrado al redactor. No confundir los datos del flujo interno con los requisitos bancarios publicados.",
+      "expected": [
+        "Guardar requisitos básicos por entidad y producto, elegibilidad, fuente, fecha de consulta y revisión, y suministrarlos cuando corresponda.",
+        "Responder lo conocido aunque no exista una lista exhaustiva; distinguir requisitos generales de documentos del perfil concreto.",
+        "Continuar la orientación con entrada pendiente y distinguir orientación del proyecto, precalificación de la entidad y solicitud formal.",
+        "No afirmar que el bot inició una evaluación bancaria ni que la entidad acepta una solicitud incompleta sin evidencia de esa capacidad o condición."
+      ],
+      "forbidden": [
+        "Pedir de nuevo unidad o entrada ya respondidas.",
+        "Usar nuestra revisión requiere elegir entidad como sustituto de explicar requisitos."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Fichas de requisitos básicos publicados por entidad y producto, con fuente y vigencia, separadas de la recopilación interna. La orientación continúa con entrada pendiente y sin exigir escoger entidad para responder requisitos.",
+        "validation": "Comprobaciones locales con respuestas de modelo simuladas en memoria, sin llamadas a modelos ni mensajes a leads; TypeScript y ESLint. Validación del texto generado y despliegue pendientes."
+      }
+    },
+    {
+      "id": "AUT-101",
+      "group": "catalog_presentation",
+      "title": "La presentación obligatoria de todas las unidades produce una enumeración abrumadora de nueve locales",
+      "status": "current_observed",
+      "source": "oct15_financing_retail_runtime",
+      "evidence": {
+        "event_id": "8169136a-9a3e-4348-92f4-b23b2f180490",
+        "code_version": "8ddb377e991caa4b64da2cded06bed2df9e4987b",
+        "stage": "writer",
+        "requires_unit_presentation": true,
+        "selection_scope_unit_ids": [
+          "LC-08",
+          "LC-09",
+          "LC-10",
+          "LC-11",
+          "LC-12",
+          "LC-13",
+          "LC-14",
+          "LC-15",
+          "LC-16"
+        ]
+      },
+      "initial_state": {
+        "category": "local",
+        "floor_number": 1,
+        "purchase_budget": 100000,
+        "down_payment_status": "undetermined",
+        "financing_consent": true,
+        "purpose": "future_rental"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me equivoqué. En la primera planta alta. Quiero revisar opciones."
+          ]
+        }
+      ],
+      "observed": "El audio se transcribió correctamente. La respuesta enumera nueve áreas interiores y siete exteriores, y pide escoger un local sin una comparación breve.",
+      "diagnosis": "commercial-journey fija requires_unit_presentation=true y todo el selection_scope. mandatoryReplyIssues exige que aparezcan todas esas unidades o devuelve required_unit_presentation_missing. Un catálogo resumido o una selección inicial de dos o tres puede ser rechazado aunque sea pertinente.",
+      "expected": [
+        "Separar el conjunto completo disponible del subconjunto presentado en este turno.",
+        "Permitir una primera comparación de dos o tres opciones pertinentes o una síntesis con rangos; dar la lista completa si se solicita.",
+        "Guardar como presentadas solo las unidades realmente comunicadas y conservar las demás para continuar.",
+        "Usar criterios y preferencias conocidos; no preguntar por el negocio que instalaría quien ya explicó que quiere rentarlo.",
+        "Mantener superficies interiores y exteriores identificadas; ausencia de dato exterior no equivale a cero."
+      ],
+      "forbidden": [
+        "Exigir todos los identificadores en cada respuesta de presentación por el solo hecho de estar en la misma planta.",
+        "Convertir este ejemplo de redacción o el número tres en otra plantilla rígida."
+      ],
+      "deferral": {
+        "date": "2026-10-15",
+        "reason": "El responsable aplazó la selección inicial de dos o tres locales. La excepción de atención a consultas visuales evita enumerar unidades antes de mostrar renders; no modifica la presentación general del inventario."
+      }
+    },
+    {
+      "id": "AUT-102",
+      "group": "channel_formatting",
+      "title": "Marcadores de negrita dobles visibles en la respuesta financiera de WhatsApp",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_financing_retail_runtime",
+      "evidence": {
+        "event_id": "d73fd2ea-51e2-43fa-9302-1118d6d27ec3",
+        "code_version": "fa56c8fe7be4959e4af5a58ea52852b1d158f3df"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Podrían orientarme con las opciones de financiamiento?"
+          ]
+        }
+      ],
+      "observed": "La captura y el borrador conservan marcadores **Banco Pichincha:** y **desde 7,50%** visibles. La explicación financiera es extensa y reproduce lenguaje de proceso interno.",
+      "diagnosis": "El redactor entregó marcado de negrita y el canal mostrado no lo presentó como el formato esperado. La causa de transporte específica requiere revisión; no hay evidencia de que el código añadiera esos marcadores después.",
+      "expected": [
+        "Redactar para el canal de entrega con párrafos cortos y listas simples cuando ayuden.",
+        "Evitar marcadores visibles no interpretados y expresiones como fuente consultada o el siguiente paso del proceso sería cuando no aportan al cliente.",
+        "Mantener únicamente las limitaciones que afectan a las cifras, sin eliminar condiciones materiales."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Instrucciones de formato sencillo para chat y reducción de lenguaje interno y cortesías rutinarias. No se añade un reformateador posterior al redactor.",
+        "validation": "Comprobaciones locales con respuestas de modelo simuladas en memoria, sin llamadas a modelos ni mensajes a leads; TypeScript y ESLint. Validación del texto generado y despliegue pendientes."
+      }
+    },
+    {
+      "id": "AUT-103",
+      "group": "lead_introduction",
+      "title": "Oferta del brochure y pregunta de datos desconectadas en la apertura",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_brochure_visual_objections",
+      "turns": [
+        {
+          "lead_messages": [
+            "Hola cómo le va?",
+            "Quiero información por favor"
+          ]
+        }
+      ],
+      "observed": "El redactor ofreció el brochure en una frase y pidió el nombre completo y residencia como otro asunto, sin expresar la secuencia del intercambio.",
+      "expected": [
+        "Conectar el ofrecimiento del brochure con la solicitud de nombre y residencia actual, dejando libre la redacción.",
+        "Conservar por decisión del responsable las excepciones actuales de entrega sin datos, la captura de nombre de presentación y la posterior identidad legal en financiamiento.",
+        "Solicitar únicamente los datos pendientes y no imponer una frase literal."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_prompts",
+        "summary": "Objetivos y reglas de apertura conectan la oferta con los datos cuando el brochure está diferido; no se alteró la lógica de entrega ni el flujo de identidad.",
+        "validation": "Comprobaciones locales con respuestas de modelo simuladas en memoria, sin llamadas a modelos ni mensajes a leads; TypeScript y ESLint. Validación del texto generado y despliegue pendientes."
+      }
+    },
+    {
+      "id": "AUT-104",
+      "group": "conversation_style",
+      "title": "Con gusto y otras cortesías como prefijos rutinarios",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_brochure_visual_objections",
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Y qué precio tiene, disculpe?"
+          ]
+        }
+      ],
+      "observed": "El redactor repite Con gusto al inicio de respuestas consecutivas, incluso sin conectarlo con una acción concreta.",
+      "expected": [
+        "Permitir respuestas directas y cortesías opcionales integradas en la ayuda concreta.",
+        "No rotar sinónimos ni imponer una nueva fórmula.",
+        "Conservar hechos, precios, consentimientos y preguntas pertinentes; la aclaración del rango de locales posterior a la consulta de precios no cambia."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_prompts",
+        "summary": "Reglas comunes y preferencias de tono distinguen cercanía de prefijos automáticos y piden redacción directa.",
+        "validation": "Comprobaciones locales con respuestas de modelo simuladas en memoria, sin llamadas a modelos ni mensajes a leads; TypeScript y ESLint. Validación del texto generado y despliegue pendientes."
+      }
+    },
+    {
+      "id": "AUT-105",
+      "group": "visual_material",
+      "title": "Consulta de imágenes de locales no utiliza los renders ya disponibles",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_brochure_visual_objections",
+      "evidence": {
+        "event_id": "0f96bb65-26a4-47e1-9b67-bae6a0aa8171",
+        "code_version": "8ddb377e991caa4b64da2cded06bed2df9e4987b"
+      },
+      "initial_state": {
+        "category": "local",
+        "floor_number": 1
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "ohh ya",
+            "y tiene tal vez imagenedes? o alguna forma de ver esos locales?"
+          ]
+        }
+      ],
+      "observed": "El extractor identificó visualization, pero el bot dijo no tener imágenes específicas y pidió escoger entre nueve locales. Hay diez renders asociados al grupo de planta alta.",
+      "expected": [
+        "Consultar material de tipologías activas asociado a los locales publicados y sus referencias resueltas.",
+        "Compartir la galería y describir los renders como representaciones de la tipología, sin prometer fotografías ni 360 de locales.",
+        "No exigir elegir o enumerar todos los locales antes de mostrar una galería compartida.",
+        "Distinguir enlace, imagen adjunta y referencia de navegación; abrir la galería no guarda una elección del lead.",
+        "Una lectura incompleta o fallida no demuestra ausencia de material."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Lectura de tipologías y assets para visualization, material compartido con redactor y revisor, enlaces autorizados y objetivo visual sin captura de unidad obligatoria. El envío dinámico de adjuntos no está implementado ni se anuncia como disponible.",
+        "validation": "Comprobaciones locales con respuestas de modelo simuladas en memoria, sin llamadas a modelos ni mensajes a leads; TypeScript y ESLint. Validación del texto generado y despliegue pendientes. Lectura real sin escrituras: nueve locales resueltos y diez renders en la tipología de planta alta."
+      }
+    },
+    {
+      "id": "AUT-106",
+      "group": "objection_handling",
+      "title": "Por qué tan caro se trata como solicitud de fórmula del precio y vuelve a enumerar cifras",
+      "status": "current_observed",
+      "source": "oct15_brochure_visual_objections",
+      "initial_state": {
+        "category": "local",
+        "purchase_purpose": "future_rental"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "oiga y por que tan caro?"
+          ]
+        }
+      ],
+      "observed": "La respuesta dice no conocer cómo se fijó el precio, vuelve al rango y describe un local; no explica el valor del concepto del proyecto para el interés expresado.",
+      "diagnosis": "Una objeción de valor no equivale necesariamente a pedir la metodología de fijación de precios, ni a declarar falta de presupuesto o autorizar crédito.",
+      "expected": [
+        "Preparar argumentos de valor pertinentes al objetivo de vivienda o inversión, con hechos aprobados.",
+        "Distinguir valor, capacidad de pago, distancia, seguridad, comparación y viabilidad comercial.",
+        "No afirmar exclusividad en la zona, negocios confirmados, seguridad absoluta, afluencia o rentabilidad sin respaldo.",
+        "Los argumentos quedan como propuesta documental por instrucción del responsable; no se modifican todavía los prompts de objeciones."
+      ]
     }
   ],
   "variation_axes": [
