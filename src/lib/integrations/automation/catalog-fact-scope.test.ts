@@ -167,7 +167,7 @@ test('a reviewed empty-search answer passes in one draft and retains the alterna
   const { verified, audit } = context()
   const reply = 'Actualmente no disponemos de viviendas de 5 dormitorios. Podemos revisar las opciones de 3 dormitorios para valorar si se adaptan a su familia. ¿Le gustaría conocer esas alternativas?'
   const question = { purpose: 'clarify_request', role: 'necessary_clarification', missing_datum: 'Aceptación de tres dormitorios', next_decision: 'Explorar alternativas',
-    continuation_id: 'property_requirements', continuation_act: 'explore_alternatives' }
+    continuation_id: 'property_requirements', continuation_act: 'explore_alternatives', comparison_categories: [], comparison_bedrooms: null }
   const calls: string[] = []
   const result = await completeTurnReply({ current, baseReply: 'La consulta tiene 0 coincidencias confirmadas.',
     verified: { ...verified, property_context: { query } }, audit }, async (_rules, data, schema, _image, _file, _tone, task) => {
@@ -193,7 +193,7 @@ test('a mistaken global source is repaired without rewriting a correct answer or
   const global = fact('group:inventory:residential:range', 49, scope('inventory', []), 'catalog_value')
   global.statement = 'Actualmente hay 49 viviendas disponibles en el proyecto.'
   const calls: string[] = []
-  const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
+  const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other', comparison_categories: [], comparison_bedrooms: null }
   const result = await completeTurnReply({ current, baseReply: 'La consulta tiene 0 coincidencias confirmadas.', verified: { ...verified, property_context: { query } }, audit },
     async (_rules, _data, schema, _image, _file, _tone, task) => {
       calls.push(task || '')

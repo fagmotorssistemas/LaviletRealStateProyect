@@ -117,7 +117,7 @@ test('the real focused pipeline accepts a proven calculation with no catalogue a
     const context = object(input)
     assert.equal(object(context.razonamiento_contextual).current_message, current)
     let response: Row
-    if (task === 'writing') response = { reply, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' },
+    if (task === 'writing') response = { reply, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other', comparison_categories: [], comparison_bedrooms: null },
       requests: (context.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id, intent: 'Explicar la huella con las medidas declaradas', request_type: 'general_information',
         status: 'answered', evidence: 'Se responde con cálculo y limitación de distribución.', fact_key: null })) }
     else {
@@ -162,7 +162,7 @@ test('a broken arithmetic proof repairs only the focused reviewer sheet while pr
     const context = object(input)
     assert.equal(object(context.razonamiento_contextual).current_message, message)
     let response: Row
-    if (task === 'writing') response = { reply: text, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' },
+    if (task === 'writing') response = { reply: text, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other', comparison_categories: [], comparison_bedrooms: null },
       requests: (context.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id, intent: 'Calcular las huellas de ambas camas', request_type: 'general_information',
         status: 'answered', evidence: 'Se explica la operación sin confirmar cabida.', fact_key: null })) }
     else {

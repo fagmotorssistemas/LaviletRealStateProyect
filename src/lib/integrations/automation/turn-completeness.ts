@@ -115,7 +115,8 @@ const questionSchema: Row = { type: 'object', additionalProperties: false,
     role: { type: 'string', enum: questionRoles },
     missing_datum: { type: 'string', description: 'Dato necesario para responder o cumplir una captura obligatoria. Puede estar vacío en una invitación opcional.' },
     next_decision: { type: 'string', description: 'Descripción orientativa del siguiente paso, no autorización de una acción. Puede quedar vacía si no está determinado.' } },
-  required: ['purpose', 'role', 'missing_datum', 'next_decision', 'continuation_id', 'continuation_act'] }
+  // Strict output requires every declared property, including future shared metadata.
+  required: ['purpose', 'role', 'missing_datum', 'next_decision', ...Object.keys(continuationQuestionProperties)] }
 const reviewedQuestionSchema: Row = { ...questionSchema, properties: { ...object(questionSchema.properties),
   clarifies_request_ids: { type: 'array', maxItems: 13, items: { type: 'string' }, description: 'Identificadores de referencias_solicitud. Nunca copie frases.' } },
   required: [...questionSchema.required as string[], 'clarifies_request_ids'] }

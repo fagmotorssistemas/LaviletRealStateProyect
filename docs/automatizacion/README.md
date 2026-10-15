@@ -1,5 +1,7 @@
 # Automatización de La Vilet: referencia canónica
 
+**Registro de incidentes para regresión, 15/10/2026:** [88 casos estructurados](casos-regresion.json), con mensajes, estado inicial, comportamiento observado, resultados esperados y variantes. Las simulaciones del corpus están pendientes; no se debe interpretar este registro como 88 pruebas ejecutadas ni como certificación de corrección en producción. El [mapa de conversación](mapa-conversacion-y-pendientes-2026-10-12.md#registro-de-incidentes-y-diagnóstico-del-15-de-octubre) explica los últimos hallazgos y la reparación local del esquema del redactor.
+
 **Informe para presentación del 07/10/2026:** [Automatización y cambios realizados](informe-cambios-presentacion-2026-10-07.md). Describe las funciones del código versionado, la cronología, las pruebas repetidas y un guion de exposición. Los estados locales o productivos descritos más abajo corresponden a sus fechas históricas; el informe nuevo distingue código versionado y despliegue verificado.
 
 **Cambio local del 29/09/2026:** [Interpretación compartida, solicitud de reserva y libertad de redacción](interpretacion-reserva-y-redaccion-20260929.md). Requiere las dos migraciones indicadas antes del despliegue del ejecutor.

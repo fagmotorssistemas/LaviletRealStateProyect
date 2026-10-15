@@ -1,0 +1,2361 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-15",
+  "purpose": "Conservar incidentes de la automatización como escenarios reproducibles para futuras pruebas de conversación.",
+  "execution_status": "Las simulaciones de este corpus todavía no se han ejecutado. Una prueba existente o una corrección histórica no acredita que el caso esté resuelto en producción.",
+  "privacy": "Sin teléfonos, nombres de clientes, documentos de identidad, credenciales ni volcados de prompts. Los UUID de eventos sirven únicamente para localizar evidencia interna.",
+  "evaluation_rules": [
+    "Evaluar significado, conservación del estado, fuentes y acciones; no exigir frases literales ni variar sinónimos por obligación.",
+    "Los mensajes de cada lead_messages representan mensajes consecutivos del mismo turno; conservar su orden y negaciones.",
+    "Separar fallo del extractor, del esquema enviado, de generación, del revisor, del estado, de lectura y de entrega.",
+    "No confundir un catálogo omitido o una lectura fallida con falta de disponibilidad.",
+    "Ejecutar simulaciones con servicios aislados. Un caso no autoriza mensajes a clientes ni operaciones en Kommo o en la base de datos real.",
+    "Precios, superficies y políticas del fixture son datos congelados de prueba; no sustituyen fuentes comerciales vigentes.",
+    "Los casos históricos requieren reproducirse contra la versión actual antes de declarar una regresión vigente.",
+    "La verificación de estructura del corpus y los contratos locales no certifican la calidad de una conversación con modelos reales.",
+    "derived_boundary_case identifica un control derivado, no un fallo acreditado en un chat. historical_local_reproduction_requires_recheck identifica mecanismos reproducidos localmente en el análisis histórico, sin atribuirlos a una ejecución real no comprobada."
+  ],
+  "sources": {
+    "oct15_runtime": {
+      "kind": "execution_trace_and_user_screenshots",
+      "date": "2026-10-15",
+      "versions": [
+        "343793ebe300b045da6a7c7d823d4bb9d4eee7b9",
+        "f8cbcf70b5d2966fc89494e2e196a55a1245f7c1"
+      ]
+    },
+    "oct13_maintenance": {
+      "kind": "persisted_event_and_code",
+      "event_id": "1a2aaa24-a9ae-49cc-967f-c24a9bdc3cb2",
+      "at": "2026-10-13T11:51:00.671127Z"
+    },
+    "conversation_map": {
+      "kind": "historical_analysis",
+      "path": "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md"
+    },
+    "oct07_pending": {
+      "kind": "historical_analysis",
+      "path": "docs/automatizacion/correcciones-pendientes-conversacion-2026-10-07.md"
+    },
+    "history": {
+      "kind": "user_conversation_and_screenshots",
+      "note": "Incidentes descritos en la conversación y en los registros históricos; no se han vuelto a consultar todos los eventos originales en esta revisión."
+    },
+    "sept_reference": {
+      "kind": "historical_documentation",
+      "path": "docs/automatizacion/README.md"
+    },
+    "sept22_analysis": {
+      "kind": "historical_diagnosis_and_local_reproduction",
+      "paths": [
+        "docs/automatizacion/08-regresion-conversacional-2026-09-22.md",
+        "docs/automatizacion/10-diagnostico-conversacion-1058-1124.md"
+      ]
+    }
+  },
+  "fixtures": {
+    "units": [
+      {
+        "unit_number": "202",
+        "category": "departamento",
+        "bedrooms": 3,
+        "bathrooms_full": 2,
+        "floor_number": 2,
+        "area_internal_m2": 120.83,
+        "area_external_m2": 27.03,
+        "published_commercial_price": 250000
+      },
+      {
+        "unit_number": "602",
+        "category": "penthouse",
+        "bedrooms": 3,
+        "bathrooms_full": 2,
+        "floor_number": 6,
+        "area_internal_m2": 142.09,
+        "area_external_m2": 25.3,
+        "published_commercial_price": 550000
+      },
+      {
+        "unit_number": "605",
+        "category": "penthouse",
+        "bedrooms": 3,
+        "bathrooms_full": 3,
+        "floor_number": 6,
+        "area_internal_m2": 140.53,
+        "area_external_m2": 23.01,
+        "published_commercial_price": 539900
+      }
+    ],
+    "general": {
+      "public_name": "La Vilet",
+      "currency": "USD",
+      "physical_stage": "not_started",
+      "visit_destination": "office",
+      "no_direct_project_credit": true
+    },
+    "state_policy": "Cada caso declara cambios sobre un estado sintético. No reutilizar memoria de otro caso. Los importes de entrada son previstos, no fondos comprobados."
+  },
+  "cases": [
+    {
+      "id": "AUT-001",
+      "group": "provider_contract",
+      "title": "HTTP 400 por esquema del redactor incompleto",
+      "status": "corrected_locally_pending_deployment",
+      "source": "oct15_runtime",
+      "evidence": {
+        "event_ids": [
+          "b94b1f5c-16b1-41b7-88a3-8f28d8aa0c8c",
+          "259dc0f9-2ce9-4664-b447-3db6886c09d0"
+        ],
+        "code_version": "f8cbcf70b5d2966fc89494e2e196a55a1245f7c1",
+        "error": "OPENAI_HTTP_400_INVALID_JSON_SCHEMA",
+        "stage": "writer"
+      },
+      "initial_state": {
+        "pending_question": "budget_amount"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cómo es la zona?"
+          ]
+        },
+        {
+          "lead_messages": [
+            "claro"
+          ]
+        }
+      ],
+      "observed": "Dos avisos de recuperación consecutivos; el proveedor rechazó ambas solicitudes antes de redactar.",
+      "diagnosis": "question.properties incluía comparison_categories y comparison_bedrooms, pero question.required no los incluía. La versión anterior 343793e no presentaba esa omisión.",
+      "expected": [
+        "Todos los campos de objetos strict deben figurar en required, incluidos los metadatos de comparación.",
+        "Una pregunta normal sobre la zona llega a generación con un esquema válido.",
+        "Conservar la consulta pendiente si falla el proveedor."
+      ],
+      "forbidden": [
+        "Culpar al mensaje del cliente o al revisor.",
+        "Confundir un JSON Schema inválido enviado con JSON inválido devuelto por el modelo."
+      ],
+      "local_checks": [
+        "src/lib/integrations/automation/provider-schema-contract.test.ts"
+      ]
+    },
+    {
+      "id": "AUT-002",
+      "group": "operations",
+      "title": "Aviso de mantenimiento que no desaparece",
+      "status": "current_observed",
+      "source": "oct13_maintenance",
+      "initial_state": {
+        "event_kind": "maintenance",
+        "status": "uncertain",
+        "requires_review": true,
+        "reason": "TEST_CONTACTS_READ_FAILED"
+      },
+      "turns": [],
+      "observed": "El banner agrupa una consulta de mantenimiento como respuesta pendiente y sigue mostrándola al actualizar.",
+      "diagnosis": "deliveryHealth selecciona cualquier uncertain salvo lock. canResolve requiere cancelled y canReconcile requiere un tipo de envío; maintenance/uncertain no cumple ninguno. No se registró el detalle original de la consulta fallida.",
+      "expected": [
+        "Distinguir mantenimiento de entregas de mensajes.",
+        "Ofrecer una recuperación o revisión apropiada para una lectura fallida y conservar auditoría.",
+        "Una recuperación comprobada no permanece como fallo activo indefinido."
+      ],
+      "forbidden": [
+        "Borrar una entrega incierta para ocultar el aviso.",
+        "Afirmar que refrescar la pantalla repara la consulta.",
+        "Atribuir esta incidencia a un mensaje del cliente."
+      ]
+    },
+    {
+      "id": "AUT-003",
+      "group": "relevance",
+      "title": "Bancos introducidos al consultar alquiler o reventa",
+      "status": "current_observed",
+      "source": "oct15_runtime",
+      "evidence": {
+        "event_id": "8f174ace-6358-435e-b720-e988a81c499b",
+        "code_version": "343793ebe300b045da6a7c7d823d4bb9d4eee7b9"
+      },
+      "initial_state": {
+        "financing_accepted": false,
+        "purchase_budget": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me interesa una vivienda",
+            "Mi objetivo es ocuparla para después",
+            "rentarla o venderla",
+            "¿Hay algún problema con eso?"
+          ]
+        }
+      ],
+      "observed": "La IA añadió una explicación sobre si el banco acepta arriendos futuros como respaldo.",
+      "diagnosis": "El extractor no indicó financiamiento. El contexto del redactor contenía esa cautela bancaria pese a no ser pertinente; el propio redactor la incluyó. text_transformations estaba vacío.",
+      "expected": [
+        "Responder sobre el uso inmobiliario preguntado con la política aplicable.",
+        "Consultar condiciones financieras solo cuando la solicitud o la etapa realmente las requieran."
+      ],
+      "forbidden": [
+        "Inferir crédito de la palabra rentar o de la intención de inversión.",
+        "Afirmar que el código añadió literalmente ese párrafo después del borrador."
+      ]
+    },
+    {
+      "id": "AUT-004",
+      "group": "conversation",
+      "title": "Presupuesto repetido después de una duda de precios",
+      "status": "current_observed",
+      "source": "oct15_runtime",
+      "evidence": {
+        "event_ids": [
+          "8f174ace-6358-435e-b720-e988a81c499b",
+          "ecadd807-2c88-484e-86ae-0d93ba64e61c"
+        ],
+        "code_version": "343793ebe300b045da6a7c7d823d4bb9d4eee7b9"
+      },
+      "initial_state": {
+        "pending_question": "budget_amount",
+        "purchase_budget": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Gracias, ¿qué precio tiene?"
+          ]
+        }
+      ],
+      "observed": "La misma pregunta de presupuesto apareció tras la explicación anterior y de nuevo después de precios.",
+      "diagnosis": "La IA redactó ambos cierres; el plan impuso ask_budget y required=true en los dos turnos. No hubo inserción posterior. El despliegue posterior difirió la captura ante la duda de zona, pero no pudo redactar por AUT-001.",
+      "expected": [
+        "Atender precios y decidir si conviene retomar la captura según la conversación.",
+        "Mantener el presupuesto pendiente internamente sin repetirlo en cada duda.",
+        "Formular la continuación con naturalidad; conservar el significado si se retoma."
+      ],
+      "forbidden": [
+        "Forzar una variación literal en cada mensaje como sustituto de resolver la insistencia."
+      ]
+    },
+    {
+      "id": "AUT-005",
+      "group": "recovery",
+      "title": "Agradecimiento o aceptación tras fallback produce otro fallback",
+      "status": "current_observed",
+      "source": "oct15_runtime",
+      "evidence": {
+        "event_id": "259dc0f9-2ce9-4664-b447-3db6886c09d0",
+        "code_version": "f8cbcf70b5d2966fc89494e2e196a55a1245f7c1"
+      },
+      "initial_state": {
+        "unanswered_messages": [
+          "¿Cómo es la zona?"
+        ],
+        "previous_reply": "Permítanos revisar ese detalle con nuestro equipo para orientarle mejor."
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "claro"
+          ]
+        }
+      ],
+      "observed": "Se recuperó la pregunta sin contestar, se añadió claro y el mismo esquema inválido volvió a fallar.",
+      "expected": [
+        "Conservar y atender la duda original después de recuperar el servicio.",
+        "Gestionar una aceptación del aviso sin duplicar indefinidamente el mismo aviso ni crear operaciones duplicadas.",
+        "Distinguir una configuración inválida persistente de un fallo transitorio."
+      ],
+      "forbidden": [
+        "Tratar claro como un permiso financiero.",
+        "Perder la pregunta original al enviar una contingencia."
+      ]
+    },
+    {
+      "id": "AUT-006",
+      "group": "facts",
+      "title": "Ausencia de política convertida en permiso absoluto",
+      "status": "current_observed",
+      "source": "oct15_runtime",
+      "evidence": {
+        "event_id": "8f174ace-6358-435e-b720-e988a81c499b"
+      },
+      "initial_state": {
+        "rental_resale_policy": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Puedo rentarla o venderla después?"
+          ]
+        }
+      ],
+      "observed": "El bot afirmó que ninguna política lo impide. El revisor señaló que esa afirmación no estaba respaldada.",
+      "expected": [
+        "Usar una política publicada para afirmar una autorización o restricción.",
+        "Si falta, explicar la condición pendiente sin inventar una prohibición ni un permiso universal."
+      ],
+      "forbidden": [
+        "Usar ausencia de evidencia bancaria como prueba de autorización del proyecto."
+      ]
+    },
+    {
+      "id": "AUT-007",
+      "group": "review",
+      "title": "Revisor bloquea pero demostración envía el borrador",
+      "status": "current_observed",
+      "source": "oct15_runtime",
+      "evidence": {
+        "event_id": "8f174ace-6358-435e-b720-e988a81c499b"
+      },
+      "initial_state": {
+        "review_observation_only": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Hay problema en rentarla después?"
+          ]
+        }
+      ],
+      "observed": "El revisor devolvió block por permiso no respaldado; la configuración del proyecto era observation_only, blocking=false, y se envió el borrador.",
+      "expected": [
+        "Explicar en la interfaz que la revisión observada no certifica aprobación.",
+        "Distinguir contactos de demostración y controles de producción según configuración autorizada."
+      ],
+      "forbidden": [
+        "Decir que el revisor aprobó esta afirmación.",
+        "Cambiar silenciosamente el modo de revisión al registrar el caso."
+      ]
+    },
+    {
+      "id": "AUT-008",
+      "group": "greeting",
+      "title": "Doble saludo por añadido del código",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "first_contact": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Saludos",
+            "¿Qué precio tiene?"
+          ]
+        }
+      ],
+      "observed": "El redactor escribió Saludos y el código antepuso Hola.",
+      "expected": [
+        "El redactor produce un único saludo integrado en su mensaje completo."
+      ],
+      "forbidden": [
+        "Añadir otro saludo mediante coincidencias limitadas de palabras."
+      ]
+    },
+    {
+      "id": "AUT-009",
+      "group": "greeting",
+      "title": "Saludo aislado demasiado seco o prefabricado",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "first_contact": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "hola"
+          ]
+        }
+      ],
+      "observed": "Un saludo mínimo no transmitía la presentación y ayuda deseadas.",
+      "expected": [
+        "Saludo amable, identificación de La Vilet y ofrecimiento de ayuda redactados por IA.",
+        "Usar días, tardes o noches solo con hora local verificada; respetar el idioma."
+      ],
+      "forbidden": [
+        "Convertir un ejemplo de saludo en una plantilla literal obligatoria."
+      ]
+    },
+    {
+      "id": "AUT-010",
+      "group": "greeting",
+      "title": "Consulta de bodegas tras reiniciar el lead",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "test_reset": true,
+        "profile_known": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Disculpe",
+            "¿Tienen bodegas?"
+          ]
+        }
+      ],
+      "observed": "Respuesta con Hola y fórmula repetida de brochure, nombre y residencia.",
+      "expected": [
+        "Responder primero la consulta respaldada y enlazar con los datos pendientes de forma amable.",
+        "Distinguir memoria reiniciada de la conversación antigua visible en WhatsApp."
+      ],
+      "forbidden": [
+        "Recuperar automáticamente datos borrados por un reinicio autorizado.",
+        "Afirmar que toda repetición tras reinicio demuestra pérdida espontánea de memoria."
+      ]
+    },
+    {
+      "id": "AUT-011",
+      "group": "style",
+      "title": "Preguntas de perfil con justificación literal repetida",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "name_known": false,
+        "residence_known": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quisiera información del proyecto"
+          ]
+        }
+      ],
+      "observed": "Se repite para compartirle el brochure y brindarle una guía personalizada.",
+      "expected": [
+        "Enviar un objetivo de captura y datos autorizados, con redacción libre y conexión útil.",
+        "Pedir únicamente nombre o residencia realmente faltantes."
+      ],
+      "forbidden": [
+        "Imponer la misma justificación en cada ruta."
+      ]
+    },
+    {
+      "id": "AUT-012",
+      "group": "style",
+      "title": "Exclamaciones y estilo histórico no presentes en el prompt efectivo",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "avoid_unnecessary_exclamations": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Saludos"
+          ]
+        }
+      ],
+      "observed": "Se usaron exclamaciones y la instrucción histórica de evitarlas no aparecía en el prompt efectivo.",
+      "expected": [
+        "Aplicar el estilo configurado al prompt real.",
+        "Distinguir evitar exclamaciones innecesarias de una prohibición absoluta inexistente."
+      ]
+    },
+    {
+      "id": "AUT-013",
+      "group": "language",
+      "title": "Lead escribe en inglés y recibe español",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "conversation_language": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "I want a building"
+          ]
+        }
+      ],
+      "observed": "Se respondió en español con una oferta de brochure sin aclaración inmobiliaria útil.",
+      "expected": [
+        "Responder en inglés a la solicitud y explicar brevemente la oferta real.",
+        "Conservar el idioma en respuestas posteriores breves, cifras y nombres."
+      ],
+      "forbidden": [
+        "Ofrecer construcción por encargo o venta de un edificio entero sin fuente."
+      ]
+    },
+    {
+      "id": "AUT-014",
+      "group": "style",
+      "title": "Redacción redundante, incompleta y con rangos mal formados",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "group": "residential",
+        "purchase_budget": 300000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Busco vivienda",
+            "¿Qué precios tienen?"
+          ]
+        }
+      ],
+      "observed": "Vivienda para vivir; Con gusto aislado; hay suites; ofrecen entre 120,83 m²; comparten sala.",
+      "expected": [
+        "Cortesía conectada con la ayuda concreta y preferencias formuladas con naturalidad.",
+        "Un valor único no se presenta como rango; una sala privada no se describe como compartida."
+      ],
+      "forbidden": [
+        "Resolver calidez únicamente anteponiendo Perfecto a una captura rígida."
+      ]
+    },
+    {
+      "id": "AUT-015",
+      "group": "state",
+      "title": "Vivienda o local preguntado después de elegir vivienda",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "group": "residential",
+        "purchase_purpose": "investment"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quiero un departamento para arrendarlo por Airbnb",
+            "¿Los huéspedes pueden usar la piscina?"
+          ]
+        }
+      ],
+      "observed": "Después de responder, el bot preguntó vivienda o local; volvió a hacerlo en la siguiente duda.",
+      "expected": [
+        "Conservar vivienda y propósito de inversión; no reabrir un dato conocido.",
+        "Responder la consulta actual antes de cualquier continuación pertinente."
+      ]
+    },
+    {
+      "id": "AUT-016",
+      "group": "pool",
+      "title": "Elegibilidad de huéspedes sin condición publicada",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "pool_policy": "residents_only",
+        "temporary_guest_policy": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Mis huéspedes de Airbnb pueden usar la piscina?"
+          ]
+        }
+      ],
+      "observed": "El bot repetía que no podía confirmar sin explicar cómo obtener la condición faltante.",
+      "expected": [
+        "Decir claramente que la piscina está destinada a residentes.",
+        "No equiparar huéspedes temporales con residentes sin una política aplicable.",
+        "Indicar cómo revisar una condición pendiente sin inventar que la consulta ya fue enviada."
+      ]
+    },
+    {
+      "id": "AUT-017",
+      "group": "pool",
+      "title": "Interruptor de acceso de huéspedes temporales",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "pool_temporary_guests_allowed": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Mis huéspedes de Airbnb pueden usar la piscina?"
+          ]
+        }
+      ],
+      "observed": "Se solicitó una política editable para permitir o restringir el acceso.",
+      "expected": [
+        "Con false, explicar la exclusión de huéspedes temporales según la regla aprobada.",
+        "Repetir con true y comprobar que se informa su acceso permitido.",
+        "Distinguir inquilinos que residen en el edificio de huéspedes temporales.",
+        "No extender una regla de piscina al gimnasio ni a cobros."
+      ]
+    },
+    {
+      "id": "AUT-018",
+      "group": "amenities",
+      "title": "Cobros de acceso confundidos con precio de compra",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "brochure_sent": true,
+        "down_payment": 60000,
+        "common_area_access_policy": "residents_or_owners_no_extra_access_fee"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Vi estos espacios en el brochure, ¿tengo que pagar más para acceder?"
+          ]
+        }
+      ],
+      "observed": "Se repitieron precios de viviendas, explicación del presupuesto y enlace al brochure.",
+      "expected": [
+        "Responder la política de acceso publicada; distinguir acceso, alícuota y mantenimiento.",
+        "Clasificar la duda como common_area_access sin redefinir presupuesto o entrada."
+      ],
+      "forbidden": [
+        "Garantizar mantenimiento gratuito.",
+        "Confundir mención del material con solicitud de reenvío."
+      ]
+    },
+    {
+      "id": "AUT-019",
+      "group": "materials",
+      "title": "Brochure reenviado por mencionar su nombre",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "brochure_sent": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Estoy viendo el brochure que me envió, ¿tiene gimnasio?"
+          ]
+        }
+      ],
+      "observed": "material_request era none, pero una regla por palabra brochure añadió el enlace al final.",
+      "expected": [
+        "El redactor responde sin reenvío automático.",
+        "Como control, una solicitud explícita de reenviar sí permite incluirlo."
+      ]
+    },
+    {
+      "id": "AUT-020",
+      "group": "profile",
+      "title": "Origen convertido en residencia actual",
+      "status": "historical_requires_recheck",
+      "source": "oct07_pending",
+      "initial_state": {
+        "profile_known": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me llamo Carlos y soy de Cuenca"
+          ]
+        }
+      ],
+      "observed": "La misma frase acreditó origen y residencia actual; se entregó material sin aclarar residencia.",
+      "expected": [
+        "Conservar el nombre y tratar la residencia como pendiente si solo expresa origen.",
+        "Como control, vivo actualmente en Cuenca acredita residencia sin repetir la captura."
+      ]
+    },
+    {
+      "id": "AUT-021",
+      "group": "profile",
+      "title": "Brochure automático antes de completar el perfil acordado",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "name_known": true,
+        "residence_known": false,
+        "brochure_sent": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Qué precio tienen los espacios?"
+          ]
+        }
+      ],
+      "observed": "El plan marcó brochure_required mientras todavía pedía la residencia.",
+      "expected": [
+        "Atender precios y pedir solo residencia si la captura está autorizada.",
+        "Diferir el material automático según política vigente.",
+        "Respetar excepciones de solicitud directa, negativa de datos, material ya enviado y límite de recordatorios."
+      ]
+    },
+    {
+      "id": "AUT-022",
+      "group": "state",
+      "title": "Pérdida de alternativa aceptada por persistencia de memoria",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "requested_bedrooms": 5,
+        "offered_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "De 3 opciones me parece bien"
+          ]
+        }
+      ],
+      "observed": "Fallos de guardado y filtros HTTP con resumen completo impedían conservar la aceptación.",
+      "expected": [
+        "Guardar de forma fiable la alternativa aceptada con su procedencia.",
+        "Una actualización concurrente no borra otras preferencias ni oculta un fallo de persistencia."
+      ]
+    },
+    {
+      "id": "AUT-023",
+      "group": "state",
+      "title": "Cambiar categoría borra dormitorios conocidos",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Penthouse",
+            "Son más espaciosos",
+            "Mi familia es grande"
+          ]
+        }
+      ],
+      "observed": "Se sustituyó un registro de preferencias con dormitorios vacíos y volvió a preguntarse la cantidad.",
+      "expected": [
+        "Actualizar categoría por campo conservando dormitorios, entrada y restricciones existentes."
+      ]
+    },
+    {
+      "id": "AUT-024",
+      "group": "selection",
+      "title": "Selección relativa del inmueble con más baños no se guarda",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "offered_units": [
+          "602",
+          "605"
+        ],
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Prefiero el que tiene más baños",
+            "¿Qué precio tiene?"
+          ]
+        }
+      ],
+      "observed": "Se respondió el precio del 605, pero no quedó seleccionado en memoria.",
+      "expected": [
+        "Resolver 605 y guardarlo como unidad de interés, sin convertirlo en reserva.",
+        "Responder su precio desde la misma ficha."
+      ]
+    },
+    {
+      "id": "AUT-025",
+      "group": "references",
+      "title": "Sí sin referente estructurado vuelve a pedir dormitorios",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "last_question": "¿Le funciona esa cantidad de dormitorios?",
+        "proposed_bedrooms": 3,
+        "unit_of_interest": "605"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, está bien"
+          ]
+        }
+      ],
+      "observed": "La pregunta guardada no incluía cantidad ni unidad; después se preguntó cuántos dormitorios necesita.",
+      "expected": [
+        "Guardar el significado y referente de la pregunta realmente enviada.",
+        "Resolver la aceptación de tres sin reabrir ese dato."
+      ]
+    },
+    {
+      "id": "AUT-026",
+      "group": "state",
+      "title": "Pedir detalles o agradecer borra una unidad elegida",
+      "status": "historical_requires_recheck",
+      "source": "oct07_pending",
+      "initial_state": {
+        "selected_unit": "602",
+        "category": "penthouse",
+        "down_payment": 200000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, deme más información"
+          ]
+        },
+        {
+          "lead_messages": [
+            "Sí sí me parece bien"
+          ]
+        }
+      ],
+      "observed": "Una aceptación se normalizó a búsqueda general, incluyó otros dormitorios y dejó selected_ids vacío.",
+      "expected": [
+        "Mantener 602, categoría y entrada ante detalles, agradecimientos y aceptación sin cambio.",
+        "No convertir operation none en una nueva búsqueda que reemplace decisiones."
+      ]
+    },
+    {
+      "id": "AUT-027",
+      "group": "references",
+      "title": "Pregunta con varias categorías aceptada con un sí ambiguo",
+      "status": "derived_boundary_case",
+      "source": "conversation_map",
+      "initial_state": {
+        "last_question": "¿Prefiere departamentos o penthouses?"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí"
+          ]
+        }
+      ],
+      "observed": "Una confirmación genérica podía tomarse como elección de una categoría.",
+      "expected": [
+        "Aclarar cuál de los tipos prefiere sin seleccionar arbitrariamente.",
+        "Distinguir de sí a una propuesta concreta de explorar departamentos."
+      ]
+    },
+    {
+      "id": "AUT-028",
+      "group": "priorities",
+      "title": "Amplitud prioritaria e indiferencia de dormitorios ignoradas",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "category": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "La cantidad de dormitorios no es importante, quiero algo espacioso"
+          ]
+        },
+        {
+          "lead_messages": [
+            "Sí, me parece bien priorizar el espacio"
+          ]
+        }
+      ],
+      "observed": "Tras reconocer la amplitud, el bot volvió a capturar dormitorios.",
+      "expected": [
+        "Guardar amplitud como prioridad y dormitorios sin restricción.",
+        "Permitir elegir tipo y mostrar sus opciones de mayor área interior.",
+        "Los tres dormitorios de una ficha no se convierten en preferencia declarada del cliente."
+      ]
+    },
+    {
+      "id": "AUT-029",
+      "group": "search",
+      "title": "Mínimo dos dormitorios y trece resultados tratados como ausencia",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "priority": "interior_space"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Por lo mínimo creo que 2 dormitorios",
+            "mínimo"
+          ]
+        }
+      ],
+      "observed": "La búsqueda encontró trece viviendas, pero el plan consultó offered vacío y dijo que no tenía opciones verificadas.",
+      "expected": [
+        "Conservar operador mínimo e incluir dos y tres dormitorios.",
+        "Usar la búsqueda válida para proponer opciones ordenadas por la prioridad."
+      ],
+      "forbidden": [
+        "Pedir flexibilizar una restricción que sí tiene coincidencias."
+      ]
+    },
+    {
+      "id": "AUT-030",
+      "group": "search",
+      "title": "Elección de penthouse en mensajes agrupados vacía opciones",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "offered_units": [
+          "602",
+          "605"
+        ],
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Penthouse",
+            "Son más espaciosos",
+            "Para mi familia prefiero esos"
+          ]
+        }
+      ],
+      "observed": "El tratamiento de elección corta no cubría explicaciones agrupadas y la siguiente consulta usó un conjunto vacío.",
+      "expected": [
+        "Conservar los referentes ofrecidos y la categoría reconocida en todo el lote."
+      ],
+      "forbidden": [
+        "Afirmar que no existen penthouses de tres por perder el conjunto de referencia."
+      ]
+    },
+    {
+      "id": "AUT-031",
+      "group": "budget",
+      "title": "Entrada tratada como tope del precio de compra",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "down_payment": 50000,
+        "financing_accepted": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Busco unos cinco dormitorios, más o menos"
+          ]
+        }
+      ],
+      "observed": "Se buscó con 50.000 como precio máximo y quedaron fuera alternativas de tres dormitorios.",
+      "expected": [
+        "Separar entrada de presupuesto total y evaluar opciones con su rol monetario correcto.",
+        "Presentar alternativas verificadas ante una preferencia flexible no disponible."
+      ]
+    },
+    {
+      "id": "AUT-032",
+      "group": "budget",
+      "title": "Monto explícito de entrada sin rol financiero coherente",
+      "status": "historical_requires_recheck",
+      "source": "oct07_pending",
+      "initial_state": {
+        "purchase_budget": 200000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Esos 200 mil como entrada inicial"
+          ]
+        }
+      ],
+      "observed": "El texto reconocía entrada, pero el estado conservaba amount ambiguo sin financing_amounts.",
+      "expected": [
+        "Guardar entrada prevista y su evidencia actual de forma coherente en todos los consumidores.",
+        "No confundirla con préstamo ni fondos comprobados."
+      ]
+    },
+    {
+      "id": "AUT-033",
+      "group": "budget",
+      "title": "Referencia abreviada a monto conocido pierde magnitud",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "confirmed_amount": 100000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, esos 100 serían la entrada"
+          ]
+        }
+      ],
+      "observed": "Las referencias monetarias abreviadas podían interpretarse como cifras nuevas o quedar ambiguas.",
+      "expected": [
+        "Resolver la referencia al importe confirmado mediante su ID y significado.",
+        "No convertir 100.000 en 100 ni aceptar una referencia contradictoria."
+      ]
+    },
+    {
+      "id": "AUT-034",
+      "group": "budget",
+      "title": "Cobertura parcial del presupuesto presentada como universal",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "purchase_budget": 300000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Me alcanza para los tipos que tienen?"
+          ]
+        }
+      ],
+      "observed": "La suficiencia podía ampliarse desde unas unidades al catálogo o a una categoría completa.",
+      "expected": [
+        "Limitar toda afirmación al conjunto comprobado y sus precios conocidos.",
+        "No afirmar universalidad si alguna unidad del alcance tiene precio desconocido."
+      ]
+    },
+    {
+      "id": "AUT-035",
+      "group": "recommendations",
+      "title": "Muchos dormitorios sin alternativa útil o con advertencia familiar",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "purchase_budget": 300000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quisiera nueve dormitorios"
+          ]
+        }
+      ],
+      "observed": "Se preguntaba si la cantidad era indispensable o se advertía que una familia podía quedar ajustada, sin orientar bien.",
+      "expected": [
+        "Explicar brevemente el límite real y ofrecer alternativas cercanas verificadas.",
+        "Distinguir departamentos dentro del presupuesto y penthouses más amplios fuera de él si corresponde.",
+        "Preguntar cuál explorar sin garantizar adecuación para la familia."
+      ],
+      "forbidden": [
+        "Inferir automáticamente prioridad de amplitud o eliminar un presupuesto indispensable."
+      ]
+    },
+    {
+      "id": "AUT-036",
+      "group": "recommendations",
+      "title": "Elegir categoría fuera del presupuesto reinicia el flujo",
+      "status": "derived_boundary_case",
+      "source": "history",
+      "initial_state": {
+        "purchase_budget": 300000,
+        "offered_categories": [
+          "departamento",
+          "penthouse"
+        ],
+        "outside_budget_disclosed": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Prefiero los penthouses más amplios"
+          ]
+        }
+      ],
+      "observed": "El cambio podía borrar preferencias o confundirse con consentimiento financiero.",
+      "expected": [
+        "Conservar categoría nueva, presupuesto original y necesidades conocidas.",
+        "Explicar la diferencia comprobada y ofrecer orientación financiera cuando sea pertinente."
+      ],
+      "forbidden": [
+        "Convertir la elección de categoría en aceptación de crédito."
+      ]
+    },
+    {
+      "id": "AUT-037",
+      "group": "recommendations",
+      "title": "Petición de recomendación responde con otro permiso genérico",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "purchase_budget": 300000,
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Recomiéndeme un departamento",
+            "Y dígame el precio por metro"
+          ]
+        }
+      ],
+      "observed": "Se recomendó explorar departamentos y se volvió a preguntar si deseaba explorarlos antes de elegir una unidad.",
+      "expected": [
+        "Recomendar una unidad concreta verificada compatible cuando exista base suficiente.",
+        "Responder el cálculo solicitado y explicar brevemente la recomendación."
+      ]
+    },
+    {
+      "id": "AUT-038",
+      "group": "comparison",
+      "title": "Comparación aceptada entre departamentos y penthouses incompleta",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "purchase_budget": 500000,
+        "pending_comparison_categories": [
+          "departamento",
+          "penthouse"
+        ],
+        "comparison_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, hagamos la comparación, estoy indeciso"
+          ]
+        }
+      ],
+      "observed": "Se compararon solo 602 y 605 y se volvió a preguntar si deseaba incluir departamentos.",
+      "expected": [
+        "Comparar ambas categorías aceptadas, diferencias de área, baños y presupuesto pertinentes.",
+        "Guardar la invitación con property_comparison y sus referentes."
+      ]
+    },
+    {
+      "id": "AUT-039",
+      "group": "financing",
+      "title": "Aceptación financiera con duda interpretada como no aceptación",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "pending_question": "financing_invitation"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, está bien, pero ¿cómo funciona?"
+          ]
+        }
+      ],
+      "observed": "Se explicaba y se volvía a preguntar si quería financiamiento.",
+      "expected": [
+        "Conservar la aceptación explícita y responder la duda antes del siguiente dato pendiente."
+      ],
+      "forbidden": [
+        "Tomar solo si me aprueban como consentimiento incondicional."
+      ]
+    },
+    {
+      "id": "AUT-040",
+      "group": "financing",
+      "title": "Consulta de contado seguida de insistencia financiera",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "financing_accepted": true,
+        "down_payment_pending": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Y si pago al contado?"
+          ]
+        }
+      ],
+      "observed": "Se volvía inmediatamente a pedir entrada o a imponer financiamiento.",
+      "expected": [
+        "Atender contado con condiciones publicadas antes de retomar otro paso.",
+        "La consulta por contado no cambia automáticamente modalidad ni cancela un consentimiento previo."
+      ]
+    },
+    {
+      "id": "AUT-041",
+      "group": "financing",
+      "title": "Consulta sobre aprobación recibe cuotas no solicitadas",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "financing_accepted": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cómo sé si me aprobarían?"
+          ]
+        }
+      ],
+      "observed": "Se introducían cuotas o capturas sin atender la aprobación.",
+      "expected": [
+        "Explicar evaluación de la entidad y límites de lo conocido.",
+        "Dejar capturas pendientes sin insistencia inmediata."
+      ],
+      "forbidden": [
+        "Prometer aprobación, tasa o cuota definitiva."
+      ]
+    },
+    {
+      "id": "AUT-042",
+      "group": "financing",
+      "title": "Entrada pendiente reemplaza presupuesto total",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "purchase_budget": 500000,
+        "selected_unit": "605",
+        "financing_accepted": true,
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Aún no tengo decidido cuánto dar de entrada"
+          ]
+        }
+      ],
+      "observed": "Se perdía el presupuesto de 500.000 y se reabrían dormitorios o selección.",
+      "expected": [
+        "Registrar entrada sin definir por separado y conservar presupuesto, 605 y tres dormitorios."
+      ]
+    },
+    {
+      "id": "AUT-043",
+      "group": "financing",
+      "title": "Elegir JEP con entrada indefinida termina la interacción",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "selected_unit": "605",
+        "financing_accepted": true,
+        "down_payment_status": "not_defined"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Entonces la JEP por favor"
+          ]
+        }
+      ],
+      "observed": "Cuando tenga definida la entrada podremos continuar, sin otro siguiente paso.",
+      "expected": [
+        "Conservar JEP y continuar con orientación o datos realmente pendientes autorizados.",
+        "Aplazar únicamente cálculos concretos que requieren el aporte; no tratarlo como cero."
+      ]
+    },
+    {
+      "id": "AUT-044",
+      "group": "financing",
+      "title": "Pregunta por otra entidad presentada como prohibición bancaria",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "project_assistance_partners": [
+          "Banco Pichincha",
+          "Cooperativa JEP"
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿No tienen Banco del Austro?",
+            "¿Solo puedo escoger esas dos?"
+          ]
+        }
+      ],
+      "observed": "Se presentaron los canales disponibles como únicas opciones generales del cliente.",
+      "expected": [
+        "Distinguir entidades que el proyecto puede gestionar de la libertad o condiciones externas no verificadas.",
+        "No afirmar convenios ni gestiones con una entidad no configurada."
+      ]
+    },
+    {
+      "id": "AUT-045",
+      "group": "financing",
+      "title": "Dos camas activan una respuesta sobre dos entidades",
+      "status": "historical_requires_recheck",
+      "source": "oct07_pending",
+      "initial_state": {
+        "selected_unit": "602"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Tengo cinco hijos",
+            "¿Pueden ir dos camas en un cuarto?"
+          ]
+        }
+      ],
+      "observed": "Una coincidencia limitada con solo y dos activó una respuesta financiera ajena a la consulta.",
+      "expected": [
+        "Interpretar la duda de distribución sin activar bancos.",
+        "No inferir dormitorios de cantidad de hijos ni total de ocupantes."
+      ]
+    },
+    {
+      "id": "AUT-046",
+      "group": "review",
+      "title": "Falso commercial_next_question_mismatch con la misma pregunta",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "plan_question_id": "financing_invitation",
+        "plan_question_act": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cómo puedo continuar?"
+          ]
+        }
+      ],
+      "observed": "El revisor aprobó, pero el código comparó acto vacío con financing y rechazó una pregunta idéntica a la prevista.",
+      "expected": [
+        "Conservar metadatos coherentes sin rechazar por inferencias limitadas de palabras.",
+        "Separar observación del código y veredicto de la IA en la interfaz."
+      ]
+    },
+    {
+      "id": "AUT-047",
+      "group": "review",
+      "title": "Revisor contradice su propia evidencia sobre superficies",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "verified_units": [
+          "602",
+          "605"
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Qué áreas tienen esos penthouses?"
+          ]
+        }
+      ],
+      "observed": "Se marcaron superficies como error mientras la explicación reconocía su respaldo.",
+      "expected": [
+        "Revisar cifra, unidad, sujeto y alcance en la misma fuente.",
+        "Reparar metadatos contradictorios sin sustituir una respuesta factual válida por otro mensaje."
+      ]
+    },
+    {
+      "id": "AUT-048",
+      "group": "review",
+      "title": "Revisión de estilo reescribe o bloquea contenido válido",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "writer_reply_factually_supported": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quisiera información"
+          ]
+        }
+      ],
+      "observed": "Controles editoriales del revisor y reparaciones cambiaban tono y preguntas del redactor.",
+      "expected": [
+        "El revisor comprueba hechos y promesas con autoridad limitada.",
+        "El redactor conserva el mensaje completo; una observación de estilo no se presenta como falsedad."
+      ]
+    },
+    {
+      "id": "AUT-049",
+      "group": "extractor",
+      "title": "Cita histórica usada como declaración nueva",
+      "status": "historical_requires_recheck",
+      "source": "oct07_pending",
+      "initial_state": {
+        "selected_unit": "602",
+        "down_payment": 200000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Pero ya le dije que los 200 mil son de entrada"
+          ]
+        }
+      ],
+      "observed": "El extractor mezcló una selección antigua con el mensaje actual; la reparación mantuvo la cita inválida y falló antes del redactor.",
+      "expected": [
+        "Mantener memoria histórica sin citarla como declaración actual.",
+        "Reparar los bloques inválidos conservando datos válidos y su procedencia."
+      ]
+    },
+    {
+      "id": "AUT-050",
+      "group": "extractor",
+      "title": "Preferencias separadas por jubilación producen cita no contigua",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "category": "departamento"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quiero lo más bonito",
+            "Soy jubilada de Estados Unidos",
+            "Y quiero tener la mejor vista"
+          ]
+        }
+      ],
+      "observed": "Se citaron extremos omitiendo un mensaje intermedio; la validación detuvo el turno antes de redactar.",
+      "expected": [
+        "Reconstruir el tramo actual completo o reparar la evidencia sin cambiar su sentido.",
+        "Conservar prioridad de vistas y responder con datos respaldados."
+      ],
+      "forbidden": [
+        "Culpar a un carácter extraño sin evidencia."
+      ]
+    },
+    {
+      "id": "AUT-051",
+      "group": "extractor",
+      "title": "Selección de 605 dividida en cinco mensajes falla tras reparación",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "offered_units": [
+          "602",
+          "605"
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "No, los penthouses me agradan más",
+            "Creo que se ajustan a lo que busco",
+            "El baño extra me agrada",
+            "O sea el que tiene un baño extra"
+          ]
+        }
+      ],
+      "observed": "Se identificó 605, pero la cita no contigua no pasó; la reparación tampoco conservó una selección válida y se envió fallback.",
+      "expected": [
+        "Revisar evidencia del turno completo conservando la elección semántica correcta.",
+        "Persistir 605 después de validar, sin convertir seleccionar en comparar."
+      ]
+    },
+    {
+      "id": "AUT-052",
+      "group": "extractor",
+      "title": "Formato de cita cambia sin cambiar significado",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "offered_units": [
+          "602",
+          "605"
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Prefiero penthouse",
+            "El de tres baños"
+          ]
+        }
+      ],
+      "observed": "CRLF, líneas vacías, comillas o espacios equivalentes podían impedir validar una selección correcta.",
+      "expected": [
+        "Admitir equivalencias de formato verificables con una fuente actual única.",
+        "No modificar cifras, orden, negaciones ni atribuir consentimiento mediante esta reparación."
+      ]
+    },
+    {
+      "id": "AUT-053",
+      "group": "extractor",
+      "title": "IDs de evidencia que omiten una negación",
+      "status": "derived_boundary_case",
+      "source": "conversation_map",
+      "initial_state": {
+        "offered_units": [
+          "602",
+          "605"
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Prefiero el 605",
+            "No lo elijo todavía",
+            "Quiero conocer sus condiciones"
+          ]
+        }
+      ],
+      "observed": "Una reparación demasiado amplia podría seleccionar usando solo los extremos.",
+      "expected": [
+        "Rechazar fuentes fuera de orden, inexistentes, históricas o que omiten una negación relevante.",
+        "Releer el tramo completo y mantener consulta sin selección si ese es el sentido."
+      ]
+    },
+    {
+      "id": "AUT-054",
+      "group": "extractor",
+      "title": "Bloque secundario ambiguo impide responder información válida",
+      "status": "derived_boundary_case",
+      "source": "conversation_map",
+      "initial_state": {
+        "selected_unit": "605",
+        "purchase_budget": 500000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Dónde está el proyecto?",
+            "Me interesa ese, aunque no sé cuál de los dos"
+          ]
+        }
+      ],
+      "observed": "Un bloque de preferencia no recuperable podía detener toda la respuesta.",
+      "expected": [
+        "Una aclaración certificada por la IA puede conservar la consulta válida y preguntar el referente ambiguo.",
+        "Mantener el bloqueo si afecta dinero, identidad, permisos o acciones sin validar."
+      ]
+    },
+    {
+      "id": "AUT-055",
+      "group": "extractor",
+      "title": "Salida vacía, truncada o JSON inválido del extractor",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "provider_fault": "empty_or_incomplete_extractor_output"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me interesa el de tres baños"
+          ]
+        }
+      ],
+      "observed": "Errores de generación podían terminar en fallback sin una recuperación limitada del extractor.",
+      "expected": [
+        "Como máximo una recuperación adicional de contenido dentro del mismo plazo.",
+        "No aceptar datos parciales no validados ni ejecutar acciones duplicadas.",
+        "No reintentar autenticación o esquema de solicitud inválido como si fuera truncamiento."
+      ]
+    },
+    {
+      "id": "AUT-056",
+      "group": "recovery",
+      "title": "Fallback promete una gestión no comprobada o añade cierre rechazado",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "generation_failed": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me interesa el 605"
+          ]
+        }
+      ],
+      "observed": "La contingencia hablaba de una bandeja o asesor y añadía un cierre que el responsable rechazó.",
+      "expected": [
+        "En español usar el aviso aprobado: Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.",
+        "Conservar comprobaciones reales de derivación y permiso; no inventar envío al equipo.",
+        "Respetar el idioma guardado."
+      ]
+    },
+    {
+      "id": "AUT-057",
+      "group": "views",
+      "title": "Descripción positiva general de vistas se omite por falta de ranking",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "project_views_description": "descripción positiva aprobada de vistas en áreas comunes",
+        "unit_view_ranking": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quiero la mejor vista"
+          ]
+        }
+      ],
+      "observed": "La respuesta se limitó a decir que no podía asegurar cuál era la mejor.",
+      "expected": [
+        "Comunicar la descripción positiva respaldada con su alcance.",
+        "Proponer revisar orientación o plantas pertinentes sin inventar una mejor vista por unidad."
+      ]
+    },
+    {
+      "id": "AUT-058",
+      "group": "area",
+      "title": "Precio por metro rechazado pese a tener operandos",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "selected_unit": "202"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿A cuánto venden el metro cuadrado?"
+          ]
+        }
+      ],
+      "observed": "Se respondió que no había un precio único y no se calculó la referencia de la unidad.",
+      "expected": [
+        "Calcular un promedio verificable con precio y superficies de la misma ficha.",
+        "Explicar la base utilizada y distinguir promedio calculado de tarifa oficial."
+      ]
+    },
+    {
+      "id": "AUT-059",
+      "group": "area",
+      "title": "Exterior excluido sin ofrecer suma y promedio total",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "selected_unit": "202"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Por qué no incluyen el área exterior?",
+            "¿Calculan por toda el área o por interior y exterior?"
+          ]
+        }
+      ],
+      "observed": "Se insistió en que exterior no es interior sin atender la comparación económica pedida.",
+      "expected": [
+        "Mostrar 120,83 interiores, 27,03 exteriores y suma calculada 147,86 m².",
+        "Para el fixture de 250.000, calcular aproximadamente 1.690,79 USD/m² sobre ambas áreas.",
+        "Separar ese promedio del interior y del área total oficial si existe."
+      ]
+    },
+    {
+      "id": "AUT-060",
+      "group": "area",
+      "title": "Exterior desconocido tratado como cero o promedio con fichas mezcladas",
+      "status": "derived_boundary_case",
+      "source": "conversation_map",
+      "initial_state": {
+        "unit_area_external_m2": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cuánto cuesta por metro contando todo?"
+          ]
+        }
+      ],
+      "observed": "La corrección de cálculos requiere evitar totales falsos o relaciones entre unidades distintas.",
+      "expected": [
+        "Mantener exterior desconocido y explicar qué base puede calcularse.",
+        "Precio y área deben pertenecer a la misma unidad; usar redondeo consistente."
+      ],
+      "forbidden": [
+        "Suponer exterior cero o mezclar el precio de 605 con el área de 602."
+      ]
+    },
+    {
+      "id": "AUT-061",
+      "group": "comparison",
+      "title": "Comparación con competidor sin datos verificados",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "competitor_offer_verified": false,
+        "selected_unit": "202"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "En otro edificio me ofrecen más espacio por 200.000",
+            "¿Qué diferencia hay con ustedes?"
+          ]
+        }
+      ],
+      "observed": "La comparación derivó en advertencias y repetición de la alternativa en lugar de una orientación útil.",
+      "expected": [
+        "Comparar características propias comprobadas y explicar qué datos del tercero faltan.",
+        "No certificar ni desacreditar la oferta ajena; no mezclar bases de superficie en USD/m²."
+      ]
+    },
+    {
+      "id": "AUT-062",
+      "group": "floor",
+      "title": "Número de pisos respondido con pisos de opciones ofrecidas",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "offered_floors": [
+          2,
+          3,
+          4
+        ],
+        "project_floor_information": "fuente completa separada"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cuántas plantas son?"
+          ]
+        }
+      ],
+      "observed": "Se repitió segunda, tercera y cuarta y se volvió a preguntar cuál quería.",
+      "expected": [
+        "Distinguir altura o composición del edificio de plantas con unidades compatibles.",
+        "Responder el alcance solicitado con la fuente adecuada y posponer la captura repetida."
+      ]
+    },
+    {
+      "id": "AUT-063",
+      "group": "floor",
+      "title": "Pregunta de planta cuando solo existe una compatible",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "category": "penthouse",
+        "accepted_bedrooms": 3,
+        "compatible_floors": [
+          6
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quiero ver los penthouses de tres dormitorios"
+          ]
+        }
+      ],
+      "observed": "El flujo podía pedir elegir una planta inexistente como decisión real.",
+      "expected": [
+        "Indicar sexta planta y presentar las unidades pertinentes sin pedir otra elección de planta."
+      ]
+    },
+    {
+      "id": "AUT-064",
+      "group": "floor",
+      "title": "Planta solicitada no disponible y alternativa sin aceptación",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "accepted_bedrooms": 3,
+        "purchase_budget": 300000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quiero quinta planta"
+          ]
+        }
+      ],
+      "observed": "La alternativa podía introducir otra planta o reducir dormitorios sin permiso.",
+      "expected": [
+        "Ofrecer una alternativa concreta verificada y conservar requisitos.",
+        "Aceptar un cambio de planta no cambia dormitorios; rechazarlo tampoco autoriza reducirlos."
+      ]
+    },
+    {
+      "id": "AUT-065",
+      "group": "price",
+      "title": "Precio de unidad no comunicado tras seleccionar y mostrar recorrido",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "selected_unit": "605",
+        "tour_available": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "El de tres baños por favor"
+          ]
+        }
+      ],
+      "observed": "Se compartía material o se avanzaba sin el precio necesario de la unidad elegida.",
+      "expected": [
+        "Comunicar el precio autorizado y el material específico pertinente sin reabrir selección."
+      ]
+    },
+    {
+      "id": "AUT-066",
+      "group": "price",
+      "title": "Descuento publicado no explicado o restado dos veces",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "published_price_includes_launch_discount": true,
+        "discount_policy_active": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Ese precio tiene descuento?"
+          ]
+        }
+      ],
+      "observed": "Una promoción configurada no se comunicaba; aplicar otra resta podía duplicarla.",
+      "expected": [
+        "Usar la política publicada, su base, alcance, vigencia y condiciones.",
+        "Distinguir descuento incluido de adicional y petición de trato personalizado."
+      ]
+    },
+    {
+      "id": "AUT-067",
+      "group": "price",
+      "title": "Aviso referencial repetido o añadido pese a estar desactivado",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "price_notice_enabled": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Qué cuesta el 605?"
+          ]
+        }
+      ],
+      "observed": "La advertencia podía repetirse por varias capas o ignorar el interruptor.",
+      "expected": [
+        "Respetar configuración común a redactor y controles.",
+        "Con activación, conservar una condición colectiva pertinente sin duplicarla.",
+        "Explicar condiciones comerciales reales si se preguntan aunque el aviso rutinario esté apagado."
+      ]
+    },
+    {
+      "id": "AUT-068",
+      "group": "scope",
+      "title": "Precios, ubicación o condiciones introducidos sin solicitud",
+      "status": "historical_requires_recheck",
+      "source": "oct07_pending",
+      "initial_state": {
+        "selected_unit": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quisiera información general"
+          ]
+        }
+      ],
+      "observed": "Una consulta general recibía precios de una unidad, cifras de obra o detalles no necesarios.",
+      "expected": [
+        "Presentación breve aprobada y datos de perfil pendientes autorizados.",
+        "No usar datos disponibles como obligación de recitarlos ni seleccionar una unidad por iniciativa del bot."
+      ]
+    },
+    {
+      "id": "AUT-069",
+      "group": "layout",
+      "title": "Cabida de camas inferida de superficie total o de un enlace",
+      "status": "historical_requires_recheck",
+      "source": "oct07_pending",
+      "initial_state": {
+        "selected_unit": "602",
+        "bedroom_dimensions_known": false,
+        "tour_link_sent": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Caben dos camas en un cuarto?"
+          ]
+        }
+      ],
+      "observed": "Se corría el riesgo de garantizar cabida por la amplitud total o por compartir un plano no leído.",
+      "expected": [
+        "Explicar que faltan medidas de habitación y camas.",
+        "Ofrecer revisar distribución por un canal habilitado sin prometer planos no confirmados."
+      ]
+    },
+    {
+      "id": "AUT-070",
+      "group": "visits",
+      "title": "Duda informativa confundida con indecisión o cita",
+      "status": "derived_boundary_case",
+      "source": "oct07_pending",
+      "initial_state": {
+        "selected_unit": "605",
+        "visit_requested": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cómo es la distribución?"
+          ]
+        }
+      ],
+      "observed": "Una duda podía activar invitación de visita o tratarse como indecisión por rutina.",
+      "expected": [
+        "Atender la duda sin inventar indecisión ni solicitud de cita.",
+        "Como control, dificultad explícita entre 602 y 605 puede justificar orientación opcional."
+      ]
+    },
+    {
+      "id": "AUT-071",
+      "group": "visits",
+      "title": "Prometer visita a inmueble terminado con obra no iniciada",
+      "status": "derived_boundary_case",
+      "source": "oct07_pending",
+      "initial_state": {
+        "physical_stage": "not_started",
+        "visit_destination": "office"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Puedo conocer el departamento?"
+          ]
+        }
+      ],
+      "observed": "Un ofrecimiento de revisar planos o visitar podía sobrepasar lo disponible.",
+      "expected": [
+        "Explicar la atención realmente habilitada, como oficina o recorrido virtual.",
+        "Una invitación no confirma cita ni acceso a una vivienda terminada."
+      ]
+    },
+    {
+      "id": "AUT-072",
+      "group": "reservation",
+      "title": "Consulta sobre reserva confundida con solicitud o confirmación",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "selected_unit": "605"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cómo puedo reservar?"
+          ]
+        }
+      ],
+      "observed": "El bot podía repetir advertencias o activar una operación que solo se estaba consultando.",
+      "expected": [
+        "Explicar procedimiento sin confirmar reserva ni pago.",
+        "Como control, una petición expresa inicia la solicitud autorizada y aviso al equipo, conservando el estado real."
+      ]
+    },
+    {
+      "id": "AUT-073",
+      "group": "authorization",
+      "title": "Consentimiento de información ampliado a trámites",
+      "status": "derived_boundary_case",
+      "source": "oct07_pending",
+      "initial_state": {
+        "pending_question": "offer_information",
+        "selected_unit": "605"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, deme información"
+          ]
+        }
+      ],
+      "observed": "Una aceptación podía tomarse como permiso para recopilar identidad, reservar o coordinar visita.",
+      "expected": [
+        "Conservar el alcance de la propuesta aceptada y validar permisos separados para acciones.",
+        "No pedir datos financieros sensibles antes del procedimiento autorizado."
+      ]
+    },
+    {
+      "id": "AUT-074",
+      "group": "data_reads",
+      "title": "Lectura de inventario o financiamiento fallida presentada como ausencia",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "catalog_read_failure": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Qué penthouses tienen?"
+          ]
+        }
+      ],
+      "observed": "Una fuente no disponible podía dejar el conjunto vacío y orientar a flexibilizar necesidades.",
+      "expected": [
+        "Reintentar lecturas de manera limitada y distinguir fallo de fuente de resultado vacío válido.",
+        "No inventar disponibilidad, precio ni ausencia de inventario."
+      ]
+    },
+    {
+      "id": "AUT-075",
+      "group": "delivery",
+      "title": "Escritura incierta en Kommo confundida con envío confirmado",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "provider_write_outcome": "uncertain"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, me interesa"
+          ]
+        }
+      ],
+      "observed": "Hubo intentos con KOMMO_UNAVAILABLE y registros repetidos para un único lanzamiento sin causa de transporte suficiente.",
+      "expected": [
+        "Distinguir rechazo, timeout, aceptación y entrega final.",
+        "Consultar historial antes de repetir una escritura incierta, conservar mensajes pendientes y evitar duplicados.",
+        "No afirmar entrega en WhatsApp solo por aceptación de Kommo."
+      ]
+    },
+    {
+      "id": "AUT-076",
+      "group": "concurrency",
+      "title": "Mensaje nuevo interrumpe borrador y pierde decisiones",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "draft_in_progress": true,
+        "selected_unit": "602"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Y los 200 mil serían entrada"
+          ]
+        }
+      ],
+      "observed": "Las decisiones podían no conservarse si otro mensaje interrumpía el borrador o fallaba el envío.",
+      "expected": [
+        "Agrupar o reprogramar sin perder el mensaje ni borrar datos previamente validados.",
+        "Una respuesta obsoleta no se envía sobre un turno más reciente."
+      ]
+    },
+    {
+      "id": "AUT-077",
+      "group": "ui",
+      "title": "Flujo atribuye al revisor un error de código o de proveedor",
+      "status": "historical_requires_recheck",
+      "source": "history",
+      "initial_state": {
+        "writer_failed_before_review": true
+      },
+      "turns": [],
+      "observed": "Revisión de la respuesta agrupaba falsos controles de código y errores previos al revisor.",
+      "expected": [
+        "Mostrar etapa y causa: proveedor, esquema, extractor, control de código o veredicto de IA.",
+        "No afirmar que una revisión aprobó o rechazó cuando no llegó a ejecutarse."
+      ]
+    },
+    {
+      "id": "AUT-078",
+      "group": "testing",
+      "title": "Pruebas simuladas no comprueban contrato del proveedor",
+      "status": "current_observed",
+      "source": "oct15_runtime",
+      "initial_state": {
+        "mock_provider_always_accepts_schema": true
+      },
+      "turns": [],
+      "observed": "Las 1.125 pruebas locales pasaron, pero el siguiente despliegue falló por un esquema strict incompleto.",
+      "expected": [
+        "Comprobar el esquema real construido por el flujo antes de aceptar una respuesta simulada.",
+        "Distinguir contratos locales, simulaciones de IA y validación real del proveedor al reportar resultados.",
+        "No usar cantidad de pruebas como garantía de conversación correcta."
+      ],
+      "local_checks": [
+        "src/lib/integrations/automation/provider-schema-contract.test.ts"
+      ]
+    },
+    {
+      "id": "AUT-079",
+      "group": "observability",
+      "title": "Capturas ocultan valores reales o confunden candidatos con hechos",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "extractor_output_invalid": true
+      },
+      "turns": [],
+      "observed": "La vista podía mezclar valores normalizados, candidatos fallidos y hechos aceptados; eventos parecían secuenciales aunque fueran simultáneos.",
+      "expected": [
+        "Conservar datos de negocio originales y null, sin exponer credenciales.",
+        "Distinguir extracción candidata de interpretación validada y eventos aceptados.",
+        "Relacionar versiones, turno, campo fallido, reintentos y respuesta de contingencia."
+      ]
+    },
+    {
+      "id": "AUT-080",
+      "group": "testing",
+      "title": "Pruebas heredadas fallidas confundidas con regresión nueva",
+      "status": "historical_requires_recheck",
+      "source": "conversation_map",
+      "initial_state": {
+        "legacy_tests_fail_at_baseline": true
+      },
+      "turns": [],
+      "observed": "Existen conjuntos antiguos con 82 y 3 fallos reproducidos antes de los cambios, diferentes de la regresión conversacional que pasaba.",
+      "expected": [
+        "Comparar contra la revisión de base y conservar evidencia de fallos existentes.",
+        "No ajustar expectativas para ocultar una regresión ni afirmar que todos los conjuntos pasan."
+      ]
+    },
+    {
+      "id": "AUT-081",
+      "group": "scope",
+      "title": "Vivienda interpretada como departamento excluye suites",
+      "status": "historical_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "category": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me interesa una vivienda"
+          ]
+        }
+      ],
+      "observed": "El grupo residencial se confundía con seleccionar departamento y excluía suites.",
+      "expected": [
+        "Conservar grupo residencial sin inventar categoría.",
+        "Presentar tipos compatibles del inventario vigente cuando corresponda."
+      ]
+    },
+    {
+      "id": "AUT-082",
+      "group": "ranking",
+      "title": "La opción más grande vuelve a pedir un código",
+      "status": "historical_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "category": "penthouse",
+        "offered_units": [
+          "602",
+          "605"
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quiero explorar la más grande"
+          ]
+        }
+      ],
+      "observed": "El bot confundía un máximo calculable con falta de número de unidad.",
+      "expected": [
+        "Resolver ranking con las superficies de la fuente y el alcance referido.",
+        "Conservar empates y distinguir consulta de ranking de elección o reserva."
+      ]
+    },
+    {
+      "id": "AUT-083",
+      "group": "facts",
+      "title": "Superficies de dos dormitorios atribuidas a opciones de tres",
+      "status": "historical_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Qué medidas tienen las opciones de tres dormitorios?"
+          ]
+        }
+      ],
+      "observed": "La redacción recibía cifras de todo el catálogo y mezclaba atributos de dos y tres dormitorios.",
+      "expected": [
+        "Mantener la relación entre unidad, categoría, dormitorios, áreas y precio.",
+        "Filtrar y verificar el conjunto pertinente antes de presentar rangos."
+      ]
+    },
+    {
+      "id": "AUT-084",
+      "group": "review",
+      "title": "Atributos intercambiados entre listas plurales pasan validación",
+      "status": "historical_local_reproduction_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "multiple_unit_groups": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Compare los departamentos de dos y tres dormitorios"
+          ]
+        }
+      ],
+      "observed": "Una reproducción local aceptó listas plurales con atributos intercambiados; no se acreditó que ese intercambio ocurriera en el chat real.",
+      "expected": [
+        "Validar el sujeto colectivo de una afirmación y todos sus miembros.",
+        "Rechazar áreas o dormitorios asignados al grupo equivocado aunque las cifras existan en otra ficha."
+      ]
+    },
+    {
+      "id": "AUT-085",
+      "group": "floor",
+      "title": "Ordinal 5ta no conserva filtro de planta",
+      "status": "historical_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "category": "departamento",
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "La 5ta planta"
+          ]
+        }
+      ],
+      "observed": "El contrato carecía de filtro de planta o no normalizaba expresiones ordinales completas.",
+      "expected": [
+        "Interpretar quinta, 5ta o quinta planta en su contexto y combinar con requisitos existentes.",
+        "No inventar disponibilidad de una planta por reconocer su número."
+      ]
+    },
+    {
+      "id": "AUT-086",
+      "group": "style",
+      "title": "Comparación extensa impuesta por respuesta base del catálogo",
+      "status": "historical_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "compare_multiple_units": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿En qué se diferencian estos departamentos?"
+          ]
+        }
+      ],
+      "observed": "Fichas concatenadas y la obligación de conservar todas las cifras favorecían listas técnicas repetidas, incluso al reformular con IA.",
+      "expected": [
+        "Entregar grupos y diferencias verificadas para que el redactor explique lo pertinente.",
+        "No imponer toda la prosa o todas las medidas de una base como texto obligatorio.",
+        "Con superficies iguales, explicar las diferencias relevantes de planta u otros atributos solicitados."
+      ]
+    },
+    {
+      "id": "AUT-087",
+      "group": "area",
+      "title": "Diferencia calculada válida rechazada por no ser cifra literal",
+      "status": "historical_local_reproduction_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "areas_internal_m2": [
+          120.83,
+          109.69
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Cuánto más grande es?"
+          ]
+        }
+      ],
+      "observed": "Una reproducción rechazó el delta de 11,14 m² porque no figuraba como cifra literal autorizada.",
+      "expected": [
+        "Producir y comprobar el cálculo con sus operandos y sujetos.",
+        "Admitir una diferencia verificada sin exigir que esté escrita literalmente en la ficha."
+      ]
+    },
+    {
+      "id": "AUT-088",
+      "group": "recovery",
+      "title": "Comparación completa termina en asesor por un dato faltante falso",
+      "status": "historical_local_reproduction_requires_recheck",
+      "source": "sept22_analysis",
+      "initial_state": {
+        "comparison_sources_complete": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Quiero comparar estas opciones"
+          ]
+        }
+      ],
+      "observed": "Reproducciones con revisión simulada activaron needsAdvisor por marcar como faltante una comparación disponible o por conservar un hallazgo de una reescritura rechazada.",
+      "expected": [
+        "Derivar por un dato realmente faltante o una solicitud autorizada, no por una redacción rechazada.",
+        "Recalcular hallazgos sobre el borrador conservado y no arrastrar decisiones de otro borrador."
+      ]
+    }
+  ],
+  "variation_axes": [
+    {
+      "name": "mensajes_agrupados",
+      "values": [
+        "todo en un mensaje",
+        "mensajes consecutivos",
+        "cortesía intermedia",
+        "emoji intermedio",
+        "sticker intermedio",
+        "corrección posterior"
+      ]
+    },
+    {
+      "name": "evidencia",
+      "values": [
+        "literal",
+        "CRLF",
+        "líneas vacías",
+        "comillas añadidas",
+        "Unicode equivalente",
+        "negación intermedia",
+        "IDs históricos",
+        "IDs inexistentes",
+        "orden invertido"
+      ]
+    },
+    {
+      "name": "estado",
+      "values": [
+        "lead nuevo",
+        "perfil incompleto",
+        "lead reiniciado",
+        "unidad seleccionada",
+        "comparación pendiente",
+        "financiamiento aceptado",
+        "entrada pendiente",
+        "material enviado"
+      ]
+    },
+    {
+      "name": "idioma",
+      "values": [
+        "español",
+        "inglés",
+        "respuesta numérica sin cambio de idioma",
+        "preferencia explícita de idioma"
+      ]
+    },
+    {
+      "name": "dinero",
+      "values": [
+        "total orientativo",
+        "máximo indispensable",
+        "entrada explícita",
+        "monto ambiguo",
+        "referencia abreviada",
+        "importe no definido",
+        "negativa a compartir"
+      ]
+    },
+    {
+      "name": "fallo",
+      "values": [
+        "HTTP 400 esquema",
+        "JSON de respuesta inválido",
+        "truncamiento",
+        "timeout",
+        "lectura de datos fallida",
+        "metadatos del revisor contradictorios",
+        "escritura incierta"
+      ]
+    },
+    {
+      "name": "politica",
+      "values": [
+        "publicada",
+        "sin condición publicada",
+        "desactivada",
+        "actualizada concurrentemente",
+        "huéspedes permitidos",
+        "huéspedes restringidos"
+      ]
+    },
+    {
+      "name": "controles_negativos",
+      "values": [
+        "solo si me aprueban no autoriza",
+        "no lo elijo aún no selecciona",
+        "preguntar reserva no reserva",
+        "aceptar ver opciones no acepta crédito",
+        "historial no acredita declaración actual"
+      ]
+    }
+  ]
+}
