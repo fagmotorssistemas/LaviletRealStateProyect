@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { calculateUnitCommercialPrice } from '@/lib/inmobiliaria/unitCommercialPrice'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -91,6 +92,8 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitType
   const [imageFiles, setImageFiles] = useState<File[]>([])
   const [form, setForm] = useState(emptyForm)
 
+  const commercialPrice = calculateUnitCommercialPrice(toNum(form.cost_per_m2_internal), toNum(form.area_internal_m2))
+
   const update = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,7 +127,7 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitType
         parking_assigned: Number(form.parking_assigned) || 0,
         spaces: spacesFromInput(form.spaces),
         cost_per_m2_internal: toNum(form.cost_per_m2_internal),
-        published_commercial_price: toNum(form.published_commercial_price),
+        published_commercial_price: commercialPrice,
         cadastral_value: toNum(form.cadastral_value),
         monthly_building_fee: toNum(form.monthly_building_fee),
         estimated_monthly_rent: toNum(form.estimated_monthly_rent),
@@ -250,7 +253,7 @@ export function CreateUnitModal({ isOpen, onClose, onCreated, projects, unitType
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Input id="parking" label="Parqueos" type="number" value={form.parking_assigned} onChange={(e) => update('parking_assigned', e.target.value)} />
           <Input id="cost_m2" label="Costo/m²" type="number" step="0.01" placeholder="1500" value={form.cost_per_m2_internal} onChange={(e) => update('cost_per_m2_internal', e.target.value)} />
-          <Input id="price" label="Precio comercial" type="number" step="0.01" placeholder="128000" value={form.published_commercial_price} onChange={(e) => update('published_commercial_price', e.target.value)} />
+          <Input id="price" label="Precio comercial" type="number" step="0.01" value={commercialPrice ?? ''} readOnly title="Costo/m² × área interna (m²)" />
           <Input id="cadastral" label={t('Avalúo catastral')} type="number" step="0.01" value={form.cadastral_value} onChange={(e) => update('cadastral_value', e.target.value)} />
           <Input id="building_fee" label={t('Alícuota mensual')} type="number" step="0.01" value={form.monthly_building_fee} onChange={(e) => update('monthly_building_fee', e.target.value)} />
           <Input id="estimated_rent" label={t('Arriendo mensual estimado')} type="number" step="0.01" value={form.estimated_monthly_rent} onChange={(e) => update('estimated_monthly_rent', e.target.value)} />
