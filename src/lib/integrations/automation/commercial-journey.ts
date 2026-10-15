@@ -1,3 +1,4 @@
+import { informationOnly, INFORMATION_ONLY_WRITER_RULES } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { createHash } from 'node:crypto'
 import { object, text, type Row } from './data'
@@ -143,6 +144,18 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     version: 'commercial-journey-v1', action: 'clarify_interpretation', question_id: '',
     instruction: clarification.instruction, clarification_fields: clarification.fields,
     financing_offer_allowed: false, visit_offer_allowed: false }
+  const information = informationOnly(info)
+  const goal = object(object(info.semantica_turno).interaction_goal)
+  const broadInformation = ['all_categories', 'other_categories'].includes(text(goal.catalog_scope))
+  const operation = audit.action || audit.reservation || audit.financing_collection
+    || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
+  if ((information || broadInformation) && !operation) return {
+    version: 'commercial-journey-v1', action: information ? 'information_only' : 'answer_project_categories',
+    question_id: '', continuation_optional: true, financing_offer_allowed: false, visit_offer_allowed: false,
+    open_topic_question: information && goal.mode === 'information_only' && goal.specific_topic !== true,
+    instruction: information ? INFORMATION_ONLY_WRITER_RULES
+      : 'Responda qué otros tipos ofrece el proyecto con las categorías verificadas del alcance informativo actual. No lo convierta en una elección de compra ni repita el presupuesto de la búsqueda anterior. No introduzca precios si no fueron consultados. Puede invitar a conocer algún aspecto de esas opciones, sin exigir una selección.',
+  }
   const context = object(info.property_context), comparisonIds = ids(context.comparison_ids)
   const comparisonSemantics = object(info.semantica_turno), comparisonAnswer = object(comparisonSemantics.answer_to_previous)
   const currentComparison = object(comparisonSemantics.property).operation === 'compare' && acceptedExtractorConfidence(object(comparisonSemantics.property).confidence)
@@ -414,8 +427,8 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
     return plan('discover_use', 'Pregunte vivienda o local comercial sin dar por hecho uso personal ni negocio propio. Tipo de inmueble y finalidad son datos separados; una vivienda puede ser para vivir o arrendar. Conserve una finalidad de inversión ya declarada, pero inversión por sí sola no identifica el tipo de espacio y no autoriza saltar al presupuesto.', '¿Le interesa una vivienda o un local comercial?', 'property_category')
   if (!accepted && !passive && budget.answered !== true && !budgetDeferred) return {
     ...plan('ask_budget', selected
-      ? 'Conserve la unidad de interés y responda la consulta actual. Recupere únicamente el presupuesto total aproximado que falta, sin reabrir tipo o planta ni repetir la ficha ya presentada.'
-      : 'Conocer el presupuesto total aproximado que tenía pensado para la compra, si desea compartirlo, para orientar las opciones. Atienda primero cualquier consulta actual; preguntar el presupuesto no impide responder precios solicitados. Elija una formulación natural y no repita la captura por rutina. Si no tiene una cifra definida o prefiere no compartirla, continúe con sus preferencias.',
+      ? 'Conserve la unidad de interés y responda la consulta actual. Recupere únicamente el presupuesto previsto para la compra que falta, sin reabrir tipo o planta ni repetir la ficha ya presentada.'
+      : 'Conocer el presupuesto que tenía previsto para la compra, si desea compartirlo, para orientar las opciones. Atienda primero cualquier consulta actual; preguntar el presupuesto no impide responder precios solicitados. Elija una formulación natural y no repita la captura por rutina. Si no tiene una cifra definida o prefiere no compartirla, continúe con sus preferencias.',
     budgetQuestion(info), 'budget_amount'),
     ...(selected ? { selection_scope: { categories: category ? [category] : [], unit_ids: [selected], floors: [] } } : {}),
     presentation: 'budget_intake',
@@ -591,6 +604,8 @@ export function journeyPendingQuestion(reply: string, plan: Row, approved: boole
 
 export function rememberCommercialJourney(previous: Row, plan: Row, pending: Row, approved: boolean, presentedUnitIds: unknown = []): Row {
   if (!approved || !plan.action) return previous
+  if (['information_only', 'answer_project_categories'].includes(text(plan.action)))
+    return { ...previous, interaction_stage: plan.action }
   const next: Row = { ...previous, stage: plan.action, next_step: plan.instruction, selected_unit_id: plan.selected_unit_id || null }
   if (object(plan.budget_guidance).scope_key) next.budget_scope_key = object(plan.budget_guidance).scope_key
   const authorized = new Set([...ids(object(plan.selection_scope).unit_ids), text(plan.selected_unit_id)].filter(Boolean))

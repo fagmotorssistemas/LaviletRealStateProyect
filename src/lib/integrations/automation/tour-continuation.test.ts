@@ -27,7 +27,7 @@ function selected(budget: Row, accepted = false): Row {
 describe('shared continuation after a selected unit tour', () => {
   it('asks the missing budget once without introducing other properties', () => {
     const answer = tourContinuation({ perfil_lead: { full_name: 'Carlos', residence_city: 'Cuenca' } }, unit)
-    assert.equal(answer.question, '¿Qué presupuesto total aproximado tiene previsto para la compra?')
+    assert.equal(answer.question, '¿Qué presupuesto tiene previsto para la compra?')
     assert.equal(answer.pending_question.id, 'budget_amount')
     assert.equal(answer.pending_question.act, 'budget')
     assert.equal(answer.reply.match(/\?/g)?.length, 1)

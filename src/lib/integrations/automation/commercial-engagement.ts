@@ -1,3 +1,4 @@
+import { interactionMode } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
@@ -16,6 +17,7 @@ export type CommercialEngagementState = {
   passive: boolean; interested: boolean
   property_continuation_allowed?: boolean
   property_continuation?: Row
+  interaction_mode?: Row
 }
 export const COMMERCIAL_ENGAGEMENT_VERSION = 'commercial-engagement-v2'
 const propertyQuestions = ['property_category', 'property_floor', 'property_bedrooms', 'property_area', 'property_requirements', 'unit_choice']
@@ -171,9 +173,12 @@ export function commercialEngagement(current: string, history: unknown, previous
   if (!turn) return { passive, interested }
   const scope = object(turn.scope || object(turn.intent).scope)
   if (scope.kind === 'out_of_scope') { passive = true; interested = false }
-  const continuation = requestedPropertyContinuation(current, turn)
+  const mode = interactionMode(saved.interaction_mode, turn.semantics)
+  const continuation = mode.mode === 'information_only'
+    ? { allowed: false, property_interest_renewed: false, reason: 'information_only_mode', allowed_question_ids: [] }
+    : requestedPropertyContinuation(current, turn)
   if (continuation.property_interest_renewed === true) { passive = false; interested = true }
-  return { passive, interested, property_continuation_allowed: continuation.allowed === true, property_continuation: continuation }
+  return { passive, interested, interaction_mode: mode, property_continuation_allowed: continuation.allowed === true, property_continuation: continuation }
 }
 
 export function passiveSalesRules(state: ReturnType<typeof commercialEngagement>) {

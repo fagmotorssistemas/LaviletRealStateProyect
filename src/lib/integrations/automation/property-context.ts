@@ -1,3 +1,4 @@
+import { interactionMode } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { normalizedSelectionPreferences, selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, withoutBedroomConstraint } from './selection-preferences'
 import { object, text, type Row } from './data'
@@ -105,6 +106,29 @@ function relativeSelector(current: string) {
 }
 
 export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryRaw: unknown, history: unknown, semantics: unknown) {
+  const summary = object(summaryRaw), goal = object(object(semantics).interaction_goal)
+  const previous = propertyContext(available(catalogRaw), summary._property_context, history)
+  delete previous.information_query
+  const broad = acceptedExtractorConfidence(goal.confidence)
+    && ['all_categories', 'other_categories'].includes(text(goal.catalog_scope)) && !!text(goal.scope_evidence)
+  if (broad) {
+    const excluded = goal.catalog_scope === 'other_categories' ? ids(goal.excluded_categories) : []
+    const matches = available(catalogRaw).filter(unit => !excluded.includes(text(unit.category)))
+    const query = { group: null, category: null, filters: emptyPropertyFilters(), operation: 'search', scope: 'catalog' }
+    return { matches, explicit: false, hasUnitMention: false, needsClarification: false, clarification: '',
+      reason: 'informational_catalog_scope', query, memory: object(summary._unit_reference),
+      context: { ...previous, information_query: { query, excluded_categories: excluded, scope: goal.catalog_scope } } as Row }
+  }
+  const resolved = resolvePropertyTurnDetails(catalogRaw, current, summaryRaw, history, semantics)
+  const mode = interactionMode(summary._interaction_mode || object(summary._sales_memory).interaction_mode, semantics)
+  if (mode.mode !== 'information_only') return resolved
+  // An information query can have its own category and filters. It never
+  // replaces the saved buying needs, selected home or reference memory.
+  return { ...resolved, memory: object(summary._unit_reference), context: { ...previous,
+    information_query: { query: resolved.query, excluded_categories: ids(object(resolved.context).excluded_categories) } } as Row }
+}
+
+function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryRaw: unknown, history: unknown, semantics: unknown) {
   const catalog = available(catalogRaw), summary = object(summaryRaw), semantic = object(object(semantics).property)
   const context = propertyContext(catalog, summary._property_context, history)
   context.reference_resolution = {}
@@ -1030,6 +1054,8 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
 /** Persist only after the reply was delivered. Offered, compared and chosen are different facts. */
 export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply: string, audit: Row): Row {
   const context: Row = { ...object(contextRaw), version: 2 }
+  const informationQuery = object(context.information_query)
+  const informational = Object.keys(informationQuery).length > 0
   const proposalInformation = object(context.proposal_information)
   const previousPending = object(context.pending_question)
   const informsProposal = proposalInformation.version === 'proposal-information-v1' && proposalInformation.active === true
@@ -1062,8 +1088,8 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
     context.pending_question = normalizedPendingQuestion({ ...pending, target_ids: unitIds(unitsInPropertyReply(catalog, text(pending.question))), candidate_ids: actual }, catalog)
   } else context.pending_question = {}
   context.focused_ids = focused.length ? focused.filter(id => allowed.has(id)) : ids(object(context.pending_question).target_ids)
-  if (audit.catalog_query && !informsProposal) context.query = object(audit.catalog_query)
-  if (audit.catalog_query && !informsProposal && (object(audit.catalog_retrieval).optimized === true || Object.hasOwn(context, 'optimized_catalog_request'))) context.optimized_catalog_request = object(audit.catalog_retrieval).optimized === true
+  if (audit.catalog_query && !informsProposal && !informational) context.query = object(audit.catalog_query)
+  if (audit.catalog_query && !informsProposal && !informational && (object(audit.catalog_retrieval).optimized === true || Object.hasOwn(context, 'optimized_catalog_request'))) context.optimized_catalog_request = object(audit.catalog_retrieval).optimized === true
     ? { category: object(audit.catalog_query).category, group: object(audit.catalog_query).group,
       requirements: object(object(audit.catalog_summary).request).requirements } : {}
   if (audit.original_query) context.original_query = normalizedPropertyQuery(audit.original_query)
@@ -1082,6 +1108,11 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
   if (['compare_categories', 'choose_category', 'choose_floor'].includes(text(context.phase)) && audit.alternative_phase) {
     if (object(context.preference_transition).active !== true) context.offered_ids = []
     context.comparison_ids = []
+  }
+  if (informational) {
+    context.query = object(object(contextRaw).query)
+    context.selected_ids = ids(object(contextRaw).selected_ids)
+    delete context.information_query
   }
   return { ...context, last_reply: reply }
 }

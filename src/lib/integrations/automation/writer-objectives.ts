@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { informationOnly } from './interaction-mode'
 
 export const WRITER_OBJECTIVE_RULES = `Usted redacta el mensaje completo que recibirá el cliente. El sistema no añadirá saludos, preguntas, avisos ni enlaces después. Use objetivos_conversacion y el estado disponible para decidir cómo responder y formular una continuación pertinente. Los IDs y actos enlazan el estado y las referencias, no imponen palabras. Pregunte una preferencia pendiente con naturalidad, sin tono de formulario. Si el cliente declara dormitorios indiferentes, omita esa captura y avance al tipo de vivienda y a las opciones de mayor amplitud interior verificada. No deduzca una preferencia de dormitorios de los inmuebles mostrados. Una duda intermedia conserva decisiones aceptadas; retome cuando ayude al cliente, sin insistir inmediatamente con la misma captura después de varias dudas. Incluya material programado y condiciones pertinentes dentro de su propia redacción; mencionar un brochure ya leído no solicita reenviarlo. Mantenga hechos, autorizaciones y resultados operativos reales. Su ficha question debe describir SOLO la pregunta que efectivamente escribió, con su ID, acto y referentes, o none si no hay pregunta.`
 
@@ -11,7 +12,7 @@ export function conversationObjective(raw: unknown): Row {
     lead_profile: 'Responder primero la consulta y, si la captura está autorizada, conocer nombre y residencia actual con una pregunta natural. Ofrecer el brochure solo si corresponde; no exigir una justificación o frase fija.',
     lead_profile_name: 'Conocer únicamente el nombre pendiente con naturalidad, sin repetir datos ni una fórmula sobre brochure o guía personalizada.',
     lead_profile_residence: 'Conocer únicamente la ciudad o el país de residencia actual pendiente, conectando con la conversación sin una frase prefabricada.',
-    budget_amount: 'Orientar las opciones con el presupuesto total aproximado que tenía pensado para la compra, si todavía falta y desea compartirlo. Atienda sus dudas antes de retomarlo; no lo repita en cada respuesta ni lo convierta en condición para informar.',
+    budget_amount: 'Orientar las opciones con el presupuesto que tenía previsto para la compra, si todavía falta y desea compartirlo. Atienda sus dudas antes de retomarlo; no lo repita en cada respuesta ni lo convierta en condición para informar.',
     budget_kind: 'Aclarar únicamente el significado de un importe ambiguo, conservando la cifra y sin volver a pedir datos resueltos.',
     property_bedrooms: 'Conocer cuántos dormitorios le gustaría tener, únicamente si no lo ha respondido ni lo declaró indiferente.',
     property_category: 'Ayudar a elegir el tipo de inmueble entre las categorías verificadas pertinentes.',
@@ -32,10 +33,16 @@ export function conversationObjective(raw: unknown): Row {
 /** Preserve facts, consent and reference IDs. Literal route templates and
  * pending questions remain internal recovery/history data, not writer scripts. */
 export function writerObjectiveContext(raw: Row): Row {
+  const paused = informationOnly(object(raw.contexto_verificado || raw))
   const visit = (value: unknown, key = ''): unknown => {
     if (['historial', 'historial_reciente', 'history', 'mensaje_actual', 'solicitud_actual', 'referencias_solicitud'].includes(key)) return value
     if (Array.isArray(value)) return value.map(item => visit(item))
     if (!value || typeof value !== 'object') return value
+    if (paused && ['pregunta_pendiente', 'pending_question'].includes(key)) {
+      const row = object(value)
+      return { id: row.id || null, act: row.act || null, target_ids: row.target_ids || [],
+        paused_for_information: true, instruction: 'Referencia histórica; no retome esta captura mientras solo desea información.' }
+    }
     const row = object(value), hasQuestion = typeof row.question === 'string' || typeof row.next_question === 'string'
     return { ...Object.fromEntries(Object.entries(row).filter(([name, item]) =>
       !(typeof item === 'string' && ['question', 'next_question', 'suggested_question', 'pregunta_siguiente', 'baseReply', 'base_reply', 'reply'].includes(name)))

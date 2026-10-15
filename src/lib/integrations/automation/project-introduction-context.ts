@@ -1,3 +1,4 @@
+import { informationOnly } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { normalizedRequestTopics } from './request-topics'
@@ -69,6 +70,7 @@ export function generalProjectIntroductionTurn(info: Row): boolean {
 /** Only a current, single, general project request receives the editable summary.
  * Specific or repeated requests retain their own response and next step. */
 export function projectIntroductionForTurn(info: Row): Row | null {
+  if (informationOnly(info) && object(object(info.semantica_turno).interaction_goal).specific_topic !== true) return null
   if (!generalProjectIntroductionTurn(info)) return null
   return configuredProjectIntroduction(info)
 }

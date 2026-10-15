@@ -30,7 +30,7 @@ test('known residential use asks total budget before bedrooms and units', () => 
   const data = info(), next = commercialJourneyPlan(data)
   assert.equal(next.action, 'ask_budget')
   assert.equal(next.question_id, 'budget_amount')
-  assert.match(String(next.question), /presupuesto total aproximado/)
+  assert.match(String(next.question), /presupuesto.*compra/)
   assert.equal(next.presentation, 'budget_intake')
   assert.notEqual(next.requires_unit_presentation, true)
   assert.equal(next.financing_offer_allowed, false)

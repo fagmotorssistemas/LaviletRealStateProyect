@@ -111,6 +111,7 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
     && categoryInvitationTarget(question) === object(plan.proposed_query).category
     && offeredCategories.length === 1 && offeredCategories[0] === object(plan.proposed_query).category
   const scoped: Row = planMatches || priorityContinuation ? {
+    ...(planMatches && pending.id === 'budget_amount' ? { budget_basis: 'total_budget' } : {}),
     target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : pending.act === 'confirm_unit' ? ids(scope.unit_ids) : [],
     candidate_ids: ids(pending.act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
     ...((pending.act === 'explore_alternatives' || categoryProposal) && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),

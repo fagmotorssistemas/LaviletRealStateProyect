@@ -53,11 +53,8 @@ export function reviewObligations(audit: Row, verified: Row, contract: Row): Row
     obligations.push({ id: 'early_purchase_discount', instruction: EARLY_PURCHASE_DISCOUNT_RULES,
       policy: object(verified.politica_descuentos) })
   if (stage.requiere_captura === true) obligations.push({ id: 'profile_collection',
-    instruction: (stage.proposito_captura === 'guia_personalizada'
-      ? 'Al pedir datos pendientes, explique el propósito de brindar una guía personalizada. La entrega del brochure es independiente de esa respuesta: no prometa enviarlo después ni lo condicione a esos datos. '
-      : 'Al pedir datos pendientes, explique el propósito: compartir el brochure y brindar una guía personalizada. ')
-      + 'Cualquier formulación equivalente cumple. No espere que el cliente ya haya contestado. Las obligaciones de nombre y residencia se comprueban por separado; no vuelva a interpretar datos del perfil.',
-    purpose: stage.proposito_captura || 'brochure_y_guia_personalizada',
+    instruction: 'Solicite solo los datos pendientes autorizados. Ofrecer el brochure con información del proyecto es un objetivo separado: no exija justificar la pregunta ni mencionar una guía personalizada. No condicione la entrega autorizada a esos datos. Evalúe su significado, sin frases literales ni una cortesía obligatoria. Las obligaciones de nombre y residencia se comprueban por separado; no vuelva a interpretar el perfil.',
+    purpose: stage.objetivo_presentacion,
     required_data: stage.datos_a_pedir, candidate: stage.residencia_por_confirmar })
   if (stage.requiere_captura === true && Array.isArray(stage.datos_a_pedir)) {
     for (const datum of stage.datos_a_pedir) {

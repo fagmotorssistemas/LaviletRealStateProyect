@@ -51,7 +51,7 @@ function discoveryQuestion(key: string, question: string) {
 export function nextDiscoveryQuestion(lead: Row): { key: string; question: string; purpose: string } {
   const sdr = object(object(lead.behavior_signals).sdr), category = text(lead.preferred_category)
   if (!category) return discoveryQuestion('categoria', '¿Le interesa una vivienda o un local comercial?')
-  if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return discoveryQuestion('presupuesto', '¿Qué presupuesto total aproximado tiene previsto para la compra?')
+  if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return discoveryQuestion('presupuesto', '¿Qué presupuesto tiene previsto para la compra?')
   if (category === 'local') {
     if (lead.purchase_purpose === 'negocio' && !sdr.actividad_comercial) return discoveryQuestion('actividad_comercial', '¿Qué tipo de negocio le gustaría instalar?')
     if (!sdr.prioridad) return discoveryQuestion('prioridad', '¿Qué sería lo más importante para usted al elegir el local?')

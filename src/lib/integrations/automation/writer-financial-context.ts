@@ -1,3 +1,4 @@
+import { informationOnly } from './interaction-mode'
 import { object, text, type Row } from './data'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
@@ -36,8 +37,8 @@ export function financialWritingScope(raw: Row): Row {
   const financialRoute = source.startsWith('financing_') || ['credit_orientation', 'financing'].includes(source)
   const currentReply = object(semantics.answer_to_previous)
   const acceptedNow = currentReply.question_id === 'financing_invitation' && currentReply.kind === 'affirmative'
-  const allowed = currentFinancialRequest || !unrelatedInquiry && (authorizedContinuation || financialRoute) || acceptedNow
-    || accepted && plans.some(plan => plan.action === 'select_property' && !requests.length)
+  const allowed = currentFinancialRequest || !informationOnly(verified) && (!unrelatedInquiry && (authorizedContinuation || financialRoute) || acceptedNow
+    || accepted && plans.some(plan => plan.action === 'select_property' && !requests.length))
   return { allowed, accepted, reason: currentFinancialRequest ? 'current_financial_request'
     : allowed ? 'authorized_financial_continuation' : 'unrelated_to_current_request' }
 }

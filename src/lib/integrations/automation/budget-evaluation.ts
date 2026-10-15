@@ -1,3 +1,4 @@
+import { informationOnly } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 
@@ -54,6 +55,7 @@ export function evaluateBudgetOptions(input: {
 
 /** Available money may guide selection without becoming another money topic. */
 export function budgetMentionPolicy(info: Row, indispensableComparison = false): Row {
+  if (informationOnly(info)) return { allowed: false, required: false, reason: 'information_only_mode' }
   const semantics = object(info.semantica_turno || info.contrato_turno)
   const current = object(semantics.budget)
   const declaration = acceptedExtractorConfidence(current.confidence) && current.status && current.status !== 'not_discussed'

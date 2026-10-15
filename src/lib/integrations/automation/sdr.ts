@@ -1,3 +1,4 @@
+import { informationOnly } from './interaction-mode'
 import { configuredResponseReviewEnabled, responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply } from './response-review-policy'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import 'server-only'
@@ -50,7 +51,7 @@ import { readCommercialContext } from './context-read'
 import { commercialLocationBudgetRecommendation } from './commercial-location-recommendation'
 import { propertySelectionReply } from './property-selection'
 import { resolvePropertyTurn } from './property-context'
-import { catalogDialogueReply } from './catalog-dialogue'
+import { catalogDialogueReply, catalogQuery, partitionCatalog } from './catalog-dialogue'
 import { preferenceOptionsReply } from './progressive-options'
 import { confirmedLeadProfile } from './lead-profile'
 import { catalogSearchSettings } from '@/lib/inmobiliaria/catalogSearch'
@@ -133,7 +134,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
       aviso_precios_referenciales: referentialPriceNoticeEnabled(projectData.policies_json),
       describir_disponibilidad_publicada: true, garantizar_disponibilidad_sin_reserva: false,
       confirmar_visita_sin_resultado: false, agendar_llamadas: false },
-    alcance_producto: 'La Vilet ofrece suites, departamentos y locales comerciales en Cuenca; no casas independientes.',
+    alcance_producto: 'La Vilet ofrece suites, departamentos, penthouses y locales comerciales en Cuenca.',
     politica_financiera: { credito_directo: false,
       guidance: financingPolicyContext(financingGuidanceSettings(projectData.policies_json), Array.isArray(finance?.partners) ? finance.partners.map(text) : []) },
     catalogo: catalog, catalog_read: { complete: units.length < 100, scope: 'published_available_project_units' },
@@ -158,8 +159,26 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   info = { ...info, alcance_contenido_turno: contentScope, location_disclosure: { ...object(info.location_disclosure),
     general_location_allowed: object(object(contentScope.topics).general_location).allowed === true,
     ...(object(object(contentScope.topics).general_location).allowed === true ? {} : { general_location: {} }) } }
+  const informationQuery = object(object(info.property_context).information_query)
+  if (object(info.brochure_intent).requested !== true && (informationOnly({ ...info, interaction_mode: summary._interaction_mode || info.interaction_mode })
+    || Object.keys(informationQuery).length)) {
+    const query = object(informationQuery.query || object(info.referencia_unidad).query)
+    const excluded = new Set(Array.isArray(informationQuery.excluded_categories) ? informationQuery.excluded_categories : [])
+    const context = object(info.property_context)
+    const scopedIds = query.scope === 'selected' ? context.selected_ids
+      : query.scope === 'comparison' ? context.comparison_ids : query.scope === 'offered' ? context.offered_ids : undefined
+    const partition = partitionCatalog((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), catalogQuery(query),
+      Array.isArray(scopedIds) ? scopedIds.map(text) : undefined)
+    const units = partition.units.filter(unit => !excluded.has(unit.category))
+    const unknown = partition.unknown.filter(unit => !excluded.has(unit.category))
+    return { reply: '', audit: { source: 'project_information', fallback: false,
+      drafting_deferred_to_final_writer: true,
+      ...(Object.keys(informationQuery).length ? { verified_catalog: true, catalog_query: query,
+        catalog_excluded_categories: [...excluded],
+        catalog_results: { units, unit_ids: units.map(unit => unit.id), complete: object(info.catalog_read).complete === true && !unknown.length, unknown_unit_ids: unknown.map(unit => unit.id) } } : {}) } }
+  }
   // Explicit project information wins over an inferred or remembered catalogue query.
-  const overview = projectInformationReply(info, current, BROCHURE_URL)
+  const overview = informationOnly(info) ? null : projectInformationReply(info, current, BROCHURE_URL)
   if (overview) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
   info = { ...info, catalogue_price_requested: object(info.contrato_turno).objective === 'ask_price' || asksUnitPrice(current, info.alcance_negocio === 'property') }
   if (!text(object(info.referencia_unidad).reason)) {

@@ -175,7 +175,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
         assert.equal(object(interpretation.semantics.property).group, 'residential')
         assert.equal(resolved.query.group, 'residential')
         assert.equal(text(object(confirmedInterpretationMemory(summary).qualification).proposito), '')
-        assert.match(reply, /presupuesto total aproximado/)
+        assert.match(reply, /presupuesto.*compra/)
         assert.doesNotMatch(reply, /dormitorios|planta|250000|100000/)
       }
       const deliveredReply = result.reply

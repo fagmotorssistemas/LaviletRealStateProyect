@@ -1,3 +1,4 @@
+import { informationOnly } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { projectIntroductionForTurn } from './project-introduction-context'
@@ -32,7 +33,7 @@ function propertyPresentation(verified: Row, audit: Row, requested: Set<string>,
   if (approvedOpening) return { kind: 'approved_summary', dimensions_allowed: false, unit_features_allowed: false,
     available_residential_categories: [], instruction: 'Presente únicamente el resumen aprobado del proyecto y continúe con la pregunta de perfil prevista. No amplíe esta apertura con unidades, superficies, plantas, amenidades o cifras del catálogo.' }
   const semantics = object(verified.semantica_turno), context = object(verified.property_context)
-  const query = object(context.query), journey = object(verified.siguiente_paso_comercial || audit.commercial_journey)
+  const query = object(object(context.information_query).query || context.query), journey = object(verified.siguiente_paso_comercial || audit.commercial_journey)
   const intent = object(audit.resolved_turn_intent || verified.contrato_turno)
   const answer = object(semantics.answer_to_previous), pending = object(verified.pregunta_pendiente || context.pending_question)
   const featuresRequested = ['property_features', 'spatial_fit', 'accessibility', 'visualization']
@@ -55,7 +56,8 @@ function propertyPresentation(verified: Row, audit: Row, requested: Set<string>,
       || text(audit.source).startsWith('reservation_'))
   const progression = (unitConfirmation || reservationProgression) && !detailsRequested && !factualRequest && typedProgression
   const discovery = ['ask_budget', 'discover_bedrooms', 'ask_bedrooms'].includes(text(journey.action)) && !detailsRequested
-  const broadCategories = !discovery && !detailsRequested && audit.source === 'catalog_search'
+  const informationalCategories = ['all_categories', 'other_categories'].includes(text(object(semantics.interaction_goal).catalog_scope))
+  const broadCategories = informationalCategories || !discovery && !detailsRequested && audit.source === 'catalog_search'
     && semantics.primary_intent === 'project_information' && query.operation === 'search'
     && query.group === 'residential' && !query.category && !query.selector
     && (!query.scope || query.scope === 'catalog')
@@ -70,7 +72,10 @@ function propertyPresentation(verified: Row, audit: Row, requested: Set<string>,
   const catalog = rows(Array.isArray(verified.catalogo_verificacion) ? verified.catalogo_verificacion : verified.catalogo)
   const recommendation = budgetRecommendationPresentation(verified)
   const recommendationIds = new Set(Array.isArray(recommendation?.unit_ids) ? recommendation.unit_ids.map(text) : [])
-  const presentationCatalog = recommendation ? catalog.filter(unit => recommendationIds.has(text(unit.id))) : catalog
+  const excludedCategories = new Set(Array.isArray(object(context.information_query).excluded_categories)
+    ? object(context.information_query).excluded_categories as string[] : [])
+  const presentationCatalog = (recommendation ? catalog.filter(unit => recommendationIds.has(text(unit.id))) : catalog)
+    .filter(unit => !excludedCategories.has(text(unit.category)))
   const categories = ['suite', 'departamento', 'penthouse'].filter(category => presentationCatalog.some(unit =>
     unit.category === category && unit.is_published !== false && (!unit.status || unit.status === 'disponible')))
   return { kind, dimensions_allowed: !progression && !discovery && !broadCategories,
@@ -135,13 +140,13 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
   const guidance = object(journey.budget_guidance)
   // A resolved guidance contract can say that prices are unnecessary even
   // when a new budget amount appears. Keep legacy callers without that plan.
-  const budgetComparison = !text(guidance.status) && (declaredTotalBudget || currentAssessment) && knownPrices
+  const budgetComparison = !informationOnly(verified) && !text(guidance.status) && (declaredTotalBudget || currentAssessment) && knownPrices
   const comparisonPrices = rows(guidance.prices)
   const candidateIds = new Set(Array.isArray(guidance.candidate_unit_ids) ? guidance.candidate_unit_ids.map(text).filter(Boolean) : [])
   const pricedIds = new Set(comparisonPrices.map(price => text(price.unit_id)).filter(Boolean))
   // The planner compares the current relevant scope and records it only after
   // delivery. A remembered amount or insufficiency alone cannot reopen prices.
-  const changedBudgetScopeComparison = guidance.comparison_required === true && guidance.complete === true
+  const changedBudgetScopeComparison = !informationOnly(verified) && guidance.comparison_required === true && guidance.complete === true
     && guidance.status === 'below_available_prices' && guidance.coverage === 'none' && positive(guidance.amount)
     && object(verified.politica_comercial).precios_autorizados === true
     && candidateIds.size > 0 && pricedIds.size === candidateIds.size
@@ -150,9 +155,11 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
       && Number(price.published_commercial_price) > Number(guidance.amount))
   const approvedIntroduction = projectIntroductionForTurn(verified)
   const opening = object(object(audit.profile_introduction).presentation)
-  const initialOverview = !!approvedIntroduction && currentGrounded.some(request => request.domain === 'property')
+  const goal = object(semantics.interaction_goal)
+  const topicNotChosen = informationOnly(verified) && goal.mode === 'information_only' && goal.specific_topic !== true
+  const initialOverview = !topicNotChosen && (!!approvedIntroduction && currentGrounded.some(request => request.domain === 'property')
     && (!hasTypedTopics || currentTopics.has('project_overview'))
-    || opening.required === true && !!text(opening.approved_summary).trim()
+    || opening.required === true && !!text(opening.approved_summary).trim())
   const disclosure = object(verified.location_disclosure || audit.location_disclosure)
   const completed = object(audit.completed_visit_action)
   const result = object(audit.visit_result || verified.resultado_visita)

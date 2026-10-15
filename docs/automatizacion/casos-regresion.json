@@ -51,6 +51,14 @@
         "docs/automatizacion/08-regresion-conversacional-2026-09-22.md",
         "docs/automatizacion/10-diagnostico-conversacion-1058-1124.md"
       ]
+    },
+    "oct15_opening_runtime": {
+      "kind": "execution_trace_and_user_screenshots",
+      "date": "2026-10-15",
+      "versions": [
+        "ce760f8d2727c39d5927dbdf3a580bd815a7d826",
+        "fa56c8fe7be4959e4af5a58ea52852b1d158f3df"
+      ]
     }
   },
   "fixtures": {
@@ -2304,6 +2312,357 @@
         "Derivar por un dato realmente faltante o una solicitud autorizada, no por una redacción rechazada.",
         "Recalcular hallazgos sobre el borrador conservado y no arrastrar decisiones de otro borrador."
       ]
+    },
+    {
+      "id": "AUT-089",
+      "group": "greeting",
+      "title": "Cortesía social interpretada literalmente y bienvenida incompleta",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "297f00b5-50d5-4de5-a355-67325bffcb5b"
+      },
+      "initial_state": {
+        "first_contact": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Hola, cómo le va, ¿qué precio tienen los departamentos?"
+          ]
+        }
+      ],
+      "observed": "El bot respondió muy bien, gracias y no se identificó como La Vilet.",
+      "diagnosis": "El extractor registró solo purchase_price de departamentos; la respuesta a la cortesía fue del redactor. La instrucción permite presentar La Vilet cuando ayude, pero no obliga a identificar el proyecto en ese primer contacto.",
+      "expected": [
+        "Tratar cómo le va, qué tal y cómo está dentro de una apertura comercial como cortesía de saludo.",
+        "Saludar e identificar el proyecto de forma natural una vez y responder el rango de la categoría, sin elegir una unidad ni pedir dormitorios para informar precios."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "El redactor recibe bienvenida con identidad de La Vilet en el primer contacto y trata las fórmulas sociales como saludo; no responde literalmente cómo se encuentra.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-090",
+      "group": "style",
+      "title": "La captura sigue dirigida a una fórmula de brochure y guía",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "297f00b5-50d5-4de5-a355-67325bffcb5b"
+      },
+      "initial_state": {
+        "profile_known": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿Qué precio tienen los departamentos?"
+          ]
+        }
+      ],
+      "observed": "El redactor repitió para compartirle el brochure y brindarle una guía personalizada.",
+      "diagnosis": "Aunque otra regla permite redacción libre, response-plan conserva proposito_captura=brochure_y_guia_personalizada y exige explicar ese propósito. No hubo añadidos posteriores al borrador.",
+      "expected": [
+        "Enviar el propósito de ofrecer información del proyecto y conocer los datos pendientes sin imponer una justificación literal.",
+        "La oferta del brochure y la pregunta de nombre/residencia pueden integrarse con naturalidad sin la fórmula de guía personalizada."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Se reemplazó proposito_captura por objetivo_presentacion, con campos pendientes y oferta de brochure independientes. El revisor ya no exige justificarlo con guía personalizada.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-091",
+      "group": "materials",
+      "title": "Entrega del brochure con estructura que parece prefabricada",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "480ab985-3d17-40db-96eb-357a4651c89b"
+      },
+      "initial_state": {
+        "name_known": false,
+        "residence_known": false,
+        "brochure_sent": false
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me llamo Alex",
+            "Actualmente vivo en Guayaquil"
+          ]
+        }
+      ],
+      "observed": "Reconocimiento del nombre, agradecimiento por la ciudad, enlace y captura de presupuesto en un orden que el usuario reconoce como repetido en sus pruebas.",
+      "diagnosis": "En este evento la IA redactó el texto completo. Hay una frase obligatoria de reconocimiento y un objetivo de presupuesto muy específico; no se acreditó una plantilla completa enviada sin IA ni se compararon automáticamente todas las sesiones anteriores.",
+      "expected": [
+        "Entregar el material programado mediante texto propio del redactor y una continuación pertinente.",
+        "Evitar agradecer o repetir la ciudad por rutina; no forzar sinónimos como prueba de naturalidad."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Reconocer el nombre es opcional y se recuerda una vez. No se exige una apertura, agradecimiento por la ciudad ni estructura fija de entrega del brochure.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-092",
+      "group": "style",
+      "title": "Presupuesto total como expresión obligatoria innecesaria",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "480ab985-3d17-40db-96eb-357a4651c89b"
+      },
+      "initial_state": {
+        "category": "departamento",
+        "purchase_budget": null
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Me llamo Alex y vivo en Guayaquil"
+          ]
+        }
+      ],
+      "observed": "La pregunta emplea presupuesto total aproximado en vez del lenguaje preferido por el responsable.",
+      "diagnosis": "budgetQuestion y los objetivos comerciales conservan esa expresión. Distinguir total, entrada y crédito internamente no exige pronunciar total en cada captura.",
+      "expected": [
+        "Preguntar qué presupuesto tiene previsto para la compra o el departamento con libertad de redacción.",
+        "Conservar el rol monetario internamente y aclararlo solo si la respuesta lo hace ambiguo."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "La pregunta pública usa presupuesto previsto para la compra, sin total obligatorio. budget_basis conserva el rol de compra en la pregunta entregada; entrada y crédito siguen separados.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-093",
+      "group": "style",
+      "title": "Mucho gusto vuelve tras la cortesía recíproca del cliente",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "b857f0cf-a365-494b-8c71-39f01d76352e"
+      },
+      "initial_state": {
+        "name_known": true,
+        "name_acknowledged": true,
+        "last_reply_opening": "Mucho gusto"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Mucho gusto",
+            "Tengo un presupuesto de unos 100 mil",
+            "dólares"
+          ]
+        }
+      ],
+      "observed": "El bot abrió otra vez con Mucho gusto y el nombre.",
+      "diagnosis": "El primer reconocimiento estaba exigido literalmente por name_acknowledgement. En este turno ya no existía un nombre nuevo ni ese reconocimiento pendiente; el propio redactor devolvió la cortesía y no hubo transformaciones de texto.",
+      "expected": [
+        "Tratar la cortesía recíproca como continuación del intercambio y atender el presupuesto.",
+        "Reconocer un nombre recién declarado una sola vez con expresión libre, sin exigir la frase Mucho gusto."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Se eliminó la obligación literal Mucho gusto, Nombre y su rechazo por coincidencia de texto. Se instruye a atender la cortesía recíproca sin volver a presentarse.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-094",
+      "group": "relevance",
+      "title": "Casas independientes mencionadas sin que el cliente las consulte",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "0cecc036-7f12-4532-b2c3-b7878fce4f33"
+      },
+      "initial_state": {
+        "category": "departamento"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Aparte de departamentos, ¿qué más ofrece?"
+          ]
+        }
+      ],
+      "observed": "La respuesta incluyó no casas independientes.",
+      "diagnosis": "El contexto contiene literalmente esa exclusión en alcance_producto. La IA la incorporó al mensaje pese a no ser necesaria; este evento ya ejecutaba fa56c8f.",
+      "expected": [
+        "Presentar las otras categorías verificadas en positivo.",
+        "Usar la limitación de casas cuando se consulten o exista una confusión real, sin narrar exclusiones internas por defecto."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "El alcance del producto enumera positivamente suites, departamentos, penthouses y locales comerciales. Las exclusiones se comunican solo si son pertinentes.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-095",
+      "group": "search",
+      "title": "Consulta sobre otras categorías conserva solo el catálogo de departamentos",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "0cecc036-7f12-4532-b2c3-b7878fce4f33"
+      },
+      "initial_state": {
+        "active_query_category": "departamento",
+        "purchase_budget": 100000
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Eso no lo he pensado todavía",
+            "Aparte de departamentos, ¿qué más ofrece?"
+          ]
+        }
+      ],
+      "observed": "Se enumeraron otras categorías, pero se repitieron precios de departamentos y se declaró que no había precios verificados de las demás.",
+      "diagnosis": "El extractor entendió search sin categoría, pero el resumen y las siete coincidencias enviadas al redactor seguían restringidos a departamento. La consulta más amplia no produjo un contexto de consulta igualmente amplio. El lead no había solicitado otra comparación de precios en ese turno.",
+      "expected": [
+        "Ampliar el alcance de la consulta informativa a las categorías solicitadas, conservando las preferencias y selecciones del cliente por separado.",
+        "No tratar la omisión de fuentes en el prompt como ausencia de datos del proyecto.",
+        "No repetir precios ni insuficiencia del presupuesto al responder solo qué otros tipos existen."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "El extractor declara un alcance informativo de todas u otras categorías. La consulta usa un catálogo temporal sin filtros anteriores y conserva la búsqueda y unidad elegida.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-096",
+      "group": "conversation_mode",
+      "title": "Solo quiero conocer el proyecto no suspende la calificación comercial",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "5ebd5b48-0c48-4c9b-af05-7c117192efb5",
+        "code_version": "ce760f8d2727c39d5927dbdf3a580bd815a7d826"
+      },
+      "initial_state": {
+        "purchase_budget": 100000,
+        "consulted_category": "departamento",
+        "financing_offered": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Tal vez pueda utilizar más dinero",
+            "Ahora solo quiero conocer el proyecto nomás"
+          ]
+        }
+      ],
+      "observed": "El extractor reconoció project_information y project_overview, pero el plan exigió discover_bedrooms con continuación obligatoria. El estado informativo no quedó separado de la calificación.",
+      "diagnosis": "commercial_engagement mantuvo passive=false y habilitó property_continuation con preguntas de categoría, planta y dormitorios. Reconocer información inmobiliaria no representa por sí solo la petición de posponer el proceso de compra.",
+      "expected": [
+        "Conservar una fase informativa explícita hasta que el lead pida retomar búsqueda, recomendación de compra o un trámite.",
+        "Mantener presupuesto, preferencias y unidad sin convertirlos en un objetivo de captura o comparación activo.",
+        "Ante una transición sin tema concreto, preguntar qué le gustaría conocer del proyecto, sin resumen automático ni pregunta de dormitorios.",
+        "No convertir una pausa en rechazo de compra, cancelación definitiva o consentimiento de otra acción."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "interaction_goal evidencia el cambio de modo. Se persiste interaction_mode entre turnos, se suspende la calificación y se retoma solo ante una petición explícita, conservando datos y consentimientos.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-097",
+      "group": "relevance",
+      "title": "El presupuesto vuelve como comparación indispensable pese a la fase informativa",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "evidence": {
+        "event_id": "0cecc036-7f12-4532-b2c3-b7878fce4f33",
+        "code_version": "fa56c8fe7be4959e4af5a58ea52852b1d158f3df"
+      },
+      "initial_state": {
+        "purchase_budget": 100000,
+        "requested_information_only": true,
+        "consulted_category": "departamento"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Aún no lo he pensado",
+            "Aparte de departamentos, ¿qué más ofrece?"
+          ]
+        }
+      ],
+      "observed": "La respuesta repitió el mínimo de departamentos y la insuficiencia del presupuesto, y anunció falta de precios verificados de otras categorías.",
+      "diagnosis": "La solicitud era project_information/property_options, pero budget_guidance marcó mention_required=true con reason=indispensable_current_scope_gap. response_content_scope permitió purchase_prices por changed_budget_scope_comparison. Esta autorización incorrecta precede al problema del catálogo restringido de AUT-095.",
+      "expected": [
+        "La fase informativa impide reactivar comparaciones de presupuesto por cambiar el tema o la categoría consultada.",
+        "Responder positivamente las otras categorías existentes sin precios, insuficiencia, advertencias sobre casas ni notas internas de verificación.",
+        "Una pregunta de precios explícita posterior se atiende como información sin reabrir por sí sola financiamiento o calificación."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "En modo informativo se desactivan evaluación proactiva de suficiencia, comparación de precios por cambio de alcance y continuación financiera automática. Los precios expresamente consultados siguen autorizados.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
+    },
+    {
+      "id": "AUT-098",
+      "group": "conversation_mode",
+      "title": "Distinguir cambio a información sin tema de una consulta ya concreta",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct15_opening_runtime",
+      "initial_state": {
+        "requested_information_only": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Por ahora solo quiero conocer el proyecto"
+          ]
+        },
+        {
+          "lead_messages": [
+            "Aparte de departamentos, ¿qué más ofrecen?"
+          ]
+        },
+        {
+          "lead_messages": [
+            "¿Y qué precios tienen las suites?"
+          ]
+        }
+      ],
+      "observed": "Control derivado para que una regla de preguntar qué quiere conocer no sustituya respuestas que el cliente ya solicitó.",
+      "diagnosis": "La pregunta abierta sirve para elegir un tema pendiente. Si el tema está indicado, volver a preguntar qué desea saber obliga al lead a repetirse.",
+      "expected": [
+        "Primer turno: invitar a indicar qué le gustaría conocer, sin resumen ni captura.",
+        "Segundo turno: responder las otras categorías y, si ayuda, invitar a profundizar sin interpretar elección de compra.",
+        "Tercer turno: responder precios de suites con fuentes pertinentes manteniendo la fase informativa.",
+        "No imponer Excelente, estimado o el nombre en todas las respuestas; son posibilidades de redacción."
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "scope": "local_code",
+        "summary": "Se distingue la declaración de modo sin tema de una consulta específica. La primera permite una pregunta abierta sin resumen; la segunda recibe su respuesta. Preguntar precios no reactiva la calificación.",
+        "validation": "TypeScript y ESLint; simulaciones y validación en ejecución real pendientes por decisión del responsable."
+      }
     }
   ],
   "variation_axes": [
@@ -2397,6 +2756,18 @@
         "preguntar reserva no reserva",
         "aceptar ver opciones no acepta crédito",
         "historial no acredita declaración actual"
+      ]
+    },
+    {
+      "name": "modo_interaccion",
+      "values": [
+        "búsqueda guiada",
+        "solo información sin tema concreto",
+        "solo información con consulta específica",
+        "precios durante fase informativa",
+        "otras categorías sin cambiar preferencia",
+        "retomar búsqueda expresamente",
+        "trámite solicitado sin consentimiento inferido"
       ]
     }
   ]

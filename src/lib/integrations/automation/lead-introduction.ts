@@ -162,10 +162,10 @@ export function hasProfileAnswer(raw: unknown) {
     || profile.residence_status === 'declined' || object(profile.name_response).status === 'declined'
 }
 
-function nameAcknowledgement(profile: Row, prior: Row) {
+function nameRecognition(profile: Row, prior: Row) {
   const name = conversationalFirstName(text(profile.full_name))
-  return name && normalized(name) !== normalized(text(prior.acknowledged_name))
-    ? `Mucho gusto, ${name[0].toLocaleUpperCase('es') + name.slice(1)}.` : ''
+  return name && normalized(name) !== normalized(text(prior.recognized_name || prior.acknowledged_name))
+    ? name[0].toLocaleUpperCase('es') + name.slice(1) : ''
 }
 
 function questionPurpose(missing: string[]) {
@@ -269,10 +269,10 @@ export function rememberLeadIntroduction(input: {
   state.confirmation_asked = question.id === 'lead_residence_confirmation' || previous.confirmation_asked === true
   state.confirmation_candidate = question.id === 'lead_residence_confirmation'
     ? question.residence_candidate : previous.confirmation_candidate || null
-  const acknowledgement = text(plan.name_acknowledgement)
-  if (acknowledgement && normalized(input.reply).includes(normalized(acknowledgement))) {
-    state.acknowledged_name = text(profile.full_name).trim().split(/\s+/)[0]
-  }
+  const recognition = text(object(plan.name_recognition).name)
+  // A delivered introduction handles the optional recognition once; no literal
+  // courtesy is required to advance the conversation.
+  if (recognition) state.recognized_name = recognition
   return state
 }
 function catalogFor(input: LeadIntroductionInput) {
@@ -326,7 +326,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   // Ask for the profile only once the lead expresses an actual request.
   if (!input.current.trim() || isGreetingOnly(input.current)
     || !suppliedProfile && !commercialRequest && isCourtesyOnly(input.current)) return unchanged
-  const acknowledgement = nameAcknowledgement(profile, prior)
+  const recognition = nameRecognition(profile, prior)
   const suppliedCandidate = Boolean(object(currentProfile.residence_candidate).city || object(currentProfile.residence_candidate).country)
     && profile.residence_status === 'pending_confirmation'
   const asked = profileRequestWasSent(prior)
@@ -340,15 +340,15 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
   const resumed = !declined && (suppliedCandidate
     || suppliedProfile && missing.length > 0 && asked && Number(prior.reminder_count || 0) < 1)
   const acknowledgeOnly = () => {
-    if (!acknowledgement || !text(currentProfile.full_name)) return unchanged
-    return { ...unchanged, applied: true, reply: join(acknowledgement, input.reply),
+    if (!recognition || !text(currentProfile.full_name)) return unchanged
+    return { ...unchanged,
       audit: { ...audit, profile_introduction: { profile_state: profile, question_purpose: 'none',
-        collection_decision: unchanged.audit.profile_collection_decision, name_acknowledgement: acknowledgement } } }
+        collection_decision: unchanged.audit.profile_collection_decision, name_recognition: { name: recognition, optional: true } } } }
   }
   // An informational request does not authorize proactive personal-data capture.
   // Keep the previous introduction receipt intact and acknowledge volunteered
   // facts without turning them into another name/residence reminder.
-  if (object(input.engagement).passive === true) {
+  if (object(input.engagement).passive === true || object(object(input.engagement).interaction_mode).mode === 'information_only') {
     unchanged.audit.profile_collection_decision = leadProfileCollectionDecision({ question_purpose: 'none',
       profile_declined: declined, collection_reason: 'informational_sales_scope' }, profile, prior)
     return acknowledgeOnly()
@@ -422,7 +422,6 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
       ...(confirm ? { confirmation_asked: true, confirmation_candidate: candidate } : {}),
       ...(denial && remind ? { denial_followup_asked: true } : {}) }
   }
-  result = join(acknowledgement, result)
   state.collection_status = collectionStatus(profile, state, declined)
   state.missing_fields = missing
   const stage = question ? asked ? 'reminder' : 'request' : 'deliver'
@@ -443,23 +442,23 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
       brochure_previously_sent: prior.brochure_sent === true,
       missing_fields: missing, reminder_count: reminderCount, residence_meaning: 'current_residence', profile_declined: declined,
       profile_state: profile, question_purpose: purpose, candidate: needsConfirmation ? { ...candidate } : null,
-      name_acknowledgement: acknowledgement || null,
+      name_recognition: recognition ? { name: recognition, optional: true } : null,
       reason: needsConfirmation ? 'declared_place_requires_current_residence_confirmation' : pending ? 'continue_opening_profile_exchange' : 'first_substantive_project_contact' } } }
 }
 
 export const LEAD_INTRODUCTION_RULES = `
 APERTURA Y PERFIL DEL LEAD
-- Esta secuencia es una regla comercial obligatoria y prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor elige cómo expresarlos y el revisor comprueba su significado en el mensaje real.
+- Esta secuencia aplica cuando la captura está autorizada y no se ha suspendido la calificación para conocer el proyecto. En su etapa autorizada prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor elige cómo expresarlos y el revisor comprueba su significado en el mensaje real.
 - Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después integre con naturalidad una sola pregunta según question_purpose. Recibe objetivos y datos pendientes, no una frase que deba copiar. Puede ofrecer el brochure como una invitación separada; no vincule siempre la pregunta a «para compartirle el brochure» ni repita «guía personalizada». Solicite únicamente nombre y ciudad o país de residencia actual, nunca dirección domiciliaria, desde dónde escribe ni el lugar donde quiere comprar. Un intercambio anterior sobre otro tema no acredita que estos datos ya se hayan solicitado. La cortesía debe acompañar la respuesta concreta, sin un saludo aislado seguido de una ficha seca.
 - profile_collection_decision autoriza la captura del turno. capture solicita los datos iniciales; remind permite una sola pregunta por el dato faltante cuando responde parcialmente al perfil, también cuando aporta nombre y consulta precios u otro detalle: responda primero la consulta y después pida únicamente la residencia pendiente. No añada simultáneamente otra pregunta comercial. La identificación de necesidades continúa después, conservando categorías, dormitorios y preferencias ya definidos. Una consulta sin aportar datos de perfil no autoriza repetir la captura. confirm aclara el lugar declarado; defer, declined y complete prohíben solicitar o confirmar datos de presentación. Que missing_fields contenga un dato no autoriza pedirlo. Si tras el único recordatorio no entrega la residencia o la rechaza, continúe con las necesidades conocidas sin insistir. Una operación protegida de reserva, visita o financiamiento aceptado conserva su propia pregunta y no autoriza captura de residencia. Estos límites de presentación no sustituyen los requisitos de un trámite financiero expresamente aceptado.
 - full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si la decisión autoriza pedir full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden únicamente los datos autorizados, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla.
 - declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
-- Si name_acknowledgement tiene contenido, incluya «Mucho gusto, Nombre» usando ese nombre verificado, una sola vez. Es un reconocimiento del nombre recién declarado, no una cortesía opcional ni un saludo que deba suprimirse. No añada saludos adicionales.
+- name_recognition aporta un nombre recién conocido, cuyo reconocimiento es opcional. Intégrelo solo si ayuda y sin fórmula obligatoria. No agradezca por rutina la ciudad ni repita mucho gusto ante la cortesía devuelta por el cliente. La entrega del brochure tampoco impone una apertura, agradecimiento o captura de presupuesto fija.
 - Si presentation.required=true, responda la consulta general inicial con una presentación breve del proyecto antes de la pregunta de perfil. Ofrecer el brochure y pedir los datos, sin describir el proyecto, no atiende esa consulta. presentation.approved_summary contiene el resumen aprobado y autoriza su concepto, tipos generales y cantidades; conserve esos hechos con redacción natural sin convertirlos en ofertas de catálogo, fichas, precios, etapa de obra o fechas. Esta presentación no se repite después ni se impone en consultas concretas o múltiples.
 - Si generic_introduction=true y no existe presentation.approved_summary, use la presentación básica breve de La Vilet y su ubicación. Todavía no enumere tipos de inmuebles ni sus usos residenciales/comerciales, tampoco mediante paráfrasis; esa oferta corresponde a la continuación posterior. Con el resumen aprobado sí se permite explicar el concepto mixto y las categorías que incluye como descripción general del proyecto. En ambos casos conserve la única pregunta de perfil pendiente, sin una segunda pregunta comercial.
 
 - Si brochure_deferred=true, no adjunte todavía el brochure: responda la consulta actual y pida solo el dato de presentación pendiente antes de la entrega automática, también cuando ya dio su nombre y falta residencia. No vuelva a pedir el nombre confirmado. Si brochure_required=true, conserve el enlace verificado. Una petición directa del brochure se atiende sin exigir datos.
-- Si question_purpose=confirm_residence y brochure_deferred=true, confirme primero si el lugar declarado es su residencia actual y deje el brochure para el siguiente intercambio. Si el brochure ya se compartió o se atiende una petición directa, no prometa enviarlo después de confirmar un dato ni presente la residencia como requisito para recibirlo: explique la pregunta por la guía personalizada. Si el lead no responde a la aclaración o rehúsa sus datos, continúe atendiendo su consulta sin reiterarla ni retener el material indefinidamente.
+- Si question_purpose=confirm_residence y brochure_deferred=true, confirme primero si el lugar declarado es su residencia actual y deje el brochure para el siguiente intercambio. Si el brochure ya se compartió o se atiende una petición directa, no prometa enviarlo después de confirmar un dato ni presente la residencia como requisito para recibirlo: formule la aclaración de residencia con naturalidad, sin justificarla mediante una guía personalizada. Si el lead no responde a la aclaración o rehúsa sus datos, continúe atendiendo su consulta sin reiterarla ni retener el material indefinidamente.
 - Responder datos de perfil no inicia una visita, no autoriza financiamiento y no cambia las preferencias comerciales. No repita datos ya conocidos ni insista cuando no responde. La residencia no implica requisitos financieros, nacionalidad, elegibilidad ni disponibilidad distintos.
 - No invente acabados, terrazas privadas para todas las unidades, superioridad de plusvalía ni visitas a obra. Mantenga la evidencia y los controles del proyecto.`
 
@@ -472,13 +471,11 @@ export function leadIntroductionIssues(reply: string, auditRaw: unknown) {
     ...(plan.brochure_required === true && !reply.includes(text(plan.brochure_url) || BROCHURE_URL) ? ['lead_profile_brochure_missing'] : []),
   ]
   const issues: string[] = []
-  const value = normalized(reply), purpose = text(plan.question_purpose)
+  const purpose = text(plan.question_purpose)
   // Presence is structural; the independent reviewer checks meaning, missing
   // fields and the brochure purpose. No vocabulary/phrase equivalence gate.
   if (['collect_profile', 'collect_name', 'collect_residence', 'confirm_residence'].includes(purpose)
     && !replyQuestions(reply).length) issues.push('lead_profile_question_missing')
-  const acknowledgement = normalized(text(plan.name_acknowledgement))
-  if (acknowledgement && !value.includes(acknowledgement)) issues.push('lead_profile_name_acknowledgement_missing')
   if (object(plan.profile_state).residence_status !== 'confirmed') {
     const statements = normalized(reply.replace(/¿[^¿?]*\?/g, ''))
     const candidate = object(plan.candidate || object(plan.profile_state).residence_candidate)
@@ -555,7 +552,6 @@ export function leadIntroductionRepairs(issues: string[], auditRaw: unknown): Ro
     lead_profile_question_missing: 'Integre con naturalidad la pregunta por los datos de presentación pendientes autorizados. No copie una plantilla ni repita una justificación sobre brochure o guía personalizada. Para confirm_residence confirme el lugar candidato, sin pedir otra ciudad desde cero.',
     lead_profile_question_not_authorized: 'Retire la solicitud o confirmación de datos de presentación: su captura está pospuesta, rechazada o completa en profile_collection_decision. Conserve la respuesta a la consulta actual y continúe identificando las necesidades del lead según la decisión comercial vigente; no sustituya ese paso por nombre o residencia.',
     lead_profile_question_mismatch: 'Conserve la pregunta de perfil autorizada en profile_collection_decision.allowed_question_ids y solicite únicamente allowed_fields. No cambie la residencia pendiente por el nombre ya confirmado, ni aclare el origen si corresponde confirmar la residencia del candidato.',
-    lead_profile_name_acknowledgement_missing: 'Incluya el reconocimiento name_acknowledgement del nombre declarado, una sola vez.',
     lead_profile_unconfirmed_residence: 'No afirme como residencia el lugar de origen o estancia temporal. Confirme si el candidato es su residencia actual.',
     lead_profile_brochure_premature: 'Retire el enlace del brochure: su entrega está prevista para el siguiente intercambio.',
     lead_profile_brochure_missing: 'Incluya el enlace verificado del brochure que corresponde entregar en este turno.',

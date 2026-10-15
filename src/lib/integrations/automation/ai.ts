@@ -43,7 +43,7 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   if (task === 'writing') {
     input = projectFinancialContextForWriter(object(input))
     instructions += '\n' + FINANCIAL_WRITER_SCOPE_RULE
-    instructions += conversationLanguageInstructions() + '\n' + CURRENT_TONE.neutralGreeting
+    instructions += conversationLanguageInstructions() + '\n' + CURRENT_TONE.neutralGreeting + '\n' + CURRENT_TONE.completeGreeting
     const localHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Guayaquil', hour: '2-digit', hourCycle: 'h23' }).format(new Date()))
     instructions += '\nContexto horario verificado para la bienvenida: ' + JSON.stringify({ time_zone: 'America/Guayaquil', local_hour: localHour,
       spanish_salutation: localHour >= 6 && localHour < 12 ? 'Buenos días' : localHour >= 12 && localHour < 19 ? 'Buenas tardes' : 'Buenas noches',

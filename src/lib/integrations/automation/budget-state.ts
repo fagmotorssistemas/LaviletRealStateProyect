@@ -46,8 +46,8 @@ export function budgetKindQuestion(budget: Row): string {
 
 export function budgetQuestion(info: Row): string {
   return leadBudget(info).status === 'amount_pending'
-    ? '¿De cuánto es el presupuesto total aproximado que tiene previsto para la compra?'
-    : '¿Qué presupuesto total aproximado tiene previsto para la compra?'
+    ? '¿De cuánto sería su presupuesto para la compra?'
+    : '¿Qué presupuesto tiene previsto para la compra?'
 }
 
 /** Legacy summaries can keep the original funds figure as total_budget after

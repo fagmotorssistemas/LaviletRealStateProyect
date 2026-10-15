@@ -34,7 +34,15 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const confidentIntent = acceptedExtractorConfidence(input.semantics.confidence) && !['', 'other'].includes(text(input.semantics.primary_intent))
   const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current, pending, answer), input.current)
   const reconciledRequest = reconciledInformationRequest(input, reservation)
-  const requests = (reconciledRequest ? [reconciledRequest] : input.requests).map(request => {
+  const interaction = object(input.semantics.interaction_goal)
+  const modeDeclarationOnly = interaction.mode === 'information_only' && interaction.specific_topic !== true
+    && acceptedExtractorConfidence(interaction.confidence) && !!text(interaction.mode_evidence)
+  const requests = (reconciledRequest ? [reconciledRequest] : input.requests).filter(request =>
+    // Declaring a conversational goal is not a request for a project recital.
+    // Preserve pending questions and every independent, specific request.
+    !(modeDeclarationOnly && request.source !== 'pending' && request.domain === 'property'
+      && Array.isArray(request.topics) && request.topics.length === 1 && request.topics[0] === 'project_overview'))
+    .map(request => {
     const proof = text(request.evidence).trim(), permission = text(reservation.evidence).trim()
     // Securing an option subject to an unanswered prerequisite is information,
     // even if extraction put that wish in the advisor domain. An independently
@@ -103,6 +111,7 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   if (!inScope && reservationObjective) decisions.push({ code: 'reservation_outside_authorized_scope', canonical_intent: objective })
   return {
     version: 'turn-intent-v2', objective, required_facts: requiredFacts,
+    interaction_goal: input.semantics.interaction_goal || null,
     current_message: input.current,
     price_request_status: requiredFacts.length || preserveDuringProfile && previous.continuation_goal === 'ask_price'
       ? 'pending' : previous.price_request_status === 'answered' ? 'answered' : 'not_requested',

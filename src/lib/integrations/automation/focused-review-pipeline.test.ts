@@ -87,7 +87,7 @@ for (const previouslyShared of [true, false]) test(`residence clarification shar
   let collectionInstruction = ''
   const mock = harness((context, task) => {
     const collection = rows(context.obligaciones_del_turno).find(row => row.id === 'profile_collection')
-    if (task === 'writing') assert.equal(collection?.purpose, 'guia_personalizada')
+    if (task === 'writing') assert.equal(object(collection?.purpose).mandatory_justification, false)
     if (task === 'writing') assert.deepEqual(collection?.required_data, ['current_residence'])
     if (task === 'writing') assert.match(String(collection?.instruction), /no prometa enviarlo después/)
     if (task === 'review') {
@@ -100,7 +100,8 @@ for (const previouslyShared of [true, false]) test(`residence clarification shar
     }
     collectionInstruction = String(collection?.instruction)
     const stage = object(object(context.contrato_redaccion).estado_comercial)
-    assert.equal(stage.proposito_captura, 'guia_personalizada')
+    assert.equal(object(stage.objetivo_presentacion).mandatory_justification, false)
+    assert.equal('proposito_captura' in stage, false)
     assert.equal(object(stage.brochure).accion, previouslyShared ? 'already_shared' : 'share_now')
     return { ...writer(context, reply + (previouslyShared ? '' : `\n\nBrochure del proyecto: ${BROCHURE_URL}`)), question: { purpose: 'collect_lead_profile', role: 'required_collection',
       missing_datum: 'Confirmar si Cuenca es residencia actual', next_decision: 'Orientar según la residencia confirmada', continuation_id: 'lead_residence_confirmation', continuation_act: 'profile', comparison_categories: [], comparison_bedrooms: null } }

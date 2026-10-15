@@ -1,3 +1,4 @@
+import { informationOnly } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { catalogQuery, filterCatalog, partitionCatalog } from './catalog-dialogue'
@@ -51,6 +52,7 @@ export function budgetForCommercialPlan(assessment: Row, plan: Row): Row {
 /** Compute affordability from this turn's interpreted budget and complete
  * scoped catalogue. Never infer an amount from prose or approve financing. */
 export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
+  if (informationOnly(verified) || ['all_categories', 'other_categories'].includes(text(object(object(verified.semantica_turno).interaction_goal).catalog_scope))) return null
   if (audit.source === 'clarify_previous_choice') return null
   const semantics = object(verified.semantica_turno), currentBudget = object(semantics.budget)
   const currentDeclaration = currentBudget.status && currentBudget.status !== 'not_discussed'

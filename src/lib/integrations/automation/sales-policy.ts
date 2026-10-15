@@ -70,7 +70,7 @@ export function rememberSalesReply(previous: unknown, history: unknown, current:
   if (!turn) return remembered
   const engagement = commercialEngagement(current, history, previous, turn)
   return { ...remembered, passive_sales: engagement.passive, property_interest: engagement.interested,
-    engagement_version: COMMERCIAL_ENGAGEMENT_VERSION }
+    engagement_version: COMMERCIAL_ENGAGEMENT_VERSION, interaction_mode: engagement.interaction_mode }
 }
 
 export function salesTopics(current: string) {

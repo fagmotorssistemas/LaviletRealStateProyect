@@ -1,3 +1,4 @@
+import { informationOnly, INFORMATION_ONLY_WRITER_RULES } from './interaction-mode'
 import { CONVERSATION_WRITING_STYLE_RULES } from './conversation-style'
 import { REFERENTIAL_PRICE_NOTICE_RULES, priceNoticeForConversation } from './price-conditions'
 import { continuationMetadataIssues, validContinuationMetadata, reconcileContinuationMetadata } from './continuation-validation'
@@ -426,7 +427,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     if (budgetAssessment) budgetAssessment = budgetForCommercialPlan(budgetAssessment, journey)
     input = { ...input, verified: { ...input.verified, siguiente_paso_comercial: journey }, audit: { ...input.audit, commercial_journey: journey } }
     if (budgetAssessment) input.verified.presupuesto_del_turno = budgetAssessment
-    if (journey.question_id || journey.action === 'leave_open') {
+    if (journey.question_id || ['leave_open', 'information_only', 'answer_project_categories'].includes(text(journey.action))) {
       input.preserveOperationalQuestion = false
       delete input.audit!.progressive_selection
       delete input.audit!.post_tour_continuation
@@ -733,7 +734,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Siguiente paso comercial', !!input.verified.siguiente_paso_comercial && COMMERCIAL_JOURNEY_RULES],
       ['Consultas pendientes', 'contexto_verificado.consultas_pendientes contiene mensajes del cliente aún sin respuesta. Atienda sus consultas informativas junto con mensaje_actual, salvo que el cliente las haya cancelado o sustituido. No repita gestiones ni reutilice consentimientos del pasado.'],
       ['Comparaciones, mínimos y máximos', NUMERIC_RELATION_WRITING_RULES],
-      ['Reglas aplicables a esta respuesta', writingRules + '\n' + passiveSalesRules(engagement) + '\n' + PROJECT_NAME_WRITING_RULES + ACTION_INVITATION_RULE],
+      ['Reglas aplicables a esta respuesta', writingRules + '\n' + (informationOnly(input.verified) ? INFORMATION_ONLY_WRITER_RULES : '') + '\n' + passiveSalesRules(engagement) + '\n' + PROJECT_NAME_WRITING_RULES + ACTION_INVITATION_RULE],
       ['Continuidad residencial', RESIDENTIAL_CONTINUITY_RULES],
       ['Alternativas de inmuebles', !!(input.audit?.alternative_results || input.audit?.alternative_presentation
         || /alternative/.test(text(input.audit?.source))) && UNIT_ALTERNATIVE_RULES],
@@ -957,7 +958,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       const reviewContext = { ...(openingSchema.required.length ? { contrato_apertura: {
         etapa: 'presentacion_inicial_sin_tipos_de_inmueble',
         revision_prioritaria: 'Primero identifique las oraciones que introducen lo que ofrece el proyecto, incluso mediante descripciones de usos residenciales o comerciales. Su veracidad no autoriza adelantar esa presentación.',
-        permitido: 'Presentar brevemente el proyecto, su ubicación y entorno, y pedir los datos pendientes para el brochure y la guía personalizada. Describir el sector como residencial no presenta tipos de inmuebles.',
+        permitido: 'Presentar brevemente el proyecto, su ubicación y entorno, y pedir los datos pendientes y ofrecer el brochure cuando corresponda, sin una justificación fija. Describir el sector como residencial no presenta tipos de inmuebles.',
         evaluacion: 'Indique exclusivamente en opening_property_type_sentence_ids las oraciones que presentan tipos de inmuebles. El sistema aplicará ese incumplimiento: no lo duplique en otros controles ni convierta hechos verdaderos en falsos por ser prematuros.',
       } } : {}), ...context, catalog_evidence: { catalog_query: input.audit?.catalog_query,
         catalog_results: input.audit?.catalog_results, alternative_results: input.audit?.alternative_results },

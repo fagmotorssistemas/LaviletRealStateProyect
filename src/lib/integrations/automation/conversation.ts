@@ -1,3 +1,4 @@
+import { interactionMode } from './interaction-mode'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJourney, purchaseReadiness, commercialJourneyPlan } from './commercial-journey'
@@ -627,12 +628,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   trace.add('turn_intent', 'Resolver objetivo compartido del turno', 'decision', 'turn-intent.ts', 'succeeded',
     { classifier_scope: classifiedScope, extractor_intent: interpretation.diagnostic.primary_intent }, turnIntent)
+  interpretation.requests = turnIntent.requests
+  extracted.requests = turnIntent.requests
   turnSemantics.requests = turnIntent.requests
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor'),
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
+  const interaction = interactionMode(previousSummary._interaction_mode || object(previousSummary._sales_memory).interaction_mode, turnSemantics)
+  const informationalOnly = interaction.mode === 'information_only'
+  const currentFinancialRequest = turnSemantics.primary_intent === 'ask_financing'
+    || interpretation.requests.some(request => request.domain === 'financing' && acceptedExtractorConfidence(request.confidence))
+  const permitsFinancialContinuation = !informationalOnly || currentFinancialRequest
   const categoryPreference = preferredPropertyCategory(current, turnSemantics)
   // Legacy extraction cannot overwrite the new, evidenced interpretation with a mentioned rejection.
-  extracted.preferred_category = categoryPreference
+  extracted.preferred_category = informationalOnly || ['all_categories', 'other_categories'].includes(text(object(turnSemantics.interaction_goal).catalog_scope))
+    ? null : categoryPreference
   if (categoryPreference && !acceptedExtractorConfidence(object(turnSemantics.property).confidence)) {
     turnSemantics.property = { ...object(turnSemantics.property), category: categoryPreference, confidence: 'high', evidence: current.slice(0, 240) }
   }
@@ -647,6 +656,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   summary = { ...rememberInterpretedTurn({ ...previousSummary, _pending_question: pendingQuestion }, originalTurn, unresolvedPropertyScope
     ? { ...extracted, preferred_category: null, purchase_purpose: null } : extracted, unresolvedPropertyScope ? {} : turnSemantics),
     _turn_intent: turnIntent,
+    _interaction_mode: interaction,
     _unit_reference: minimalTurn || unresolvedPropertyScope ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn || unresolvedPropertyScope ? previousPropertyContext : reference.context }
   const declaredProfile = object(extracted.lead_profile)
@@ -683,7 +693,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       || ['given_names', 'surnames', 'complete_name_confirmation', 'document'].some(key => !!object(extracted.financing_identity)[key])
       || !['absent', 'unsubstantiated'].includes(text(object(extracted.document_validation).status))
       || ['applicant_type', 'employment_stability_months', 'job_title', 'monthly_income'].some(key => extracted[key] != null)))
-  const resumeFinancing = !quoteInquiry.beforeApplication && (canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
+  const resumeFinancing = permitsFinancialContinuation && !quoteInquiry.beforeApplication && (canResumeFinancing(financeSelection, object(summary._financing_journey), extracted)
     || financingAccepted && !!selectedFinancingUnit(financeSelection) && leadBudget(financeSelection).answered === true
       && acceptedExtractorConfidence(declaredBudget.confidence) && declaredBudget.status !== 'not_discussed'
       && !extracted.requested_advisor && !extracted.opt_out && object(extracted.visit_intent).kind !== 'request_visit')
@@ -734,7 +744,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const answeringIntroduction = object(previousSummary._lead_introduction).status === 'pending'
     && isProfileOnlyTurn(current, { ...extracted, turn_semantics: turnSemantics })
   const discountNegotiation = discountNegotiationForTurn(turnSemantics, current, businessScope)
-  const financeTurn = !discountNegotiation && !quoteInquiry.beforeApplication && !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
+  const financeTurn = permitsFinancialContinuation && !discountNegotiation && !quoteInquiry.beforeApplication && !extracted.requested_advisor && !extracted.opt_out && (financingDataTurn || resumeFinancing || financeInput.consent === true
     || (!answeringIntroduction && !priceTurn && isFinancingTurn(extracted, current, text(state.ultima_respuesta), financeInput)))
   if (!financeTurn) extracted.events = (extracted.events as string[]).filter(e => e !== 'asked_financing')
   if (isCourtesyOnly(current) && !visitSignal && !financeTurn && !extracted.requested_advisor) extracted.events = []
@@ -815,7 +825,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         { events: extracted.events, caused_by_step: semanticStep }, { ...scoreDecision, action_executed: false })
     }
     // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
-    const unitId = !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
+    const unitId = !informationalOnly && !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
     if (unitId) extracted.preferred_category = reference.matches[0].category
     const previousCategory = lead.preferred_category
     const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
@@ -1004,7 +1014,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       trace.add('lead_introduction', 'Presentación y datos del lead', 'decision', 'lead-introduction.ts', 'succeeded', {}, continuation.audit)
     }
   }
-  if (!reply && !inbound.mediaFailed && !operationalTurn && (turnIntent.objective === 'project_information'
+  if (!reply && !informationalOnly && !inbound.mediaFailed && !operationalTurn && (turnIntent.objective === 'project_information'
     || (!acceptedExtractorConfidence(turnSemantics.confidence) && isProjectInformationRequest(current)))) {
     const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), semantica_turno: turnSemantics, property_context: reference.context }
     introductionProjectInfo = info
@@ -1324,7 +1334,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, propuestas: proposals,
           recorrido_comercial: summary._commercial_journey || {}, perfil_lead: summary._lead_profile,
           hechos_confirmados: summary._interpretation_memory,
-          final_review_follows: true,
+          final_review_follows: true, interaction_mode: interaction,
           contrato_turno: turnIntent,
           consultas_pendientes: pendingInputs,
           coordinacion_visita: visitDraft, financiamiento: finance, reglas_del_turno: TURN_RULES, memoria_comercial: memory,
@@ -1522,6 +1532,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
       contrato_turno: turnIntent,
       _sales_memory: previousSummary._sales_memory,
+      interaction_mode: interaction,
       price_notice_receipt: summary._price_notice || previousSummary._price_notice,
       commercial_engagement: commercialEngagement(current, context.historial, previousSummary._sales_memory, {
         semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion,

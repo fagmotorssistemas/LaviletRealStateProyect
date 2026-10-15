@@ -121,7 +121,8 @@ describe('informational engagement limits proactive profile capture', () => {
     const turn = leadIntroductionTurn(input({ current: 'Soy Carlos; sólo estoy consultando los precios',
       summary: { _lead_introduction: previous }, engagement: { passive: true },
       extracted: { lead_profile: declaredName('Carlos', 'Soy Carlos') }, reply: 'Estos son los precios de las opciones.', audit: { source: 'unit_price' } }))
-    assert.match(turn.reply, /Mucho gusto, Carlos/)
+    assert.equal(object(object(turn.audit.profile_introduction).name_recognition).name, 'Carlos')
+    assert.doesNotMatch(turn.reply, /Mucho gusto/)
     assert.match(turn.reply, /Estos son los precios/)
     assert.doesNotMatch(turn.reply, /reside|su nombre|brochure/i)
     assert.deepEqual(turn.state, previous)
@@ -508,7 +509,8 @@ describe('progressive lead introduction', () => {
   it('reuses a prior declared name without asking it again or repeating its acknowledgement', () => {
     const known = declaredName('Ana María', 'Me llamo Ana María')
     const turn = leadIntroductionTurn(input({ summary: { _lead_profile: known } }))
-    assert.match(turn.reply, /Mucho gusto, Ana/)
+    assert.equal(object(object(turn.audit.profile_introduction).name_recognition).name, 'Ana')
+    assert.doesNotMatch(turn.reply, /Mucho gusto/)
     assert.match(turn.reply, /reside actualmente/)
     assert.doesNotMatch(turn.reply, /indicarnos su nombre/)
     const next = leadIntroductionTurn(input({ current: 'Vivo en Chile',
@@ -683,7 +685,8 @@ describe('progressive lead introduction', () => {
     for (const [name, city] of [['Carlos', 'Cuenca'], ['Ana', 'Loja'], ['Lucía', 'Buenos Aires']]) {
       const turn = leadIntroductionTurn(pending({ current: `claro, ${name} y soy de ${city}`,
         extracted: { lead_profile: originProfile(name, city) } }))
-      assert.match(turn.reply, new RegExp(`Mucho gusto, ${name}\\.`))
+      assert.equal(object(object(turn.audit.profile_introduction).name_recognition).name, name)
+      assert.doesNotMatch(turn.reply, /Mucho gusto/)
       assert.ok(!turn.reply.includes(BROCHURE_URL))
       assert.equal(turn.brochureDeferred, true)
       assert.equal(turn.state.brochure_sent, false)
@@ -702,7 +705,8 @@ describe('progressive lead introduction', () => {
         extracted: { lead_profile: originProfile('Ana', 'Loja'), preferred_category: 'departamento' },
         reply: 'Tenemos departamentos de 2 y 3 dormitorios. ¿Qué planta prefiere?', audit: { source: 'catalog_search' } }))
       assert.match(turn.reply, /departamentos de 2 y 3 dormitorios/)
-      assert.match(turn.reply, /Mucho gusto, Ana/)
+      assert.equal(object(object(turn.audit.profile_introduction).name_recognition).name, 'Ana')
+    assert.doesNotMatch(turn.reply, /Mucho gusto/)
       assert.match(turn.reply, /Entiendo que es de Loja.*residencia actual/s)
       assert.doesNotMatch(turn.reply, /Qué planta|en qué ciudad/)
       assert.equal((turn.reply.match(/\?/g) || []).length, 1)
@@ -725,7 +729,7 @@ describe('progressive lead introduction', () => {
     assert.equal(leadProfilePendingQuestion(reply, turn.audit).question, '¿Actualmente vive allí?')
     assert.ok(leadIntroductionIssues(reply.replace('Entiendo que es de', 'Como vive en'), turn.audit).includes('lead_profile_unconfirmed_residence'))
     assert.deepEqual(leadIntroductionIssues(reply.replace('¿Actualmente vive allí?', '¿En qué ciudad reside actualmente?'), turn.audit), [])
-    assert.ok(leadIntroductionIssues(reply.replace('Mucho gusto, Carlos.', ''), turn.audit).includes('lead_profile_name_acknowledgement_missing'))
+    assert.deepEqual(leadIntroductionIssues(reply.replace('Mucho gusto, Carlos.', ''), turn.audit), [])
     // Semantic review, not a location substring check, must reject a changed candidate.
     assert.deepEqual(leadIntroductionIssues(reply.replace('Cuenca', 'Quito'), turn.audit), [])
   })
@@ -739,7 +743,8 @@ describe('progressive lead introduction', () => {
     assert.equal((turn.reply.match(/\?/g) || []).length, 1)
     const specialized = leadIntroductionTurn(pending({ current: 'Me llamo Carlos, quiero una visita',
       extracted: { lead_profile: declaredName('Carlos', 'Me llamo Carlos') }, audit: { source: 'visit_intake' }, reply: '¿Qué día desea visitarnos?' }))
-    assert.equal(specialized.reply, 'Mucho gusto, Carlos.\n\n¿Qué día desea visitarnos?')
+    assert.equal(specialized.reply, '¿Qué día desea visitarnos?')
+    assert.equal(object(object(specialized.audit.profile_introduction).name_recognition).name, 'Carlos')
   })
 
   it('does not repeatedly confirm a candidate after an evasive response or demand refused data', () => {
