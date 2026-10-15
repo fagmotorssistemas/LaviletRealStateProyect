@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getSessionProfile } from '@/lib/auth/session'
 import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
 import { deliveryHealth, reconcileDeliveryIncident, resolveDeliveryIncident, resumeAfterKommoReview } from '@/lib/integrations/automation/delivery-state'
+import { recheckMaintenanceReads } from '@/lib/integrations/automation/maintenance-recovery'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,12 +24,17 @@ export async function POST(request: Request) {
     const session = await getSessionProfile()
     if (!session) return NextResponse.json({ error: 'No autenticado' }, { status: 401, headers })
     if (session.profile.role !== 'admin') return NextResponse.json({ error: 'Solo administradores' }, { status: 403, headers })
+    if (!canAccessPath(session.profile.role, '/inmobiliaria/automatizacion', session.profile.crm_paths)) {
+      return NextResponse.json({ error: 'Sin acceso a automatización' }, { status: 403, headers })
+    }
     if (request.headers.get('origin') !== new URL(request.url).origin || !request.headers.get('content-type')?.includes('application/json')) {
       return NextResponse.json({ error: 'Solicitud no permitida' }, { status: 403, headers })
     }
     const body = await request.json()
     if (body?.action === 'resume_after_account_review') {
       await resumeAfterKommoReview(session.profile.id)
+    } else if (body?.action === 'recheck_maintenance' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(body.id || '')) {
+      await recheckMaintenanceReads(body.id, session.profile.id)
     } else if (body?.action === 'incident_reviewed' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(body.id || '')) {
       await resolveDeliveryIncident(body.id, session.profile.id)
     } else if (body?.action === 'reconcile_incident' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(body.id || '')
@@ -41,7 +47,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const busy = error instanceof Error && error.message === 'WORKER_BUSY'
     const message = error instanceof Error ? error.message : ''
-    const detail = message === 'DELIVERY_REVIEW_REQUIRED' ? 'Complete la comprobación y una observación de entre 3 y 300 caracteres.'
+    const detail = message === 'TEST_CONTACTS_READ_FAILED' ? 'La consulta de contactos de prueba sigue fallando. La incidencia se conserva; puede volver a comprobarla más adelante.'
+      : message.startsWith('MAINTENANCE_RECHECK_') ? 'No se pudo completar la comprobación de mantenimiento. La incidencia se conserva para volver a intentarlo.'
+      : message === 'DELIVERY_REVIEW_REQUIRED' ? 'Complete la comprobación y una observación de entre 3 y 300 caracteres.'
       : message === 'DELIVERY_RETRY_CHECKPOINT_REQUIRED' ? 'Este intento no conserva una respuesta recuperable. Desmarque el reintento para guardar solo la comprobación y atienda la consulta pendiente.'
         : message === 'DELIVERY_RETRY_LIMIT' ? 'Este envío alcanzó el límite de dos reintentos comprobados. Desmarque el reintento y revise la conexión antes de continuar.'
           : message === 'DELIVERY_EVIDENCE_REQUIRED' ? 'No se encontró el mensaje enviado que corresponde a este intento. Compruebe su identificador y el historial de Kommo.'

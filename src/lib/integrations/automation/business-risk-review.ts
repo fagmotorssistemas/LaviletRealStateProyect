@@ -21,7 +21,7 @@ export const businessRiskReviewSchema: Row = {
     findings: { type: 'array', maxItems: 8, items: {
       type: 'object', additionalProperties: false,
       properties: {
-        category: { type: 'string', enum: ['hard_fact', 'business_guardrail'] },
+        category: { type: 'string', enum: ['hard_fact', 'business_guardrail', 'unsupported_policy'] },
         statement: { type: 'string' },
         reason: { type: 'string' },
         authoritative_fact: { type: 'string' },
@@ -79,6 +79,7 @@ ${REVIEWER_AUTHORITY_RULES}
 Revise el borrador sin reescribirlo. Bloquee únicamente:
 1. Una afirmación de precio, rango, unidad, dormitorios, superficies, planta, ubicación, tipología, instalaciones o disponibilidad falsa, contradictoria o sin respaldo autorizado para ese mismo sujeto y conjunto.
 2. Una condición o promesa comercial sin respaldo: descuento, precio congelado, reserva confirmada, aprobación financiera, crédito directo, requisito bancario, pago, cita, asignación o gestión realizada.
+Use category=unsupported_policy únicamente si el texto afirma un permiso, una prohibición o inexistencia de restricciones del proyecto sin una política publicada aplicable que lo respalde. Incluye autorizar alquiler/reventa o afirmar que ninguna política lo impide. Cite la afirmación y el respaldo que falta; no confunda una explicación de incertidumbre con una prohibición. Una política explícita de instalaciones sí respalda sus permisos dentro de su alcance. Esta categoría no evalúa tono, preguntas, omisiones ni condiciones de terceros. El redactor debe corregir esa afirmación antes del envío, también en revisión observada.
 Respete negaciones y condiciones. Ofrecer orientación, recibir datos o invitar a solicitar una reserva no afirma que se haya realizado una operación. Una posibilidad condicionada de pedir crédito no garantiza aprobación. Una valoración prudente no es un hecho del inmueble.
 Extraiga únicamente hechos realmente afirmados. No copie cifras ausentes del texto, no redondee valores y no confunda dormitorios, ocupación, número de plantas o última planta. Una referencia completa al presupuesto limita las afirmaciones siguientes de ese mismo subconjunto. Compare extremos y ausencia de opciones solo con fuentes completas del alcance afirmado; no mezcle opciones excluidas ni grupos de todo el proyecto con la búsqueda del turno.
 Consulte todas las fuentes autorizadas antes de declarar falta de respaldo. Un catálogo parcial no demuestra un máximo global ni ausencia de opciones. Informar disponibilidad publicada no reserva inventario ni garantiza disponibilidad futura. Un precio de lanzamiento no demuestra por sí solo descuento ni un precio posterior. Un descuento ya incluido no se resta otra vez.
@@ -95,7 +96,7 @@ export function businessRiskReviewInstructions(optimizedCatalog = false): string
   return BUSINESS_RISK_REVIEW_RULES
 }
 
-const categories = new Set(['hard_fact', 'business_guardrail'])
+const categories = new Set(['hard_fact', 'business_guardrail', 'unsupported_policy'])
 
 /** Request a bounded second look when a block cites only numeric sources that
  * its own fact inventory verifies. This never approves a draft or removes a

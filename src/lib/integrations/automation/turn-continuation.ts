@@ -5,9 +5,10 @@ import { replyQuestionText } from './reply-question'
 export function turnContinuation(audit: Row = {}, verified: Row = {}) {
   const journey = object(verified.siguiente_paso_comercial || audit.commercial_journey)
   const question = text(journey.question), id = text(journey.question_id)
-  return { required: !!id && !!question, action: text(journey.action) || null,
+  const required = !!id && !!question && journey.continuation_optional !== true
+  return { required, action: text(journey.action) || null,
     question_id: id || null, suggested_question: question || null,
-    response_connection: id && question ? 'answer_to_pending_decision' : null,
+    response_connection: required ? 'answer_to_pending_decision' : null,
     instruction: text(journey.instruction), selection_scope: journey.selection_scope || null }
 }
 

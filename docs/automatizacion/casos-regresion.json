@@ -145,7 +145,7 @@
       "id": "AUT-002",
       "group": "operations",
       "title": "Aviso de mantenimiento que no desaparece",
-      "status": "current_observed",
+      "status": "implemented_locally_pending_validation",
       "source": "oct13_maintenance",
       "initial_state": {
         "event_kind": "maintenance",
@@ -165,13 +165,20 @@
         "Borrar una entrega incierta para ocultar el aviso.",
         "Afirmar que refrescar la pantalla repara la consulta.",
         "Atribuir esta incidencia a un mensaje del cliente."
-      ]
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "base_revision": "ce760f8",
+        "deployed": false,
+        "conversation_tests_run": false,
+        "reference": "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md"
+      }
     },
     {
       "id": "AUT-003",
       "group": "relevance",
       "title": "Bancos introducidos al consultar alquiler o reventa",
-      "status": "current_observed",
+      "status": "implemented_locally_pending_validation",
       "source": "oct15_runtime",
       "evidence": {
         "event_id": "8f174ace-6358-435e-b720-e988a81c499b",
@@ -200,13 +207,20 @@
       "forbidden": [
         "Inferir crédito de la palabra rentar o de la intención de inversión.",
         "Afirmar que el código añadió literalmente ese párrafo después del borrador."
-      ]
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "base_revision": "ce760f8",
+        "deployed": false,
+        "conversation_tests_run": false,
+        "reference": "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md"
+      }
     },
     {
       "id": "AUT-004",
       "group": "conversation",
       "title": "Presupuesto repetido después de una duda de precios",
-      "status": "current_observed",
+      "status": "implemented_locally_pending_validation",
       "source": "oct15_runtime",
       "evidence": {
         "event_ids": [
@@ -235,13 +249,20 @@
       ],
       "forbidden": [
         "Forzar una variación literal en cada mensaje como sustituto de resolver la insistencia."
-      ]
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "base_revision": "ce760f8",
+        "deployed": false,
+        "conversation_tests_run": false,
+        "reference": "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md"
+      }
     },
     {
       "id": "AUT-005",
       "group": "recovery",
       "title": "Agradecimiento o aceptación tras fallback produce otro fallback",
-      "status": "current_observed",
+      "status": "implemented_locally_pending_validation",
       "source": "oct15_runtime",
       "evidence": {
         "event_id": "259dc0f9-2ce9-4664-b447-3db6886c09d0",
@@ -269,13 +290,20 @@
       "forbidden": [
         "Tratar claro como un permiso financiero.",
         "Perder la pregunta original al enviar una contingencia."
-      ]
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "base_revision": "ce760f8",
+        "deployed": false,
+        "conversation_tests_run": false,
+        "reference": "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md"
+      }
     },
     {
       "id": "AUT-006",
       "group": "facts",
       "title": "Ausencia de política convertida en permiso absoluto",
-      "status": "current_observed",
+      "status": "implemented_locally_pending_validation",
       "source": "oct15_runtime",
       "evidence": {
         "event_id": "8f174ace-6358-435e-b720-e988a81c499b"
@@ -297,13 +325,20 @@
       ],
       "forbidden": [
         "Usar ausencia de evidencia bancaria como prueba de autorización del proyecto."
-      ]
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "base_revision": "ce760f8",
+        "deployed": false,
+        "conversation_tests_run": false,
+        "reference": "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md"
+      }
     },
     {
       "id": "AUT-007",
       "group": "review",
       "title": "Revisor bloquea pero demostración envía el borrador",
-      "status": "current_observed",
+      "status": "implemented_locally_pending_validation",
       "source": "oct15_runtime",
       "evidence": {
         "event_id": "8f174ace-6358-435e-b720-e988a81c499b"
@@ -326,7 +361,14 @@
       "forbidden": [
         "Decir que el revisor aprobó esta afirmación.",
         "Cambiar silenciosamente el modo de revisión al registrar el caso."
-      ]
+      ],
+      "implementation": {
+        "date": "2026-10-15",
+        "base_revision": "ce760f8",
+        "deployed": false,
+        "conversation_tests_run": false,
+        "reference": "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md"
+      }
     },
     {
       "id": "AUT-008",

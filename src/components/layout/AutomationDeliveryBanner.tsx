@@ -53,7 +53,7 @@ export function AutomationDeliveryBanner() {
   }
   const transport = health?.transport
   const transportIssue = Boolean(transport?.error || transport?.missing.length || transport?.delayed.length)
-  if (!allowed || (!error && !health?.blocked && !health?.incidentCount && !health?.retryPending && !transportIssue)) return null
+  if (!allowed || (!error && !health?.blocked && !health?.incidentCount && !health?.maintenance?.count && !health?.retryPending && !transportIssue)) return null
   const reason = health?.httpStatus === 402 ? 'Kommo rechazó las solicitudes con «Payment Required» (402). Revise la suscripción o consulte a soporte de Kommo.'
     : health?.httpStatus === 401 ? 'Kommo rechazó las credenciales (401). Un administrador debe revisar la conexión.'
       : 'Kommo rechazó el acceso (403). Un administrador debe revisar los permisos de la integración.'
@@ -61,7 +61,7 @@ export function AutomationDeliveryBanner() {
     <div className="flex items-start gap-3">
       <AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-700" />
       <div className="min-w-0 flex-1">
-        <h2 className="font-semibold">{health?.blocked ? 'Los envíos del bot están bloqueados por Kommo' : health?.incidentCount ? 'Hay respuestas que necesitan revisión' : health?.retryPending ? 'Hay respuestas esperando reintento' : transportIssue ? 'Hay avisos sobre la sincronización con Kommo' : 'No se pudo verificar el estado del bot'}</h2>
+        <h2 className="font-semibold">{health?.blocked ? 'Los envíos del bot están bloqueados por Kommo' : health?.incidentCount ? 'Hay respuestas que necesitan revisión' : health?.retryPending ? 'Hay respuestas esperando reintento' : transportIssue ? 'Hay avisos sobre la sincronización con Kommo' : health?.maintenance?.count ? 'Hay avisos de mantenimiento' : 'No se pudo verificar el estado del bot'}</h2>
         {!!health?.retryPending && <p className="mt-2">Reintentos programados o en curso: {health.retryPending}. La respuesta aún no está confirmada como entregada en WhatsApp.</p>}
         {health?.blocked && <><p className="mt-1">{reason}</p><p className="mt-1">Los nuevos mensajes se conservan pendientes. Cambiar «Detener IA» o reiniciar al lead no elimina este bloqueo.</p></>}
         {!!health?.pendingMessages && health.blocked && <p className="mt-1">Mensajes pendientes: {health.pendingMessages}.</p>}
@@ -103,6 +103,16 @@ export function AutomationDeliveryBanner() {
             </li>)}
           </ul>
           {health.incidentCount > health.incidents.length && <p className="mt-2 text-xs">Se muestran los últimos {health.incidents.length} intentos.</p>}
+        </details>}
+        {!!health?.maintenance?.count && <details className="mt-3">
+          <summary className="cursor-pointer font-medium">Mantenimiento: {health.maintenance.count} {health.maintenance.count === 1 ? 'incidencia' : 'incidencias'}</summary>
+          <p className="mt-2 text-xs">Estos avisos corresponden a tareas internas. No demuestran que una respuesta de IA o un envío haya fallado. Las consultas de contactos de prueba se cierran cuando se comprueba que su lectura vuelve a funcionar, conservando el registro original.</p>
+          <ul className="mt-2 space-y-2">{health.maintenance.incidents.map(item => <li key={item.id} className="rounded border border-amber-200 bg-white/60 px-3 py-2">
+            <p className="text-xs">{item.reason === 'TEST_CONTACTS_READ_FAILED' ? 'Falló la consulta de contactos de prueba' : 'Tarea de mantenimiento pendiente de revisión'} · {item.reason}</p>
+            {item.explanation && <p className="mt-1 text-xs">{item.explanation}</p>}
+            {admin && item.canRecheck && <button type="button" disabled={busy} onClick={() => void update('recheck_maintenance', item.id)} className="mt-2 text-xs font-medium underline disabled:opacity-50">Volver a comprobar y cerrar si se recuperó</button>}
+          </li>)}</ul>
+          {health.maintenance.count > health.maintenance.incidents.length && <p className="mt-2 text-xs">Se muestran las últimas {health.maintenance.incidents.length} incidencias de mantenimiento.</p>}
         </details>}
         {!!transport?.missing.length && <details className="mt-3" open>
           <summary className="cursor-pointer font-medium">{transport.missing.length} mensajes de Kommo sin registro en la automatización</summary>

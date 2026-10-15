@@ -9,6 +9,7 @@ import { preserveCtwaForContact } from './ctwa-lead-store'
 import type { Guard } from './visits'
 import { normalized } from './sdr-rules'
 import { generationRecoveryNotice } from './conversation-language'
+import { isRecoveryNotice } from './pending-inbound'
 
 export class GenerationRecoveryError extends Error {
   constructor(public original: unknown, public deliveryUncertain: boolean) { super('GENERATION_RECOVERY_FAILED') }
@@ -139,6 +140,20 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     }
     if (!await canRespond()) return { action: 'superseded_or_paused' }
     const current = events.map(event => event.text || '[Archivo pendiente de revisar]').join('\n').slice(0, 1500)
+    const previousOutbound = await db().from('messages').select('role,model_used,tool_calls,sent_at')
+      .eq('conversation_id', conversationId).in('role', ['bot', 'asesor'])
+      .order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(1)
+      .abortSignal(AbortSignal.timeout(10_000))
+    if (previousOutbound.error) throw Error('RECOVERY_NOTICE_HISTORY_FAILED')
+    const previous = object(previousOutbound.data?.[0])
+    // One notice for an unanswered episode, regardless of acknowledgements or
+    // another failure code. A substantive bot/human response ends the episode.
+    const alreadyNotified = previous.role === 'bot' && isRecoveryNotice(previous)
+      && ['accepted', 'confirmed', 'delivered'].includes(text(object(previous.tool_calls).provider_status))
+    if (alreadyNotified && ['queued', 'assigned', 'acknowledged'].includes(text(lead.handoff_status))) {
+      return { action: 'advisor_recovery', notice: 'already_notified', notice_sent: false,
+        delivery_status: 'not_attempted', message_persisted: true, ...recoveryDetail, requires_review: false }
+    }
     const handoffReason = `Atender consulta sin respuesta por ${reviewFailure ? 'revisión agotada' : 'fallo de generación'} (${reason}). Consulta: ${current}`
     await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: handoffReason })
     const reactivated = await db().from('leads').update({ bot_enabled: true }).match(scope)
@@ -146,6 +161,8 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     if (reactivated.error) throw Error('HANDOFF_BOT_STATE_FAILED')
     const handed = await one('leads', text(lead.id))
     if (!['queued', 'assigned', 'acknowledged'].includes(text(handed.handoff_status))) throw Error('HANDOFF_NOT_RECORDED')
+    if (alreadyNotified) return { action: 'advisor_recovery', notice: 'already_notified', notice_sent: false,
+      delivery_status: 'not_attempted', message_persisted: true, ...recoveryDetail, requires_review: false }
     const language = object(object(conversation.summary)._conversation_language)
     const notice = generationRecoveryNotice(language)
     if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }

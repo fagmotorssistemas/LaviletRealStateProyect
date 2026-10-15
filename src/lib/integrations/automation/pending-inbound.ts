@@ -1,5 +1,11 @@
 import { object, text, type Row } from './data'
 
+export function isRecoveryNotice(message: Row) {
+  const receipt = object(message.tool_calls)
+  return /^system:(?:generation|review)-recovery$/.test(text(message.model_used))
+    || ['generation_recovery', 'review_recovery'].includes(text(receipt.source))
+}
+
 /** Read delivery receipts, never prose. Recovery notices do not answer a query.
  * A human response closes earlier pending inputs; current inputs are excluded. */
 export function unansweredInbound(messages: Row[], currentIds: string[]): Row[] {
@@ -15,8 +21,7 @@ export function unansweredInbound(messages: Row[], currentIds: string[]): Row[] 
     if (message.role === 'asesor') { pending.clear(); continue }
     if (message.role !== 'bot') continue
     const receipt = object(message.tool_calls)
-    if (/^system:(?:generation|review)-recovery$/.test(text(message.model_used))
-      || ['generation_recovery', 'review_recovery'].includes(text(receipt.source))
+    if (isRecoveryNotice(message)
       || object(object(receipt.turn_completeness).recovery).pending === true) continue
     if (Array.isArray(receipt.answered_message_ids)) {
       if (['accepted', 'confirmed', 'delivered'].includes(text(receipt.provider_status))) {

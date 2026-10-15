@@ -16,6 +16,7 @@ import { atomicNumericSchema, materializeNumericReview, ATOMIC_NUMERIC_RULES, AS
 import { FOCUSED_NUMERIC_COVERAGE_RULES } from './focused-numeric-coverage'
 import { aiRequestBody } from './ai-request-body'
 import { aiPromptCacheKey } from './ai-prompt-cache'
+import { projectFinancialContextForWriter, FINANCIAL_WRITER_SCOPE_RULE } from './writer-financial-context'
 
 const jsonReplySchema = { type: 'object', properties: { mensaje: { type: 'string' } }, required: ['mensaje'], additionalProperties: false }
 export async function aiJson(instructions: string, input: unknown, schema?: Row, image?: string, file?: {name: string; data: string}, toneOverride?: ToneSettings, task: ToneTask = 'data'): Promise<Row> {
@@ -40,6 +41,8 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   // templates or stylistic limits, even when those settings are customized.
   if (!focusedReview) instructions = await configuredToneInstructions(instructions, toneOverride, task)
   if (task === 'writing') {
+    input = projectFinancialContextForWriter(object(input))
+    instructions += '\n' + FINANCIAL_WRITER_SCOPE_RULE
     instructions += conversationLanguageInstructions() + '\n' + CURRENT_TONE.neutralGreeting
     const localHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Guayaquil', hour: '2-digit', hourCycle: 'h23' }).format(new Date()))
     instructions += '\nContexto horario verificado para la bienvenida: ' + JSON.stringify({ time_zone: 'America/Guayaquil', local_hour: localHour,

@@ -21,6 +21,7 @@ import { processAdvisorOutbound } from './advisor-outbound'
 import { syncTransportIncidents } from './transport-monitor'
 import { AcceptedReplyRegistrationError, preserveAcceptedReply, recoverAcceptedReplyRegistrations } from './reply-registration'
 import { sendConfirmedDeliveryRetry } from './delivery-retry'
+import { recheckMaintenanceReads } from './maintenance-recovery'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -86,9 +87,10 @@ async function runMaintenance(config: Row) {
         const reason = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'MAINTENANCE_FAILED'
         // Mutating SQL could have committed before its response was lost. Keep
         // this attempt for review; the next minute has a separate maintenance key.
-        await rpc('lv_app_finish', { p_token: token, p_ids: batch.map(row => row.id), p_status: 'uncertain',
+        const readFailure = first.kind === 'maintenance' && reason === 'TEST_CONTACTS_READ_FAILED'
+        await rpc('lv_app_finish', { p_token: token, p_ids: batch.map(row => row.id), p_status: readFailure ? 'cancelled' : 'uncertain',
           p_result: { reason, requires_review: true, recovery: 'not_replayed' } })
-        results.push({ kind: first.kind, status: 'uncertain', reason })
+        results.push({ kind: first.kind, status: readFailure ? 'cancelled' : 'uncertain', reason })
       }
     }
     return results
@@ -103,6 +105,9 @@ export async function runAutomation(contactKey?: string) {
   assertLive()
   const config = await autoConfig()
   if (config.enabled !== true || config.dry_run !== false) return { mode: 'live', processed: 0, reason: 'database_paused' }
+  if (!contactKey) {
+    try { await recheckMaintenanceReads() } catch { /* Keep the original incident visible until its read succeeds. */ }
+  }
   const maintenance = !contactKey && !await kommoDeliveryBlock() ? await runMaintenance(config) : []
   const token = randomUUID()
   const acquired = contactKey

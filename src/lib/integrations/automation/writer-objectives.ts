@@ -11,6 +11,8 @@ export function conversationObjective(raw: unknown): Row {
     lead_profile: 'Responder primero la consulta y, si la captura está autorizada, conocer nombre y residencia actual con una pregunta natural. Ofrecer el brochure solo si corresponde; no exigir una justificación o frase fija.',
     lead_profile_name: 'Conocer únicamente el nombre pendiente con naturalidad, sin repetir datos ni una fórmula sobre brochure o guía personalizada.',
     lead_profile_residence: 'Conocer únicamente la ciudad o el país de residencia actual pendiente, conectando con la conversación sin una frase prefabricada.',
+    budget_amount: 'Orientar las opciones con el presupuesto total aproximado que tenía pensado para la compra, si todavía falta y desea compartirlo. Atienda sus dudas antes de retomarlo; no lo repita en cada respuesta ni lo convierta en condición para informar.',
+    budget_kind: 'Aclarar únicamente el significado de un importe ambiguo, conservando la cifra y sin volver a pedir datos resueltos.',
     property_bedrooms: 'Conocer cuántos dormitorios le gustaría tener, únicamente si no lo ha respondido ni lo declaró indiferente.',
     property_category: 'Ayudar a elegir el tipo de inmueble entre las categorías verificadas pertinentes.',
     property_comparison: 'Comparar directamente los tipos ya aceptados, incluyendo ambas partes, sus diferencias útiles y el presupuesto conocido. No volver a pedir permiso para la misma comparación.',

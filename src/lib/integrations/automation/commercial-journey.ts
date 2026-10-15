@@ -158,21 +158,30 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     .filter(request => acceptedExtractorConfidence(request.confidence) && text(request.evidence).trim())
   const topics = requests.flatMap(request => ids(request.topics))
   const pending = object(object(info.property_context).pending_question)
+  const previousJourney = object(info.recorrido_comercial)
   const capture = ['clarify_financing_down_payment', 'discover_use', 'discover_bedrooms', 'select_property', 'ask_budget', 'clarify_budget_kind'].includes(text(plan.action))
   const hasInquiry = requests.some(request => ['financing', 'property', 'project'].includes(text(request.domain))
-    && ids(request.topics).some(topic => !['property_options', 'visualization'].includes(topic)))
+    && (ids(request.topics).some(topic => !['property_options', 'visualization'].includes(topic))
+      || !ids(request.topics).length && ['project_information', 'ask_price', 'ask_financing'].includes(text(comparisonSemantics.primary_intent))))
   const firstAcceptance = object(object(info.semantica_turno).answer_to_previous).question_id === 'financing_invitation'
     && object(object(info.semantica_turno).answer_to_previous).kind === 'affirmative'
   const cashInquiry = topics.includes('cash_payment') && (capture || plan.action === 'offer_financing')
-  if (cashInquiry || capture && hasInquiry && pending.id === plan.question_id && !firstAcceptance && plan.presentation !== 'recommended_unit') {
+  const alreadyAsked = pending.id === plan.question_id || previousJourney.last_discovery_question_id === plan.question_id
+  if (cashInquiry || capture && hasInquiry && alreadyAsked && !firstAcceptance && plan.presentation !== 'recommended_unit') {
     return { ...plan, action: 'answer_current_question', question: '', question_id: '', question_act: 'other',
       requires_unit_presentation: false,
       deferred_question: { id: plan.question_id, act: plan.question_act || (pending.id === plan.question_id ? pending.act : '') || (plan.question_id === 'financing_down_payment' ? 'financing' : 'other'),
-        question: pending.id === plan.question_id && pending.question ? pending.question : plan.question, candidate_ids: ids(object(plan.selection_scope).unit_ids),
+        question: pending.id === plan.question_id && pending.question ? pending.question : previousJourney.last_discovery_question || plan.question, candidate_ids: ids(object(plan.selection_scope).unit_ids),
         ...(plan.question_amount_reference ? { amount_reference: plan.question_amount_reference } : {}) },
       instruction: topics.includes('cash_payment')
         ? 'Atienda primero las condiciones verificadas del pago al contado y la comparación con financiamiento. Si faltan condiciones, explique únicamente lo pendiente. Puede ofrecer comparar ambas modalidades sin exigir elegir una ni volver a solicitar ahora la entrada. Esta consulta no cambia la modalidad ni revoca la aceptación de financiamiento. Conserve internamente el siguiente dato pendiente.'
-        : 'Responda la duda actual con amabilidad. La aceptación de financiamiento y las preferencias conocidas siguen vigentes. No repita inmediatamente la misma captura ni la invitación a financiamiento: el dato queda pendiente para retomarlo cuando el cliente termine de resolver sus dudas. Si pregunta por aprobación, explique la decisión de la entidad sin introducir cuotas.' }
+        : 'Responda directamente la duda actual con amabilidad y los hechos verificados. Conserve las decisiones conocidas y deje internamente pendiente el dato solicitado; no repita la misma captura después de cada consulta. Retómela cuando ayude a continuar, sin una frase fija.'
+          + (object(plan.readiness).financing_accepted === true ? ' La aceptación de financiamiento ya existente se conserva.' : '')
+          + (topics.includes('credit_approval') ? ' Explique la evaluación de la entidad sin introducir cuotas no solicitadas.' : '') }
+  }
+  if (capture && hasInquiry && !firstAcceptance && plan.presentation !== 'recommended_unit') return {
+    ...plan, continuation_optional: true,
+    instruction: 'Atienda primero la consulta actual con la información verificada. El siguiente dato por conocer sigue siendo el del objetivo comercial, pero su captura es opcional en esta respuesta: retómela únicamente si aporta una continuación natural. Puede responder sin pregunta y conservar el dato pendiente. No repita una fórmula de presupuesto ni exija esa cifra para resolver dudas.',
   }
   return plan
 }
@@ -406,7 +415,7 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   if (!accepted && !passive && budget.answered !== true && !budgetDeferred) return {
     ...plan('ask_budget', selected
       ? 'Conserve la unidad de interés y responda la consulta actual. Recupere únicamente el presupuesto total aproximado que falta, sin reabrir tipo o planta ni repetir la ficha ya presentada.'
-      : 'Ya conocemos qué busca. Responda cualquier consulta actual y pregunte únicamente el presupuesto total aproximado antes de dormitorios, tipo, planta o unidades. No enumere opciones ni precios por esta pregunta. Un sí sin monto requiere preguntar cuánto; sin presupuesto definido o ante negativa continúe con las características.',
+      : 'Conocer el presupuesto total aproximado que tenía pensado para la compra, si desea compartirlo, para orientar las opciones. Atienda primero cualquier consulta actual; preguntar el presupuesto no impide responder precios solicitados. Elija una formulación natural y no repita la captura por rutina. Si no tiene una cifra definida o prefiere no compartirla, continúe con sus preferencias.',
     budgetQuestion(info), 'budget_amount'),
     ...(selected ? { selection_scope: { categories: category ? [category] : [], unit_ids: [selected], floors: [] } } : {}),
     presentation: 'budget_intake',
@@ -591,5 +600,9 @@ export function rememberCommercialJourney(previous: Row, plan: Row, pending: Row
     next.reservation_offered_ids = [...new Set([...ids(previous.reservation_offered_ids), text(plan.selected_unit_id)])]
   if (pending.id === 'visit_invitation') next.visit_offered = true
   if (pending.id === 'financing_invitation') next.financing_offered = true
+  if (['budget_amount', 'budget_kind', 'property_bedrooms', 'property_category', 'property_floor', 'financing_down_payment'].includes(text(pending.id))) {
+    next.last_discovery_question_id = pending.id
+    next.last_discovery_question = pending.question
+  }
   return next
 }

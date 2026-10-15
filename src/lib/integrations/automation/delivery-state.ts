@@ -41,18 +41,21 @@ export async function kommoDeliveryBlock() {
 }
 
 export async function deliveryHealth() {
-  const [block, incidents, pending, transport, retries] = await Promise.all([
+  const [block, incidents, pending, transport, retries, maintenance] = await Promise.all([
     kommoDeliveryBlock(),
     db().from('lv_integration_events').select('id,contact_key,kind,status,result,completed_at,received_at', { count: 'exact' }).match(scope)
-      .neq('kind', 'lock').or('status.eq.uncertain,and(status.eq.cancelled,result->>requires_review.eq.true)')
+      .not('kind', 'in', '(lock,maintenance,decay)').or('status.eq.uncertain,and(status.eq.cancelled,result->>requires_review.eq.true)')
       .order('received_at', { ascending: false }).limit(50).abortSignal(AbortSignal.timeout(10_000)),
     db().from('lv_integration_events').select('id', { count: 'exact', head: true }).match(scope)
       .eq('kind', 'inbound').eq('status', 'pending').abortSignal(AbortSignal.timeout(10_000)),
     transportHealth(),
     db().from('lv_integration_events').select('id', { count: 'exact', head: true }).match(scope)
       .eq('kind', 'delivery_retry').in('status', ['pending', 'processing']).abortSignal(AbortSignal.timeout(10_000)),
+    db().from('lv_integration_events').select('id,kind,result,received_at', { count: 'exact' }).match(scope)
+      .in('kind', ['maintenance', 'decay']).or('status.eq.uncertain,and(status.eq.cancelled,result->>requires_review.eq.true)')
+      .order('received_at', { ascending: false }).limit(50).abortSignal(AbortSignal.timeout(10_000)),
   ])
-  if (incidents.error || pending.error || retries.error) throw Error('DELIVERY_HEALTH_READ_FAILED')
+  if (incidents.error || pending.error || retries.error || maintenance.error) throw Error('DELIVERY_HEALTH_READ_FAILED')
   const items = (incidents.data || []).map(row => {
     const result = object(row.result), kommoId = Number(text(row.contact_key).split(':')[0])
     // Older versions incorrectly called every 4xx write uncertain. A definite
@@ -70,7 +73,12 @@ export async function deliveryHealth() {
   })
   return { blocked: !!block, httpStatus: Number(block?.http_status) || null,
     detectedAt: text(block?.detected_at) || null, pendingMessages: pending.count || 0, retryPending: retries.count || 0,
-    incidents: items, incidentCount: incidents.count || 0, transport }
+    incidents: items, incidentCount: incidents.count || 0, transport,
+    maintenance: { count: maintenance.count || 0, incidents: (maintenance.data || []).map(row => ({
+      id: row.id, reason: text(object(row.result).reason), at: row.received_at,
+      explanation: kommoFailureExplanation(text(object(row.result).reason), object(row.result)),
+      canRecheck: row.kind === 'maintenance' && object(row.result).reason === 'TEST_CONTACTS_READ_FAILED',
+    })) } }
 }
 
 // Explicit administrator recovery only. This does not replay any failed send,

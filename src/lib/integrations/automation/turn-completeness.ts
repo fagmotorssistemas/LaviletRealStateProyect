@@ -539,6 +539,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     policy: adaptiveContinuation ? 'contextual_commercial_continuation' : 'route_contract',
   })
   let observedDraft = ''
+  let unsupportedPolicyClaim = false
   let observedWriterQuestion: Row = {}
   let observedMetadataIssues: string[] = []
   const observedResponse = (reason = 'completed', observedRequests: Coverage[] = requests, extraIssues: string[] = []): TurnCompletenessResult => {
@@ -582,8 +583,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       resolved_turn_intent: turnIntent, business_policy_sources: input.verified.politicas_negocio || [],
       text_transformations: textTransformations, server_continuation_completion: serverContinuationCompletion,
       editorial_observations: editorialObservations, link_contract: linkContract,
-      repair_attempts: repairAttempts.filter(repair => repair.target === 'review_metadata'),
-      repair_budget: { writer: { limit: 0, used: 0 }, review_metadata: { limit: repairBudget().review_metadata.used ? 1 : 0,
+      repair_attempts: repairAttempts,
+      unsupported_policy_guard: { enabled: true, blocking: unsupportedPolicyClaim },
+      repair_budget: { writer: { limit: repairAttempts.some(repair => repair.target === 'commercial_draft') ? 1 : 0,
+        used: repairAttempts.filter(repair => repair.target === 'commercial_draft').length }, review_metadata: { limit: repairBudget().review_metadata.used ? 1 : 0,
         used: repairBudget().review_metadata.used } },
       recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
       pending_missing_fact_fragments: reviewMissing,
@@ -593,7 +596,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     } }
   }
   const fallback = (status: string, requests: Coverage[] = [], issues: string[] = []): TurnCompletenessResult => {
-    if (observationOnly && observedDraft) return observedResponse(status, requests, issues)
+    if (observationOnly && observedDraft && !unsupportedPolicyClaim) return observedResponse(status, requests, issues)
     const lastRepair = repairAttempts.at(-1)
     if (lastRepair && ['invalid_coverage', 'unavailable'].includes(status)
       && ['rejected_guard', 'rejected_catalog_guard'].includes(text(lastRepair.status))) {
@@ -859,6 +862,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       let rawReview = factualReviewResult(await generate(riskRules, riskContext, riskSchema,
         undefined, undefined, undefined, 'review'))
       let riskDecision = businessRiskDecision(rawReview)
+      if (riskDecision.valid) unsupportedPolicyClaim = riskDecision.findings.some(finding => finding.category === 'unsupported_policy')
       const checkFacts = (facts: unknown) => validateBusinessFacts(facts,
         [...new Map([...inventoryValidationUnits, ...sharedEvidence.units].map(unit => [unit.id, unit])).values()],
         sharedEvidence.groups, effectiveTurnBudget(input.verified), reasoningEvidence, reply)
@@ -907,6 +911,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       proposedQuestion = question
       const numericFindings = factFindings(factChecks)
       const riskFindings = [...riskDecision.findings, ...numericFindings]
+      if (riskDecision.valid) unsupportedPolicyClaim = riskDecision.findings.some(finding => finding.category === 'unsupported_policy')
       const approved = riskDecision.approved && numericFindings.length === 0
       const riskIssues: Row[] = [...riskDecision.findings, ...numericFindings].map(finding => ({ code: text(finding.category),
         kind: 'commercial_content', statement: text(finding.statement),
@@ -930,7 +935,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         warnings: !usableQuestion ? ['writer_question_metadata_unusable'] : [], writer_metadata_observations: writerQuestionWarnings }
       if (!riskDecision.valid) return fallback('rejected_review', requests, ['invalid_business_risk_review'])
       if (!approved) {
-        if (attempt === 0 && !observationOnly) {
+        if (attempt === 0 && (!observationOnly || unsupportedPolicyClaim)) {
           repairAttempts.push({ target: 'commercial_draft', status: 'rejected_review', issues: riskIssues,
             rejected_review: rawReview, proposed_preview: traceText(reply, MAX_REPLY_CHARACTERS) })
           continue
@@ -1239,7 +1244,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     }
     return fallback('unavailable', requests)
   } catch (error) {
-    if (observationOnly && observedDraft && !(error instanceof InvalidWriterTransportError)) {
+    if (observationOnly && observedDraft && !unsupportedPolicyClaim && !(error instanceof InvalidWriterTransportError)) {
       semanticReview = { ...semanticReview, status: 'unavailable', error_code: error instanceof Error ? error.message : 'REVIEW_UNAVAILABLE',
         acceptance: { content_approved: false, follow_up_usable: false }, enforcement: false }
       return observedResponse('review_unavailable', requests, ['review_unavailable'])
