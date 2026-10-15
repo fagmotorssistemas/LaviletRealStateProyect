@@ -136,6 +136,7 @@ export function createHeroAnimation(root, classes, CONFIG) {
     /* edificio: casi todo el ancho; en pantallas muy anchas lo limita el alto (con un poco de techo fuera, como máximo topCropMax) */
     var bh = Math.min(w * (portrait ? CONFIG.buildingWidthPortrait : CONFIG.buildingWidth) / BLD_AR, B / (1 - CONFIG.topCropMax));
     var bw = bh * BLD_AR;
+    B += h * CONFIG.sceneOffset;
 
     /* calle: su borde superior en la base del edificio, cubre todo el ancho y hasta abajo */
     var gw = Math.max(w, (h - B + 2) * STREET_AR);

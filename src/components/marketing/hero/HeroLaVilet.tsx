@@ -10,6 +10,7 @@ import { createHeroAnimation } from './heroAnimation'
   const CONFIG = {
     travel: 1.60,                 // scroll extra del hero fijado, en altos de pantalla (160svh)
     baseLine: 0.88,               // altura de la base del edificio y del borde de la vereda, fracción del alto de pantalla
+    sceneOffset: 0.04,           // baja la escena un 4% del alto de pantalla sin cambiar el tamaño del edificio
     buildingWidth: 0.99,          // ancho del edificio en pantallas horizontales, fracción del ancho de pantalla
     buildingWidthPortrait: 1.25,  // en pantallas verticales (se recortan un poco los costados)
     topCropMax: 0.06,             // en pantallas muy anchas, cuánto del techo del edificio puede quedar fuera por arriba (0 = nunca)
