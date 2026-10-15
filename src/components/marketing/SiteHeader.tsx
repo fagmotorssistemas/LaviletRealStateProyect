@@ -15,6 +15,7 @@ import {
 import { MARKETING_NAV } from '@/lib/marketing/nav'
 import { cn } from '@/lib/utils'
 import { HERO_LOCKED_EVENT, isHeroLocked } from './heroLock'
+import heroNavbar from './hero/HeroNavbar.module.css'
 
 const ease = [0.22, 1, 0.36, 1] as const
 const HERO_PATHS = new Set(['/inicio', '/nosotros'])
@@ -86,6 +87,8 @@ export function SiteHeader() {
       const delta = y - lastScrollY.current
       if (open || y < 56) {
         setNavHidden(false)
+      } else if (pathname === '/inicio' && (document.getElementById('inicio')?.getBoundingClientRect().bottom ?? 0) > 0) {
+        setNavHidden(false)
       } else if (delta > 8) {
         setNavHidden(true)
       } else if (delta < -8) {
@@ -119,6 +122,7 @@ export function SiteHeader() {
   return (
     <motion.header
       data-site-header
+      data-hero-visible={pathname === '/inicio' ? 'true' : undefined}
       data-hero-top={publicBrand && heroHeader ? '' : undefined}
       initial={reduceMotion || waitsForHero ? false : { y: -16, opacity: 0 }}
       animate={
@@ -128,6 +132,7 @@ export function SiteHeader() {
       aria-hidden={!headerReady || navHidden}
       inert={!headerReady || navHidden ? true : undefined}
       className={cn(
+        pathname === '/inicio' && heroNavbar.home,
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
         solid
           ? publicBrand
@@ -141,6 +146,7 @@ export function SiteHeader() {
         className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-5 sm:px-8 lg:gap-8 lg:px-12"
       >
         <motion.div
+          data-hero-nav-item
           initial={reduceMotion ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5, delay: 0.05, ease }}
@@ -177,6 +183,7 @@ export function SiteHeader() {
             return (
               <motion.div
                 key={item.href}
+                data-hero-nav-item
                 initial={reduceMotion ? false : { opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.45, delay: 0.12 + i * 0.06, ease }}
@@ -217,12 +224,13 @@ export function SiteHeader() {
 
         <div className="hidden items-center gap-6 lg:flex">
           {publicBrand ? (
-            <Link href="/contacto" className="lv-primary lv-header-cta inline-flex items-center justify-center uppercase">
+            <Link data-hero-nav-item href="/contacto" className="lv-primary lv-header-cta inline-flex items-center justify-center uppercase">
               Agendar visita
             </Link>
           ) : null}
           {!isLoading && (
             <motion.div
+              data-hero-nav-item
               initial={reduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.45, delay: 0.4, ease }}

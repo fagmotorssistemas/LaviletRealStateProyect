@@ -1,0 +1,10 @@
+/* The hero owns only the desktop entrance; navbar geometry and mobile stay intact. */
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .home[data-hero-visible="true"] {
+    opacity: var(--hero-header-opacity, 0) !important;
+  }
+  .home[data-hero-visible="true"] [data-hero-nav-item] {
+    opacity: var(--hero-nav-opacity, 0) !important;
+    transform: translateY(var(--hero-nav-y, -10px)) !important;
+  }
+}

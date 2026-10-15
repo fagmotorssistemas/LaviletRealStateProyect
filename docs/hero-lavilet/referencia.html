@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--
+  HERO DE LA VILET: IMPLEMENTACIÓN DE REFERENCIA (fuente de verdad)
+  El componente en Next.js debe verse y comportarse exactamente igual. Portar literalmente:
+  mismas capas, mismos números, mismas curvas. No rediseñar.
+  Las imágenes se cargan desde ../../public/hero/ para poder abrir este archivo directo desde el repo.
+-->
+<title>Hero La Vilet · referencia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@100..500&family=Italiana&display=swap">
+<style>
+/* Layout: pinned full-bleed hero. Scroll scrubs one timeline: sky settles, building rises, frame lines draw, letters fly from the small centered logo to the big title. Typography, colors and positions come from the "Portada La Vilet" artifact (1672x941 design canvas). Single dark look by choice. */
+:root {
+  color-scheme: dark;
+  --bg: #2a2924;
+  --surface: #34332d;
+  --ink: #f1eada;
+  --muted: #cbc7aa;
+  --acc: #f0a054;
+  --acc-text: #fcb988;
+  --line-soft: rgba(203, 199, 170, 0.2);
+  --font-display: "Italiana", Georgia, "Times New Roman", serif;
+  --font-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 200;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+[hidden] { display: none !important; }
+
+/* ---------- Pinned hero ---------- */
+.pin { position: relative; height: calc(100vh + var(--travel, 120vh)); height: calc(100svh + var(--travel, 120svh)); }
+.hero {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  min-height: 520px;
+  overflow: hidden;
+  background: var(--bg);
+  isolation: isolate;
+  --sw: max(100vw, 177.68vh);
+  --sh: calc(var(--sw) / 1.7768);
+  --st: calc(100vh - var(--sh));
+  --bw: 78vw;
+  --bl: 11vw;
+  --bt: 20vh;
+  --tint: 0.6;
+}
+.bg-inner {
+  position: absolute;
+  z-index: 0;
+  left: var(--fl, calc(50% - var(--sw) / 2));
+  top: var(--ft, var(--st));
+  width: var(--fw, var(--sw));
+  height: var(--fh, var(--sh));
+  transform-origin: 50% 77.47%; /* the horizon line */
+  will-change: transform;
+}
+.bg-inner img, .ground img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; max-width: none; }
+.ground {
+  position: absolute;
+  z-index: 1;
+  left: var(--gl, calc(50% - var(--sw) / 2));
+  width: var(--gw, var(--sw));
+  aspect-ratio: 1672 / 492;
+  top: var(--gt, calc(var(--st) + var(--sh) * 0.7747));
+}
+.bld {
+  position: absolute;
+  z-index: 2;
+  left: var(--bl);
+  top: var(--bt);
+  width: var(--bw);
+  aspect-ratio: 1356 / 585;
+  will-change: transform;
+}
+.bld img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  filter: brightness(calc(1 - 0.1 * var(--tint))) saturate(calc(1 + 0.12 * var(--tint)));
+}
+.bld img.night { position: absolute; left: 0; top: 0; filter: none; }
+
+/* street life during the sunset → night stretch */
+.bld img.actor { position: absolute; left: 0; top: 0; width: auto; height: auto; max-width: none; filter: none; opacity: 0; pointer-events: none; will-change: transform, opacity; }
+.bld .walker { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; will-change: transform, opacity; }
+.bld .walker img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; filter: none; transform-origin: 50% 100%; }
+.bld .walker .shadow {
+  /* contact shadow so his feet sit on the sidewalk */
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: -2.5%;
+  height: 6%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0) 70%);
+}
+.car .shadow {
+  /* contact shadow under the wheels */
+  position: absolute;
+  left: 3%;
+  right: 3%;
+  bottom: -5%;
+  height: 16%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0) 70%);
+}
+.car {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  top: var(--cy, 80%);
+  width: var(--cw, 25vw);
+  aspect-ratio: 1100 / 332;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.car img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; }
+.car .body { filter: blur(0.5px); }
+.car .refl {
+  top: 100%;
+  transform: scaleY(-1);
+  opacity: 0.22;
+  filter: blur(2.5px);
+  -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent 55%);
+  mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent 55%);
+}
+.car .trail {
+  position: absolute;
+  right: 96%;
+  top: 37.5%;
+  width: 85%;
+  height: 5%;
+  border-radius: 999px;
+  background: linear-gradient(to left, rgba(255, 64, 48, 0.95), rgba(255, 64, 48, 0));
+  filter: blur(2px);
+}
+.car .beam {
+  position: absolute;
+  left: 94%;
+  top: 29%;
+  width: 90%;
+  height: 46%;
+  background: radial-gradient(ellipse at 0% 50%, rgba(255, 246, 226, 0.55), rgba(255, 246, 226, 0) 70%);
+  mix-blend-mode: screen;
+}
+.bld-tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, #ff8236 0%, #ffaa66 45%, #ffd3a4 100%);
+  mix-blend-mode: soft-light;
+  opacity: calc(var(--tint) * 0.95);
+  -webkit-mask-image: url("../../public/hero/edificio-dia.webp");
+  mask-image: url("../../public/hero/edificio-dia.webp");
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  pointer-events: none;
+}
+
+/* the dark veil measured on the left of the design, fades in with scroll */
+.veil {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: multiply;
+  background:
+    radial-gradient(28% 36% at 1% 9%, rgb(44 50 44 / .56) 0%, rgb(44 50 44 / .20) 58%, rgb(44 50 44 / 0) 100%),
+    radial-gradient(21% 31% at 21% 52%, rgb(44 50 44 / .62) 0%, rgb(44 50 44 / .34) 58%, rgb(44 50 44 / 0) 100%),
+    radial-gradient(29% 54% at 6% 50%, rgb(44 50 44 / .70) 0%, rgb(44 50 44 / .54) 38%, rgb(44 50 44 / .26) 68%, rgb(44 50 44 / .04) 88%, rgb(44 50 44 / 0) 100%),
+    linear-gradient(to right, rgb(44 50 44 / .22) 0%, rgb(44 50 44 / .08) 17%, rgb(44 50 44 / 0) 33%),
+    linear-gradient(to bottom, rgb(44 50 44 / .18) 0%, rgb(44 50 44 / 0) 13%, rgb(44 50 44 / 0) 90%, rgb(44 50 44 / .10) 100%);
+}
+.hero.portrait .veil {
+  background: linear-gradient(to bottom, rgb(44 50 44 / .55) 0%, rgb(44 50 44 / .62) 30%, rgb(44 50 44 / .3) 52%, rgb(44 50 44 / 0) 66%);
+}
+
+/* ---------- 1672 x 941 design canvas ---------- */
+.comp {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1672px;
+  height: 941px;
+  z-index: 6;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+.comp > * { position: absolute; margin: 0; }
+#lines, #lines2 { left: 0; top: 0; width: 1672px; height: 941px; overflow: visible; }
+#lines path, #lines2 path { fill: none; stroke: var(--acc); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+#lines #pV { stroke: url(#fade); }
+#blk { left: 0; top: 0; width: 1672px; height: 941px; }
+#blk > * { position: absolute; margin: 0; }
+
+.nav span {
+  position: absolute;
+  color: var(--ink);
+  font-size: 15.1px;
+  font-weight: 300;
+  letter-spacing: 0.155em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#na { left: 1154px; top: 36px; }
+#nb { left: 1322px; top: 36px; }
+#nc { left: 1461px; top: 36px; }
+.hero.portrait .nav { display: none; }
+
+#eye {
+  left: 157px; top: 369px;
+  font-size: 14px; font-weight: 300; letter-spacing: 0.287em;
+  text-transform: uppercase; white-space: nowrap;
+}
+#t {
+  left: 145.9px; top: 395.3px;
+  font-family: var(--font-display); font-weight: 400;
+  font-size: 97.5px; letter-spacing: 0.0718em; line-height: 1; white-space: nowrap;
+}
+#t span { display: inline-block; color: var(--ink); transform-origin: 50% 50%; will-change: transform; }
+#t .sp { width: 0.41em; }
+#gh {
+  left: 841px; top: 30px; transform: translateX(-50%);
+  font-family: var(--font-display); font-size: 82.9px; letter-spacing: 0.216em;
+  line-height: 1; white-space: nowrap; visibility: hidden;
+}
+#gh span { display: inline-block; }
+#gh .sp { width: 0.3em; }
+#claim {
+  left: 156px; top: 544px;
+  font-family: var(--font-display); font-size: 36px; letter-spacing: 0.044em; line-height: 1; white-space: nowrap;
+}
+#claim .w { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.08em; }
+#claim .w i, #sub i { font-style: normal; display: inline-block; will-change: transform; }
+#sub {
+  left: 156px; top: 594px;
+  font-size: 21.8px; font-weight: 200; letter-spacing: 0.004em; line-height: 27px; white-space: nowrap;
+}
+#sub span { display: block; overflow: hidden; }
+#sub i { display: block; }
+#sd { left: 836px; top: 900px; display: grid; justify-items: center; }
+#sd svg { width: 22px; height: 12px; stroke: var(--ink); fill: none; stroke-width: 1.4; opacity: 0.9; }
+
+/* ---------- Section after the hero ---------- */
+.after { position: relative; background: var(--bg); min-height: 100vh; min-height: 100svh; }
+.after-inner {
+  max-width: 900px;
+  padding-block: clamp(70px, 14vh, 150px) 120px;
+  padding-left: max(clamp(22px, 5.6vw, 94px), env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.after .kicker { margin: 0; font-size: 13px; font-weight: 300; letter-spacing: 0.287em; text-transform: uppercase; color: var(--acc); }
+.after h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(28px, 4vw, 44px); line-height: 1.12; text-wrap: balance; }
+.after ul { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line-soft); }
+.after li {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 15px 0;
+  font-family: var(--font-display);
+  font-size: clamp(22px, 2.4vw, 28px);
+}
+.after p { margin: 0; font-size: 14.5px; line-height: 1.85; color: var(--muted); max-width: 64ch; }
+.after p.demo { font-size: 12.5px; letter-spacing: 0.04em; }
+
+</style>
+
+</head>
+<body>
+
+<div class="pin" id="pin">
+  <section class="hero" id="hero" aria-label="La Vilet">
+    <div class="bg-inner" id="bgInner">
+      <img id="imgBg" src="../../public/hero/fondo-dia.webp" alt="" fetchpriority="high" decoding="async">
+      <img id="imgBgS" src="../../public/hero/fondo-tarde.webp" alt="" style="opacity:1" decoding="async">
+      <img id="imgBgN" src="../../public/hero/fondo-noche.webp" alt="" style="opacity:0" decoding="async">
+    </div>
+    <div class="ground" id="ground">
+      <img id="imgGround" src="../../public/hero/calle-dia.webp" alt="" decoding="async">
+      <img id="imgGroundS" src="../../public/hero/calle-tarde.webp" alt="" style="opacity:1" decoding="async">
+      <img id="imgGroundN" src="../../public/hero/calle-noche.webp" alt="" style="opacity:0" decoding="async">
+    </div>
+    <div class="bld" id="bld">
+      <img id="imgBld" src="../../public/hero/edificio-dia.webp" alt="Edificio La Vilet con su plaza comercial" fetchpriority="high" decoding="async">
+      <span class="bld-tint" aria-hidden="true"></span>
+      <img class="night" id="imgBldS" src="../../public/hero/edificio-tarde.webp" alt="" style="opacity:0" decoding="async">
+      <img class="night" id="imgBldN" src="../../public/hero/edificio-noche.webp" alt="" style="opacity:0" decoding="async">
+      <!-- the afternoon rooftop people (couple on the left tower and couple on the roof terrace): they come with the afternoon and leave at night -->
+      <img class="night" id="imgBldX" src="../../public/hero/personas-tarde.webp" alt="" style="opacity:0" decoding="async">
+      <!-- the person on the roof terrace at night -->
+      <img class="night" id="imgBldY" src="../../public/hero/personas-noche.webp" alt="" style="opacity:0" decoding="async">
+      <div class="walker" id="walker">
+        <span class="shadow"></span>
+        <img src="../../public/hero/peaton-a.webp" alt="" decoding="async">
+        <img src="../../public/hero/peaton-p.webp" alt="" decoding="async" style="opacity:0">
+        <img src="../../public/hero/peaton-b.webp" alt="" decoding="async" style="opacity:0">
+      </div>
+    </div>
+    <div class="car" id="car" aria-hidden="true">
+      <span class="shadow"></span>
+      <span class="beam"></span>
+      <span class="trail"></span>
+      <img class="refl" src="../../public/hero/carro.webp" alt="">
+      <img class="body" src="../../public/hero/carro.webp" alt="">
+    </div>
+    <div class="veil" id="veil" aria-hidden="true"></div>
+
+    <div class="comp" id="comp">
+      <svg id="lines" viewBox="0 0 1672 941" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="fade" x1="0" y1="79" x2="0" y2="893" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#f0a054"/>
+            <stop offset=".86" stop-color="#f0a054"/>
+            <stop offset="1" stop-color="#f0a054" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path id="pH" d="M93.5 79.5 H1672"/>
+        <path id="pV" d="M93.5 79.5 V893"/>
+        <path id="pU" d="M1156 70 H1273"/>
+      </svg>
+
+      <nav class="nav" aria-label="Secciones">
+        <span id="na">El proyecto</span>
+        <span id="nb">Espacios</span>
+        <span id="nc">Ubicación</span>
+      </nav>
+
+      <div id="blk">
+        <svg id="lines2" viewBox="0 0 1672 941" fill="none" aria-hidden="true">
+          <path id="pB" d="M322 230.5 H153.5 A32 32 0 0 0 121.5 262.5 V651"/>
+          <path id="dB" d="M334 224 L341 231 L334 238 L327 231 Z"/>
+          <path id="pR" d="M146 522 H288"/>
+          <path id="dR" d="M295 515.5 L301.5 522 L295 528.5 L288.5 522 Z"/>
+        </svg>
+        <p id="eye">Suites &amp; Apartments</p>
+        <h1 id="t" aria-label="La Vilet"></h1>
+        <p id="claim" aria-label="El arte de vivir bien."></p>
+        <p id="sub"><span><i>Residencias y plaza comercial</i></span><span><i>en Puertas del Sol, Cuenca.</i></span></p>
+      </div>
+      <div id="gh" aria-hidden="true"></div>
+      <div id="sd" aria-hidden="true"><svg viewBox="0 0 22 12"><path d="M1 1 L11 10 L21 1"/></svg></div>
+    </div>
+  </section>
+</div>
+
+<!-- SOLO PARA LA REFERENCIA: sección de relleno para poder hacer scroll. NO se porta al sitio. -->
+<section class="after" id="espacios">
+  <div class="after-inner">
+    <p class="kicker">Espacios</p>
+    <h2>Cuatro tipos de propiedad en un mismo edificio</h2>
+    <ul>
+      <li>Locales comerciales</li>
+      <li>Suites</li>
+      <li>Departamentos</li>
+      <li>Penthouses</li>
+    </ul>
+    <p>Cada propiedad se puede comprar para vivir en ella o como inversión.</p>
+    <p class="demo">Sección de ejemplo para probar el efecto del hero al hacer scroll.</p>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lenis/1.1.13/lenis.min.js"></script>
+<script>
+(function () {
+  var AR = 1672 / 941, BASE = 0.86, BLD_AR = 1356 / 585, TL_END = 0.95;
+  var $ = function (id) { return document.getElementById(id); };
+  var pin = $("pin"), hero = $("hero"), bgInner = $("bgInner"), bld = $("bld"), comp = $("comp"), veil = $("veil");
+
+  /* ============ VALORES APROBADOS EN LA DEMO — no cambiar sin revisar con el equipo ============
+     travel   scroll extra del hero fijado, en % del alto de pantalla (240 = 240svh)
+     rise     desplazamiento inicial del edificio hacia abajo, % de su altura (0 = no sube)
+     sky      zoom extra del cielo al inicio, % (40 = scale 1.40 → 1)
+     logo     tamaño del logo inicial, % del título final
+     logoX/Y  posición del logo inicial (% de pantalla)        txtX/Y  posición del bloque de texto final (% de pantalla)
+     bgY/X/Z  posición y zoom mínimo del fondo (cielo y ciudad)  stY/X   posición de la calle y vereda
+     size     tamaño del edificio, %                              x / y   posición del edificio (% de pantalla)
+     tint     tono atardecer por código sobre el edificio (0: ya no hace falta, el edificio de tarde es una imagen real)
+     sunsetAt / nightAt   % del recorrido donde el atardecer y la noche están completos
+     carSize / carY / carSpan   tamaño, altura y tramo de scroll del carro (menos tramo = pasa más rápido)
+     walkSize / walkSpan        tamaño y tramo de scroll del peatón                                              */
+  var state = Object.freeze({ travel: 240, rise: 0, sky: 40, logo: 85, logoX: 0, logoY: 0, txtX: 0, txtY: 0, bgY: 3, bgX: 0, bgZ: 100, stY: 8, stX: 0, size: 110, x: 0, y: -4, tint: 0, sunsetAt: 50, nightAt: 95, carSize: 100, carY: 0, carSpan: 20, walkSpan: 25, walkSize: 120 });
+  var GROUND_AR = 1672 / 492;
+  var reduced = false;
+  try { reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+  var motionOn = !reduced;
+
+  var clamp = function (v, a, b) { return Math.min(Math.max(v, a), b); };
+  var EASE = {
+    none: function (t) { return t; },
+    p2io: function (t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; },
+    p2o: function (t) { return 1 - (1 - t) * (1 - t); },
+    p3o: function (t) { return 1 - Math.pow(1 - t, 3); },
+    back: function (t) { var c1 = 2.2, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+  };
+  function seg(T, start, dur, ease) { return EASE[ease](clamp((T - start) / dur, 0, 1)); }
+
+  /* ---------- build the text ---------- */
+  var real = [], ghosts = [];
+  "LA VILET".split("").forEach(function (ch, i) {
+    var a = document.createElement("span"), b = document.createElement("span");
+    if (ch === " ") { a.className = b.className = "sp"; a.innerHTML = b.innerHTML = "&nbsp;"; }
+    else { a.textContent = b.textContent = ch; a.setAttribute("aria-hidden", "true"); if (i >= 3) a.dataset.v = "1"; real.push(a); ghosts.push(b); }
+    $("t").appendChild(a); $("gh").appendChild(b);
+  });
+  var claim = $("claim");
+  "El arte de vivir bien.".split(" ").forEach(function (w, i, arr) {
+    var s = document.createElement("span"); s.className = "w"; s.setAttribute("aria-hidden", "true");
+    var it = document.createElement("i"); it.textContent = w; s.appendChild(it); claim.appendChild(s);
+    if (i < arr.length - 1) claim.appendChild(document.createTextNode(" "));
+  });
+  var claimW = [].slice.call(claim.querySelectorAll("i"));
+  var subL = [].slice.call(document.querySelectorAll("#sub i"));
+  var navs = [$("na"), $("nb"), $("nc")];
+  var paths = {};
+  ["pH", "pV", "pB", "pR", "pU"].forEach(function (id) {
+    var el = $(id), L = el.getTotalLength();
+    el.style.strokeDasharray = L;
+    paths[id] = { el: el, L: L };
+  });
+  var dias = { dB: { el: $("dB"), cx: 334, cy: 231 }, dR: { el: $("dR"), cx: 295, cy: 522 } };
+  var INK = [241, 234, 218], ACC = [252, 185, 136];
+
+  /* ---------- geometry ---------- */
+  var geo = { bh: 0, h: 0, s: 1 }, F = [];
+  function fitComp(w, h) {
+    var portrait = w / h < 1.25;
+    hero.classList.toggle("portrait", portrait);
+    var s;
+    if (portrait) {
+      s = Math.min(w / 720, h / 1100);
+      comp.style.left = "0px"; comp.style.top = "0px";
+      comp.style.transformOrigin = "0 0";
+      comp.style.transform = "scale(" + s + ")";
+      $("gh").style.left = (w / 2 / s + 5) + "px";
+      $("sd").style.left = (w / 2 / s) + "px";
+      $("sd").style.top = ((h - 34) / s) + "px";
+    } else {
+      s = Math.min(w / 1672, h / 941);
+      comp.style.left = "50%"; comp.style.top = "0px"; /* pinned to the top edge so the menu sits at the top */
+      comp.style.transformOrigin = "50% 0";
+      comp.style.transform = "translate(-50%, 0) scale(" + s + ")";
+      $("gh").style.left = "841px";
+      $("sd").style.left = "836px";
+      $("sd").style.top = "900px";
+    }
+    $("sd").style.marginLeft = "-11px";
+    geo.s = s;
+    /* user offsets, set in % of the screen and converted to canvas units */
+    $("gh").style.left = (parseFloat($("gh").style.left) + state.logoX / 100 * w / s).toFixed(1) + "px";
+    $("gh").style.top = (30 + state.logoY / 100 * h / s).toFixed(1) + "px";
+    $("blk").style.transform = "translate(" + (state.txtX / 100 * w / s).toFixed(1) + "px," + (state.txtY / 100 * h / s).toFixed(1) + "px)";
+    /* starting logo size, kept inside the screen width */
+    var gh = $("gh"), fs = 97.5 * state.logo / 100;
+    gh.style.fontSize = fs + "px";
+    var gw = gh.getBoundingClientRect().width;
+    if (gw > w * 0.94) gh.style.fontSize = (fs * w * 0.94 / gw).toFixed(2) + "px";
+    /* where each letter starts: its twin in the centered logo */
+    real.forEach(function (el) { el.style.transform = "none"; });
+    F = real.map(function (el, i) {
+      var a = ghosts[i].getBoundingClientRect(), b = el.getBoundingClientRect();
+      return { x: (a.left + a.width / 2 - b.left - b.width / 2) / s, y: (a.top + a.height / 2 - b.top - b.height / 2) / s, k: a.height / b.height };
+    });
+  }
+
+  function layout() {
+    var w = hero.clientWidth, h = hero.clientHeight;
+    var sw = Math.max(w, h * AR), sh = sw / AR, st = h - sh;
+    var desk = w / h >= 1.25;
+    var baseY = st + sh * BASE;
+    var maxH = baseY - (desk ? 96 : 40);
+    /* this render is wider (side walls and gardens), so it may run a bit past the screen edges */
+    var bw = Math.min(sw * 0.95, w * (desk ? 1.15 : 1.4), maxH * BLD_AR) * state.size / 100;
+    var bh = bw / BLD_AR;
+    var bl = w / 2 + w * state.x / 100 - bw / 2;
+    var lift = state.y / 100 * h;
+    var seamY = st + sh * 0.7747;
+    /* street and sidewalk layer: moves freely, never leaves a gap at the bottom of the screen */
+    var gdx = state.stX / 100 * w;
+    var gz = Math.max(1, (w + 2 * Math.abs(gdx)) / sw);
+    var gw = sw * gz, gh = gw / GROUND_AR;
+    var gt = seamY + state.stY / 100 * h;
+    gt = Math.max(gt, h - gh + 2);
+    /* sky and city layer: its horizon stays at or below the street edge, and it always covers the screen */
+    var dy = state.bgY / 100 * h, dx = state.bgX / 100 * w;
+    /* the city may rise a little above the street edge: what shows in between is the far part of the same
+       paved plaza (the background photo has 5.5% of its height of paving before its own curb) */
+    var horizon = Math.max(seamY + dy, gt - 0.05 * sh);
+    var z = Math.max(state.bgZ / 100, horizon / (0.7747 * sh), (w + 2 * Math.abs(dx)) / sw);
+    var fw = sw * z, fh = sh * z;
+    var s = hero.style;
+    s.setProperty("--gw", gw.toFixed(1) + "px");
+    s.setProperty("--gl", ((w - gw) / 2 + gdx).toFixed(1) + "px");
+    s.setProperty("--gt", gt.toFixed(1) + "px");
+    s.setProperty("--fw", fw.toFixed(1) + "px");
+    s.setProperty("--fh", fh.toFixed(1) + "px");
+    s.setProperty("--fl", ((w - fw) / 2 + dx).toFixed(1) + "px");
+    s.setProperty("--ft", (horizon - fh * 0.7747).toFixed(1) + "px");
+    s.setProperty("--sw", sw.toFixed(1) + "px");
+    s.setProperty("--sh", sh.toFixed(1) + "px");
+    s.setProperty("--st", st.toFixed(1) + "px");
+    s.setProperty("--bw", bw.toFixed(1) + "px");
+    s.setProperty("--bl", bl.toFixed(1) + "px");
+    s.setProperty("--bt", (baseY - bh - lift).toFixed(1) + "px");
+    pin.style.setProperty("--travel", motionOn ? (state.travel / 100 * h).toFixed(0) + "px" : "0px");
+    geo.bh = bh; geo.h = h; geo.w = w; geo.bw = bw;
+    /* car: drives in the near lane of the street layer */
+    var cw = 0.25 * bw * state.carSize / 100, ch = cw * 332 / 1100;   /* this render is wider, so a smaller share of it */
+    var wheelY = gt + gw * 165 / 1672 + state.carY / 100 * h;
+    s.setProperty("--cw", cw.toFixed(1) + "px");
+    s.setProperty("--cy", (wheelY - ch).toFixed(1) + "px");
+    geo.cw = cw;
+    /* man walking along the front of the plaza */
+    var mh = bh * 0.09 * state.walkSize / 100, mw = mh * 370 / 560;
+    var walker = $("walker").style;
+    walker.width = mw.toFixed(1) + "px"; walker.height = mh.toFixed(1) + "px";
+    walker.top = (bh * 0.995 - mh).toFixed(1) + "px";
+    geo.mh = mh; geo.mw = mw;
+    fitComp(w, h);
+    target = progress();
+    render(current = target);
+  }
+
+  /* ---------- one scroll timeline for everything ---------- */
+  function progress() {
+    var dist = pin.offsetHeight - hero.offsetHeight;
+    if (!motionOn || dist <= 0) return 1;
+    return clamp(-pin.getBoundingClientRect().top / dist, 0, 1);
+  }
+  function draw(id, k) { var p = paths[id]; p.el.style.strokeDashoffset = (p.L * (1 - k)).toFixed(2); }
+  function pop(id, k) {
+    var d = dias[id];
+    d.el.setAttribute("transform", "translate(" + d.cx + " " + d.cy + ") scale(" + Math.max(k, 0.0001).toFixed(4) + ") translate(" + (-d.cx) + " " + (-d.cy) + ")");
+    d.el.style.opacity = clamp(k, 0, 1).toFixed(3);
+  }
+  function render(p) {
+    /* scene */
+    var pb = EASE.p3o(clamp(p / 0.85, 0, 1));
+    bld.style.transform = "translate3d(0," + ((1 - pb) * state.rise / 100 * geo.bh).toFixed(1) + "px,0)";
+    var scale = 1 + (state.sky / 100) * (1 - EASE.p3o(p));
+    bgInner.style.transform = "scale(" + scale.toFixed(4) + ")";
+    applyTod(todForScroll(p));
+    streetLife(p);
+
+    /* text and frame, timed like the Portada La Vilet timeline */
+    var T = p * TL_END;
+    veil.style.opacity = seg(T, 0.04, 0.42, "none").toFixed(3);
+    var sd = seg(T, 0, 0.1, "none");
+    $("sd").style.opacity = (1 - sd).toFixed(3);
+    $("sd").style.transform = "translateY(" + (12 * sd).toFixed(1) + "px)";
+
+    real.forEach(function (el, i) {
+      var k = seg(T, 0.05 + i * 0.042, 0.44, "p2io"), f = F[i] || { x: 0, y: 0, k: 1 };
+      el.style.transform = "translate(" + (f.x * (1 - k)).toFixed(2) + "px," + (f.y * (1 - k)).toFixed(2) + "px) scale(" + (f.k + (1 - f.k) * k).toFixed(4) + ")";
+      if (el.dataset.v) {
+        el.style.color = "rgb(" + INK.map(function (c, j) { return Math.round(c + (ACC[j] - c) * k); }).join(",") + ")";
+      }
+    });
+
+    draw("pV", seg(T, 0.06, 0.34, "p2io"));
+    draw("pH", seg(T, 0.10, 0.30, "p2io"));
+    navs.forEach(function (el, i) {
+      var k = seg(T, 0.16 + i * 0.05, 0.2, "p2o");
+      el.style.opacity = k.toFixed(3);
+      el.style.transform = "translateY(" + (-10 * (1 - k)).toFixed(1) + "px)";
+    });
+    draw("pU", seg(T, 0.26, 0.16, "p2o"));
+    draw("pB", seg(T, 0.30, 0.26, "p2io"));
+    pop("dB", seg(T, 0.54, 0.10, "back"));
+    var ke = seg(T, 0.36, 0.24, "p3o");
+    $("eye").style.opacity = ke.toFixed(3);
+    $("eye").style.transform = "translateX(" + (-56 * (1 - ke)).toFixed(1) + "px)";
+    draw("pR", seg(T, 0.46, 0.18, "p2io"));
+    pop("dR", seg(T, 0.62, 0.10, "back"));
+    claimW.forEach(function (el, i) {
+      var k = seg(T, 0.52 + i * 0.045, 0.26, "p3o");
+      el.style.transform = "translateY(" + (108 * (1 - k)).toFixed(1) + "%)";
+    });
+    subL.forEach(function (el, i) {
+      var k = seg(T, 0.66 + i * 0.07, 0.22, "p3o");
+      el.style.transform = "translate(" + (-34 * (1 - k)).toFixed(1) + "px," + (108 * (1 - k)).toFixed(1) + "%)";
+    });
+  }
+
+  /* ---------- day / sunset / night ----------
+     tod goes from 0 (day) through 1 (sunset) to 2 (night). The day layers sit at the bottom,
+     sunset and night layers fade in on top, so going from day to night always passes through sunset. */
+  var L = {
+    sun: [$("imgBgS"), $("imgGroundS"), $("imgBldS")],
+    night: [$("imgBgN"), $("imgGroundN"), $("imgBldN")]
+  };
+  function applyTod(t) {
+    var sun = clamp(t, 0, 1), night = clamp(t - 1, 0, 1);
+    L.sun.forEach(function (el) { el.style.opacity = sun.toFixed(4); });
+    L.night.forEach(function (el) { el.style.opacity = night.toFixed(4); });
+    /* the warm sunset grade on the day building only applies around sunset */
+    var sunsetWeight = clamp(1 - Math.abs(t - 1), 0, 1);
+    hero.style.setProperty("--tint", (state.tint / 100 * sunsetWeight).toFixed(3));
+    hero.style.setProperty("--night", night.toFixed(3));
+    $("imgBldX").style.opacity = sunsetWeight.toFixed(4);
+    $("imgBldY").style.opacity = night.toFixed(4);
+  }
+  /* scroll → time of day: a short stretch of day, a slow slide into sunset, a brief pause, then a slow slide into night */
+  function todForScroll(p) {
+    var sm = function (a, b, x) { var t = clamp((x - a) / Math.max(b - a, 0.001), 0, 1); return t * t * (3 - 2 * t); };
+    var s = state.sunsetAt / 100, n = Math.max(state.nightAt / 100, s + 0.12);
+    var dayEnd = Math.min(0.08, s * 0.4), hold = Math.min(0.08, (n - s) * 0.3);
+    return sm(dayEnd, s, p) + sm(s + hold, n, p);
+  }
+  /* 0 → 1 across the sunset → night stretch of the scroll */
+  function nightPhase(p) {
+    var s = state.sunsetAt / 100, n = Math.max(state.nightAt / 100, s + 0.12);
+    var hold = Math.min(0.08, (n - s) * 0.3);
+    return clamp((p - (s + hold)) / Math.max(n - (s + hold), 0.001), 0, 1);
+  }
+
+  /* ---------- street life, entirely driven by the scroll ----------
+     Each one owns a short stretch of the sunset → night part of the scroll. Inside that stretch its
+     position is a direct function of the scroll, so it stops exactly where the scroll stops. */
+  var carEl = $("car"), walkerEl = $("walker");
+  var trailEl = carEl.querySelector(".trail"), carBody = carEl.querySelector(".body");
+  var walkFrames = [].slice.call(walkerEl.querySelectorAll("img"));   /* stride, legs together, other stride */
+  var WALK_CYCLE = [0, 1, 2, 1];
+  var last = { carX: null, walkX: null };
+  function stretch(N, center, span) { return (N - (center - span / 2)) / span; }
+  function streetLife(p) {
+    var N = nightPhase(p);
+    /* car: crosses the whole screen within its stretch; the light trail and blur grow with scroll speed */
+    var tc = stretch(N, 0.47, state.carSpan / 100);
+    if (motionOn && tc > 0 && tc < 1) {
+      var x = -geo.cw * 1.8 + (geo.w + geo.cw * 2.7) * tc;
+      var v = last.carX === null ? 0 : Math.abs(x - last.carX);
+      last.carX = x;
+      var speed = clamp(v / (geo.cw * 0.04), 0, 1);
+      carEl.style.transform = "translate3d(" + x.toFixed(1) + "px,0,0)";
+      carEl.style.opacity = "1";
+      trailEl.style.opacity = speed.toFixed(3);
+      /* always a little soft and graded down to the dusk light of the scene */
+      carBody.style.filter = "blur(" + (0.6 + speed * 1.0).toFixed(2) + "px) brightness(0.86) contrast(0.9) saturate(0.88)";
+    } else { carEl.style.opacity = "0"; last.carX = null; }
+
+    /* man: a quick pass along the front of the plaza; his steps follow the distance walked */
+    var tw = stretch(N, 0.27, state.walkSpan / 100);
+    if (motionOn && tw > 0 && tw < 1) {
+      var dist = geo.bw * 0.5 * tw;
+      var wx = geo.bw * 0.85 - dist - geo.mw / 2;
+      /* walk cycle: stride → legs together → other stride → legs together, one frame every 0.21 body heights walked */
+      var frame = WALK_CYCLE[Math.floor(dist / (geo.mh * 0.21)) % 4];
+      walkFrames.forEach(function (im, i) { im.style.opacity = i === frame ? "1" : "0"; });
+      var vw = last.walkX === null ? 0 : Math.abs(wx - last.walkX);
+      last.walkX = wx;
+      walkerEl.style.transform = "translate(" + wx.toFixed(1) + "px,0)";
+      walkerEl.style.filter = "blur(" + (clamp(vw / (geo.mw * 0.06), 0, 1) * 1.0).toFixed(2) + "px)";
+      walkerEl.style.opacity = clamp(Math.min(tw / 0.12, (1 - tw) / 0.12), 0, 1).toFixed(3);
+    } else { walkerEl.style.opacity = "0"; last.walkX = null; }
+  }
+
+  var target = 0, current = 0, rafId = 0, lenis = null;
+  var lastTick = 0;
+  function tick(now) {
+    /* frame-rate independent smoothing: settles in roughly a quarter second (Lenis already smooths the page itself) */
+    var dt = lastTick ? Math.min(now - lastTick, 100) : 16;
+    lastTick = now;
+    var k = 1 - Math.exp(-dt / (lenis ? 50 : 90));
+    current += (target - current) * k;
+    if (Math.abs(target - current) < 0.0004) current = target;
+    render(current);
+    rafId = current === target ? 0 : requestAnimationFrame(tick);
+    if (!rafId) lastTick = 0;
+    /* once the scroll settles, render again so motion blur and light trails fade on a stopped car */
+    if (!rafId) setTimeout(function () { if (!rafId) render(current); }, 90);
+  }
+  function onScroll() {
+    target = progress();
+    if (!rafId) rafId = requestAnimationFrame(tick);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  var rz;
+  window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(layout, 120); });
+
+  function startLenis() {
+    if (lenis || !window.Lenis) return;
+    try {
+      lenis = new window.Lenis({ lerp: 0.07, wheelMultiplier: 0.85 });
+      var raf = function (t) { lenis.raf(t); requestAnimationFrame(raf); };
+      requestAnimationFrame(raf);
+    } catch (e) { lenis = null; }
+  }
+
+  layout();
+  if (motionOn) startLenis();
+  var imgs =["imgBg", "imgBgS", "imgBgN", "imgBld", "imgBldS", "imgBldN", "imgBldX", "imgBldY", "imgGround", "imgGroundS", "imgGroundN"].map(function (id) {
+    var im = $(id);
+    return im.decode ? im.decode().catch(function () {}) : Promise.resolve();
+  });
+  if (document.fonts && document.fonts.ready) imgs.push(document.fonts.ready);
+  Promise.all(imgs).then(layout);
+
+})();
+</script>
+
+</body>
+</html>
