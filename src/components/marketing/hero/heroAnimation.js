@@ -22,7 +22,65 @@ export function createHeroAnimation(root, classes, CONFIG) {
   var ghosts = Array.from($("gh").querySelectorAll("[data-letter]"));
   var claimW = Array.from($("claim").querySelectorAll("i"));
   var subL = Array.from($("sub").querySelectorAll("i"));
-  var navs = [$("na"), $("nb"), $("nc")];
+  var header = document.querySelector('[data-site-header]');
+  var desktop = matchMedia('(min-width: 1024px)');
+  var navLines = $("navLines");
+  var compScale = 1;
+  var navObserver;
+  // Preserve the existing links: the reference's project underline follows the first visible link.
+  function navTarget() {
+    if (!header) return null;
+    var links = Array.from(header.querySelectorAll('nav a'));
+    return links.find(el => el.getAttribute('href') === '/proyectos' && el.getClientRects().length)
+      || links.find(el => el.getClientRects().length) || null;
+  }
+  function setPath(id, d) {
+    var path = paths[id];
+    if (path.el.getAttribute('d') === d) return;
+    path.el.setAttribute('d', d);
+    path.len = path.el.getTotalLength();
+    path.el.style.strokeDasharray = path.len;
+  }
+  function alignNavLines() {
+    var rect = comp.getBoundingClientRect();
+    var heroRect = hero.getBoundingClientRect();
+    var x = value => rect.left + value * compScale;
+    var y = value => heroRect.top + value * compScale;
+    var horizontalY = y(79.5);
+    var underline = { left: x(1156), right: x(1273), y: y(70) };
+    var link = navTarget();
+    if (desktop.matches && header && link) {
+      // Remove the animated translation when measuring the navbar's resting geometry.
+      var matrix = new DOMMatrixReadOnly(getComputedStyle(header).transform);
+      var headerRect = header.getBoundingClientRect();
+      var linkRect = link.getBoundingClientRect();
+      horizontalY = headerRect.bottom - matrix.m42;
+      underline = { left: linkRect.left, right: linkRect.right, y: linkRect.bottom - matrix.m42 + 2.5 };
+    }
+    var visible = pin.getBoundingClientRect().bottom > 0 && pin.getBoundingClientRect().top < innerHeight;
+    navLines.style.visibility = visible ? 'visible' : 'hidden';
+    $("pU").style.visibility = visible && desktop.matches && link ? 'visible' : 'hidden';
+    setPath('pH', 'M' + x(93.5).toFixed(3) + ' ' + horizontalY.toFixed(3) + ' H' + (desktop.matches && header ? header.getBoundingClientRect().right : x(1672)).toFixed(3));
+    setPath('pU', 'M' + underline.left.toFixed(3) + ' ' + underline.y.toFixed(3) + ' H' + underline.right.toFixed(3));
+    if (desktop.matches && header && link) {
+      $("pV").setAttribute('d', 'M93.5 ' + ((horizontalY - heroRect.top) / compScale).toFixed(3) + ' V893');
+    } else {
+      $("pV").setAttribute('d', 'M93.5 79.5 V893');
+    }
+    var vertical = paths.pV;
+    vertical.len = vertical.el.getTotalLength();
+    vertical.el.style.strokeDasharray = vertical.len;
+  }
+  function renderNavbar(T) {
+    if (!header) return;
+    var visible = pin.getBoundingClientRect().bottom > 0 && pin.getBoundingClientRect().top < innerHeight;
+    var active = desktop.matches && !reduced && visible;
+    var k = active ? seg(T, 0.16, 0.20, "p2o") : 1;
+    header.toggleAttribute('data-hero-released', !active);
+    header.toggleAttribute('data-hero-interactive', k > 0);
+    header.style.setProperty('--hero-nav-opacity', k.toFixed(3));
+    header.style.setProperty('--hero-nav-y', (10 * (1 - k)).toFixed(1) + 'px');
+  }
   var paths = {};
   ["pH", "pV", "pB", "pR", "pU"].forEach(function (id) {
     var el = $(id), len = el.getTotalLength();
@@ -55,6 +113,7 @@ export function createHeroAnimation(root, classes, CONFIG) {
       $("sd").style.left = "836px";
       $("sd").style.top = "900px";
     }
+    compScale = s;
     /* logo inicial, sin salirse del ancho de pantalla */
     var fs = 97.5 * CONFIG.logoSize;
     $("gh").style.fontSize = fs + "px";
@@ -150,13 +209,10 @@ export function createHeroAnimation(root, classes, CONFIG) {
       el.style.transform = "translate(" + (f.x * (1 - k)).toFixed(2) + "px," + (f.y * (1 - k)).toFixed(2) + "px) scale(" + (f.k + (1 - f.k) * k).toFixed(4) + ")";
       if (el.dataset.v) el.style.color = "rgb(" + INK.map(function (c, j) { return Math.round(c + (ACC[j] - c) * k); }).join(",") + ")";
     });
+    renderNavbar(T);
+    alignNavLines();
     draw("pV", seg(T, 0.06, 0.34, "p2io"));
     draw("pH", seg(T, 0.10, 0.30, "p2io"));
-    navs.forEach(function (el, i) {
-      var k = seg(T, 0.16 + i * 0.05, 0.2, "p2o");
-      el.style.opacity = k.toFixed(3);
-      el.style.transform = "translateY(" + (-10 * (1 - k)).toFixed(1) + "px)";
-    });
     draw("pU", seg(T, 0.26, 0.16, "p2o"));
     draw("pB", seg(T, 0.30, 0.26, "p2io"));
     pop("dB", seg(T, 0.54, 0.10, "back"));
@@ -196,6 +252,16 @@ export function createHeroAnimation(root, classes, CONFIG) {
     start() {
       addEventListener("scroll", onScroll, { passive: true });
       addEventListener("resize", onResize);
+      desktop.addEventListener('change', onResize);
+      if (header) {
+        navObserver = new ResizeObserver(onScroll);
+        navObserver.observe(header);
+        var nav = header.querySelector('nav');
+        if (nav) navObserver.observe(nav);
+        if (header.firstElementChild) {
+          Array.from(header.firstElementChild.children).forEach(el => navObserver.observe(el));
+        }
+      }
       var waits = Array.from(root.querySelectorAll("img"), im => im.decode ? im.decode().catch(function () {}) : Promise.resolve());
       if (document.fonts && document.fonts.ready) waits.push(document.fonts.ready);
       Promise.all(waits).then(function () { if (!disposed) layout(); });
@@ -206,6 +272,14 @@ export function createHeroAnimation(root, classes, CONFIG) {
       removeEventListener("resize", onResize);
       clearTimeout(rz);
       cancelAnimationFrame(rafId);
+      desktop.removeEventListener('change', onResize);
+      if (navObserver) navObserver.disconnect();
+      if (header) {
+        header.removeAttribute('data-hero-released');
+        header.removeAttribute('data-hero-interactive');
+        header.style.removeProperty('--hero-nav-opacity');
+        header.style.removeProperty('--hero-nav-y');
+      }
     }
   };
 }

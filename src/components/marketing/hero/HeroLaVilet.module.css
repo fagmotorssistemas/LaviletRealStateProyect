@@ -85,19 +85,6 @@
 .pin .hero .comp [data-part="lines"] [data-part="pV"] { stroke: url(#lavilet-hero-fade); }
 .pin .hero .comp [data-part="blk"] { left: 0; top: 0; width: 1672px; height: 941px; }
 
-.nav span {
-  position: absolute;
-  color: var(--ink);
-  font-size: 15.1px;
-  font-weight: 300;
-  letter-spacing: 0.155em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.pin .hero .comp [data-part="na"] { left: 1154px; top: 36px; }
-.pin .hero .comp [data-part="nb"] { left: 1322px; top: 36px; }
-.pin .hero .comp [data-part="nc"] { left: 1461px; top: 36px; }
-.hero.portrait .nav { display: none; }
 
 .pin .hero .comp [data-part="eye"] { left: 157px; top: 369px; font-size: 14px; font-weight: 300; letter-spacing: 0.287em; text-transform: uppercase; white-space: nowrap; }
 .pin .hero .comp [data-part="t"] { left: 145.9px; top: 395.3px; font-family: var(--font-display); font-weight: 400; font-size: 97.5px; letter-spacing: 0.0718em; line-height: 1; white-space: nowrap; }
@@ -129,3 +116,7 @@
 
 .pin { font-stretch: normal; }
 .pin .hero .comp [data-part="eye"] { line-height: normal; }
+
+/* Hero-owned lines sit above the existing translucent navbar. */
+.navLines { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 60; pointer-events: none; }
+.navLines path { fill: none; stroke: var(--acc); stroke-width: 1.2; vector-effect: non-scaling-stroke; }

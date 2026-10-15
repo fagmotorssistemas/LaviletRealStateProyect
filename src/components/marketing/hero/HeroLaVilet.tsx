@@ -44,6 +44,10 @@ export function HeroLaVilet() {
   useEffect(() => { animationRef.current?.start() }, [])
   return (
 <div ref={pinRef} id="inicio" className={`${styles.pin} ${italiana.variable} ${archivo.variable}`} data-part="pin">
+  <svg className={styles.navLines} data-part="navLines" aria-hidden="true">
+    <path data-part="pH" d="M93.5 79.5 H1672"/>
+    <path data-part="pU" d="M1156 70 H1273"/>
+  </svg>
   <section className={styles.hero} data-part="hero" aria-label="La Vilet">
     <div className={styles.sky} data-part="sky">
       <img src="/hero/fondo-dia.webp" alt="" fetchPriority="high" />
@@ -71,16 +75,11 @@ export function HeroLaVilet() {
             <stop offset="1" stopColor="#f0a054" stopOpacity="0"/>
           </linearGradient>
         </defs>
-        <path data-part="pH" d="M93.5 79.5 H1672"/>
+
         <path data-part="pV" d="M93.5 79.5 V893"/>
-        <path data-part="pU" d="M1156 70 H1273"/>
+
       </svg>
 
-      <nav className={styles.nav} aria-label="Secciones">
-        <span data-part="na">El proyecto</span>
-        <span data-part="nb">Espacios</span>
-        <span data-part="nc">Ubicación</span>
-      </nav>
 
       <div data-part="blk">
         <svg data-part="lines2" viewBox="0 0 1672 941" fill="none" aria-hidden="true">

@@ -1,0 +1,11 @@
+/* Only /inicio receives this class. The hero supplies frame-accurate values. */
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .navbar:not([data-hero-released]) {
+    opacity: var(--hero-nav-opacity, 0) !important;
+    transform: translateY(var(--hero-nav-y, 10px)) !important;
+  }
+  .navbar:not([data-hero-released]):not([data-hero-interactive]) {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
