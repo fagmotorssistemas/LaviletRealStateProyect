@@ -2,6 +2,7 @@
 
 import { LAVILET_PROJECT_ID } from '@/lib/integrations/lavilet'
 
+import { calculateUnitCommercialPrice } from '@/lib/inmobiliaria/unitCommercialPrice'
 import { Modal } from '@/components/ui/Modal'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PriceText } from '@/components/inmobiliaria/shared/PriceText'
@@ -229,6 +230,8 @@ export function UnitDetailModal({
   const unitMedia = displayUnit.unit_media ?? []
   const tenantForMedia = displayUnit.tenant_id
 
+  const commercialPrice = calculateUnitCommercialPrice(toNum(form.cost_per_m2_internal), toNum(form.area_internal_m2))
+
   const updateField = (key: string, value: string) => setForm((p) => ({ ...p, [key]: value }))
 
   const handleSaveStatus = () => {
@@ -268,7 +271,7 @@ export function UnitDetailModal({
         parking_assigned: Number(form.parking_assigned) || 0,
         spaces: spacesFromInput(form.spaces),
         cost_per_m2_internal: toNum(form.cost_per_m2_internal),
-        published_commercial_price: toNum(form.published_commercial_price),
+        published_commercial_price: commercialPrice,
         cadastral_value: toNum(form.cadastral_value),
         monthly_building_fee: toNum(form.monthly_building_fee),
         estimated_monthly_rent: toNum(form.estimated_monthly_rent),
@@ -556,8 +559,9 @@ export function UnitDetailModal({
               label="Precio comercial"
               type="number"
               step="0.01"
-              value={form.published_commercial_price}
-              onChange={(e) => updateField('published_commercial_price', e.target.value)}
+              value={commercialPrice ?? ''}
+              readOnly
+              title="Costo/m² × área interna (m²)"
             />
             <Input id="edit-cadastral" label={t('Avalúo catastral')} type="number" step="0.01" value={form.cadastral_value} onChange={(e) => updateField('cadastral_value', e.target.value)} />
             <Input id="edit-building-fee" label={t('Alícuota mensual')} type="number" step="0.01" value={form.monthly_building_fee} onChange={(e) => updateField('monthly_building_fee', e.target.value)} />
