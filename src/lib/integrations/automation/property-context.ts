@@ -407,6 +407,16 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       : 'Para orientarle con la opción correcta, ¿puede indicarme el número de la unidad que le interesa?') : '',
     }
   }
+  if (pending.id === 'property_comparison' && pending.act === 'compare_properties'
+    && answersPendingQuestion(semantics, 'property_comparison', 'affirmative')) {
+    const expected = ids(pending.candidate_ids), compared = fromIds(expected)
+    if (expected.length > 1 && compared.length === expected.length) {
+      query.operation = 'compare'; query.scope = 'comparison'; query.category = null; query.filters = emptyPropertyFilters()
+      context.comparison_ids = expected; context.offered_ids = expected; context.pending_question = {}
+      return result(compared, 'accepted_category_comparison', true)
+    }
+    return { ...result([], 'comparison_scope_unavailable', false, true), clarification: '¿Qué opciones le gustaría que comparemos?' }
+  }
   const proposal = normalizedPropertyQuery(pending.proposed_query)
   const proposalPending = pending.id === 'property_requirements' && pending.act === 'explore_alternatives'
     && Object.keys(proposal).length > 0 && ids(pending.candidate_ids).length > 0

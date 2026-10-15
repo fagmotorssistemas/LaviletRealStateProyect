@@ -14,7 +14,7 @@ import { responseReviewEnabled, responseReviewObservationOnly, withResponseRevie
 import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import 'server-only'
-import { activePrompt, aiJson, mediaText } from './ai'
+import { activePrompt, aiJson, mediaText, draftReply } from './ai'
 import { automationModelForRole } from './ai-model-routing'
 import { OpenAIRequestError } from './openai-request'
 import { unansweredInbound } from './pending-inbound'
@@ -43,7 +43,7 @@ import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent, rememberTurnIntentAfterReply } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { priceNoticeForConversation, priceNoticeReceipt } from './price-conditions'
-import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, minimalGreeting, naturalConversationReply } from './conversation-style'
+import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
 import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
@@ -416,7 +416,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let introductionProjectInfo: Row | undefined
   let appliedVisitAction: Row | null = null
   let interestDecision: Row | null = null
-  let summary: Row = {}, audit: Row = {}, greetingTemplate = false
+  let summary: Row = {}, audit: Row = {}
   let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
   let greeting = !inbound.mediaFailed && !pendingInputs.length && isGreetingOnly(current)
   const storedSummary = object(conversationBefore.summary)
@@ -1089,10 +1089,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   if (!reply && greeting) {
     const welcome = (await activePrompt('saludo_inicial')).trim()
-    reply = state.ya_saludamos ? 'Cuénteme, ¿en qué podemos ayudarle?'
-      : welcome.length > 0 && welcome.length <= 140 && !/la\s*vilet|proyecto|vivienda|invertir|local comercial|suite|departamento|edificio|puertas del sol|financ|precio|sector/i.test(welcome)
-        ? welcome : minimalGreeting(turnGreeting)
-    greetingTemplate = true; audit = { source: 'minimal_greeting' }
+    reply = await draftReply('Redacte una bienvenida breve, cálida y completa para un saludo aislado. Use el momento del día verificado, exprese el gusto de saludar, identifique La Vilet y ofrezca ayuda. La instrucción publicada es una referencia de estilo, no texto que deba copiar. Si ya hubo saludo, continúe con naturalidad sin repetir la bienvenida. No pregunte nombre, residencia, dormitorios ni presupuesto todavía y no enumere inmuebles, precios o instalaciones.',
+      { mensaje_actual: current, proyecto: { public_name: 'La Vilet' }, saludo_previo: state.ya_saludamos === true,
+        historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-4) : [], referencia_publicada: welcome })
+    audit = { source: 'minimal_greeting', authored_by: 'writer' }
   }
   if (!meaningfulText) {
     if (current.includes('[Sticker recibido]') && !inbound.mediaFailed) {
@@ -1465,7 +1465,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (businessScope.kind === 'mixed') reply = scopeFallbackReply(businessScope, true) + '\n\n' + reply
   if (Object.keys(visitDialoguePlan).length) audit.visit_dialogue_plan = visitDialoguePlan
   const plannedResponse = responsePlan(reply, audit)
-  let reviewedText = ''
+  // A greeting is authored by the writer too. Preserve its complete wording
+  // even though a bare welcome does not need commercial factual review.
+  const writerOwnedGreeting = audit.source === 'minimal_greeting' && audit.authored_by === 'writer'
+  let reviewedText = writerOwnedGreeting ? reply : ''
   let finalVerifiedContext: Row = context
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
   let operationalRedraftRequired = false
@@ -1760,7 +1763,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       approved_text: reviewedText, candidate_text: beforeReview, final_text: reply, review: checked.audit }
     trace.finish(step, 'succeeded', audit.delivery_integrity as Row)
   } else if (reviewedText) {
-    audit.delivery_integrity = { changed_content: false, status: observedWriterResponse ? 'observed_writer_preserved' : reviewing ? 'approved_content_preserved' : 'unreviewed_writer_preserved', ...(reviewing && !observedWriterResponse ? { approved_text: reviewedText } : { writer_text: reviewedText }), final_text: reply,
+    audit.delivery_integrity = { changed_content: false, status: writerOwnedGreeting ? 'unreviewed_writer_preserved' : observedWriterResponse ? 'observed_writer_preserved' : reviewing ? 'approved_content_preserved' : 'unreviewed_writer_preserved', ...(reviewing && !observedWriterResponse && !writerOwnedGreeting ? { approved_text: reviewedText } : { writer_text: reviewedText }), final_text: reply,
       confirmed_notice_added: Boolean(handoffNotice && reply.includes(handoffNotice)) }
   }
   // Recovery templates retain the approved opening facts. A completed writer
@@ -1898,7 +1901,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const checkpointConversation = await one('conversations', conversationId)
   const replyCheckpoint = await prepareReplyRegistration({
     args: { p_conversation_id: conversationId, p_content: reply,
-      p_model: greetingTemplate ? 'template:saludo_inicial' : automationModelForRole('writer'),
+      p_model: automationModelForRole('writer'),
       p_tool_calls: { source_message_id: activeLast.externalId,
         answered_message_ids: recoveringTurn() ? [] : [...pendingInputs.map(message => message.message_id), ...inbound.normalized.map(event => event.externalId)],
         provider_status: 'accepted', processing_ms: Date.now() - processingStarted, ...audit } },

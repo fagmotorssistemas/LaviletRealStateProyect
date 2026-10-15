@@ -13,6 +13,7 @@ const literal = (quote: unknown, source: unknown) => !!text(quote).trim()
 const quantityFields = ['dimension', 'values', 'role', 'count_basis']
 const propertyFields = ['group', 'category', 'excluded_categories', 'filters']
 const validBudget = (budget: Row) => budget.status && budget.status !== 'not_discussed' && acceptedExtractorConfidence(budget.confidence)
+  && !(budget.subject === 'down_payment' && ['no_defined_budget', 'declines_to_disclose', 'amount_pending'].includes(text(budget.status)))
   && text(budget.evidence).trim() && (!['amount', 'maximum_total', 'initial_capital'].includes(text(budget.status))
     || typeof budget.amount === 'number' && Number.isFinite(budget.amount) && budget.amount > 0)
 const propertyValue = (row: Row): Row => ({ ...pick(row, propertyFields),

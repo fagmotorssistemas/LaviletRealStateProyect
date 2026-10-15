@@ -66,7 +66,7 @@ test('concurrent conversations isolate their writer language and emergency notic
   })))
   assert.match(results[0], /cliente: en\./)
   assert.match(results[1], /cliente: es\./)
-  assert.match(generationRecoveryNotice({ tag: 'en-US' }), /advisor/)
+  assert.match(generationRecoveryNotice({ tag: 'en-US' }), /check that detail with our team/)
   assert.doesNotMatch(generationRecoveryNotice({ tag: 'en' }), /Hola|Disculpe/)
 })
 

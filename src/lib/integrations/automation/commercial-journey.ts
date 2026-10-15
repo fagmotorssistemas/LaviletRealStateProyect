@@ -138,23 +138,37 @@ export function purchaseReadiness(info: Row): Row {
 
 /** One shared next step for writer, reviewer, memory and the lead card. */
 export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
+  const clarification = object(object(info.semantica_turno).interpretation_clarification)
+  if (Array.isArray(clarification.fields) && clarification.fields.length) return {
+    version: 'commercial-journey-v1', action: 'clarify_interpretation', question_id: '',
+    instruction: clarification.instruction, clarification_fields: clarification.fields,
+    financing_offer_allowed: false, visit_offer_allowed: false }
+  const context = object(info.property_context), comparisonIds = ids(context.comparison_ids)
+  const comparisonSemantics = object(info.semantica_turno), comparisonAnswer = object(comparisonSemantics.answer_to_previous)
+  const currentComparison = object(comparisonSemantics.property).operation === 'compare' && acceptedExtractorConfidence(object(comparisonSemantics.property).confidence)
+    || comparisonAnswer.question_id === 'property_comparison' && comparisonAnswer.kind === 'affirmative' && acceptedExtractorConfidence(comparisonAnswer.confidence)
   const plan = buildCommercialJourneyPlan(info, audit)
+  const comparisonUnits = rows(info.catalogo_verificacion || info.catalogo).filter(unit => comparisonIds.includes(text(unit.id)))
+  const comparisonCategories = [...new Set(comparisonUnits.map(unit => text(unit.category)))]
+  if (currentComparison && !['current_operation', 'introduction'].includes(text(plan.action)) && object(context.query).operation === 'compare' && comparisonIds.length > 1 && comparisonUnits.length === comparisonIds.length && comparisonCategories.length > 1) return {
+    version: 'commercial-journey-v1', action: 'compare_properties', question_id: '',
+    instruction: 'El cliente ya pidió o aceptó comparar estas categorías. Compare ambas partes con sus características verificadas, diferencias útiles y presupuesto conocido. No limite la respuesta a unidades de una sola categoría ni vuelva a ofrecer la comparación pendiente. Después puede preguntar qué alternativa le gustaría explorar, sin reabrir dormitorios ni elegir por él.',
+    selection_scope: { categories: comparisonCategories, unit_ids: comparisonIds }, financing_offer_allowed: false, visit_offer_allowed: false }
   const requests = rows(info.solicitudes_interpretadas || object(info.semantica_turno).requests || object(info.contrato_turno).requests)
     .filter(request => acceptedExtractorConfidence(request.confidence) && text(request.evidence).trim())
   const topics = requests.flatMap(request => ids(request.topics))
   const pending = object(object(info.property_context).pending_question)
-  const accepted = financingStage(info).accepted === true
-  const capture = ['clarify_financing_down_payment', 'discover_bedrooms', 'select_property', 'ask_budget', 'clarify_budget_kind'].includes(text(plan.action))
+  const capture = ['clarify_financing_down_payment', 'discover_use', 'discover_bedrooms', 'select_property', 'ask_budget', 'clarify_budget_kind'].includes(text(plan.action))
   const hasInquiry = requests.some(request => ['financing', 'property', 'project'].includes(text(request.domain))
     && ids(request.topics).some(topic => !['property_options', 'visualization'].includes(topic)))
   const firstAcceptance = object(object(info.semantica_turno).answer_to_previous).question_id === 'financing_invitation'
     && object(object(info.semantica_turno).answer_to_previous).kind === 'affirmative'
   const cashInquiry = topics.includes('cash_payment') && (capture || plan.action === 'offer_financing')
-  if (cashInquiry || accepted && capture && hasInquiry && pending.id === plan.question_id && !firstAcceptance && plan.presentation !== 'recommended_unit') {
+  if (cashInquiry || capture && hasInquiry && pending.id === plan.question_id && !firstAcceptance && plan.presentation !== 'recommended_unit') {
     return { ...plan, action: 'answer_current_question', question: '', question_id: '', question_act: 'other',
       requires_unit_presentation: false,
-      deferred_question: { id: plan.question_id, act: plan.question_act || (plan.question_id === 'financing_down_payment' ? 'financing' : 'other'),
-        question: plan.question, candidate_ids: ids(object(plan.selection_scope).unit_ids),
+      deferred_question: { id: plan.question_id, act: plan.question_act || (pending.id === plan.question_id ? pending.act : '') || (plan.question_id === 'financing_down_payment' ? 'financing' : 'other'),
+        question: pending.id === plan.question_id && pending.question ? pending.question : plan.question, candidate_ids: ids(object(plan.selection_scope).unit_ids),
         ...(plan.question_amount_reference ? { amount_reference: plan.question_amount_reference } : {}) },
       instruction: topics.includes('cash_payment')
         ? 'Atienda primero las condiciones verificadas del pago al contado y la comparación con financiamiento. Si faltan condiciones, explique únicamente lo pendiente. Puede ofrecer comparar ambas modalidades sin exigir elegir una ni volver a solicitar ahora la entrada. Esta consulta no cambia la modalidad ni revoca la aceptación de financiamiento. Conserve internamente el siguiente dato pendiente.'
@@ -167,9 +181,9 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const state = object(info.recorrido_comercial), readiness = purchaseReadiness(info)
   const budget = object(readiness.budget), finance = object(info.financiamiento)
   const lead = object(info.lead), profile = object(info.perfil_lead)
-  const context = object(info.property_context), query = object(context.query)
+  const context = object(info.property_context)
   const proposalInformation = proposalInformationContext(info)
-  const filters = object(query.filters)
+  const filters = object(commercialSelectionQuery(info).filters)
   const category = text(commercialSelectionCategory(info))
   const interest = declaredCommercialInterest(info), purpose = interest.purpose
   const profileDone = !!text(profile.full_name) && !!text(profile.residence_city || profile.residence_country)

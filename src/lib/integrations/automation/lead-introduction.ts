@@ -10,8 +10,8 @@ import { continuationMetadata } from './continuation-question'
 import { configuredProjectIntroduction, generalProjectIntroductionTurn, projectIntroductionForTurn } from './project-introduction-context'
 import { isPassivePurchaseEvidence } from './purchase-evidence'
 
-export const PROFILE_INVITATION = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, ¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
-const BROCHURE_PURPOSE = 'Para enviarle el brochure digital completo con los planos y brindarle una guía personalizada, '
+export const PROFILE_INVITATION = 'Nos gustaría compartirle el brochure con la información del proyecto. ¿Podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
+const BROCHURE_PURPOSE = 'Nos gustaría compartirle el brochure con la información del proyecto. '
 const PROJECT_INTRODUCTION = 'Claro que sí, con mucho gusto. La Vilet es un proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, que propone vivir con tranquilidad, privacidad y comodidad.'
 const CATEGORY_LABELS: Record<string, string> = { suite: 'suites', departamento: 'departamentos', penthouse: 'penthouses', local: 'locales comerciales', local_comercial: 'locales comerciales' }
 const rows = (value: unknown) => Array.isArray(value) ? value.map(object) : []
@@ -28,10 +28,10 @@ function missingFields(profile: Row) {
     !text(profile.residence_city).trim() && !text(profile.residence_country).trim() && 'residence'].filter(Boolean) as string[]
 }
 function profileQuestion(missing: string[], delivered: boolean) {
-  const question = missing.length === 2 ? '¿podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
-    : missing[0] === 'full_name' ? '¿podría indicarnos su nombre?'
-      : '¿podría indicarnos en qué ciudad o país reside actualmente?'
-  return (delivered ? 'Con el brochure que le compartimos y para brindarle una guía personalizada, ' : BROCHURE_PURPOSE) + question
+  const question = missing.length === 2 ? '¿Podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
+    : missing[0] === 'full_name' ? '¿Podría indicarnos su nombre?'
+      : '¿Podría indicarnos en qué ciudad o país reside actualmente?'
+  return (delivered ? '' : BROCHURE_PURPOSE) + question
 }
 function requestedFields(prior: Row): string[] {
   return Array.isArray(prior.requested_fields)
@@ -450,7 +450,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
 export const LEAD_INTRODUCTION_RULES = `
 APERTURA Y PERFIL DEL LEAD
 - Esta secuencia es una regla comercial obligatoria y prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor elige cómo expresarlos y el revisor comprueba su significado en el mensaje real.
-- Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después formule una sola pregunta con question_purpose. Puede reformularla conservando los datos faltantes y el propósito de brochure más guía personalizada; no se exige copiar toda la frase. Solicite únicamente nombre y ciudad o país de residencia actual, nunca dirección domiciliaria, desde dónde escribe ni el lugar donde quiere comprar. Un intercambio anterior sobre otro tema no acredita que estos datos ya se hayan solicitado.
+- Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después integre con naturalidad una sola pregunta según question_purpose. Recibe objetivos y datos pendientes, no una frase que deba copiar. Puede ofrecer el brochure como una invitación separada; no vincule siempre la pregunta a «para compartirle el brochure» ni repita «guía personalizada». Solicite únicamente nombre y ciudad o país de residencia actual, nunca dirección domiciliaria, desde dónde escribe ni el lugar donde quiere comprar. Un intercambio anterior sobre otro tema no acredita que estos datos ya se hayan solicitado. La cortesía debe acompañar la respuesta concreta, sin un saludo aislado seguido de una ficha seca.
 - profile_collection_decision autoriza la captura del turno. capture solicita los datos iniciales; remind permite una sola pregunta por el dato faltante cuando responde parcialmente al perfil, también cuando aporta nombre y consulta precios u otro detalle: responda primero la consulta y después pida únicamente la residencia pendiente. No añada simultáneamente otra pregunta comercial. La identificación de necesidades continúa después, conservando categorías, dormitorios y preferencias ya definidos. Una consulta sin aportar datos de perfil no autoriza repetir la captura. confirm aclara el lugar declarado; defer, declined y complete prohíben solicitar o confirmar datos de presentación. Que missing_fields contenga un dato no autoriza pedirlo. Si tras el único recordatorio no entrega la residencia o la rechaza, continúe con las necesidades conocidas sin insistir. Una operación protegida de reserva, visita o financiamiento aceptado conserva su propia pregunta y no autoriza captura de residencia. Estos límites de presentación no sustituyen los requisitos de un trámite financiero expresamente aceptado.
 - full_name solo se conoce si su procedencia está confirmada en el perfil. Un nombre visible en WhatsApp/CRM no acredita identidad. Si la decisión autoriza pedir full_name, pida el nombre y no personalice con un alias. El revisor comprueba que se piden únicamente los datos autorizados, no se repiten los confirmados y se explica para qué se solicitan, sin comparar palabras ni frases con una plantilla.
 - declared_location conserva el lugar declarado; residence_candidate es una posibilidad pendiente, NO residencia confirmada. Con question_purpose=confirm_residence reconozca el lugar candidato y pregunte si es su residencia actual, sin pedir nuevamente una ciudad desde cero. «Soy de X» merece esta aclaración aunque responda a una pregunta de residencia. Si ya hay residencia confirmada en profile_state, no vuelva a preguntarla. Una ciudad de origen distinta puede conservarse sin contradecir la residencia actual.
@@ -552,7 +552,7 @@ export function leadIntroductionRepairs(issues: string[], auditRaw: unknown): Ro
   const instructions: Record<string, string> = {
     lead_project_presentation_missing: 'Añada una presentación breve del proyecto que atienda la consulta general inicial. Use presentation.approved_summary si está disponible, con redacción natural; no basta ofrecer brochure ni solicitar datos. Conserve la única pregunta de perfil y no añada ofertas de catálogo, precios, estado de obra ni fechas.',
     lead_profile_categories_premature: 'Elimine la enumeración y cualquier presentación de tipos de inmuebles de esta apertura, también si usa sinónimos o describe sus usos. No basta con cambiar suites, departamentos, penthouses y locales por «unidades residenciales y espacios comerciales». Presente brevemente el proyecto y su ubicación; conserve la pregunta de los datos pendientes. La presentación de opciones corresponde al siguiente intercambio.',
-    lead_profile_question_missing: 'Incluya la pregunta de perfil exigida por la etapa, solicitando solamente los datos pendientes y explicando el propósito de brochure y guía personalizada. Para confirm_residence confirme el lugar candidato, sin pedir otra ciudad desde cero.',
+    lead_profile_question_missing: 'Integre con naturalidad la pregunta por los datos de presentación pendientes autorizados. No copie una plantilla ni repita una justificación sobre brochure o guía personalizada. Para confirm_residence confirme el lugar candidato, sin pedir otra ciudad desde cero.',
     lead_profile_question_not_authorized: 'Retire la solicitud o confirmación de datos de presentación: su captura está pospuesta, rechazada o completa en profile_collection_decision. Conserve la respuesta a la consulta actual y continúe identificando las necesidades del lead según la decisión comercial vigente; no sustituya ese paso por nombre o residencia.',
     lead_profile_question_mismatch: 'Conserve la pregunta de perfil autorizada en profile_collection_decision.allowed_question_ids y solicite únicamente allowed_fields. No cambie la residencia pendiente por el nombre ya confirmado, ni aclare el origen si corresponde confirmar la residencia del candidato.',
     lead_profile_name_acknowledgement_missing: 'Incluya el reconocimiento name_acknowledgement del nombre declarado, una sola vez.',

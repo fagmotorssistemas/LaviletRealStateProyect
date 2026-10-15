@@ -213,6 +213,12 @@ async function conversationHarness({ current, messages, extractionFails = false,
       },
     }))
     replace(ai, 'activePrompt', async name => name === 'saludo_inicial' ? 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?' : 'Fixture del prompt publicado')
+    replace(ai, 'draftReply', async (_rules, raw) => {
+      tasks.push('writing')
+      assert.equal(raw.mensaje_actual, activeCurrent)
+      assert.equal(raw.proyecto.public_name, 'La Vilet')
+      return 'Buenas tardes, un gusto saludarle. Le damos la bienvenida a La Vilet. ¿En qué podemos ayudarle?'
+    })
     replace(ai, 'aiJson', async (_rules, raw, _schema, _image, _file, _tone, task = 'data') => {
       tasks.push(task)
       if (task === 'review') {
@@ -464,10 +470,11 @@ test('normal and observation keep the same greeting, profile capture, one reside
       assert.equal(turn.steps.find(step => step.args?.[0] === 'semantic_extraction')?.result?.status, 'succeeded', turn.current)
     }
     const [greeting, interest, named, resident] = execution.turns
-    assert.deepEqual(greeting.tasks, [])
+    assert.deepEqual(greeting.tasks, ['writing'])
     assert.equal(greeting.extractionCalls, 0)
     assert.equal(greeting.receipt.args.p_tool_calls.source, 'minimal_greeting')
-    assert.match(greeting.receipt.args.p_content, /Hola/)
+    assert.equal(greeting.receipt.args.p_tool_calls.delivery_integrity.status, 'unreviewed_writer_preserved')
+    assert.match(greeting.receipt.args.p_content, /Buenas tardes.*un gusto saludarle.*La Vilet/)
     assert.doesNotMatch(greeting.receipt.args.p_content, /nombre|reside|brochure/)
     const opening = interest.receipt.args.p_tool_calls
     assert.equal(opening.profile_collection_decision.action, 'capture')

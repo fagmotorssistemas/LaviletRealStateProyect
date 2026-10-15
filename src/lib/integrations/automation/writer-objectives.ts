@@ -3,10 +3,17 @@ import { object, text, type Row } from './data'
 export const WRITER_OBJECTIVE_RULES = `Usted redacta el mensaje completo que recibirá el cliente. El sistema no añadirá saludos, preguntas, avisos ni enlaces después. Use objetivos_conversacion y el estado disponible para decidir cómo responder y formular una continuación pertinente. Los IDs y actos enlazan el estado y las referencias, no imponen palabras. Pregunte una preferencia pendiente con naturalidad, sin tono de formulario. Si el cliente declara dormitorios indiferentes, omita esa captura y avance al tipo de vivienda y a las opciones de mayor amplitud interior verificada. No deduzca una preferencia de dormitorios de los inmuebles mostrados. Una duda intermedia conserva decisiones aceptadas; retome cuando ayude al cliente, sin insistir inmediatamente con la misma captura después de varias dudas. Incluya material programado y condiciones pertinentes dentro de su propia redacción; mencionar un brochure ya leído no solicita reenviarlo. Mantenga hechos, autorizaciones y resultados operativos reales. Su ficha question debe describir SOLO la pregunta que efectivamente escribió, con su ID, acto y referentes, o none si no hay pregunta.`
 
 export function conversationObjective(raw: unknown): Row {
-  const plan = object(raw), id = text(plan.question_id || plan.id)
+  const plan = object(raw)
+  const profileIds: Record<string, string> = { collect_profile: 'lead_profile', collect_name: 'lead_profile_name',
+    collect_residence: 'lead_profile_residence', confirm_residence: 'lead_residence_confirmation' }
+  const id = text(plan.question_id || plan.id || profileIds[text(plan.question_purpose)])
   const goals: Record<string, string> = {
+    lead_profile: 'Responder primero la consulta y, si la captura está autorizada, conocer nombre y residencia actual con una pregunta natural. Ofrecer el brochure solo si corresponde; no exigir una justificación o frase fija.',
+    lead_profile_name: 'Conocer únicamente el nombre pendiente con naturalidad, sin repetir datos ni una fórmula sobre brochure o guía personalizada.',
+    lead_profile_residence: 'Conocer únicamente la ciudad o el país de residencia actual pendiente, conectando con la conversación sin una frase prefabricada.',
     property_bedrooms: 'Conocer cuántos dormitorios le gustaría tener, únicamente si no lo ha respondido ni lo declaró indiferente.',
     property_category: 'Ayudar a elegir el tipo de inmueble entre las categorías verificadas pertinentes.',
+    property_comparison: 'Comparar directamente los tipos ya aceptados, incluyendo ambas partes, sus diferencias útiles y el presupuesto conocido. No volver a pedir permiso para la misma comparación.',
     property_floor: 'Conocer la planta que le gustaría explorar cuando siga pendiente y sea útil.',
     unit_choice: 'Ayudar a comparar o continuar con una opción concreta, conservando selecciones conocidas.',
     financing_invitation: 'Ofrecer continuar con el financiamiento, si aún no lo ha aceptado o rechazado.',

@@ -5,6 +5,7 @@ import { confirmedInterpretationMemory } from './interpretation-memory'
 import { activePrompt, aiJson, draftReply } from './ai'
 import { projectPublicName, PROJECT_NAME_WRITING_RULES } from './conversation-tone'
 import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
+import { poolAccessContext } from '@/lib/inmobiliaria/poolAccess'
 import { deliveryContext, PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
 import { projectIntroductionContext } from '@/lib/inmobiliaria/projectIntroduction'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
@@ -66,10 +67,9 @@ export async function catalogSearchConfiguration() {
 }
 
 export async function publishedUnitCatalog() {
-  const result = await db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
-    .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000))
-  if (result.error) throw Error('UNIT_CONTEXT_FAILED')
-  return (result.data || []) as Row[]
+  const result = await readCommercialContext({ units: () => db().from('units').select('id,category,unit_number,floor,floor_number,bedrooms,bathrooms_full,area_internal_m2,area_exterior_m2,area_total_m2,description,spaces')
+    .match(scope).eq('is_published', true).eq('status', 'disponible').limit(100).abortSignal(AbortSignal.timeout(10_000)) })
+  return (result.units.data || []) as Row[]
 }
 
 export async function commercialContext(lead: Row, history: unknown, profileInput?: unknown, finance?: Row) {
@@ -140,7 +140,8 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
     catalogo: catalog, catalog_read: { complete: units.length < 100, scope: 'published_available_project_units' },
     catalog_search: catalogSearchSettings(projectData.policies_json),
     instalaciones: amenities, lugares_cercanos: places, contexto_sector: areaFacts,
-    condiciones_instalaciones: 'Las instalaciones describen espacios del proyecto; las condiciones de acceso y cobros proceden de politicas_negocio publicadas. Responda con esa política cuando esté disponible. Distinga acceso de alícuota o mantenimiento; no invente esos importes ni considere desconocido un acceso ya aprobado. Solo derive condiciones que las fuentes realmente no definen.',
+    acceso_piscina: poolAccessContext(projectData.policies_json),
+    condiciones_instalaciones: 'Las instalaciones describen espacios del proyecto. acceso_piscina define expresamente el permiso vigente para residentes y huéspedes temporales; prevalece sobre descripciones antiguas de la piscina. Las demás condiciones de acceso y cobros proceden de politicas_negocio publicadas. Distinga acceso de alícuota o mantenimiento; no invente importes ni considere desconocido un acceso ya aprobado. Solo derive condiciones que las fuentes realmente no definen.',
     horario_atencion: settings.business_hours,
     ubicacion: settings.visit_location_url,
     fecha: new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', dateStyle: 'full', timeStyle: 'short' }).format(new Date()) }

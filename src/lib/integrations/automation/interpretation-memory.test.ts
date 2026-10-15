@@ -22,7 +22,7 @@ function response(message = current): Row {
   semantics.primary_intent = 'ask_financing'
   semantics.primary_evidence = message
   semantics.answer_to_previous = { kind: 'none', question_id: 'none', evidence: '', confidence: 'high' }
-  semantics.budget = { ...budget }
+  semantics.budget = { ...budget, subject: 'unspecified' }
   object(raw.qualification).presupuesto_texto = budget.evidence
   assert.ok(validate(raw), JSON.stringify(validate.errors))
   return raw

@@ -285,7 +285,7 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
   })
   const projectKeys = ['proyecto', 'presentacion_general_proyecto', 'alcance_producto', 'instalaciones', 'lugares_cercanos', 'contexto_sector', 'estado_proyecto', 'entrega_proyecto',
     'posicionamiento_proyecto', 'politica_comercial', 'politica_visitas', 'politica_financiera', 'politica_pago_contado', 'financing_policy', 'financiamiento',
-    'condiciones_instalaciones', 'horario_atencion', 'ubicacion', 'politicas_negocio']
+    'condiciones_instalaciones', 'acceso_piscina', 'horario_atencion', 'ubicacion', 'politicas_negocio']
   for (const key of projectKeys) {
     const value = verified[key]
     if (Array.isArray(value)) value.forEach((item, index) => add(`contexto_verificado.${key}.${index}`, 'project_fact', item))

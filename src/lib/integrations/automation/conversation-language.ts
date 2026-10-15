@@ -40,6 +40,6 @@ export function conversationLanguageInstructions(): string {
 /** Emergency delivery receipt when inference is unavailable; never a sales draft. */
 export function generationRecoveryNotice(preference: unknown): string {
   return languageTag(object(preference).tag)?.split('-')[0] === 'en'
-    ? 'I’m sorry for the delay. Your question is now in our team’s inbox so an advisor can help you with that detail.'
-    : 'Disculpe la demora. He dejado su consulta en la bandeja del equipo para que un asesor le ayude con ese detalle.'
+    ? 'Please allow us to check that detail with our team so we can guide you better.'
+    : 'Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.'
 }

@@ -29,6 +29,7 @@ export const questionIds = [
   'budget_amount',
   'budget_kind',
   'property_category',
+  'property_comparison',
   'property_floor',
   'property_bedrooms',
   'property_area',
@@ -60,7 +61,7 @@ const referenceKinds = new Set(['none', 'explicit', 'relative', 'comparison', 'f
 const unitSelectors = new Set(['largest', 'smallest', 'cheapest', 'most_expensive', 'first', 'last'])
 const operations = new Set(['search', 'rank', 'compare', 'select', 'details', 'none'])
 const queryScopes = new Set(['catalog', 'offered', 'comparison', 'selected'])
-export const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'confirm_priority', 'budget', 'visit', 'profile', 'reservation', 'financing', 'material', 'other'])
+export const questionActs = new Set(['choose_unit', 'confirm_unit', 'show_unit_details', 'explore_quoted_options', 'compare_properties', 'choose_category', 'choose_floor', 'explore_alternatives', 'confirm_bedrooms', 'confirm_priority', 'budget', 'visit', 'profile', 'reservation', 'financing', 'material', 'other'])
 const profileQuestionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation'])
 const reservationKinds = new Set(['request', 'information', 'declined', 'none'])
 
@@ -94,7 +95,7 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
     filter_evidence: strictObject(Object.fromEntries(['floor_number', 'bedrooms', 'bedrooms_any', 'bedrooms_operator', 'bedrooms_upper', 'bedrooms_required', 'min_area_m2', 'max_area_m2'].map(key => [key, { type: 'string' }]))),
     evidence: { type: 'string' }, confidence: confidenceSchema,
   }),
-  budget: strictObject({ status: enumSchema(budgetStatuses), amount: { type: ['number', 'null'] }, amount_reference_id: AMOUNT_REFERENCE_SCHEMA,
+  budget: strictObject({ status: enumSchema(budgetStatuses), subject: enumSchema(new Set(['total_budget', 'down_payment', 'unspecified'])), amount: { type: ['number', 'null'] }, amount_reference_id: AMOUNT_REFERENCE_SCHEMA,
     evidence: { type: 'string' }, confidence: confidenceSchema }),
 })
 
@@ -188,12 +189,18 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   const validIds = catalog ? new Set(catalog.map(unit => text(unit.id))) : null
   const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.map(text).filter(id => id && (!validIds || validIds.has(id))))] : []
   const proposedQuery = ['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(text(row.act)) ? normalizedPropertyQuery(row.proposed_query) : {}
+  const comparisonCategories = id === 'property_comparison' && Array.isArray(row.comparison_categories)
+    ? [...new Set(row.comparison_categories.map(text).filter(category => propertyCategories.has(category)))] : []
+  const comparisonBedrooms = typeof row.comparison_bedrooms === 'number' && Number.isInteger(row.comparison_bedrooms) && row.comparison_bedrooms > 0 && row.comparison_bedrooms <= 30 ? row.comparison_bedrooms : null
+  const comparisonCandidates = comparisonCategories.length > 1 && catalog ? catalog.filter(unit => comparisonCategories.includes(text(unit.category))
+    && (comparisonBedrooms === null || unit.bedrooms === comparisonBedrooms) && unit.is_published !== false && (!unit.status || unit.status === 'disponible')).map(unit => text(unit.id)) : null
   const entryReference = id === 'financing_down_payment'
     ? deliveredFinancingEntryReference(text(object(row.amount_reference).question_source), object(row.amount_reference)) : null
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id === 'reservation_invitation' ? 'reservation' : id === 'brochure_offer' ? 'material'
     : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
-  question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: ids(row.candidate_ids),
+  question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: comparisonCandidates ?? ids(row.candidate_ids),
+  ...(comparisonCategories.length > 1 ? { comparison_categories: comparisonCategories, comparison_bedrooms: comparisonBedrooms } : {}),
   ...(entryReference ? { amount_reference: entryReference } : {}),
   ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }
@@ -651,6 +658,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     budget: budgetStatus === 'not_discussed' ? {
       status: 'not_discussed', amount: null, evidence: null, confidence: 'low',
     } : { status: budgetStatus, amount, evidence: budgetEvidence, confidence: budget.confidence,
+      ...(['total_budget', 'down_payment'].includes(text(budget.subject)) ? { subject: budget.subject } : {}),
       ...(budget.amount_reference_id != null ? { amount_reference_id: budget.amount_reference_id } : {}) },
     normalization_issues: normalizationIssues,
   }

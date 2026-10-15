@@ -264,6 +264,10 @@ export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: 
   const semantics = { ...object(previous.turn_semantics) }, incoming = object(repaired.turn_semantics)
   for (const field of blocks.semanticFields) if (Object.hasOwn(incoming, field)) semantics[field] = incoming[field]
   const result: Row = { ...previous, turn_semantics: semantics }
+  if (['repaired', 'clarification', 'unrecoverable'].includes(text(repaired.recovery_outcome))) result.recovery_outcome = repaired.recovery_outcome
+  // References from a repaired block supersede its original citations. They
+  // never target budget, identity, consent or operational permissions.
+  if (Array.isArray(repaired.evidence_sources)) result.evidence_sources = repaired.evidence_sources
   for (const field of blocks.rootFields) {
     if (!Object.hasOwn(repaired, field)) continue
     if (field === 'qualification') {
