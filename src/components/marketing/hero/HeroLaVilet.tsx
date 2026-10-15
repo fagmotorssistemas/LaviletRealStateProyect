@@ -18,7 +18,7 @@ import styles from './HeroLaVilet.module.css'
      sunsetAt / nightAt   % del recorrido donde el atardecer y la noche están completos
      carSize / carY / carSpan   tamaño, altura y tramo de scroll del carro (menos tramo = pasa más rápido)
      walkSize / walkSpan        tamaño y tramo de scroll del peatón                                              */
-  const state = Object.freeze({ travel: 240, rise: 0, sky: 40, logo: 85, logoX: 0, logoY: 0, txtX: 0, txtY: 0, bgY: 3, bgX: 0, bgZ: 100, stY: 8, stX: 0, size: 110, x: 0, y: -4, tint: 0, sunsetAt: 50, nightAt: 95, carSize: 100, carY: 0, carSpan: 20, walkSpan: 25, walkSize: 120 });
+  const state = Object.freeze({ travel: 240, rise: 0, sky: 40, logo: 85, logoX: 0, logoY: 0, txtX: 0, txtY: 0, bgY: 3, bgX: 0, bgZ: 100, stY: 11, stX: 0, size: 120, x: 0, y: -8, tint: 0, sunsetAt: 50, nightAt: 95, carSize: 100, carY: 0, carSpan: 20, walkSpan: 25, walkSize: 120 });
 
 const italiana = Italiana({ weight: '400', subsets: ['latin'], variable: '--font-display', display: 'swap' })
 const archivo = Archivo({ weight: ['100', '200', '300', '400', '500'], subsets: ['latin'], variable: '--font-body', display: 'swap' })
