@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hero La Vilet · referencia</title>
+<!--
+  IMPLEMENTACIÓN DE REFERENCIA DEL HERO DE LA VILET
+  Esta página es la fuente de verdad: el componente en Next.js debe verse y comportarse igual.
+  Portar literalmente: mismas capas, mismos números, mismas curvas. No rediseñar.
+  Las imágenes se cargan desde ../../public/hero/ para poder abrir este archivo directo desde el repo.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@100..500&family=Italiana&display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #2a2924;
+  --ink: #f1eada;
+  --muted: #cbc7aa;
+  --acc: #f0a054;
+  --acc-text: #fcb988;
+  --font-display: "Italiana", Georgia, "Times New Roman", serif;
+  --font-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 200;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ---------- Contenedor fijado: 100svh + recorrido extra de scroll ---------- */
+.pin { position: relative; height: calc(100vh + var(--travel, 160vh)); height: calc(100svh + var(--travel, 160svh)); }
+.hero {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  min-height: 520px;
+  overflow: hidden;
+  background: var(--bg);
+  isolation: isolate;
+  --tint: 0;
+}
+
+/* Capa 1: cielo y ciudad (tres versiones apiladas: día, atardecer, noche) */
+.sky {
+  position: absolute;
+  z-index: 0;
+  left: var(--fl); top: var(--ft); width: var(--fw); height: var(--fh);
+  transform-origin: 50% 77.47%;          /* línea del horizonte de la imagen */
+  will-change: transform;
+}
+/* Capa 2: calle y vereda (tres versiones apiladas) */
+.street {
+  position: absolute;
+  z-index: 1;
+  left: var(--gl); top: var(--gt); width: var(--gw);
+  aspect-ratio: 1672 / 492;
+}
+.sky img, .street img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; max-width: none; }
+
+/* Capa 3: edificio (día abajo, tono atardecer, noche encima) */
+.bld {
+  position: absolute;
+  z-index: 2;
+  left: var(--bl); top: var(--bt); width: var(--bw);
+  aspect-ratio: 1553 / 909;
+  will-change: transform;
+}
+.bld img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; max-width: none; }
+.bld img.day { filter: brightness(calc(1 - 0.1 * var(--tint))) saturate(calc(1 + 0.12 * var(--tint))); }
+.bld .tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, #ff8236 0%, #ffaa66 45%, #ffd3a4 100%);
+  mix-blend-mode: soft-light;
+  opacity: calc(var(--tint) * 0.95);
+  -webkit-mask-image: url("../../public/hero/edificio.webp");
+  mask-image: url("../../public/hero/edificio.webp");
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  pointer-events: none;
+}
+
+/* Capa 4: velo oscuro a la izquierda para leer el texto (aparece con el scroll) */
+.veil {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: multiply;
+  background:
+    radial-gradient(28% 36% at 1% 9%, rgb(44 50 44 / .56) 0%, rgb(44 50 44 / .20) 58%, rgb(44 50 44 / 0) 100%),
+    radial-gradient(21% 31% at 21% 52%, rgb(44 50 44 / .62) 0%, rgb(44 50 44 / .34) 58%, rgb(44 50 44 / 0) 100%),
+    radial-gradient(29% 54% at 6% 50%, rgb(44 50 44 / .70) 0%, rgb(44 50 44 / .54) 38%, rgb(44 50 44 / .26) 68%, rgb(44 50 44 / .04) 88%, rgb(44 50 44 / 0) 100%),
+    linear-gradient(to right, rgb(44 50 44 / .22) 0%, rgb(44 50 44 / .08) 17%, rgb(44 50 44 / 0) 33%),
+    linear-gradient(to bottom, rgb(44 50 44 / .18) 0%, rgb(44 50 44 / 0) 13%, rgb(44 50 44 / 0) 90%, rgb(44 50 44 / .10) 100%);
+}
+.hero.portrait .veil {
+  background: linear-gradient(to bottom, rgb(44 50 44 / .55) 0%, rgb(44 50 44 / .62) 30%, rgb(44 50 44 / .3) 52%, rgb(44 50 44 / 0) 66%);
+}
+
+/* Capa 5: lienzo de diseño de 1672x941 (líneas, menú y textos), se escala entero */
+.comp { position: absolute; left: 50%; top: 0; width: 1672px; height: 941px; z-index: 6; pointer-events: none; }
+.comp > *, #blk > * { position: absolute; margin: 0; }
+#lines, #lines2 { left: 0; top: 0; width: 1672px; height: 941px; overflow: visible; }
+#lines path, #lines2 path { fill: none; stroke: var(--acc); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+#lines #pV { stroke: url(#fade); }
+#blk { left: 0; top: 0; width: 1672px; height: 941px; }
+
+.nav span {
+  position: absolute;
+  color: var(--ink);
+  font-size: 15.1px;
+  font-weight: 300;
+  letter-spacing: 0.155em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#na { left: 1154px; top: 36px; }
+#nb { left: 1322px; top: 36px; }
+#nc { left: 1461px; top: 36px; }
+.hero.portrait .nav { display: none; }
+
+#eye { left: 157px; top: 369px; font-size: 14px; font-weight: 300; letter-spacing: 0.287em; text-transform: uppercase; white-space: nowrap; }
+#t { left: 145.9px; top: 395.3px; font-family: var(--font-display); font-weight: 400; font-size: 97.5px; letter-spacing: 0.0718em; line-height: 1; white-space: nowrap; }
+#t span { display: inline-block; color: var(--ink); transform-origin: 50% 50%; will-change: transform; }
+#t .sp { width: 0.41em; }
+#gh { left: 841px; top: 30px; transform: translateX(-50%); font-family: var(--font-display); font-size: 82.9px; letter-spacing: 0.216em; line-height: 1; white-space: nowrap; visibility: hidden; }
+#gh span { display: inline-block; }
+#gh .sp { width: 0.3em; }
+#claim { left: 156px; top: 544px; font-family: var(--font-display); font-size: 36px; letter-spacing: 0.044em; line-height: 1; white-space: nowrap; }
+#claim .w { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.08em; }
+#claim .w i, #sub i { font-style: normal; display: inline-block; will-change: transform; }
+#sub { left: 156px; top: 594px; font-size: 21.8px; font-weight: 200; letter-spacing: 0.004em; line-height: 27px; white-space: nowrap; }
+#sub span { display: block; overflow: hidden; }
+#sub i { display: block; }
+#sd { left: 836px; top: 900px; margin-left: -11px; display: grid; justify-items: center; }
+#sd svg { width: 22px; height: 12px; stroke: var(--ink); fill: none; stroke-width: 1.4; opacity: 0.9; }
+
+/* Solo para poder hacer scroll en esta referencia; NO se porta */
+.placeholder { min-height: 100vh; padding: 120px 8vw; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="pin" id="pin">
+  <section class="hero" id="hero" aria-label="La Vilet">
+    <div class="sky" id="sky">
+      <img src="../../public/hero/fondo-dia.webp" alt="" fetchpriority="high">
+      <img src="../../public/hero/fondo.webp" alt="" class="sun" style="opacity:0">
+      <img src="../../public/hero/fondo-noche.webp" alt="" class="night" style="opacity:0">
+    </div>
+    <div class="street" id="street">
+      <img src="../../public/hero/calle-dia.webp" alt="">
+      <img src="../../public/hero/calle.webp" alt="" class="sun" style="opacity:0">
+      <img src="../../public/hero/calle-noche.webp" alt="" class="night" style="opacity:0">
+    </div>
+    <div class="bld" id="bld">
+      <img src="../../public/hero/edificio.webp" alt="Edificio La Vilet con su plaza comercial" class="day" fetchpriority="high">
+      <span class="tint" aria-hidden="true"></span>
+      <img src="../../public/hero/edificio-noche.webp" alt="" class="night" style="opacity:0">
+    </div>
+    <div class="veil" id="veil" aria-hidden="true"></div>
+
+    <div class="comp" id="comp">
+      <svg id="lines" viewBox="0 0 1672 941" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="fade" x1="0" y1="79" x2="0" y2="893" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#f0a054"/>
+            <stop offset=".86" stop-color="#f0a054"/>
+            <stop offset="1" stop-color="#f0a054" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path id="pH" d="M93.5 79.5 H1672"/>
+        <path id="pV" d="M93.5 79.5 V893"/>
+        <path id="pU" d="M1156 70 H1273"/>
+      </svg>
+
+      <nav class="nav" aria-label="Secciones">
+        <span id="na">El proyecto</span>
+        <span id="nb">Espacios</span>
+        <span id="nc">Ubicación</span>
+      </nav>
+
+      <div id="blk">
+        <svg id="lines2" viewBox="0 0 1672 941" fill="none" aria-hidden="true">
+          <path id="pB" d="M322 230.5 H153.5 A32 32 0 0 0 121.5 262.5 V651"/>
+          <path id="dB" d="M334 224 L341 231 L334 238 L327 231 Z"/>
+          <path id="pR" d="M146 522 H288"/>
+          <path id="dR" d="M295 515.5 L301.5 522 L295 528.5 L288.5 522 Z"/>
+        </svg>
+        <p id="eye">Suites &amp; Apartments</p>
+        <h1 id="t" aria-label="La Vilet"></h1>
+        <p id="claim" aria-label="El arte de vivir bien."></p>
+        <p id="sub"><span><i>Residencias y plaza comercial</i></span><span><i>en Puertas del Sol, Cuenca.</i></span></p>
+      </div>
+      <div id="gh" aria-hidden="true"></div>
+      <div id="sd" aria-hidden="true"><svg viewBox="0 0 22 12"><path d="M1 1 L11 10 L21 1"/></svg></div>
+    </div>
+  </section>
+</div>
+
+<section class="placeholder">Contenido siguiente de la página (solo para poder hacer scroll en la referencia).</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lenis/1.1.13/lenis.min.js"></script>
+<script>
+(function () {
+  /* ============ VALORES AJUSTADOS EN LA DEMO (no cambiar sin revisar con el equipo) ============ */
+  var CONFIG = {
+    travel: 1.60,                 // scroll extra del hero fijado, en altos de pantalla (160svh)
+    baseLine: 0.88,               // altura de la base del edificio y del borde de la vereda, fracción del alto de pantalla
+    buildingWidth: 0.99,          // ancho del edificio en pantallas horizontales, fracción del ancho de pantalla
+    buildingWidthPortrait: 1.25,  // en pantallas verticales (se recortan un poco los costados)
+    topCropMax: 0.06,             // en pantallas muy anchas, cuánto del techo del edificio puede quedar fuera por arriba (0 = nunca)
+    skyDrop: 0.12,                // el horizonte del cielo queda 12% del alto de pantalla por debajo del borde de la vereda
+    skyZoomStart: 1.40,           // zoom del cielo al inicio del scroll (baja a 1)
+    buildingRise: 0,              // desplazamiento inicial del edificio hacia abajo, fracción de su altura (0 = no sube)
+    sunsetTint: 0.60,             // tono atardecer sobre el edificio de día
+    logoSize: 0.85,               // logo inicial, fracción del tamaño del título final
+    sunsetAt: 0.50,               // atardecer completo a este punto del recorrido
+    nightAt: 0.95                 // noche completa a este punto del recorrido
+  };
+
+  var BLD_AR = 1553 / 909, STREET_AR = 1672 / 492, HORIZON = 0.7747, TL_END = 0.95;
+  var $ = function (id) { return document.getElementById(id); };
+  var pin = $("pin"), hero = $("hero"), sky = $("sky"), bld = $("bld"), comp = $("comp"), veil = $("veil");
+  var reduced = false;
+  try { reduced = matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+
+  var clamp = function (v, a, b) { return Math.min(Math.max(v, a), b); };
+  var smooth = function (a, b, x) { var t = clamp((x - a) / Math.max(b - a, 0.001), 0, 1); return t * t * (3 - 2 * t); };
+  var EASE = {
+    none: function (t) { return t; },
+    p2io: function (t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; },  // power2.inOut
+    p2o: function (t) { return 1 - (1 - t) * (1 - t); },                                    // power2.out
+    p3o: function (t) { return 1 - Math.pow(1 - t, 3); },                                   // power3.out / easeOutCubic
+    back: function (t) { var c1 = 2.2, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); } // back.out(2.2)
+  };
+  function seg(T, start, dur, ease) { return EASE[ease](clamp((T - start) / dur, 0, 1)); }
+
+  /* ---------- textos ---------- */
+  var real = [], ghosts = [];
+  "LA VILET".split("").forEach(function (ch, i) {
+    var a = document.createElement("span"), b = document.createElement("span");
+    if (ch === " ") { a.className = b.className = "sp"; a.innerHTML = b.innerHTML = "&nbsp;"; }
+    else { a.textContent = b.textContent = ch; a.setAttribute("aria-hidden", "true"); if (i >= 3) a.dataset.v = "1"; real.push(a); ghosts.push(b); }
+    $("t").appendChild(a); $("gh").appendChild(b);
+  });
+  "El arte de vivir bien.".split(" ").forEach(function (w, i, arr) {
+    var s = document.createElement("span"); s.className = "w"; s.setAttribute("aria-hidden", "true");
+    var it = document.createElement("i"); it.textContent = w; s.appendChild(it); $("claim").appendChild(s);
+    if (i < arr.length - 1) $("claim").appendChild(document.createTextNode(" "));
+  });
+  var claimW = [].slice.call(document.querySelectorAll("#claim i"));
+  var subL = [].slice.call(document.querySelectorAll("#sub i"));
+  var navs = [$("na"), $("nb"), $("nc")];
+  var paths = {};
+  ["pH", "pV", "pB", "pR", "pU"].forEach(function (id) {
+    var el = $(id), len = el.getTotalLength();
+    el.style.strokeDasharray = len;
+    paths[id] = { el: el, len: len };
+  });
+  var dias = { dB: { el: $("dB"), cx: 334, cy: 231 }, dR: { el: $("dR"), cx: 295, cy: 522 } };
+  var INK = [241, 234, 218], ACC = [252, 185, 136];
+  var sunLayers = [].slice.call(document.querySelectorAll(".sun"));
+  var nightLayers = [].slice.call(document.querySelectorAll(".night"));
+
+  /* ---------- geometría ---------- */
+  var geo = { bh: 0, h: 0 }, F = [];
+  function fitComp(w, h, portrait) {
+    var s;
+    if (portrait) {
+      s = Math.min(w / 720, h / 1100);
+      comp.style.left = "0px";
+      comp.style.transformOrigin = "0 0";
+      comp.style.transform = "scale(" + s + ")";
+      $("gh").style.left = (w / 2 / s + 5) + "px";
+      $("sd").style.left = (w / 2 / s) + "px";
+      $("sd").style.top = ((h - 34) / s) + "px";
+    } else {
+      s = Math.min(w / 1672, h / 941);
+      comp.style.left = "50%";
+      comp.style.transformOrigin = "50% 0";
+      comp.style.transform = "translate(-50%, 0) scale(" + s + ")";
+      $("gh").style.left = "841px";
+      $("sd").style.left = "836px";
+      $("sd").style.top = "900px";
+    }
+    /* logo inicial, sin salirse del ancho de pantalla */
+    var fs = 97.5 * CONFIG.logoSize;
+    $("gh").style.fontSize = fs + "px";
+    var gw = $("gh").getBoundingClientRect().width;
+    if (gw > w * 0.94) $("gh").style.fontSize = (fs * w * 0.94 / gw).toFixed(2) + "px";
+    /* de dónde sale cada letra: su gemela en el logo inicial */
+    real.forEach(function (el) { el.style.transform = "none"; });
+    F = real.map(function (el, i) {
+      var a = ghosts[i].getBoundingClientRect(), b = el.getBoundingClientRect();
+      return { x: (a.left + a.width / 2 - b.left - b.width / 2) / s, y: (a.top + a.height / 2 - b.top - b.height / 2) / s, k: a.height / b.height };
+    });
+  }
+
+  function layout() {
+    var w = hero.clientWidth, h = hero.clientHeight;
+    var portrait = w / h < 1.25;
+    hero.classList.toggle("portrait", portrait);
+    var B = h * CONFIG.baseLine;                         // base del edificio = borde de la vereda
+
+    /* edificio: casi todo el ancho; en pantallas muy anchas lo limita el alto (con un poco de techo fuera, como máximo topCropMax) */
+    var bh = Math.min(w * (portrait ? CONFIG.buildingWidthPortrait : CONFIG.buildingWidth) / BLD_AR, B / (1 - CONFIG.topCropMax));
+    var bw = bh * BLD_AR;
+
+    /* calle: su borde superior en la base del edificio, cubre todo el ancho y hasta abajo */
+    var gw = Math.max(w, (h - B + 2) * STREET_AR);
+
+    /* cielo y ciudad: horizonte skyDrop por debajo de la vereda; escala mínima que cubre la pantalla */
+    var horizonY = B + CONFIG.skyDrop * h;
+    var sc = Math.max(w / 1672, horizonY / (HORIZON * 941));
+    var fw = 1672 * sc, fh = 941 * sc;
+
+    var st = hero.style;
+    st.setProperty("--bw", bw.toFixed(1) + "px");
+    st.setProperty("--bl", ((w - bw) / 2).toFixed(1) + "px");
+    st.setProperty("--bt", (B - bh).toFixed(1) + "px");
+    st.setProperty("--gw", gw.toFixed(1) + "px");
+    st.setProperty("--gl", ((w - gw) / 2).toFixed(1) + "px");
+    st.setProperty("--gt", B.toFixed(1) + "px");
+    st.setProperty("--fw", fw.toFixed(1) + "px");
+    st.setProperty("--fh", fh.toFixed(1) + "px");
+    st.setProperty("--fl", ((w - fw) / 2).toFixed(1) + "px");
+    st.setProperty("--ft", (horizonY - fh * HORIZON).toFixed(1) + "px");
+    pin.style.setProperty("--travel", reduced ? "0px" : (CONFIG.travel * h).toFixed(0) + "px");
+    geo.bh = bh; geo.h = h;
+    fitComp(w, h, portrait);
+    target = progress();
+    render(current = target);
+  }
+
+  /* ---------- progreso del scroll ---------- */
+  function progress() {
+    var dist = pin.offsetHeight - hero.offsetHeight;
+    if (reduced || dist <= 0) return 1;
+    return clamp(-pin.getBoundingClientRect().top / dist, 0, 1);
+  }
+
+  /* día (0) → atardecer (1) → noche (2) */
+  function timeOfDay(p) {
+    var s = CONFIG.sunsetAt, n = Math.max(CONFIG.nightAt, s + 0.12);
+    var dayEnd = Math.min(0.08, s * 0.4), hold = Math.min(0.08, (n - s) * 0.3);
+    return smooth(dayEnd, s, p) + smooth(s + hold, n, p);
+  }
+  function applyTimeOfDay(t) {
+    var sun = clamp(t, 0, 1), night = clamp(t - 1, 0, 1);
+    sunLayers.forEach(function (el) { el.style.opacity = sun.toFixed(4); });
+    nightLayers.forEach(function (el) { el.style.opacity = night.toFixed(4); });
+    hero.style.setProperty("--tint", (CONFIG.sunsetTint * clamp(1 - Math.abs(t - 1), 0, 1)).toFixed(3));
+  }
+
+  function draw(id, k) { var p = paths[id]; p.el.style.strokeDashoffset = (p.len * (1 - k)).toFixed(2); }
+  function pop(id, k) {
+    var d = dias[id];
+    d.el.setAttribute("transform", "translate(" + d.cx + " " + d.cy + ") scale(" + Math.max(k, 0.0001).toFixed(4) + ") translate(" + (-d.cx) + " " + (-d.cy) + ")");
+    d.el.style.opacity = clamp(k, 0, 1).toFixed(3);
+  }
+
+  function render(p) {
+    /* escena */
+    var pb = EASE.p3o(clamp(p / 0.85, 0, 1));
+    bld.style.transform = "translate3d(0," + ((1 - pb) * CONFIG.buildingRise * geo.bh).toFixed(1) + "px,0)";
+    sky.style.transform = "scale(" + (1 + (CONFIG.skyZoomStart - 1) * (1 - EASE.p3o(p))).toFixed(4) + ")";
+    applyTimeOfDay(timeOfDay(p));
+
+    /* textos y líneas: T va de 0 a 0.95 */
+    var T = p * TL_END;
+    veil.style.opacity = seg(T, 0.04, 0.42, "none").toFixed(3);
+    var sd = seg(T, 0, 0.1, "none");
+    $("sd").style.opacity = (1 - sd).toFixed(3);
+    $("sd").style.transform = "translateY(" + (12 * sd).toFixed(1) + "px)";
+
+    real.forEach(function (el, i) {
+      var k = seg(T, 0.05 + i * 0.042, 0.44, "p2io"), f = F[i] || { x: 0, y: 0, k: 1 };
+      el.style.transform = "translate(" + (f.x * (1 - k)).toFixed(2) + "px," + (f.y * (1 - k)).toFixed(2) + "px) scale(" + (f.k + (1 - f.k) * k).toFixed(4) + ")";
+      if (el.dataset.v) el.style.color = "rgb(" + INK.map(function (c, j) { return Math.round(c + (ACC[j] - c) * k); }).join(",") + ")";
+    });
+    draw("pV", seg(T, 0.06, 0.34, "p2io"));
+    draw("pH", seg(T, 0.10, 0.30, "p2io"));
+    navs.forEach(function (el, i) {
+      var k = seg(T, 0.16 + i * 0.05, 0.2, "p2o");
+      el.style.opacity = k.toFixed(3);
+      el.style.transform = "translateY(" + (-10 * (1 - k)).toFixed(1) + "px)";
+    });
+    draw("pU", seg(T, 0.26, 0.16, "p2o"));
+    draw("pB", seg(T, 0.30, 0.26, "p2io"));
+    pop("dB", seg(T, 0.54, 0.10, "back"));
+    var ke = seg(T, 0.36, 0.24, "p3o");
+    $("eye").style.opacity = ke.toFixed(3);
+    $("eye").style.transform = "translateX(" + (-56 * (1 - ke)).toFixed(1) + "px)";
+    draw("pR", seg(T, 0.46, 0.18, "p2io"));
+    pop("dR", seg(T, 0.62, 0.10, "back"));
+    claimW.forEach(function (el, i) {
+      var k = seg(T, 0.52 + i * 0.045, 0.26, "p3o");
+      el.style.transform = "translateY(" + (108 * (1 - k)).toFixed(1) + "%)";
+    });
+    subL.forEach(function (el, i) {
+      var k = seg(T, 0.66 + i * 0.07, 0.22, "p3o");
+      el.style.transform = "translate(" + (-34 * (1 - k)).toFixed(1) + "px," + (108 * (1 - k)).toFixed(1) + "%)";
+    });
+  }
+
+  /* ---------- bucle: suavizado corto e independiente de los fps (Lenis ya suaviza la página) ---------- */
+  var target = 0, current = 0, rafId = 0, lastTick = 0, lenis = null;
+  function tick(now) {
+    var dt = lastTick ? Math.min(now - lastTick, 100) : 16;
+    lastTick = now;
+    current += (target - current) * (1 - Math.exp(-dt / (lenis ? 50 : 90)));
+    if (Math.abs(target - current) < 0.0004) current = target;
+    render(current);
+    rafId = current === target ? 0 : requestAnimationFrame(tick);
+    if (!rafId) lastTick = 0;
+  }
+  addEventListener("scroll", function () { target = progress(); if (!rafId) rafId = requestAnimationFrame(tick); }, { passive: true });
+  var rz;
+  addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(layout, 120); });
+
+  if (!reduced && window.Lenis) {
+    try {
+      lenis = new window.Lenis({ lerp: 0.085 });
+      (function raf(t) { lenis.raf(t); requestAnimationFrame(raf); })(0);
+    } catch (e) { lenis = null; }
+  }
+
+  layout();
+  var waits = [].map.call(document.querySelectorAll(".hero img"), function (im) { return im.decode ? im.decode().catch(function () {}) : Promise.resolve(); });
+  if (document.fonts && document.fonts.ready) waits.push(document.fonts.ready);
+  Promise.all(waits).then(layout);
+})();
+</script>
+</body>
+</html>

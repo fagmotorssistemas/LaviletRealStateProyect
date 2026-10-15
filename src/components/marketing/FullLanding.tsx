@@ -1,4 +1,4 @@
-import { HeroStage } from './HeroStage'
+import { HeroLaVilet } from './hero/HeroLaVilet'
 import { LaviletPlaceBoard, LaviletStory } from './LaviletStory'
 import { LockupProvider } from './LaviletLockup'
 import { LandingWash } from './LandingWash'
@@ -13,7 +13,7 @@ import { LvPortal } from './LvPortal'
 export function FullLanding() {
   return (
     <LockupProvider>
-      <HeroStage />
+      <HeroLaVilet />
       <LvPortal />
       <LandingWash>
         <WhyLavilet part="overview" />
