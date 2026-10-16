@@ -13,11 +13,12 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { knownRole } from '@/lib/inmobiliaria/roleAccess'
 import {
-  listAdvisorNotifications,
+  refreshAdvisorNotifications,
   markAdvisorNotificationRead,
   markAllAdvisorNotificationsRead,
 } from '@/services/advisorNotifications.service'
 import type { AdvisorNotification } from '@/types/inmobiliaria'
+import { recoverReservationNotifications } from '@/app/inmobiliaria/notification-actions'
 
 const POLL_MS = 30_000
 
@@ -52,10 +53,10 @@ function useAdvisorNotificationsState() {
       setLoading(true)
       pending = (async () => {
         try {
-          const rows = await listAdvisorNotifications(supabase, recipientId, controller?.signal)
+          const result = await refreshAdvisorNotifications(supabase, recipientId, recoverReservationNotifications, controller?.signal)
           if (disposed || controller?.signal.aborted) return
-          setItems(rows)
-          setError('')
+          setItems(result.items)
+          setError(result.warning)
           setReady(true)
         } catch (cause) {
           if (disposed || controller?.signal.aborted) return

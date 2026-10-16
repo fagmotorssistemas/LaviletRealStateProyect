@@ -90,7 +90,7 @@ test('Kommo launch records connection causes and never repeats an uncertain POST
   }
 })
 
-test('database maintenance completes even when the global send worker cannot acquire its lease', async () => {
+function maintenanceWorker(registrationFails = false) {
   const calls = [], q = { then: resolve => Promise.resolve({ error: null }).then(resolve) }
   for (const method of ['upsert', 'update', 'match', 'eq', 'contains', 'lt']) q[method] = () => q
   let maintenanceClaimed = false
@@ -107,9 +107,14 @@ test('database maintenance completes even when the global send worker cannot acq
     './transport-monitor': { syncTransportIncidents: async () => ({ missing: 0 }) },
     './conversation-analysis': { analyzeIdleConversation: async () => ({ reason: 'no_idle_candidate' }) },
     './reply-registration': { ...require('../src/lib/integrations/automation/reply-registration.ts'),
-      recoverAcceptedReplyRegistrations: async guard => { await guard(); calls.push(['reply_registration_recovery']); return { repaired: 0, unresolved: 0 } } },
+      recoverAcceptedReplyRegistrations: async guard => { await guard(); calls.push(['reply_registration_recovery']); if (registrationFails) throw Error('REGISTRATION_STORAGE_UNAVAILABLE'); return { repaired: 0, unresolved: 0 } } },
   })
-  const result = await runAutomation()
+  return { calls, run: runAutomation }
+}
+
+test('database maintenance completes even when the global send worker cannot acquire its lease', async () => {
+  const { calls, run } = maintenanceWorker()
+  const result = await run()
   assert.equal(result.reason, 'worker_busy')
   assert.equal(result.maintenance[0].enqueued, 2)
   assert.deepEqual(result.maintenance[0].reply_registrations, { repaired: 0, unresolved: 0 })
@@ -117,6 +122,16 @@ test('database maintenance completes even when the global send worker cannot acq
   assert.ok(calls.findIndex(([name]) => name === 'reply_registration_recovery')
     < calls.findIndex(([name, args]) => name === 'lv_app_worker_lock' && args.p_action === 'acquire'))
   assert.equal(calls.find(([name]) => name === 'lv_app_finish')[1].p_status, 'completed')
+  assert.equal(calls.some(([name]) => name === 'lv_app_claim'), false)
+})
+
+test('reservation alert recovery runs before a registration-maintenance failure and does not invoke a chat worker', async () => {
+  const { calls, run } = maintenanceWorker(true)
+  const result = await run()
+  assert.equal(result.maintenance[0].reason, 'REGISTRATION_STORAGE_UNAVAILABLE')
+  const alert = calls.findIndex(([name]) => name === 'lv_retry_reservation_alerts')
+  assert.ok(alert >= 0)
+  assert.ok(alert < calls.findIndex(([name]) => name === 'reply_registration_recovery'))
   assert.equal(calls.some(([name]) => name === 'lv_app_claim'), false)
 })
 

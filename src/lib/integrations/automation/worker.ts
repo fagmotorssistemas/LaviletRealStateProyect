@@ -84,8 +84,8 @@ async function runMaintenance(config: Row) {
           if (allowed) await rpc('apply_temperature_decay')
           result = { action: allowed ? 'daily_decay' : 'daily_decay_skipped' }
         } else {
-          const replyRegistrations = await recoverAcceptedReplyRegistrations(guard)
           await guard(); await retryReservationAlerts(config)
+          const replyRegistrations = await recoverAcceptedReplyRegistrations(guard)
           await analyzeIdleConversation(config,guard)
           const enqueued = await planVisits(guard)
           if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) {

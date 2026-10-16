@@ -29,8 +29,15 @@ test('a fresh source can start a Salesbot through a simulated transport', async 
 
 test('deployment preflight requires authentication and reveals no credentials', async t => {
   const secret = 'synthetic-operator-secret-for-auth-only', before = process.env.AUTOMATION_CRON_SECRET
+  const beforeModel = process.env.OPENAI_MODEL, beforeWriter = process.env.OPENAI_MODEL_WRITER
   process.env.AUTOMATION_CRON_SECRET = secret
+  process.env.OPENAI_MODEL = 'gpt-4.1'
+  process.env.OPENAI_MODEL_WRITER = 'gpt-6-luna'
   t.after(() => { if (before === undefined) delete process.env.AUTOMATION_CRON_SECRET; else process.env.AUTOMATION_CRON_SECRET = before })
+  t.after(() => {
+    if (beforeModel === undefined) delete process.env.OPENAI_MODEL; else process.env.OPENAI_MODEL = beforeModel
+    if (beforeWriter === undefined) delete process.env.OPENAI_MODEL_WRITER; else process.env.OPENAI_MODEL_WRITER = beforeWriter
+  })
   let reads = 0
   t.mock.method(data, 'autoConfig', async () => { reads++; return { enabled: true, dry_run: false, test_only: false, _audience: policy } })
   assert.equal((await GET(new Request('https://localhost/api/integrations/automation/audience'))).status, 401)
@@ -40,5 +47,6 @@ test('deployment preflight requires authentication and reveals no credentials', 
   const body = await response.text()
   assert.equal(body.includes(secret), false)
   assert.deepEqual(JSON.parse(body).audience, policy)
+  assert.equal(JSON.parse(body).conversationAnalysisModel, 'gpt-4.1')
   assert.equal(reads, 1)
 })

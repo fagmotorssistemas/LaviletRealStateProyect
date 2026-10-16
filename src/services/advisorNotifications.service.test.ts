@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { listAdvisorNotifications } from './advisorNotifications.service'
+import { listAdvisorNotifications, refreshAdvisorNotifications } from './advisorNotifications.service'
 
 test('unread reservation alerts remain reachable beyond the latest ordinary assignments and keep recipient filtering', async () => {
   const requests: Record<string, unknown>[] = []
@@ -20,4 +20,33 @@ test('unread reservation alerts remain reachable beyond the latest ordinary assi
   assert.ok(requests.every(query => query.recipient_id === 'owner'))
   assert.deepEqual(requests[1].kinds, ['reservation_requested', 'reservation_confirmed'])
   assert.equal(requests[1].read_at, null)
+})
+
+test('refresh reads after recovery so an alert created during this refresh is immediately included', async () => {
+  let recovered = false
+  const alert = { id: 'repaired', created_at: '2026-10-16', kind: 'reservation_requested' }
+  const client = { from: () => {
+    const q = { select: () => q, eq: () => q, in: () => q, is: () => q, order: () => q, limit: () => q, abortSignal: () => q,
+      then: (resolve: (value: unknown) => void) => {
+        assert.equal(recovered, true)
+        return Promise.resolve({ data: [alert], error: null }).then(resolve)
+      } }
+    return q
+  } } as unknown as SupabaseClient
+  const result = await refreshAdvisorNotifications(client, 'owner', async () => { recovered = true; return { ok: true } })
+  assert.deepEqual(result.items.map(item => item.id), ['repaired'])
+  assert.equal(result.warning, '')
+})
+
+test('failed recovery keeps the inbox readable and surfaces the recovery warning', async () => {
+  const client = { from: () => {
+    const q = { select: () => q, eq: () => q, in: () => q, is: () => q, order: () => q, limit: () => q, abortSignal: () => q,
+      then: (resolve: (value: unknown) => void) => Promise.resolve({ data: [{ id: 'existing', created_at: '2026-10-16' }], error: null }).then(resolve) }
+    return q
+  } } as unknown as SupabaseClient
+  for (const recover of [async () => ({ ok: false }), async () => { throw Error('network') }]) {
+    const result = await refreshAdvisorNotifications(client, 'owner', recover)
+    assert.deepEqual(result.items.map(item => item.id), ['existing'])
+    assert.match(result.warning, /alertas de reserva pendientes/)
+  }
 })

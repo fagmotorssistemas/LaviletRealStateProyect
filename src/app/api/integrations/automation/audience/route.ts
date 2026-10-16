@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { automationSettings, secretMatches } from '@/lib/integrations/automation/config'
 import { autoConfig } from '@/lib/integrations/automation/data'
+import { automationModelForRole } from '@/lib/integrations/automation/ai-model-routing'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
       dryRun: config.dry_run !== false,
       testOnly: config.test_only !== false,
       audience: config._audience,
+      conversationAnalysisModel: automationModelForRole('interpretation') || null,
     }, { headers: { 'Cache-Control': 'no-store' } })
   } catch {
     return NextResponse.json({ error: 'No se pudo comprobar la configuración' }, { status: 503 })

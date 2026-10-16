@@ -29,6 +29,7 @@ Las pantallas administrativas requieren rol `admin`. El middleware también pued
 | `AUTOMATION_GLOBAL_MAINTENANCE` | Habilita mantenimiento global y decaimiento cuando no hay modo de prueba. |
 | `KOMMO_WEBHOOK_SECRET` | Autoriza el webhook. |
 | `AUTOMATION_CRON_SECRET` / `CRON_SECRET` | Autoriza el worker. |
+| `OPENAI_MODEL` | Modelo del análisis de conversaciones y otras llamadas de interpretación general. Los modelos específicos de redacción, extracción y revisión tienen variables propias. |
 
 ### Base de datos
 
@@ -60,6 +61,12 @@ El comando exige comprobar primero el mismo commit desplegado mediante `GET /api
 La pantalla `Reglas y SLA > Seguimiento` lee y guarda los pasos reales en `projects.policies_json`. El detalle del lead consulta los trabajos actuales de `lv_integration_events` y muestra su fecha, estado y motivo. Las tablas históricas `nutrition_steps`, `lead_nutrition` y `nutrition_delivery_history` permanecen intactas para compatibilidad y no se presentan como fuente operativa.
 
 El webhook de la aplicación debe estar suscrito en Kommo a `add_message` y `add_outgoing_message`. El primero alimenta los mensajes del lead; el segundo permite detectar una respuesta manual del asesor. Sin la segunda suscripción, una contestación escrita directamente en Kommo no puede pausar la IA.
+
+### Recuperación de alertas urgentes de reserva
+
+Una solicitud nueva asigna un asesor elegible y crea su alerta mediante los disparadores SQL de reservas. Si queda pendiente o falla el aviso, el mantenimiento periódico lo reintenta. Además, al actualizar las notificaciones de un asesor o administrador se ejecuta `recoverReservationNotifications`: comprueba la sesión, el acceso al proyecto, el perfil activo, la pertenencia del asesor y las restricciones de pruebas antes de llamar a `lv_retry_reservation_alerts`. La función SQL procesa como máximo 50 solicitudes pendientes vigentes del proyecto y conserva la rotación y la protección contra duplicados.
+
+Esta recuperación adicional se ejecuta al entrar, al volver a la pestaña y durante la consulta visible de notificaciones. No recarga la página ni el panel del lead. Primero intenta recuperar y después consulta la bandeja, para incluir los avisos recién creados. Si la recuperación no está disponible, mantiene accesibles las notificaciones existentes y muestra el aviso de reintento en la campana. No invoca el worker de conversaciones ni envía WhatsApp; no confirma reservas ni bloquea unidades.
 
 ## Identificadores de Kommo
 

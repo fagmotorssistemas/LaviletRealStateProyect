@@ -4,6 +4,19 @@ import type { AdvisorNotification } from '@/types/inmobiliaria'
 const NOTIFICATION_SELECT =
   '*, lead:leads(id, name, phone, kommo_id), project:projects(id, name)'
 
+export async function refreshAdvisorNotifications(
+  supabase: SupabaseClient,
+  recipientId: string,
+  recover: () => Promise<{ ok: boolean }>,
+  signal?: AbortSignal,
+) {
+  if (!recipientId) return { items: [], warning: '' }
+  let recovered = false
+  try { recovered = (await recover()).ok } catch { /* Keep existing alerts readable if recovery is unavailable. */ }
+  const items = await listAdvisorNotifications(supabase, recipientId, signal)
+  return { items, warning: recovered ? '' : 'No se pudieron recuperar las alertas de reserva pendientes. Reintentaremos automáticamente.' }
+}
+
 export async function listAdvisorNotifications(
   supabase: SupabaseClient,
   recipientId: string,
