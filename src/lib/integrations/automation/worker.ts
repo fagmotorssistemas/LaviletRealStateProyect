@@ -24,6 +24,7 @@ import { sendConfirmedDeliveryRetry } from './delivery-retry'
 import { recheckMaintenanceReads } from './maintenance-recovery'
 import { processShowroomContacts } from './showroom-contact'
 import { analyzeIdleConversation } from './conversation-analysis'
+import { audienceAllows, audienceSourceForEvent } from './audience-boundary'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -147,7 +148,7 @@ export async function runAutomation(contactKey?: string) {
     }
     for (let i = 0; i < 3 && Date.now() - started < 45_000; i++) {
       await guard()
-      const batch = contactKey
+      let batch = contactKey
         ? await rpc<Row[]>('lv_app_claim_contact', { p_token: token, p_contact: contactKey })
         : await rpc<Row[]>('lv_app_claim', { p_token: token })
       if (!batch.length) {
@@ -158,6 +159,18 @@ export async function runAutomation(contactKey?: string) {
           if(Array.isArray(outreach.contacts)&&outreach.contacts.length)results.push({kind:'showroom_contact',...outreach})
         }
         break
+      }
+      const excluded = batch.filter(row => audienceSourceForEvent(row) !== undefined || ['inbound','delivery_retry'].includes(text(row.kind))
+        || row.kind === 'maintenance' && NUTRITION_TASKS.includes(text(object(row.payload).task)))
+        .filter(row => !audienceAllows(config._audience, audienceSourceForEvent(row), row.received_at))
+      if (excluded.length) {
+        await guard()
+        await rpc('lv_app_finish', { p_token: token, p_ids: excluded.map(row => text(row.id)), p_status: 'cancelled',
+          p_result: { action: 'cancelled', reason: 'BEFORE_PRODUCTION_ACTIVATION', delivery_status: 'not_sent' } })
+        const oldIds = new Set(excluded.map(row => row.id))
+        batch = batch.filter(row => !oldIds.has(row.id))
+        results.push({ action: 'cancelled', reason: 'BEFORE_PRODUCTION_ACTIVATION', excluded: excluded.length })
+        if (!batch.length) continue
       }
       const first = object(batch[0]), ids = batch.map(row => text(row.id))
       let acceptedReply: Row | undefined

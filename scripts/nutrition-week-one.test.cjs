@@ -106,7 +106,7 @@ function harness(options = {}) {
       queries.push({ table, filters, operation, value })
       const eq = key => filters.find(f => f[0] === 'eq' && f[1] === key)?.[2]
       let result = []
-      if (table === 'projects') result = { policies_json: { nutrition_week_one: patched && options.disableAfterPatch ? { ...policy, enabled: false } : policy,
+      if (table === 'projects') result = { policies_json: { automation_audience: options.audience, nutrition_week_one: patched && options.disableAfterPatch ? { ...policy, enabled: false } : policy,
         nutrition_later: patched && options.disableAfterPatch ? { 2: { ...laterPolicy[2], enabled: false }, 3: { ...laterPolicy[3], enabled: false } } : laterPolicy } }
       if (table === 'project_automation_config') result = { business_hours: { '1': { open: '09:00', close: '18:00' }, '2': { open: '09:00', close: '18:00' } }, mode: 'lanzamiento' }
       if (table === 'leads') result = [lead, ...(options.related || [])]
@@ -125,7 +125,7 @@ function harness(options = {}) {
   const mod = load('src/lib/integrations/automation/nutrition-week-one.ts', {
     './config': { assertLive() {}, automationSettings: () => ({ testLeadId: null }) },
     './financing': { financingContext: async () => ({ partners: ['Banco Pichincha'], current: {} }) },
-    './data': { ...data, db: () => ({ from: query }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
+    './data': { ...data, db: () => ({ from: query }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false, _audience: patched && options.audienceAfterPatch ? options.audienceAfterPatch : options.audience }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
     './kommo': { getKommoLead: async () => ({}), botStopped: () => !!options.remoteStopped, verifyWeekOneTemplates: async () => ({ brochure: options.approved !== false, followup: options.approved !== false }), setKommoField: async (...args) => { calls.push({ name: 'patch', args }); patched = true }, launchSalesbot: async (...args) => { calls.push({ name: 'launch', args }); if (options.timeout) throw Error('TIMEOUT') } },
   })
   const later = load('src/lib/integrations/automation/nutrition-later.ts', {
@@ -157,7 +157,7 @@ test('exactly one Salesbot runs, followup field precedes send, actual copy and p
   for (const shared of [false, true]) {
     const h = harness({ shared }), result = await h.sendNutritionWeekOne({ payload: h.payload }, async () => {})
     assert.equal(result.action, 'accepted')
-    assert.deepEqual(h.calls.filter(c => c.name === 'launch').map(c => c.args), [[123, shared ? 21394 : 21392]])
+    assert.deepEqual(h.calls.filter(c => c.name === 'launch').map(c => c.args), [[123, shared ? 21394 : 21392, { audience: undefined, sourceAt: h.payload.anchorAt, jobCreatedAt: undefined }]])
     const receipt = h.calls.find(c => c.name === 'register_outbound_message').args
     assert.equal(receipt.p_model, 'template:nutrition_week_one')
     assert.equal(receipt.p_tool_calls.nutrition_week_one.kind, shared ? 'followup' : 'brochure')
@@ -255,7 +255,7 @@ test('each later week patches its own field and launches only its corresponding 
     const h = harness({ week, lead: { purchase_purpose: 'vivir' } })
     const result = await h.sendNutritionLater({ payload: h.payload }, async () => {})
     assert.equal(result.action, 'accepted')
-    assert.deepEqual(h.calls.find(c => c.name === 'launch').args, [123, week === 2 ? 21446 : 21452])
+    assert.deepEqual(h.calls.find(c => c.name === 'launch').args, [123, week === 2 ? 21446 : 21452, { audience: undefined, sourceAt: h.payload.anchorAt, jobCreatedAt: undefined }])
     assert.equal(h.calls.find(c => c.name === 'patch').args[1], week === 2 ? 530952 : 530954)
     const receipt = h.calls.find(c => c.name === 'register_outbound_message').args
     assert.equal(receipt.p_content, result.body)
@@ -295,4 +295,49 @@ test('answers follow later offers without turning yes into credit consent or ove
     assert.equal(financingInputs({ financing_consent: true, financing_partner: 'JEP' }, 'Sí, con JEP', body, { partners: ['JEP'], current: {} }).consent, null)
     for (const reply of ['No gracias', 'Sí, pero cuánto cuesta y tiene parqueadero?', 'Mañana a las 8', 'Quiero un local']) assert.equal(rules.nutritionContinuation(reply, h), null)
   }
+})
+
+test('activation cancels historical followups even if their due time or retry is now', async t => {
+  fixedClock(t)
+  for (const week of [1, 2, 3]) {
+    const audience = {version:1,mode:'future_messages',activatedAt:'2026-09-09T00:00:00Z'}
+    const h = harness({week,audience})
+    const send = week === 1 ? h.sendNutritionWeekOne : h.sendNutritionLater
+    const result = await send({payload:h.payload,received_at:'2026-09-15T14:00:00Z',available_at:'2026-09-15T15:00:00Z'},async()=>{})
+    assert.equal(result.reason,'before_audience_activation')
+    assert.deepEqual(h.calls,[])
+    assert.equal((await (week === 1 ? h.scheduleNutritionWeekOne : h.scheduleNutritionLater)('lead','conv','external')).scheduled,false)
+    assert.equal(h.jobs.size,0)
+  }
+})
+
+test('a pre-activation job is not revived by replacing its source with a newer timestamp', async t => {
+  fixedClock(t)
+  const audience={version:1,mode:'future_messages',activatedAt:'2026-09-07T00:00:00Z'}
+  const h=harness({audience})
+  const result=await h.sendNutritionWeekOne({payload:h.payload,received_at:'2026-09-06T23:00:00Z'},async()=>{})
+  assert.equal(result.reason,'before_audience_activation')
+  assert.deepEqual(h.calls,[])
+})
+
+test('old contact age does not block followup rooted in its new message, and evidence reaches the transport', async t => {
+  fixedClock(t);readyLink(t)
+  const audience={version:1,mode:'future_messages',activatedAt:'2026-09-07T00:00:00Z'}
+  const h=harness({audience,lead:{created_at:'2020-01-01T00:00:00Z'}})
+  const result=await h.sendNutritionWeekOne({payload:h.payload,received_at:'2026-09-08T15:01:00Z'},async()=>{})
+  assert.equal(result.action,'accepted')
+  assert.deepEqual(h.calls.find(c=>c.name==='launch').args,[123,21392,{audience,sourceAt:h.payload.anchorAt,jobCreatedAt:'2026-09-08T15:01:00Z'}])
+})
+
+test('followups recheck activation after patching fields and verify the actual anchor message date', async t => {
+  fixedClock(t)
+  const before={version:1,mode:'future_messages',activatedAt:'2026-09-07T00:00:00Z'},after={...before,activatedAt:'2026-09-09T00:00:00Z'}
+  const h=harness({shared:true,audience:before,audienceAfterPatch:after})
+  assert.equal((await h.sendNutritionWeekOne({payload:h.payload,received_at:'2026-09-08T15:01:00Z'},async()=>{})).reason,'before_audience_activation')
+  assert.equal(h.calls.filter(c=>c.name==='patch').length,1)
+  assert.equal(h.calls.some(c=>c.name==='launch'),false)
+  const forged=harness({audience:after})
+  forged.payload.anchorAt='2026-09-10T15:00:00Z'
+  assert.equal((await forged.sendNutritionWeekOne({payload:forged.payload,received_at:'2026-09-11T15:00:00Z'},async()=>{})).reason,'anchor_timestamp_mismatch')
+  assert.equal(forged.calls.length,0)
 })

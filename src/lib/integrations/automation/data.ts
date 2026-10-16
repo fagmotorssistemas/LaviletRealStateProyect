@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
 import { assertProductionRpcAllowed } from './reset-protection'
 import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
+import { audienceBoundary } from './audience-boundary'
 
 export type Row = Record<string, unknown>
 export function object(value: unknown): Row {
@@ -30,11 +31,16 @@ export async function autoConfig(): Promise<Row> {
   const { data, error } = await db().from('lv_auto_config').select('*').match(scope)
     .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
   if (error || !data) throw new Error('AUTOMATION_CONFIG_MISSING')
-  if (data.test_only === false) return data as Row
+  const project = await db().from('projects').select('policies_json').eq('id', scope.project_id).eq('tenant_id', scope.tenant_id)
+    .abortSignal(AbortSignal.timeout(10_000)).maybeSingle()
+  if (project.error) throw new Error('AUTOMATION_AUDIENCE_READ_FAILED')
+  const config = { ...data, _audience: audienceBoundary(object(project.data?.policies_json).automation_audience) }
+  if (data.test_only === false && !config._audience) throw new Error('AUTOMATION_AUDIENCE_REQUIRED')
+  if (data.test_only === false) return config as Row
   const contacts = await db().from('lv_test_contacts_state').select('lead_id').match(scope).eq('matches', 1)
     .abortSignal(AbortSignal.timeout(10_000))
   if (contacts.error) throw new Error('TEST_CONTACTS_READ_FAILED')
-  return { ...data, test_lead_ids: (contacts.data || []).map(row => row.lead_id).filter(Boolean) }
+  return { ...config, test_lead_ids: (contacts.data || []).map(row => row.lead_id).filter(Boolean) }
 }
 export function permitted(config: Row, lead: Row, testLeadId: string | null) {
   return config.enabled === true && config.dry_run === false

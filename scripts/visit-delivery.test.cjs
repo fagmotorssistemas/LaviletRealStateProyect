@@ -12,6 +12,7 @@ const { selectedVisitOption } = require('../src/lib/integrations/automation/visi
 const { withVisitLocation } = require('../src/lib/integrations/automation/visit-location.ts')
 const { prepareVisit, validateVisit } = require('../src/lib/integrations/automation/visit-rules.ts')
 const { visitOptionsList } = require('../src/lib/inmobiliaria/visitProposalOptions.ts')
+const { formatVisitWhen } = require('../src/lib/inmobiliaria/visitClock.ts')
 const { LAVILET_PROJECT_ID: project_id, LAVILET_TENANT_ID: tenant_id, LAVILET_MESSAGE_ROUTES } = require('../src/lib/integrations/lavilet.ts')
 const scope = { project_id, tenant_id }, now = Date.parse('2026-09-14T17:00:00Z'), sentAt = new Date(now).toISOString()
 const slot = start_time => ({ start_time, end_time: new Date(Date.parse(start_time) + 3600000).toISOString() })
@@ -219,6 +220,6 @@ test('appointment reminders do not repeat the map without an approved reminder l
   const c = context(1)
   c.job.kind = 'visit_2h'
   const prepared = prepareVisit(c)
-  assert.ok(prepared.job.payload.detail.includes('Le recordamos'))
+  assert.equal(prepared.job.payload.detail,'Recordatorio de cita '+formatVisitWhen(c.job.payload.start_time))
   assert.ok(!prepared.job.payload.detail.includes(address)); assert.ok(!prepared.job.payload.detail.includes(map))
 })

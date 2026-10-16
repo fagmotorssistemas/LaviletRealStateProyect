@@ -3,6 +3,7 @@ import { autoConfig,db, object, one, permitted, rpc, scope, text, type Row } fro
 import { automationSettings } from './config';
 import { botStopped, getKommoLead, launchSalesbot, ProviderError, setKommoField, verifyShowroomTemplates } from './kommo';
 import { showroomButtonReply,showroomInvitationBody } from '@/lib/tour/showroomInterest';
+import { audienceAllows } from './audience-boundary';
 export async function processShowroomContacts(config: Row, guard: () => Promise<void>) {
     const stale = await db().from('lv_showroom_contacts').update({ status: 'uncertain', reason: 'interrupted_check_kommo_before_retry' }).match(scope)
         .eq('status', 'processing').lt('attempted_at', new Date(Date.now() - 5 * 60000).toISOString());
@@ -22,6 +23,10 @@ export async function processShowroomContacts(config: Row, guard: () => Promise<
     let approved: Awaited<ReturnType<typeof verifyShowroomTemplates>> | undefined;
     for (const invitation of jobs.data || []) {
         await guard();
+        if (!audienceAllows(config._audience, text(invitation.consent_at), text(invitation.created_at) || undefined)) {
+            await db().from('lv_showroom_contacts').update({status:'cancelled',reason:'before_audience_activation'}).eq('id',invitation.id).eq('status','scheduled');
+            continue;
+        }
         const lead = await one('leads', invitation.lead_id);
         if (!permitted(config, lead, automationSettings().testLeadId))
             continue;
@@ -63,6 +68,10 @@ export async function processShowroomContacts(config: Row, guard: () => Promise<
             // Check consent, handoff and last client activity again after remote reads.
             const fresh = await one('leads', invitation.lead_id);
             const currentConfig=await autoConfig();
+            if (!audienceAllows(currentConfig._audience, text(invitation.consent_at), text(invitation.created_at) || undefined)) {
+                await db().from('lv_showroom_contacts').update({status:'cancelled',reason:'before_audience_activation'}).eq('id',invitation.id);
+                continue;
+            }
             const later = ids.length ? await db().from('messages').select('id').in('conversation_id', ids).in('role', ['cliente', 'asesor']).limit(1) : { data: [], error: null };
             if (later.error)
                 throw Error('SHOWROOM_FINAL_HISTORY_FAILED');
@@ -76,7 +85,7 @@ export async function processShowroomContacts(config: Row, guard: () => Promise<
             if(botStopped(await getKommoLead(kommoId))){await db().from('lv_showroom_contacts').update({status:'cancelled',reason:'kommo_paused'}).eq('id',invitation.id);continue;}
             await guard();
             launching = true;
-            await launchSalesbot(kommoId, kind === 'unit' ? 26428 : 26430);
+            await launchSalesbot(kommoId, kind === 'unit' ? 26428 : 26430, {audience:currentConfig._audience,sourceAt:text(invitation.consent_at),jobCreatedAt:text(invitation.created_at)||undefined});
             const saved = await db().from('lv_showroom_contacts').update({ status: 'accepted', accepted_at: new Date().toISOString(), reason: 'provider_accepted_not_delivery_confirmed' }).eq('id', invitation.id);
             if (saved.error)
                 throw Error('SHOWROOM_RECEIPT_SAVE_FAILED');

@@ -23,7 +23,7 @@ Las pantallas administrativas requieren rol `admin`. El middleware también pued
 | Variable | Uso |
 | --- | --- |
 | `AUTOMATION_MODE` | `off`, `preview` o `live`. |
-| `AUTOMATION_ACTIVATED_AT` | No procesa mensajes anteriores a esta activación. |
+| `AUTOMATION_ACTIVATED_AT` | Filtro adicional de ingreso del webhook; el corte de envíos se conserva también en la política del proyecto. |
 | `AUTOMATION_N8N_DISABLED` | Debe ser `true` para habilitar el ejecutor propio en vivo. |
 | `AUTOMATION_TEST_LEAD_ID` | Limita el servidor a un lead específico. |
 | `AUTOMATION_GLOBAL_MAINTENANCE` | Habilita mantenimiento global y decaimiento cuando no hay modo de prueba. |
@@ -39,7 +39,23 @@ Las pantallas administrativas requieren rol `admin`. El middleware también pued
 - `test_only`;
 - `test_lead_id`.
 
-La restricción del servidor es la autoridad. Aunque las columnas conservan los nombres heredados `test_only` y `test_lead_id`, la configuración productiva actual las utiliza como una lista permitida de un solo lead: Carlos (`0987110032`). El ejecutor está en vivo y sin `dry_run`, pero cualquier otro contacto queda bloqueado y se refleja con `DETENER IA=true` en Kommo. El bloqueo existe aunque esa escritura remota falle.
+La restricción del servidor es la autoridad. `test_only=true` limita la atención a los contactos autorizados para pruebas. Antes de la apertura general se utilizaba esta restricción; la activación general requiere `enabled=true`, `dry_run=false`, `test_only=false` y un corte válido en `projects.policies_json.automation_audience`. Sin ese corte, el ejecutor rechaza la configuración general.
+
+### Apertura a mensajes nuevos, sin retomar campañas anteriores
+
+La política `automation_audience` conserva `version: 1`, `mode: "future_messages"` y `activatedAt` en UTC. La elegibilidad depende del momento original de la consulta, no de la fecha de creación del contacto:
+
+- Un lead nuevo que escribe después del corte puede ser atendido.
+- Un contacto de una campaña anterior que vuelve a escribir después del corte también puede ser atendido.
+- Un mensaje anterior pendiente, un reintento o un seguimiento de una conversación anterior no se envía aunque se reprograme después del corte.
+- Los seguimientos de conversaciones nuevas mantienen sus permisos, horarios y demás condiciones. Las pausas manuales, bajas y traspasos se conservan.
+- Las citas y el showroom comprueban además su propia evidencia de origen. Ver una unidad no se convierte en elección comercial.
+
+El worker filtra cada mensaje del lote. Los emisores vuelven a comprobar el corte antes de lanzar el Salesbot, incluidos recuperación, reintentos, seguimientos, citas y showroom. Un lote con mensajes antiguos y nuevos conserva únicamente los nuevos para su procesamiento.
+
+`scripts/activate-future-inbound.cjs` prepara esta apertura sin enviar mensajes. Sin argumentos solo consulta y muestra el plan. Con `--apply` pausa el ejecutor, guarda el corte sin sobrescribir otras políticas, cancela los trabajos históricos pendientes y habilita la atención general. Conserva el historial y las pausas de cada lead. Una repetición conserva la fecha de corte original.
+
+El comando exige comprobar primero el mismo commit desplegado mediante `GET /api/integrations/automation/audience`, autenticado con el secreto del ejecutor y de solo lectura. También verifica que producción no conserve una restricción de contacto o lead por entorno. Los comprobantes operativos se guardan localmente en `tmp/automation-activation-before.json` y `tmp/automation-activation-receipt.json`; no se versionan. Esta activación utiliza el esquema existente y no añade migraciones SQL.
 
 La pantalla `Reglas y SLA > Seguimiento` lee y guarda los pasos reales en `projects.policies_json`. El detalle del lead consulta los trabajos actuales de `lv_integration_events` y muestra su fecha, estado y motivo. Las tablas históricas `nutrition_steps`, `lead_nutrition` y `nutrition_delivery_history` permanecen intactas para compatibilidad y no se presentan como fuente operativa.
 
@@ -64,6 +80,7 @@ El webhook de la aplicación debe estar suscrito en Kommo a `add_message` y `add
 | --- | --- |
 | `webhook.ts` | Normalizar y validar eventos entrantes. |
 | `worker.ts` | Reclamar eventos, bloquear concurrencia y ejecutar tareas. |
+| `audience-boundary.ts` | Validar el corte de apertura y la fecha original de cada envío. |
 | `conversation.ts` | Orquestar permisos, contexto, rutas, validación y entrega. |
 | `business-scope.ts` | Clasificar alcance inmobiliario. |
 | `conversation-rules.ts` | Normalizar la salida del extractor y validar evidencia. |

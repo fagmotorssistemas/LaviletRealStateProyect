@@ -9,6 +9,7 @@ import { accountBlockedStatus, recordKommoBlock, rejectedWriteStatus } from './d
 import { reserveKommoCall } from './kommo-admission'
 import { kommoConnectionFailure, type KommoFailureDetails } from './kommo-failure'
 import { showroomInvitationBody } from '@/lib/tour/showroomInterest'
+import { assertAudienceAllows, type AutomationSendEvidence } from './audience-boundary'
 
 export class ProviderError extends Error {
   constructor(public status: number, public uncertain: boolean, public operation = 'unknown', public diagnostic: KommoFailureDetails = {}) { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
@@ -85,8 +86,9 @@ export async function setKommoFields(leadId: number, fields: { fieldId: number; 
     custom_fields_values: fields.map(field => ({ field_id: field.fieldId, values: [{ value: field.value }] })),
   })
 }
-export async function launchSalesbot(leadId: number, botId: number) {
+export async function launchSalesbot(leadId: number, botId: number, evidence: AutomationSendEvidence) {
   if (![leadId, botId].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error('INVALID_KOMMO_IDS')
+  assertAudienceAllows(evidence?.audience, evidence?.sourceAt, evidence?.jobCreatedAt)
   // An ambiguous POST is never replayed; an explicit 429 can be retried.
   await request('/api/v4/bots/run', 'POST', [{ bot_id: botId, entity_id: leadId, entity_type: 'leads' }])
 }

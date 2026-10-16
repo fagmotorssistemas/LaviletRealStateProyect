@@ -7,6 +7,7 @@ import { nutritionLeadEligible, nutritionMessage } from './nutrition-context'
 import type { Guard } from './visits'
 import { weekOneMemory } from './nutrition-week-one'
 import { NUTRITION_TASKS } from '@/lib/inmobiliaria/nutritionLater'
+import { audienceAllows } from './audience-boundary'
 
 async function settings() {
   const [project, config] = await Promise.all([
@@ -14,7 +15,8 @@ async function settings() {
     db().from('project_automation_config').select('business_hours').match(scope).maybeSingle(),
   ])
   if (project.error || config.error) throw Error('NUTRITION_SETTINGS_FAILED')
-  return { config: nutrition24hConfig(project.data?.policies_json), hours: config.data?.business_hours }
+  return { config: nutrition24hConfig(project.data?.policies_json), hours: config.data?.business_hours,
+    audience: object(project.data?.policies_json).automation_audience }
 }
 
 export async function cancelNutrition24h(kommoId: number) {
@@ -26,7 +28,7 @@ export async function cancelNutrition24h(kommoId: number) {
 // Called after an actual bot reply is accepted. No backfill of old silent leads,
 // and no nutrition if the lead's question is still awaiting a response.
 export async function scheduleNutrition24h(leadId: string, conversationId: string, externalId: string) {
-  const { config, hours } = await settings()
+  const { config, hours, audience } = await settings()
   if (!nutrition24hReady(config)) return { scheduled: false, reason: 'disabled_or_unapproved' }
   const lead = await one('leads', leadId)
   if (!nutritionLeadEligible(lead)) return { scheduled: false, reason: 'ineligible' }
@@ -36,6 +38,7 @@ export async function scheduleNutrition24h(leadId: string, conversationId: strin
     .eq('role', 'cliente').order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(1)
   if (error) throw Error('NUTRITION_ANCHOR_FAILED')
   const anchor = object(data?.[0]), sentAt = Date.parse(text(anchor.sent_at))
+  if (!audienceAllows(audience, text(anchor.sent_at))) return { scheduled: false, reason: 'before_audience_activation' }
   if (anchor.external_message_id !== externalId || !Number.isFinite(sentAt) || sentAt < Date.parse(config.activatedAt!)) return { scheduled: false, reason: 'old_input' }
   const due = nutritionSendTime(sentAt + 86_400_000, hours)
   if (due === null) return { scheduled: false, reason: 'no_business_hours' }
@@ -50,7 +53,7 @@ export async function scheduleNutrition24h(leadId: string, conversationId: strin
   return { scheduled: true }
 }
 
-async function context(payload: Row) {
+async function context(payload: Row, jobCreatedAt?: string) {
   const lead = await one('leads', text(payload.leadId)), conversation = await one('conversations', text(payload.conversationId))
   if (conversation.lead_id !== lead.id) throw Error('NUTRITION_CONVERSATION_MISMATCH')
   const [messages, visits, inputs, conversations, jobs, auto, config] = await Promise.all([
@@ -65,9 +68,11 @@ async function context(payload: Row) {
   const history = (messages.data || []).reverse() as Row[]
   const lastClient = history.filter(m => m.role === 'cliente').at(-1)
   let reason = ''
-  if (!nutrition24hReady(config.config) || config.config.activatedAt !== payload.activatedAt) reason = 'disabled_or_changed'
+  if (!audienceAllows(auto._audience, text(payload.anchorAt), jobCreatedAt)) reason = 'before_audience_activation'
+  else if (!nutrition24hReady(config.config) || config.config.activatedAt !== payload.activatedAt) reason = 'disabled_or_changed'
   else if (!nutritionLeadEligible(lead) || !permitted(auto, lead, automationSettings().testLeadId)) reason = 'ineligible'
   else if (Number(lead.kommo_id) !== Number(payload.kommoId) || conversations.data?.[0]?.id !== conversation.id || lastClient?.id !== payload.anchorId) reason = 'new_context'
+  else if (Date.parse(text(lastClient?.sent_at)) !== Date.parse(text(payload.anchorAt))) reason = 'anchor_timestamp_mismatch'
   else if (visits.data?.length || jobs.data?.length) reason = 'active_visit'
   else if (inputs.data?.length) reason = 'pending_input'
   else if (history.some(m => m.role === 'asesor' && Date.parse(text(m.sent_at)) >= Date.parse(text(payload.anchorAt)))) reason = 'human_attention'
@@ -75,13 +80,15 @@ async function context(payload: Row) {
   else if (/^(?:no(?: muchas)? gracias|no|por ahora no|no me interesa)[.!\s]*$/i.test(text(lastClient?.content))) reason = 'declined'
   const due = nutritionSendTime(Math.max(Date.now(), Date.parse(text(payload.anchorAt)) + 86_400_000), config.hours)
   if (!due) reason = reason || 'no_business_hours'
-  return { lead, conversation, history, config: config.config, reason, due }
+  return { lead, conversation, history, config: config.config, audience: auto._audience, reason, due }
 }
 
 export async function sendNutrition24h(job: Row, guard: Guard) {
   assertLive(); await guard()
   const payload = object(job.payload)
-  let c = await context(payload)
+  const initial = await autoConfig()
+  if (!audienceAllows(initial._audience, text(payload.anchorAt), text(job.received_at) || undefined)) return { action: 'cancelled', reason: 'before_audience_activation' }
+  let c = await context(payload, text(job.received_at) || undefined)
   if (c.reason) return { action: 'cancelled', reason: c.reason }
   if (Date.now() - Date.parse(text(payload.anchorAt)) > 7 * 86_400_000) return { action: 'cancelled', reason: 'expired' }
   if (c.due! > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due!).toISOString() }
@@ -102,12 +109,12 @@ export async function sendNutrition24h(job: Row, guard: Guard) {
   await guard()
   await setKommoField(Number(payload.kommoId), c.config.fieldId, rendered.topic)
   const route = JSON.stringify(c.config)
-  c = await context(payload)
+  c = await context(payload, text(job.received_at) || undefined)
   if (c.reason || JSON.stringify(c.config) !== route) return { action: 'cancelled', reason: c.reason || 'route_changed' }
   if (c.due! > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due!).toISOString() }
   if (botStopped(await getKommoLead(Number(payload.kommoId)))) return { action: 'cancelled', reason: 'kommo_paused' }
   await guard()
-  await launchSalesbot(Number(payload.kommoId), c.config.botId)
+  await launchSalesbot(Number(payload.kommoId), c.config.botId, { audience: c.audience, sourceAt: text(payload.anchorAt), jobCreatedAt: text(job.received_at) || undefined })
   await rpc('register_outbound_message', { p_conversation_id: payload.conversationId, p_content: rendered.body,
     p_model: 'template:nutrition_24h', p_tool_calls: { provider_status: 'accepted', nutrition_24h: true, source_message_id: payload.anchorId, context: rendered.context } })
   return { action: 'accepted', context: rendered.context, provider_status: 'accepted_not_delivery_confirmed' }

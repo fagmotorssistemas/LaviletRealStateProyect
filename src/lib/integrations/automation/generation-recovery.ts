@@ -10,6 +10,7 @@ import type { Guard } from './visits'
 import { normalized } from './sdr-rules'
 import { generationRecoveryNotice } from './conversation-language'
 import { isRecoveryNotice } from './pending-inbound'
+import { audienceAllows } from './audience-boundary'
 
 export class GenerationRecoveryError extends Error {
   constructor(public original: unknown, public deliveryUncertain: boolean) { super('GENERATION_RECOVERY_FAILED') }
@@ -28,6 +29,8 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     if (Date.now() - Date.parse(last.sentAt) >= 24 * 3_600_000) return { action: 'expired', delivery_status: 'not_sent', requires_review: true, reason: 'REPLY_WINDOW_EXPIRED' }
     await guard()
     let config = await autoConfig()
+    const batchAllowed = (current: Row) => rows.every(row => audienceAllows(current._audience, inboundFromRow(row.payload).sentAt, text(row.received_at) || undefined))
+    if (!batchAllowed(config)) return { action: 'before_audience_activation', delivery_status: 'not_sent' }
     const settings = automationSettings()
     if (config.enabled !== true || config.dry_run !== false) return { action: 'disabled' }
     const remote = await getKommoLead(last.kommoId)
@@ -124,6 +127,8 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     async function canRespond() {
       await guard()
       const currentLead = await one('leads', text(lead.id)), currentConfig = await autoConfig()
+      if (!batchAllowed(currentConfig)) return false
+      config = currentConfig
       if (!permitted(currentConfig, currentLead, settings.testLeadId) || currentLead.tracking_opt_out_at
         || currentLead.bot_enabled !== true || Date.now() - Date.parse(last!.sentAt) >= 24 * 3_600_000) return false
       const kommo = await getKommoLead(last!.kommoId)
@@ -169,7 +174,8 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
     await setKommoField(last.kommoId, 457014, notice)
     if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
     sendStarted = true
-    await launchSalesbot(last.kommoId, 15578)
+    await launchSalesbot(last.kommoId, 15578, { audience: config._audience, sourceAt: events[0].sentAt,
+      jobCreatedAt: rows.map(row => text(row.received_at)).filter(Boolean).sort()[0] })
     await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: notice, p_model: reviewFailure ? 'system:review-recovery' : 'system:generation-recovery',
       p_tool_calls: { source_message_id: last.externalId, provider_status: 'accepted', writer_greeting: '', source: reviewFailure ? 'review_recovery' : 'generation_recovery', ...recoveryDetail } })
     return { action: 'advisor_recovery', delivery_status: 'accepted', ...recoveryDetail, requires_review: false }
