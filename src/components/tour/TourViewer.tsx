@@ -3744,7 +3744,6 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     >
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={showUnitChrome && !viewingCommonArea ? selectedUnit : null} root={rootRef}
-        hidden={constructionOpen}
         hideWebReturn={planEntryOpen}
         onFavorites={() => {setAmenitiesOpen(false);setConstructionOpen(false);setLocationFromMenu(false);setFavoritesOpen(true)}}
         place={favoritesOpen ? 'favorites' : constructionOpen ? 'progress' : (amenitiesOpen || viewingCommonArea) ? 'amenities' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : null}

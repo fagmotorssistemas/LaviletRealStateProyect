@@ -228,7 +228,7 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
       {onClose ? (
         <button type="button" aria-label={t('Cerrar')} onClick={onClose} onPointerDown={event => event.stopPropagation()}
           className="absolute z-10 grid h-10 w-10 place-items-center rounded-full border border-[#bda27e]/50 bg-[#f7f3ee] text-[#8e7654] hover:bg-[#eae3d8] focus-visible:outline-2 focus-visible:outline-[#8e7654]"
-          style={{ top: 'max(1rem, env(safe-area-inset-top))', right: 'max(1rem, env(safe-area-inset-right))' }}>
+          style={{ top: 'max(5.5rem, calc(env(safe-area-inset-top) + 5rem))', right: 'max(1rem, env(safe-area-inset-right))' }}>
           <X size={20} />
         </button>
       ) : null}

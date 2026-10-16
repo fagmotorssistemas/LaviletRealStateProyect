@@ -18,7 +18,7 @@ async function main() {
   fs.writeFileSync(entry, `import React,{useRef,useState} from 'react';import {createRoot} from 'react-dom/client';
     ${components.map(name => `import {${name}} from '${path.join(root, 'src/components/tour', name).replace(/\\/g, '/')}';`).join('\n')}
     function App(){const root=useRef(null),[open,setOpen]=useState(false),[photo,setPhoto]=useState(null);return <div ref={root} className="tour-root" style={{position:'fixed',inset:0}}><p>Recorrido</p>
-      <ShowroomMenu root={root} units={[]} catalog={{typologies:[]}} selected={null} hidden={open} onPick={()=>{}} onTour={()=>{}} onHome={()=>{}} onClosePanels={()=>{}} onConstructionProgress={()=>{setOpen(true);setPhoto(null)}}/>
+      <ShowroomMenu root={root} units={[]} catalog={{typologies:[]}} selected={null} place={open?'progress':null} onPick={()=>{}} onTour={()=>{}} onHome={()=>{}} onClosePanels={()=>{}} onConstructionProgress={()=>{setOpen(true);setPhoto(null)}}/>
       <TourConstructionBoard open={open&&photo===null} onClose={()=>setOpen(false)} onOpenPhoto={setPhoto}/>
       <TourAmenitiesGallery key={photo??'construction'} open={open&&photo!==null} source="construction" initialIndex={photo??0} onClose={()=>setPhoto(null)}/>
     </div>}createRoot(document.getElementById('root')).render(<App/>);`)
@@ -34,15 +34,15 @@ async function main() {
   const image = n => ({ type: 'image', url: `/photo-${n}.svg`, caption: `Foto ${n}` })
   const video = n => ({ type: 'video', url: `/video-${n}.mp4`, caption: `Video ${n}` })
   const updates = [
-    { id: 'oct', date: '2026-10-14', title: '', description: '', media: [image(0), video(0), image(1), image(2), image(3)] },
-    { id: 'sep', date: '2026-09-01', title: '', description: '', media: [video(1), image(4), image(5)] },
+    { id: 'oct', date: '2026-10-14', title: '', description: 'Estructura del segundo piso terminada.', media: [image(0), video(0), image(1), image(2), image(3)] },
+    { id: 'sep', date: '2026-09-01', title: '', description: 'Inicio de la cimentación.', media: [video(1), image(4), image(5)] },
   ]
   const server = http.createServer((req, res) => {
     if (req.url === '/api/tour/construction-updates') {
       res.setHeader('Content-Type', 'application/json')
-      return setTimeout(() => { res.statusCode = mode === 'error' ? 500 : 200; res.end(JSON.stringify({ items: mode === 'empty' ? [] : mode === 'video' ? [{ ...updates[0], media: [video(0)] }] : updates })) }, 200)
+      return setTimeout(() => { res.statusCode = mode === 'error' ? 500 : 200; res.end(JSON.stringify({ items: mode === 'empty' ? [] : mode === 'video' ? [{ ...updates[0], media: [video(0)] }] : mode === 'two' || mode === 'twelve' ? [{ ...updates[0], media: Array.from({ length: mode === 'two' ? 2 : 12 }, (_, i) => image(i)) }] : updates })) }, 200)
     }
-    const photo = /^\/photo-(\d)\.svg$/.exec(req.url)
+    const photo = /^\/photo-(\d+)\.svg$/.exec(req.url)
     if (photo) {
       res.setHeader('Content-Type', 'image/svg+xml')
       return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="#8e7654"/><text x="200" y="400" font-size="200">Foto ${photo[1]}</text></svg>`)
@@ -54,7 +54,7 @@ async function main() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const browser = await chromium.launch()
   try {
-    for (const width of [390, 800, 1440]) {
+    for (const width of [360, 390, 800, 1100, 1440]) {
       const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce', hasTouch: width < 1000 })
       const errors = []; page.on('pageerror', error => errors.push(error.message))
       await page.route('**/*', route => route.request().url().startsWith('http://127.0.0.1:') ? route.continue() : route.abort())
@@ -72,10 +72,38 @@ async function main() {
       assert.equal(await board.locator('button time').first().textContent(), 'octubre 2026')
       assert.equal(await board.locator('button time[datetime="2026-09-01"]').count(), 2)
       assert.equal(await board.locator('video[controls][preload="metadata"]').count(), 2)
-      const grid = board.locator('div.grid').last()
-      assert.equal(await grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length), width < 640 ? 1 : width < 1024 ? 2 : 3)
+      const grid = board.locator('[data-construction-grid]')
+      assert.equal(await grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length), width < 640 ? 1 : width < 1280 ? 2 : 3)
+      const toolbar = page.getByRole('toolbar', { name: 'Controles del showroom' })
+      await toolbar.waitFor()
+      assert.equal(await toolbar.getByRole('link', { name: 'Volver a la página web' }).getAttribute('href'), '/inicio')
+      assert.ok(await toolbar.getByRole('link', { name: 'Volver a la página web' }).evaluate(el => {
+        const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
+      }), 'Inicio remains clickable above the board')
+      if (width === 1440) {
+        await toolbar.getByRole('button', { name: 'Pantalla completa', exact: true }).click()
+        await page.waitForFunction(() => Boolean(document.fullscreenElement))
+        await toolbar.getByRole('button', { name: 'Salir de pantalla completa', exact: true }).click()
+        await page.waitForFunction(() => !document.fullscreenElement)
+      }
+      assert.ok((await board.locator('h2').boundingBox()).y >= (await toolbar.boundingBox()).height)
+      const closeBox = await board.getByRole('button', { name: 'Cerrar', exact: true }).boundingBox()
+      assert.equal(closeBox.width, 40); assert.equal(closeBox.height, 40)
+      const titleBox = await board.locator('h2').boundingBox()
+      assert.ok(titleBox.y >= closeBox.y + closeBox.height, 'title does not collide with close')
+      if (width >= 1024) {
+        assert.ok(titleBox.x + titleBox.width < (await grid.boundingBox()).x, 'summary is beside the photo grid')
+      }
+      await page.getByRole('button', { name: 'Abrir menú del showroom' }).click()
+      const menu = page.getByRole('dialog', { name: 'Menú La Vilet', exact: true })
+      assert.equal(await menu.getByRole('button', { name: 'Avance de obra', exact: true }).getAttribute('aria-current'), 'page')
+      await menu.getByRole('button', { name: 'Cerrar menú', exact: true }).click()
+      await board.locator('img').nth(5).waitFor()
       assert.ok(await board.evaluate(el => el.scrollWidth <= el.clientWidth), 'no horizontal scrolling')
-      assert.deepEqual(await grid.evaluate(el => [...el.children].map(child => child.tagName)), ['BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'DIV', 'DIV'])
+      assert.equal(await grid.locator('article:has(img)').count(), 6)
+      assert.equal(await grid.locator('article:has(video)').count(), 2)
+      assert.equal(await grid.locator('article').first().getByText('Estructura del segundo piso terminada.', { exact: true }).count(), 1)
+      assert.equal(await grid.locator('article:has(img)').nth(4).getByText('Inicio de la cimentación.', { exact: true }).count(), 1)
       await page.screenshot({ path: path.join(dir, `board-${width}.png`) })
       for (const index of [5, 0, 3]) {
         await board.locator('button:has(img)').nth(index).click()
@@ -92,6 +120,25 @@ async function main() {
         await close(); await board.locator('img').nth(5).waitFor()
       }
       await close(); await board.waitFor({ state: 'hidden' }); assert.equal(await page.locator('img.opacity-100').count(), 0)
+      await page.getByRole('button', { name: 'Abrir menú del showroom' }).click()
+      assert.equal(await menu.getByRole('button', { name: 'Avance de obra', exact: true }).getAttribute('aria-current'), null)
+      await menu.getByRole('button', { name: 'Cerrar menú', exact: true }).click()
+      for (const [testMode, count] of [['two', 2], ['twelve', 12]]) {
+        mode = testMode; await openBoard()
+        await page.waitForFunction(count => document.querySelectorAll('[role="dialog"][aria-label="Avance de obra"] img').length === count, count)
+        await board.locator('img').nth(count - 1).waitFor()
+        assert.equal(await board.locator('img').count(), count)
+        const geometry = await board.locator('button:has(img)').evaluateAll(cards => cards.map(card => { const r = card.getBoundingClientRect(); return { width: r.width, height: r.height } }))
+        assert.ok(geometry.every(r => Math.abs(r.width / r.height - 4 / 3) < .01), 'all cards preserve 4:3')
+        assert.ok(await board.evaluate(el => el.scrollWidth <= el.clientWidth), 'no horizontal scrolling')
+        await page.screenshot({ path: path.join(dir, `board-${count}-photos-${width}.png`) })
+        if (count === 12) {
+          await board.evaluate(el => { el.scrollTop = 600 })
+          const stickyClose = await board.getByRole('button', { name: 'Cerrar', exact: true }).boundingBox()
+          assert.ok(stickyClose.y >= (await toolbar.boundingBox()).height && stickyClose.y + stickyClose.height <= 900, 'close stays below toolbar while scrolling')
+        }
+        await close()
+      }
       for (const [testMode, message] of [['empty', 'Aún no hay fotos del avance de obra.'], ['error', 'No se pudo cargar el avance de obra.']]) {
         mode = testMode; await openBoard(); await board.getByText(message, { exact: true }).waitFor(); assert.equal(await board.locator('img').count(), 0); await close()
       }
