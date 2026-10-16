@@ -8,3 +8,8 @@
     transform: translateY(var(--hero-nav-y, -10px)) !important;
   }
 }
+
+/* Keep the server-rendered header offscreen on mouse devices before hydration. */
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  .peek { --nav-initial-y: -110%; }
+}

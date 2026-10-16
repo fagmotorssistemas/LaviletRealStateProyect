@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
@@ -38,6 +38,50 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false)
   const [hasPhone, setHasPhone] = useState(false)
   const [navHidden, setNavHidden] = useState(false)
+  const [peek, setPeek] = useState(false)
+  const [peekMode, setPeekMode] = useState(false)
+  const headerRef = useRef<HTMLElement>(null)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pointerInside = useRef(false)
+  const cancelHide = useCallback(() => {
+    if (hideTimer.current !== null) clearTimeout(hideTimer.current)
+    hideTimer.current = null
+  }, [])
+  const showPeek = useCallback(() => {
+    cancelHide()
+    setPeek(true)
+  }, [cancelHide])
+  const hidePeek = useCallback(() => {
+    cancelHide()
+    hideTimer.current = setTimeout(() => {
+      hideTimer.current = null
+      if (!headerRef.current?.contains(document.activeElement) && !pointerInside.current) setPeek(false)
+    }, 350)
+  }, [cancelHide])
+
+  useLayoutEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)')
+    const sync = () => {
+      cancelHide()
+      pointerInside.current = false
+      setPeekMode(media.matches)
+      setPeek(false)
+    }
+    const onMove = (event: MouseEvent) => {
+      if (!media.matches) return
+      if (event.clientY <= 24) showPeek()
+      else if (!pointerInside.current && !headerRef.current?.contains(document.activeElement) && hideTimer.current === null) hidePeek()
+    }
+    sync()
+    media.addEventListener('change', sync)
+    window.addEventListener('mousemove', onMove, { passive: true })
+    return () => {
+      media.removeEventListener('change', sync)
+      window.removeEventListener('mousemove', onMove)
+      cancelHide()
+    }
+  }, [cancelHide, hidePeek, showPeek])
+
   const lastScrollY = useRef(0)
   const headerReady = !waitsForHero || heroLocked || open || pastHero || editorial
   const overHero = waitsForHero && !heroLocked && !scrolled && !open && !editorial
@@ -121,17 +165,29 @@ export function SiteHeader() {
 
   return (
     <motion.header
+      ref={headerRef}
+      data-nav-peek={peekMode && peek ? 'true' : 'false'}
+      onMouseEnter={() => { if (peekMode) { pointerInside.current = true; showPeek() } }}
+      onMouseLeave={() => { if (peekMode) { pointerInside.current = false; hidePeek() } }}
+      onFocusCapture={() => { if (peekMode) showPeek() }}
+      onBlurCapture={(event) => {
+        if (peekMode && !event.currentTarget.contains(event.relatedTarget)) {
+          cancelHide()
+          setPeek(false)
+        }
+      }}
       data-site-header
       data-hero-visible={pathname === '/inicio' ? 'true' : undefined}
       data-hero-top={publicBrand && heroHeader ? '' : undefined}
-      initial={reduceMotion || waitsForHero ? false : { y: -16, opacity: 0 }}
+      initial={reduceMotion || waitsForHero ? { y: 'var(--nav-initial-y, 0px)' } : { y: 'var(--nav-initial-y, -16px)', opacity: 0 }}
       animate={
-        !headerReady ? { y: -16, opacity: 0 } : navHidden ? { y: '-110%', opacity: 1 } : { y: 0, opacity: 1 }
+        peekMode ? { y: peek ? 0 : '-110%', opacity: 1 } : !headerReady ? { y: -16, opacity: 0 } : navHidden ? { y: '-110%', opacity: 1 } : { y: 0, opacity: 1 }
       }
       transition={{ duration: reduceMotion ? 0.2 : 0.45, ease }}
-      aria-hidden={!headerReady || navHidden}
-      inert={!headerReady || navHidden ? true : undefined}
+      aria-hidden={peekMode ? undefined : !headerReady || navHidden}
+      inert={!peekMode && (!headerReady || navHidden) ? true : undefined}
       className={cn(
+        heroNavbar.peek,
         pathname === '/inicio' && heroNavbar.home,
         'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-500',
         solid
@@ -139,7 +195,7 @@ export function SiteHeader() {
             ? 'border-b border-transparent'
             : 'border-b border-[#72735A]/12 bg-[#F2F2F2]/90 backdrop-blur-md mkt-dark:border-white/10 mkt-dark:bg-[#16141c]/75 mkt-3:border-transparent mkt-3:!bg-transparent mkt-3:!backdrop-blur-none'
           : 'border-b border-transparent bg-transparent',
-        (!headerReady || navHidden) && 'pointer-events-none',
+        (peekMode ? !peek : !headerReady || navHidden) && 'pointer-events-none',
       )}
     >
       <div
