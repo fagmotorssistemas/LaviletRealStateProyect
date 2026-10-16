@@ -6,7 +6,7 @@ import { financingJourney, financingStage, rememberedFinancingPartner } from './
 import { financingAmounts } from './financing-amounts'
 import { financingEntryState, rememberFinancingEntry, FINANCING_ENTRY_QUESTION, financingEntryQuestion,
   deliveredFinancingEntryReference, confirmedFinancingEntryReference, resolveFinancingEntryReference } from './financing-entry'
-import { operationalFinancingInvitation } from './financing-invitation'
+import { financingInvitationReceipt, operationalFinancingInvitation } from './financing-invitation'
 import { budgetQuestionBasis } from './budget-question-context'
 import { commercialJourneyPlan } from './commercial-journey'
 import profileFixture from './fixtures/extractor-profile-turn.json'
@@ -15,6 +15,9 @@ import { interpretConversationTurn, rememberInterpretedTurn } from './turn-inter
 const partners = ['Banco Pichincha', 'Cooperativa JEP']
 const context = { partners, current: {} }
 const invitation = 'Podemos ayudarle a analizar el financiamiento. ¿Desea que continuemos con el proceso de financiamiento por este chat?'
+const invitationStep = { kind: 'financing_consent', reply: invitation, invitation: financingInvitationReceipt({
+  text: invitation, purpose: 'permission_to_continue', continuation_id: 'financing_invitation', continuation_act: 'financing',
+}) }
 const total = { amount: 400000, evidence: 'Tengo un presupuesto total de 400 mil' }
 const unit = { id: 'p602', category: 'penthouse', unit_number: '602', bedrooms: 3, floor_number: 6,
   is_published: true, status: 'disponible', published_commercial_price: 550000 }
@@ -32,14 +35,15 @@ function info(journey: Row = { accepted: true }): Row {
       status: 'maximum_total', ...total, confidence: 'high' } }, semantica_turno: { budget: { status: 'not_discussed' } } }
 }
 
-test('a delivered process invitation stays actionable despite a demonstration review label', () => {
-  assert.equal(financingInputs({}, 'si me parece bien', invitation, context,
-    { kind: 'unverified_offer', reply: invitation }).consent, true)
+test('a delivered process invitation with a writer receipt stays actionable without a reviewer decision', () => {
+  assert.equal(financingInputs({ turn_semantics: { answer_to_previous: { question_id: 'financing_invitation',
+    kind: 'affirmative', evidence: 'si me parece bien', confidence: 'high' } } }, 'si me parece bien', invitation, context,
+    invitationStep).consent, true)
   const current = 'SI CONTINUEMOS CON JEP'
   const extracted = { financing_consent: null, financing_partner_choice: { kind: 'select', name: 'Cooperativa JEP',
-    evidence: current, confidence: 'high' }, turn_semantics: { primary_intent: 'other', confidence: 'high',
-    answer_to_previous: { question_id: 'none', kind: 'none', evidence: '', confidence: 'high' } } }
-  const input = financingInputs(extracted, current, invitation, context, { kind: 'unverified_offer', reply: invitation })
+    evidence: current, confidence: 'high' }, turn_semantics: { primary_intent: 'answer_previous', confidence: 'high',
+    answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: current, confidence: 'high' } } }
+  const input = financingInputs(extracted, current, invitation, context, invitationStep)
   assert.equal(input.consent, true)
   assert.equal(input.partner, 'Cooperativa JEP')
   const journey = financingJourney({}, input, 'accepted-jep')

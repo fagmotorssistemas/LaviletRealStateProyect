@@ -67,7 +67,7 @@ for (const mode of ['blocking', 'observation', 'disabled']) {
           request_type: 'general_information', status: 'answered', evidence: presentation, fact_key: null })) }
       reviews++
       assert.equal(object(input).borrador, draft)
-      return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: null }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     }))
     assert.equal(result.reply, draft)
     assert.equal(result.needsAdvisor, false)
@@ -83,7 +83,8 @@ test('high warmth gives positive instructions and the reviewer receives no tone 
   const settings = { style: 'cercano' as const, warmth: 2, detail: 2 }
   const directions = toneDirection(settings)
   assert.match(directions, /lenguaje cotidiano/)
-  assert.match(directions, /acompañe el saludo con una apertura amable/)
+  assert.match(directions, /únicamente cuando contrato_redaccion\.saludo\.requerido=true/)
+  assert.match(directions, /primera consulta de información después de una bienvenida ya enviada es una continuación/)
   assert.match(directions, /conecte naturalmente la respuesta con el siguiente paso/)
   assert.match(directions, /sin imponerla en todos los mensajes/)
   assert.doesNotMatch(directions, /Los criterios de revisión deben aceptar/)

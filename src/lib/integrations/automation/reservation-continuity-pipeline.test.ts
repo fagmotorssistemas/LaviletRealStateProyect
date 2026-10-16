@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -53,10 +54,11 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
         audit: { semantic_review_enabled: true, business_risk_review_enabled: true, commercial_journey: next } },
       async (_rules, context, _schema, _image, _file, _tone, task) => {
         calls.push(task!)
-        if (task === 'writing') return { reply: invitation, question: incorrectQuestion,
+        if (task === 'writing') return writerFixture({ reply: invitation,
+          question: { ...incorrectQuestion, purpose: 'permission_to_continue', continuation_act: 'reservation' },
           requests: (object(context).referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id,
-            intent: 'Continuar con la unidad elegida', request_type: 'general_information', status: 'answered', evidence: invitation, fact_key: null })) }
-        return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: correctedQuestion }
+            intent: 'Continuar con la unidad elegida', request_type: 'general_information', status: 'answered', evidence: invitation, fact_key: null })) })
+        return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       }))
     assert.equal(result.needsAdvisor, false)
     assert.equal(object(result.audit.follow_up).usable, true)
@@ -125,7 +127,8 @@ test('a yes to unit details or selection never initiates reservation, and an inv
     const semantics = normalizeTurnSemantics(answerRaw(current, pending.id), current, pending)
     assert.equal(object(semantics.reservation).kind, 'none')
   }
-  const pending = { id: 'reservation_invitation', act: 'reservation', question: invitation, target_ids: ['u502'] }
+  const pending = deliveredPendingQuestion(invitation, { plan: commercialJourneyPlan(info()),
+    metadata: { ...correctedQuestion, text: invitation } }, [unit])
   const semantics = normalizeTurnSemantics(answerRaw(current), current, pending)
   const intent = resolveTurnIntent({ current, semantics, requests: [], pendingQuestion: pending,
     scope: { kind: 'property', uncertain: false } })

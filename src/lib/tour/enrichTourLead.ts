@@ -136,7 +136,6 @@ export async function enrichTourLeadAfterIdentify(
         ).data?.unit_type_id
       : null) ||
     (await resolveUnitTypeId(admin, args.typologyCode))
-  let bedrooms: number | null = null
   let typologyCode = first(args.typologyCode)
 
   if (unitTypeId) {
@@ -146,7 +145,6 @@ export async function enrichTourLeadAfterIdentify(
       .eq('id', unitTypeId)
       .maybeSingle()
     if (type) {
-      bedrooms = type.bedrooms ?? null
       typologyCode = typologyCode || first(type.name)
     }
   }
@@ -183,11 +181,9 @@ export async function enrichTourLeadAfterIdentify(
   else patch.source = normalizeSource(String(lead.source))
   if (!lead?.channel_origin) patch.channel_origin = 'web'
   if (!lead?.resume || AUTO_RESUME_RE.test(String(lead.resume))) patch.resume = resume
-  if (!lead?.preferred_category) {
-    if (bedrooms && bedrooms >= 2) patch.preferred_category = 'departamento'
-    else if (typologyCode) patch.preferred_category = 'suite'
-  }
-  if (lead?.preferred_bedrooms == null && bedrooms != null) patch.preferred_bedrooms = bedrooms
+  // Browsing identifies what was observed, not a declared purchase preference.
+  // Keep the unit/typology in showroom signals without rewriting category or
+  // bedroom requirements gathered from the conversation or the advisor.
   if (!lead?.city && (session?.city || first(args.city))) patch.city = session?.city || first(args.city)
   if (!lead?.country && (session?.country || first(args.country))) {
     patch.country = session?.country || first(args.country)
@@ -224,20 +220,9 @@ export async function enrichTourLeadAfterIdentify(
   const { error: leadError } = await admin.from('leads').update(patch).eq('id', args.leadId)
   if (leadError) throw new Error(`enrich_lead: ${leadError.message}`)
 
-  if (unitId) {
-    const { error: linkError } = await admin.from('lead_units').upsert(
-      {
-        lead_id: args.leadId,
-        unit_id: unitId,
-        priority: 0,
-        source: 'web',
-        interest_level: 'consulto',
-        updated_at: now,
-      },
-      { onConflict: 'lead_id,unit_id' },
-    )
-    if (linkError) throw new Error(`enrich_lead_units: ${linkError.message}`)
-  }
+  // An explicit showroom request links lead_units in its own request RPC.
+  // Identification alone keeps only observation context and cannot create or
+  // downgrade a declared unit relationship.
 
   if (session?.id) {
     const { data: visitor } = await admin

@@ -5,9 +5,10 @@ import { botStopped, getKommoLead, launchSalesbot, setKommoField, verifyNutritio
 import { nutrition24hConfig, nutrition24hReady, nutritionSendTime } from '@/lib/inmobiliaria/nutrition24h'
 import { nutritionLeadEligible, nutritionMessage } from './nutrition-context'
 import type { Guard } from './visits'
-import { weekOneMemory } from './nutrition-week-one'
+import { nutritionNurtureState, weekOneMemory } from './nutrition-week-one'
 import { NUTRITION_TASKS } from '@/lib/inmobiliaria/nutritionLater'
 import { audienceAllows } from './audience-boundary'
+import { nutritionAnchorTime } from './nutrition-intent'
 
 async function settings() {
   const [project, config] = await Promise.all([
@@ -40,7 +41,9 @@ export async function scheduleNutrition24h(leadId: string, conversationId: strin
   const anchor = object(data?.[0]), sentAt = Date.parse(text(anchor.sent_at))
   if (!audienceAllows(audience, text(anchor.sent_at))) return { scheduled: false, reason: 'before_audience_activation' }
   if (anchor.external_message_id !== externalId || !Number.isFinite(sentAt) || sentAt < Date.parse(config.activatedAt!)) return { scheduled: false, reason: 'old_input' }
-  const due = nutritionSendTime(sentAt + 86_400_000, hours)
+  const nurture = await nutritionNurtureState(lead, conversation)
+  if (nurture.reason) return { scheduled: false, reason: nurture.reason }
+  const due = nutritionSendTime(nutritionAnchorTime(sentAt, nurture.resumeAt, 0), hours)
   if (due === null) return { scheduled: false, reason: 'no_business_hours' }
   const { error: writeError } = await db().from('lv_integration_events').upsert({ ...scope,
     event_key: `nutrition24h:${conversationId}:${text(anchor.id)}`, kind: 'maintenance',
@@ -56,6 +59,7 @@ export async function scheduleNutrition24h(leadId: string, conversationId: strin
 async function context(payload: Row, jobCreatedAt?: string) {
   const lead = await one('leads', text(payload.leadId)), conversation = await one('conversations', text(payload.conversationId))
   if (conversation.lead_id !== lead.id) throw Error('NUTRITION_CONVERSATION_MISMATCH')
+  const nurture = await nutritionNurtureState(lead, conversation)
   const [messages, visits, inputs, conversations, jobs, auto, config] = await Promise.all([
     db().from('messages').select('id,role,content,sent_at,tool_calls,model_used').eq('conversation_id', conversation.id).order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(40),
     db().from('appointments').select('id').match(scope).eq('lead_id', lead.id).not('status', 'in', '(cancelado,atendido)').or(`start_time.is.null,start_time.gt.${new Date().toISOString()}`).limit(1),
@@ -69,6 +73,7 @@ async function context(payload: Row, jobCreatedAt?: string) {
   const lastClient = history.filter(m => m.role === 'cliente').at(-1)
   let reason = ''
   if (!audienceAllows(auto._audience, text(payload.anchorAt), jobCreatedAt)) reason = 'before_audience_activation'
+  else if (nurture.reason) reason = nurture.reason
   else if (!nutrition24hReady(config.config) || config.config.activatedAt !== payload.activatedAt) reason = 'disabled_or_changed'
   else if (!nutritionLeadEligible(lead) || !permitted(auto, lead, automationSettings().testLeadId)) reason = 'ineligible'
   else if (Number(lead.kommo_id) !== Number(payload.kommoId) || conversations.data?.[0]?.id !== conversation.id || lastClient?.id !== payload.anchorId) reason = 'new_context'
@@ -77,10 +82,9 @@ async function context(payload: Row, jobCreatedAt?: string) {
   else if (inputs.data?.length) reason = 'pending_input'
   else if (history.some(m => m.role === 'asesor' && Date.parse(text(m.sent_at)) >= Date.parse(text(payload.anchorAt)))) reason = 'human_attention'
   else if (history.at(-1)?.role !== 'bot') reason = 'unanswered_input'
-  else if (/^(?:no(?: muchas)? gracias|no|por ahora no|no me interesa)[.!\s]*$/i.test(text(lastClient?.content))) reason = 'declined'
-  const due = nutritionSendTime(Math.max(Date.now(), Date.parse(text(payload.anchorAt)) + 86_400_000), config.hours)
+  const due = nutritionSendTime(Math.max(Date.now(), nutritionAnchorTime(Date.parse(text(payload.anchorAt)), nurture.resumeAt, 0)), config.hours)
   if (!due) reason = reason || 'no_business_hours'
-  return { lead, conversation, history, config: config.config, audience: auto._audience, reason, due }
+  return { lead, conversation, history, config: config.config, audience: auto._audience, reason, due, resumeAt: nurture.resumeAt }
 }
 
 export async function sendNutrition24h(job: Row, guard: Guard) {
@@ -90,7 +94,7 @@ export async function sendNutrition24h(job: Row, guard: Guard) {
   if (!audienceAllows(initial._audience, text(payload.anchorAt), text(job.received_at) || undefined)) return { action: 'cancelled', reason: 'before_audience_activation' }
   let c = await context(payload, text(job.received_at) || undefined)
   if (c.reason) return { action: 'cancelled', reason: c.reason }
-  if (Date.now() - Date.parse(text(payload.anchorAt)) > 7 * 86_400_000) return { action: 'cancelled', reason: 'expired' }
+  if (Date.now() - Math.max(Date.parse(text(payload.anchorAt)), c.resumeAt || 0) > 7 * 86_400_000) return { action: 'cancelled', reason: 'expired' }
   if (c.due! > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due!).toISOString() }
   // An ambiguous previous attempt is never resent. Cap this touch to once a week
   // even when the client resumes and then goes silent again the following day.

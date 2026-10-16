@@ -31,7 +31,7 @@ export default function LeadsPage() {
   const { advisors, tenantId, reload: reloadLegacy } = useLeads()
   const {
     view, changeView, filters, updateFilter, resetFilters, page, setPage,
-    setColumnPage, data, isLoading, error, reload,
+    setColumnPage, data, isLoading, isRefreshing, error, refreshError, reload,
   } = useLeadPipeline(!authLoading && Boolean(user))
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -120,7 +120,7 @@ export default function LeadsPage() {
           ))}
         </div>
         <div className="flex items-center gap-3">
-          <p className="text-xs text-[#6e716b]" aria-live="polite">{isLoading ? 'Actualizando leads…' : `${total} ${total === 1 ? 'lead' : 'leads'}`}</p>
+          <p className="text-xs text-[#6e716b]" aria-live="polite">{isLoading ? 'Cargando leads…' : `${total} ${total === 1 ? 'lead' : 'leads'}${isRefreshing ? ' · Actualizando datos…' : ''}`}</p>
           <Button variant="outline" size="sm" aria-expanded={advancedFiltersOpen} onClick={() => setAdvancedFiltersOpen((open) => !open)}>
             <SlidersHorizontal size={14} className="mr-2" />{advancedFiltersOpen ? 'Menos filtros' : 'Más filtros'}
           </Button>
@@ -157,6 +157,7 @@ export default function LeadsPage() {
       </InmobiliariaFiltersToolbar>
 
       <LeadPipelineWarnings warnings={data?.warnings} issues={data?.issues} onRetry={reload} loading={isLoading} />
+      {refreshError && data && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">No se pudieron actualizar los datos. Se conserva la última información cargada. <button type="button" onClick={reload} className="underline">Reintentar</button></p>}
 
       {error ? (
         <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">

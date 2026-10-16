@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
@@ -44,7 +45,8 @@ function fixture(current: string, topics: string[], compact = false): Row {
 }
 
 type Mode = 'normal' | 'demonstration' | 'disabled'
-async function run(current: string, reply: string, verified: Row, mode: Mode = 'normal', extra: Row = {}, facts: Row[] = [], history = historical) {
+async function run(current: string, reply: string, verified: Row, mode: Mode = 'normal', extra: Row = {}, _facts: Row[] = [], history = historical) {
+  void _facts // Historical arithmetic fixtures remain inputs; the reviewer no longer emits numeric inventories.
   const calls: string[] = [], writerContexts: Row[] = [], reviewerContexts: Row[] = [], writerRules: string[] = []
   const original = structuredClone(verified)
   const result = await withResponseReviewPolicy({ enabled: mode !== 'disabled', observationOnly: mode === 'demonstration', updatedAt: null },
@@ -57,13 +59,12 @@ async function run(current: string, reply: string, verified: Row, mode: Mode = '
       if (task === 'writing') {
         writerContexts.push(context); writerRules.push(String(rules))
         const refs = Array.isArray(context.referencias_solicitud) ? context.referencias_solicitud as Row[] : []
-        return { reply, question: verified.siguiente_paso_comercial ? bankMetadata : null,
+        return writerFixture({ reply, question: verified.siguiente_paso_comercial ? bankMetadata : null,
           requests: refs.map(ref => ({ fragment: ref.id, intent: 'Solicitud actual', request_type: 'specific_fact',
-            status: 'answered', evidence: reply, fact_key: null })) }
+            status: 'answered', evidence: reply, fact_key: null })) })
       }
       reviewerContexts.push(context)
-      return { review_contract: 'business-risk-v2', verdict: 'pass', facts, findings: [],
-        question: verified.siguiente_paso_comercial ? { ...bankMetadata, offered_action: 'none' } : null }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     }))
   assert.deepEqual(verified, original, 'Writer projection must not change the verification snapshot or declared choices')
   assert.equal(result.reply, reply, JSON.stringify(result.audit))
@@ -207,7 +208,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('conte
   const validReply = 'Continuamos con la opción elegida. '+bankQuestion
   const unwantedStatement = 'El penthouse 602 cuesta USD 550000'
   const badReply = unwantedStatement+'. Estos son los precios referenciales vigentes y pueden cambiar. '+validReply
-  let drafts = 0, reviews = 0
+  let drafts = 0
   const result = await withResponseReviewPolicy({ enabled: mode !== 'disabled', observationOnly: mode === 'demonstration', updatedAt: null },
     () => completeTurnReply({ current, baseReply: validReply, verified, history: historical,
       audit: { source: 'property_details', semantic_review_enabled: true, business_risk_review_enabled: true,
@@ -218,18 +219,12 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) test('conte
       if (task === 'writing') {
         contexts.push(context)
         const refs = context.referencias_solicitud as Row[]
-        return { reply: ++drafts === 1 ? badReply : validReply, question: bankMetadata,
+        return writerFixture({ reply: ++drafts === 1 ? badReply : validReply, question: bankMetadata,
           requests: refs.map(ref => ({ fragment: ref.id, intent: 'Selección de categoría', request_type: 'specific_fact',
-            status: 'answered', evidence: 'Continuamos con la opción elegida.', fact_key: null })) }
+            status: 'answered', evidence: 'Continuamos con la opción elegida.', fact_key: null })) })
       }
-      const first = ++reviews === 1
-      return { review_contract: 'business-risk-v2', verdict: first ? 'block' : 'pass',
-        facts: first ? [{ statement: unwantedStatement, kind: 'catalog_value', subject_id: unit.id, scope: null,
-          field: 'published_commercial_price', value: 550000, upper_value: null, relation: 'eq', unit: 'USD' }] : [],
-        findings: first ? [{ category: 'turn_goal', statement: unwantedStatement,
-          reason: 'response_content_scope: purchase_prices.allowed=false; a previously answered price was added instead of following only the current preference.',
-          authoritative_fact: 'The current request selects a category; it does not request a price or compare a current budget.' }] : [],
-        question: { ...bankMetadata, offered_action: 'none' } }
+      assert.equal((context.obligaciones_del_turno as Row[]).some(row => row.id === 'response_content_scope'), false)
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     }))
   assert.deepEqual(verified, original)
   assert.equal(topicAllowed(contexts[0], 'purchase_prices'), false)

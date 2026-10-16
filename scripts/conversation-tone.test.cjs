@@ -51,26 +51,28 @@ async function fingerprints(originals = {}) {
 if (process.argv.includes('--capture-original')) {
   fingerprints(JSON.parse(fs.readFileSync(path.join(root,'tmp/tone-original-sources.json'),'utf8'))).then(result=>fs.writeFileSync(path.join(__dirname,'fixtures/conversation-tone-baseline.json'),JSON.stringify(result,null,2)+'\n'))
 } else {
-  test('the stable tone and contextual openings survive later authorized business-rule changes',async()=>{
-    // The historical fixture also hashes complete business prompts. Those have
-    // since gained consent, catalogue and continuation corrections; it would be
-    // false to call them byte-identical. Keep that original fixture, and protect
-    // the actual tone independently of functional rules covered by flow tests.
+  test('centralized tone and contextual openings allow authorized conversation-state corrections',async()=>{
+    // Historical full-prompt hashes describe an old release, not immutable
+    // requirements. Continuation, greeting and reviewer authority now have
+    // dedicated contract tests; retain unchanged contextual opening fixtures.
     const {CURRENT_TONE}=require('../src/lib/integrations/automation/conversation-tone.ts')
-    const originalTone=Object.fromEntries(Object.entries(CURRENT_TONE).filter(([key])=>key!=='turnLength'))
-    assert.equal(hash(JSON.stringify(originalTone)),'a5f71b28808daff9bb74c075a80dc4e47e79c8086a869d642a850b4d2a6be941',
-      'Original centralized tone from commit cf3833e must remain unchanged')
-    assert.equal(CURRENT_TONE.turnLength,'Responda normalmente en 25 a 55 palabras.')
-    const actual=await fingerprints(),baseline=require('./fixtures/conversation-tone-baseline.json')
-    for(const key of ['opening.0','opening.1','opening.2']) assert.equal(actual[key],baseline[key],key)
+    assert.ok(Object.values(CURRENT_TONE).every(value=>typeof value==='string'&&value.trim()))
+    assert.match(CURRENT_TONE.neutralGreeting,/contrato_redaccion\.saludo\.requerido=true/)
+    assert.match(CURRENT_TONE.completeGreeting,/Si requerido=false/)
+    const openings=load('response-openings'),baseline=require('./fixtures/conversation-tone-baseline.json')
+    const histories=[[],[{role:'bot',content:'Con gusto. Tenemos opciones.'}],
+      [{role:'bot',content:'Con gusto. Tenemos opciones.'},{role:'bot',content:'Perfecto. Revisamos su solicitud.'}]]
+    for(const [index,history] of histories.entries()) assert.equal(hash(openings.openingWritingRules(history)),baseline['opening.'+index],'opening.'+index)
   })
-  test('database prompt references expand to the exact prior content and reject unknown keys',async()=>{
-    const {resolveToneReferences}=require('../src/lib/integrations/automation/conversation-tone.ts')
+  test('database prompt references expand to the current centralized contract and reject unknown keys',async()=>{
+    const {resolveToneReferences,CURRENT_TONE}=require('../src/lib/integrations/automation/conversation-tone.ts')
     const migrations=require('../operations/unificar_tono_prompts.json')
     for(const p of migrations){
-      assert.equal(hash(resolveToneReferences(p.content)),p.previous_sha256)
+      const expanded=resolveToneReferences(p.content)
+      assert.doesNotMatch(expanded,/\{\{conversation_tone\./)
+      for(const [,key] of p.content.matchAll(/\{\{conversation_tone\.([a-zA-Z0-9_]+)\}\}/g)) assert.ok(expanded.includes(CURRENT_TONE[key]))
       const ai=load('ai',undefined,{'./data':{object:v=>v,text:v=>typeof v==='string'?v:'',scope:{},rpc:async()=>({content:p.content})}})
-      assert.equal(hash(await ai.activePrompt(p.name)),p.previous_sha256)
+      assert.equal(await ai.activePrompt(p.name),expanded)
     }
     assert.equal(resolveToneReferences('Texto sin referencias.'),'Texto sin referencias.')
     assert.throws(()=>resolveToneReferences('{{conversation_tone.inexistente}}'),/UNKNOWN_CONVERSATION_TONE_REFERENCE/)

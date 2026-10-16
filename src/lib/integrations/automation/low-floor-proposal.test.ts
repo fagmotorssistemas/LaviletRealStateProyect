@@ -1,3 +1,4 @@
+import { plannedQuestionFixture, writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { catalogDialogueReply, catalogQuery, catalogRequirementAlternative } from './catalog-dialogue'
@@ -30,7 +31,7 @@ function info(): Row {
 function receipt(input = info()) {
   const plan = commercialJourneyPlan(input)
   const reply = `No hay opciones de tres dormitorios en planta baja. ${String(plan.question)}`
-  const pending = normalizedPendingQuestion(journeyPendingQuestion(reply, plan, true), catalog)
+  const pending = normalizedPendingQuestion(journeyPendingQuestion(reply, plan, true, plannedQuestionFixture(plan)), catalog)
   const context = rememberPropertyReply(catalog, object(input.property_context), reply,
     { pending_question: pending, original_query: plan.requested_query })
   return { plan, pending, context }
@@ -208,7 +209,7 @@ function afterFloorDecline(input = info(), current = 'No, gracias') {
 test('a second, different proposal remains pending until yes and a second no never creates a third offer', () => {
   const input = afterFloorDecline(), plan = commercialJourneyPlan(input)
   const reply = `Podemos revisar un departamento con menos dormitorios en una planta inferior. ${String(plan.question)}`
-  const pending = journeyPendingQuestion(reply, plan, true, { purpose: 'clarify_request', continuation_id: 'property_requirements', continuation_act: 'explore_alternatives' })
+  const pending = journeyPendingQuestion(reply, plan, true, { text: String(plan.question), purpose: 'clarify_request', continuation_id: 'property_requirements', continuation_act: 'explore_alternatives' })
   const context = rememberPropertyReply(catalog, object(input.property_context), reply, { pending_question: pending, original_query: plan.requested_query })
   const waiting = commercialJourneyPlan({ ...input, property_context: context,
     semantica_turno: { primary_intent: 'project_information', budget: { status: 'not_discussed' } } })
@@ -265,10 +266,10 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const)
           const context = object(raw); tasks.push(task || '')
           const obligations = Array.isArray(context.obligaciones_del_turno) ? context.obligaciones_del_turno.map(object) : []
           assert.equal(obligations.find(value => value.id === 'commercial_next_step')?.question_id, task === 'writing' ? 'property_requirements' : undefined)
-          if (task === 'writing') return { reply, question: metadata,
+          if (task === 'writing') return writerFixture({ reply, question: metadata,
             requests: (Array.isArray(context.referencias_solicitud) ? context.referencias_solicitud.map(object) : []).map(ref => ({ fragment: ref.id,
-              intent: 'Mantener la segunda propuesta pendiente de aceptación', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
-          return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: { ...metadata, offered_action: 'none' } }
+              intent: 'Mantener la segunda propuesta pendiente de aceptación', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) })
+          return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         }))
     assert.equal(result.reply, reply, JSON.stringify(result.audit.final_validation))
     assert.equal(result.needsAdvisor, false)

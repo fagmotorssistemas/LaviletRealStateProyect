@@ -1,3 +1,4 @@
+import { plannedQuestionFixture, writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { object, type Row } from './data'
@@ -29,7 +30,7 @@ function proposal() {
       group: 'residential', category: null, requirements: [requirement] } },
     semantica_turno: { confidence: 'high', budget: { status: 'not_discussed' } } }
   const plan = commercialJourneyPlan(info)
-  const pending = normalizedPendingQuestion(journeyPendingQuestion(String(plan.question), plan, true), units)
+  const pending = normalizedPendingQuestion(journeyPendingQuestion(String(plan.question), plan, true, plannedQuestionFixture(plan)), units)
   const context = rememberPropertyReply(units, object(info.property_context), String(plan.question), {
     pending_question: pending, original_query: plan.requested_query })
   return { context, pending }
@@ -79,10 +80,10 @@ test('price follow-up keeps the proposed subject through retrieval, writing, rev
       audit: { ...base.audit, semantic_review_enabled: true, business_risk_review_enabled: true } },
       async (_rules, data, _schema, _image, _file, _tone, task) => {
         calls.push({ task: String(task), data: object(data) })
-        if (task === 'writing') return { reply,
+        if (task === 'writing') return writerFixture({ reply,
           requests: [{ fragment: 'R1', intent: 'ask_price', request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: 'price' }],
-          question: { purpose: 'permission_to_continue', role: 'optional_continuation', missing_datum: '', next_decision: 'Aceptar explorar la propuesta', continuation_id: 'property_requirements', continuation_act: 'explore_alternatives' } }
-        return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+          question: { purpose: 'permission_to_continue', role: 'optional_continuation', missing_datum: '', next_decision: 'Aceptar explorar la propuesta', continuation_id: 'property_requirements', continuation_act: 'explore_alternatives' } })
+        return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       }))
     assert.equal(result.needsAdvisor, false)
     assert.equal(result.reply, reply)
@@ -94,7 +95,8 @@ test('price follow-up keeps the proposed subject through retrieval, writing, rev
     assert.deepEqual((object(writer.evidencia_turno).units as Row[]).map(unit => unit.unit_number).sort(), expectedNumbers)
     if (reviewed) {
       const reviewSources = object(calls[1].data.fuentes_autorizadas)
-      assert.equal(object(reviewSources.siguiente_paso_comercial).question_id, plan.question_id)
+      assert.equal(reviewSources.siguiente_paso_comercial, undefined,
+        'the factual reviewer receives the proposal facts without deciding the next question')
       assert.deepEqual((reviewSources.unidades as Row[]).map(unit => unit.unit_number).sort(), expectedNumbers)
     }
     const remembered = rememberPropertyReply(units, reference.context, result.reply,

@@ -21,7 +21,7 @@ import { confirmedMonetaryReferences } from './monetary-reference'
 import { normalizeEvents, VISIT_INTENT_EXTRACTION_RULES, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
 import { normalizeTurnSemantics, normalizedPendingQuestion, pendingQuestionFromReply, TURN_SEMANTIC_EXTRACTION_RULES, TURN_SEMANTICS_SCHEMA } from './turn-semantics'
 import { isGreetingOnly, normalized } from './sdr-rules'
-import { TURN_RULES, explicitlyRequestsVisit, visitRequestPermissionVeto } from './turn-routing'
+import { TURN_RULES, explicitlyRequestsVisit, visitRequestPermissionVeto, hasUnrelatedAppointmentTarget } from './turn-routing'
 import { replyQuestions } from './reply-question'
 import { DISCOUNT_REQUEST_EXTRACTION_RULES } from './discount-request'
 import { isBareAffirmative } from './conversation-next-step'
@@ -531,6 +531,9 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   const visitAnswer = text(actualPendingQuestion.id).startsWith('visit_')
     && answer.question_id === actualPendingQuestion.id && acceptedExtractorConfidence(answer.confidence)
     && ['affirmative', 'value'].includes(text(answer.kind)) && evidenceMatches(text(answer.evidence), actionMessage)
+  const groundedVisitRequest = visit.kind === 'request_visit' && visit.purpose === 'coordination'
+    && acceptedExtractorConfidence(visit.confidence) && evidenceMatches(text(visit.evidence), actionMessage)
+    && visit.target !== 'other' && !hasUnrelatedAppointmentTarget(actionMessage)
   const physicalVisitRequest = actionMessage.split(/[.!?;\n]+|\bpero\b|\badem[aá]s\b/iu).some(clause => {
     const value = normalized(clause)
     const information = /\b(?:quiero|quisiera|deseo|necesito) (?:saber|consultar|confirmar|revisar|informacion|detalles|recibir informacion)\b/.test(value)
@@ -542,7 +545,8 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
     return physicalAttention && actualRequest && !information && !reported && !visitRequestPermissionVeto(actionMessage, clause.trim())
   })
   if (object(extracted.visit_intent).kind === 'request_visit' && object(extracted.visit_intent).purpose === 'coordination'
-    && !explicitlyRequestsVisit(actionMessage) && !physicalVisitRequest && !visitAnswer) {
+    && (!groundedVisitRequest && !explicitlyRequestsVisit(actionMessage) && !physicalVisitRequest && !visitAnswer
+      || visit.target === 'other' || hasUnrelatedAppointmentTarget(actionMessage))) {
     extracted.visit_intent = null
     semantics.normalization_issues = [...(Array.isArray(semantics.normalization_issues) ? semantics.normalization_issues : []),
       'visit_coordination_without_current_visit_permission']

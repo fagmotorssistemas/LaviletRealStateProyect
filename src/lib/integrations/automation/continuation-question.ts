@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { normalizedPendingQuestion, questionActs, questionIds } from './turn-semantics'
+import { reservationInvitationReceipt } from './reservation-invitation'
 
 /** Shared by writer and reviewer. Meaning belongs to the emitted CTA, not the plan. */
 export const continuationQuestionProperties = {
@@ -76,7 +77,12 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
     ...(['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(act)
       && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),
   } : {}
-  const validIds = new Set((catalog || []).map(unit => text(unit.id)))
+  // Some planning callers carry a verified selection scope rather than the
+  // catalogue rows. Absence of that optional argument is not an empty catalogue.
+  // Bound fallback IDs to this same plan; writer metadata cannot widen them.
+  const validIds = new Set(catalog === undefined
+    ? planMatches ? [...ids(scoped.target_ids), ...ids(scoped.candidate_ids), ...ids(plan.alternative_unit_ids)] : []
+    : catalog.map(unit => text(unit.id)))
   const verifiedIds = (value: unknown) => ids(value).filter(value => validIds.has(value))
   const reference = object(matching.amount_reference || (planMatches ? plan.question_amount_reference : undefined))
   const amountReference = id === 'financing_down_payment' && reference.kind === 'proposed_down_payment'
@@ -85,9 +91,15 @@ export function deliveredPendingQuestion(reply: string, input: { metadata?: unkn
       ...reference, question_source: question, delivered_question: question,
       resolution: 'writer_structured_total_budget_entry_proposal',
     } : undefined
+  const targetIds = verifiedIds(matching.target_ids ?? scoped.target_ids)
+  // An operational receipt must retain the same verified selection as the
+  // matching plan. Metadata cannot substitute another catalogue unit.
+  const reservationReceipt = planMatches && id === 'reservation_invitation' && act === 'reservation'
+    && targetIds.length === 1 && targetIds[0] === text(plan.selected_unit_id)
+    ? reservationInvitationReceipt(metadata, targetIds) : {}
   const pending = normalizedPendingQuestion({ ...scoped, ...matching,
     id, act, question, comparison_categories: metadata.comparison_categories, comparison_bedrooms: metadata.comparison_bedrooms,
-    target_ids: verifiedIds(matching.target_ids ?? scoped.target_ids),
+    target_ids: targetIds, reservation_invitation: reservationReceipt,
     candidate_ids: verifiedIds(matching.candidate_ids ?? scoped.candidate_ids), amount_reference: amountReference }, catalog)
   if (pending.act === 'confirm_bedrooms' && !Object.keys(object(pending.proposed_query)).length && catalog) {
     const subjectIds = ids(pending.target_ids).length ? ids(pending.target_ids) : ids(pending.candidate_ids)

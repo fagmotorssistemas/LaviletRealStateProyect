@@ -42,7 +42,7 @@ import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from '.
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
 import { visitDialogueTurn, visitDialogueBaseReply, visitDialoguePendingQuestion, visitDialogueIntakeSnapshot, reconcileVisitDialogueScope, rememberVisitDialogue } from './visit-dialogue'
-import { isProfileOnlyTurn, leadIntroductionTurn, leadProfileCollectionDecision, leadProfileQuestionIssues, rememberLeadIntroduction } from './lead-introduction'
+import { isProfileOnlyTurn, leadIntroductionTurn, leadProfileCollectionDecision, leadProfileQuestionIssues, leadProfilePendingQuestion, rememberLeadIntroduction } from './lead-introduction'
 import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 
 import { tourContinuation } from './tour-continuation'
@@ -53,6 +53,7 @@ import { priceNoticeForConversation } from './price-conditions'
 import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, naturalConversationReply } from './conversation-style'
 
 import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer } from './financing'
+import { financingInvitationReceipt } from './financing-invitation'
 import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
 import { financingCollection, financingReadyForHandoff, personalDataFragments } from './financing-intake'
 import { financingIdentity } from './financing-identity'
@@ -1791,6 +1792,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const canTrackFollowUp = followUpUsable(audit)
   const journeyPending = canTrackFollowUp ? deliveredPendingQuestion(reply, {
     metadata: object(audit.turn_completeness).question, plan: audit.commercial_journey,
+    candidates: [object(audit.pending_question), leadProfilePendingQuestion(reply, audit)],
   }, turnCatalog) : {}
   audit.pending_question = journeyPending
   const deferred = object(object(audit.commercial_journey).deferred_question)
@@ -1883,12 +1885,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _response_recovery: pendingRecovery ? { ...object(object(audit.turn_completeness).recovery), source_message_id: activeLast.externalId,
       current_request: writingCurrent, objective: turnIntent.objective } : {},
     _last_operational_step: !canTrackFollowUp ? { kind: 'unverified_offer', reply } : pendingRecovery ? object(summary._last_operational_step || previousSummary._last_operational_step)
-      : object(audit.pending_question).id === 'financing_invitation' ? { kind: 'financing_consent', reply }
+      : object(audit.pending_question).id === 'financing_invitation' ? { kind: 'financing_consent', reply,
+        invitation: financingInvitationReceipt(object(audit.turn_completeness).question) }
       : Object.keys(journeyPending).length ? { kind: 'commercial_question', question_id: journeyPending.id, reply }
       : reviewedOffer === 'ambiguous' ? { kind: 'ambiguous_offer', reply }
       : reviewedOffer === 'information' ? { kind: 'information_offer', reply }
       : reviewedOffer === 'internal_advisor' ? { kind: 'internal_advisor_offer', reply }
-      : reviewedOffer === 'financing_review' ? { kind: 'financing_consent', reply }
+      : reviewedOffer === 'financing_review' ? { kind: 'financing_consent', reply,
+        invitation: financingInvitationReceipt(object(audit.turn_completeness).question) }
       : {},
     ...(pendingRecovery ? { _unit_reference: propertyTurn.explicit === true && !propertyTurn.needsClarification
       ? propertyTurn.memory : previousSummary._unit_reference || {} } : audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),

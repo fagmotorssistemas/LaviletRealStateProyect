@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -10,7 +11,7 @@ import { reviewObligations } from './focused-review'
 import { resolveCatalogRequirements, completeCatalogResult } from './catalog-result'
 import { validateBusinessFacts } from './business-facts'
 import { completeTurnReply } from './turn-completeness'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import profileFixture from './fixtures/extractor-profile-turn.json'
 
 // Sanitized regression: an exterior-local search followed by a residential
@@ -142,7 +143,7 @@ test('floor-specific ranges validate their own members while wrong extrema still
   assert.equal(validateBusinessFacts([floorFact], floorUnits.slice(1), [group], {})[0].status, 'unverified', 'partial facts cannot certify a full range')
 })
 
-test('a reviewer scope repair keeps the correct floor reply without calling the writer twice', async () => {
+test('the factual reviewer receives floor aggregates and approves without a numeric extraction repair', async () => {
   const draft = 'En la primera planta alta hay locales de $145,000 a $355,000.'
   const calls: string[] = []
   const result = await completeTurnReply({ current: '¿Qué precios tienen los locales de la primera planta?', baseReply: draft,
@@ -150,17 +151,16 @@ test('a reviewer scope repair keeps the correct floor reply without calling the 
     audit: { semantic_review_enabled: true, business_risk_review_enabled: true } },
     async (_rules, data, _schema, _image, _file, _tone, task) => {
       calls.push(task || '')
-      if (task === 'writing') return { reply: draft, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
-        requests: [{ fragment: 'R1', intent: 'Precios de locales de primera planta', status: 'answered', evidence: draft, fact_key: 'price', request_type: 'specific_fact' }] }
+      if (task === 'writing') return writerFixture({ reply: draft, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
+        requests: [{ fragment: 'R1', intent: 'Precios de locales de primera planta', status: 'answered', evidence: draft, fact_key: 'price', request_type: 'specific_fact' }] })
       const groups = object(object(data).fuentes_autorizadas).grupos as Row[]
       const source = groups.find(g => g.aggregation === 'range' && g.category === 'local')!
       assert.ok(source)
-      return { verdict: 'pass', review_contract: BUSINESS_RISK_REVIEW_VERSION, findings: [], question: null,
-        facts: [{ ...floorFact, subject_id: source.id, scope: calls.length === 2 ? null : floorScope }] }
+      return { verdict: 'pass', review_contract: WRITER_CONTENT_REVIEW_VERSION, findings: [] }
     })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, draft)
-  assert.deepEqual(calls, ['writing', 'review', 'review'])
+  assert.deepEqual(calls, ['writing', 'review'])
 })
 
 test('budget goal review uses the selected continuation when incompatible low-price properties exist', () => {

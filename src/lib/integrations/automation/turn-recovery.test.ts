@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -7,7 +8,7 @@ import { validateBusinessScope, reconcilePropertyScope } from './business-scope'
 import { scopePolicyContext } from './scope-response'
 import { turnBudgetAssessment } from './turn-budget'
 import { completeTurnReply } from './turn-completeness'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const current = 'bueno yo estoy interesado en algo para vivienda. tengo una familai de 5 personas no se si tenga algo para mi, y tengo un presupeusto de unos 100 dolares'
@@ -26,9 +27,11 @@ const extraction = {
 const stale = { requests: [{ domain: 'property', request: history[0].content, evidence: history[0].content, confidence: 'high' }],
   turn_semantics: { primary_intent: 'ask_price', primary_evidence: history[0].content, confidence: 'high', budget: { status: 'not_discussed' } } }
 function context(amount = 100): Row {
+  // These progression cases explicitly assume a total purchase budget; the
+  // extraction cases above still preserve an ambiguous amount as such.
   return { catalogo: units, catalogo_verificacion: units, catalog_read: { complete: true },
     politica_comercial: { precios_autorizados: true }, financiamiento: { partners: ['Entidad autorizada'] },
-    semantica_turno: { ...extraction.turn_semantics, budget: { ...extraction.turn_semantics.budget, amount } } }
+    semantica_turno: { ...extraction.turn_semantics, budget: { ...extraction.turn_semantics.budget, status: 'maximum_total', amount } } }
 }
 
 test('extractor input keeps current text and durable references without duplicating commercial inventory or history', () => {
@@ -112,7 +115,8 @@ test('budget continuation prioritizes affordable units, then alternatives, then 
 test('missing prices, partial catalog and unauthorized finance cannot support global affordability claims', () => {
   for (const verified of [
     { ...context(), catalog_read: { complete: false } },
-    { ...context(), catalogo: [{ ...units[0], published_commercial_price: null }] },
+    { ...context(), catalogo: [{ ...units[0], published_commercial_price: null }],
+      catalogo_verificacion: [{ ...units[0], published_commercial_price: null }] },
     { ...context(), politica_comercial: { precios_autorizados: false } },
   ]) {
     const assessment = turnBudgetAssessment(verified, {})!
@@ -120,10 +124,14 @@ test('missing prices, partial catalog and unauthorized finance cannot support gl
     assert.equal(assessment.continuation, 'clarify_available_information')
   }
   assert.equal(turnBudgetAssessment({ ...context(), financiamiento: { partners: [] } }, {})?.continuation, 'explain_budget_gap')
-  for (const status of ['initial_capital', 'unknown']) {
-    const assessment = turnBudgetAssessment({ ...context(), semantica_turno: { budget: { status, confidence: 'high', amount: 100, evidence: 'Tengo 100 para la entrada' } } }, {})!
-    assert.equal(assessment.continuation, 'clarify_budget')
-    assert.equal(assessment.minimum_price, undefined)
+  for (const status of ['initial_capital', 'unknown', 'amount']) {
+    const assessment = turnBudgetAssessment({ ...context(), semantica_turno: { budget: { status, confidence: 'high',
+      amount: status === 'unknown' ? null : 100,
+      evidence: status === 'initial_capital' ? 'Tengo 100 para la entrada' : status === 'unknown' ? 'Todavía no sé cuánto invertiría' : 'Tengo 100' } } }, {})!
+    assert.equal(assessment.continuation, status === 'initial_capital' ? 'offer_financing_for_entry'
+      : status === 'unknown' ? 'continue_needs_discovery' : 'clarify_budget',
+      'an explicit entry, an unknown budget and an amount of unclear role remain distinct')
+    assert.equal(assessment.minimum_price, status === 'amount' ? null : undefined)
   }
 })
 
@@ -139,14 +147,15 @@ test('writer and reviewer receive the same budget and financing obligation; a su
       if (task === 'writing') {
         assert.equal(object(object(model.contexto_verificado).presupuesto_del_turno).continuation, 'offer_financing')
         assert.equal(object(object(model.contexto_verificado).presupuesto_del_turno).amount, 100)
-        return { reply, requests: rows(model.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Orientar sobre vivienda y presupuesto',
+        return writerFixture({ reply, requests: rows(model.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Orientar sobre vivienda y presupuesto',
           request_type: 'general_information', status: 'answered', evidence: 'Orientación financiera con datos autorizados', fact_key: null })),
-          question: { role: 'optional_continuation', purpose: 'offer_help', missing_datum: '', next_decision: 'Revisar financiamiento' } }
+          question: { role: 'optional_continuation', purpose: 'offer_help', missing_datum: '', next_decision: 'Revisar financiamiento' } })
       }
-      assert.ok(rows(model.obligaciones_del_turno).some(row => row.id === 'budget_continuation' && row.action === 'offer_financing'))
+      assert.equal(rows(model.obligaciones_del_turno).some(row => row.id === 'budget_continuation'), false,
+        'the reviewer verifies budget facts without evaluating the commercial continuation')
       assert.ok(JSON.stringify(model).includes('Entidad autorizada'))
       assert.ok(JSON.stringify(model).includes('145000'))
-      return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+      return { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
     } catch (error) { failures.push(String(error)); throw error }
   })
   assert.deepEqual(failures, [])

@@ -56,7 +56,7 @@ for (const enabled of [true, false]) test(`operational prose has no confirmation
     async (_rules, _input, _schema, _image, _file, _tone, task) => {
       calls.push(task || 'data')
       return task === 'writing' ? { mensaje: 'Su cita ya está confirmada.' }
-        : { fiel_a_los_hechos: true, conserva_estado_y_objetivo: true, no_pide_datos_conocidos: true, tono_natural: true }
+        : { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     }))
   assert.equal(result.generated, true)
   assert.equal(result.reply, 'Su cita ya está confirmada.')
@@ -73,7 +73,9 @@ test('the operational AI reviewer can reject an invented confirmation without a 
     async (_rules, _input, _schema, _image, _file, _tone, task) => {
       calls.push(task || 'data')
       return task === 'writing' ? { mensaje: 'Su cita ya está confirmada.' }
-        : { fiel_a_los_hechos: false, conserva_estado_y_objetivo: true, no_pide_datos_conocidos: true, tono_natural: true }
+        : { review_contract: 'content-review-v1', verdict: 'block', findings: [{ category: 'business_guardrail',
+          statement: 'La cita está confirmada', reason: 'La gestión sigue pendiente',
+          authoritative_fact: 'No hay una cita registrada y confirmada en visit_result' }] }
     }))
   assert.equal(result.generated, false)
   assert.equal(result.reply, base)

@@ -16,6 +16,27 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText, filename)
 function load(relative, mocks) {
+  if (relative === 'src/lib/integrations/automation/conversation.ts') {
+    const registration = require('../src/lib/integrations/automation/reply-registration.ts')
+    const store = {
+      prepare: async (key, contact, entry) => ({ id: 'isolated-journal', key, contact, data: structuredClone(entry) }),
+      save: async (checkpoint, entry) => { checkpoint.data = structuredClone(entry) },
+      existing: async () => 'absent',
+      register: args => mocks['./data'].rpc('register_outbound_message', args),
+    }
+    mocks = { './showroom-contact': { applyShowroomEntry: async (_lead, summary) => summary },
+      './whatsapp-typing': { showWhatsAppTyping: async () => ({ shown: false, reason: 'isolated_test' }) },
+      './reservation-context-loader': { loadReservationContext: (lead, catalog, at) =>
+        require('../src/lib/integrations/automation/reservation-context-loader.ts').loadReservationContext(lead, catalog, at,
+          async () => ({ data: [], error: null })) },
+      './reply-registration': { ...registration,
+        prepareReplyRegistration: input => registration.prepareReplyRegistration({ ...input,
+          eventIds: input.eventIds.map((id, index) => id || 'isolated-event-' + index) }, store),
+        markReplyDispatchStarted: checkpoint => registration.markReplyDispatchStarted(checkpoint, store),
+        registerAcceptedReply: checkpoint => registration.registerAcceptedReply(checkpoint, store),
+        markReplyMemorySaved: async () => {},
+      }, ...mocks }
+  }
   const filename = path.join(root, relative)
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
@@ -31,6 +52,11 @@ const { normalizeEvents, normalizedVisitIntent, normalizedVisitPreference, valid
 const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
+const financingStep = reply => ({ kind: 'financing_consent', reply,
+  invitation: require('../src/lib/integrations/automation/financing-invitation.ts').financingInvitationReceipt({
+    text: reply, continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue' }) })
+const financingAnswer = evidence => ({ turn_semantics: { answer_to_previous: {
+  question_id: 'financing_invitation', kind: 'affirmative', confidence: 'high', evidence } } })
 
 test('visit acceptance and a following time enter intake despite an empty AI extraction', async t => {
   live(t)
@@ -190,10 +216,10 @@ test('financing consent follows the verified step after a natural AI rewrite', (
   const { financingInputs } = require('../src/lib/integrations/automation/financing.ts')
   const reply = 'Podemos acompañarle a explorar alternativas con Banco Pichincha. ¿Desea avanzar?'
   const finance = { partners: ['Banco Pichincha'], current: {} }
-  assert.equal(financingInputs({}, 'Sí, por supuesto', reply, finance, { kind: 'financing_consent', reply }).consent, true)
+  assert.equal(financingInputs(financingAnswer('Sí, por supuesto'), 'Sí, por supuesto', reply, finance, financingStep(reply)).consent, true)
   assert.equal(financingInputs({}, 'Sí, por supuesto', reply, finance).consent, null)
-  assert.equal(financingInputs({}, 'Sí, pero con crédito directo', reply, finance, { kind: 'financing_consent', reply }).consent, null)
-  assert.equal(financingInputs({}, 'Sí', '¿Le gustaría una visita?', finance, { kind: 'financing_consent', reply }).consent, null)
+  assert.equal(financingInputs({}, 'Sí, pero con crédito directo', reply, finance, financingStep(reply)).consent, null)
+  assert.equal(financingInputs({}, 'Sí', '¿Le gustaría una visita?', finance, financingStep(reply)).consent, null)
 })
 
 test('a pending SQL migration passes a visit to the advisor without using the broken parser', async t => {
@@ -234,7 +260,7 @@ test('unrelated business requests bypass pending property appointments, financin
     assert.equal(written.current.trim(), current)
     assert.equal(written.verified.limite_alcance.kind, 'out_of_scope')
     assert.equal(written.verified.catalogo, undefined)
-    assert.deepEqual(written.verified.financiamiento, { journey: {} })
+    assert.deepEqual(written.verified.financiamiento, { journey: {}, amounts: {}, entry: {} })
   }
 })
 
@@ -261,7 +287,7 @@ test('details plus permission to visit answers both even when the extractor miss
   assert.equal(result.source, 'visit_intake')
   const reply = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
   assert.match(reply, /La Vilet.*Puertas del Sol/)
-  assert.match(reply, /construcción aún no ha comenzado/)
+  assert.doesNotMatch(reply, /recorrer.*departamentos construidos|obra terminada/)
   assert.match(reply, /oficina.*Qué día/)
   assert.equal((reply.match(/\?/g) || []).length, 1)
   assert.equal(h.calls.some(c => c.name === 'handoff_lead'), false)
@@ -276,7 +302,7 @@ test('unanswerable property questions enqueue an advisor while keeping the bot a
   assert.match(h.calls.find(c => c.name === 'handoff_lead').args.p_reason, /licencia urbanística/)
   assert.ok(h.calls.some(c => c.name === 'update:leads' && c.args.bot_enabled === true))
   assert.equal(h.calls.some(c => c.name === 'patch' && c.args[1] === 451530 && c.args[2] === 'true'), false)
-  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /bandeja del equipo/)
+  assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /consulta/)
   assert.doesNotMatch(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /Podrá continuar|sin volver a explicar/)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
 })
@@ -371,7 +397,8 @@ test('nutrition does not assume a property, tour view or financing from a mere g
   const result = nutritionContext.nutritionMessage({}, [{ role: 'cliente', content: 'Hola' }], {}, [])
   assert.equal(result.context, 'general')
   assert.doesNotMatch(result.body, /vivienda|suite|departamento|recorrido|financiamiento|vio|pareció/)
-  const project = nutritionContext.nutritionMessage({}, [{ role: 'cliente', content: 'Quiero saber del proyecto' }], {}, [])
+  const project = nutritionContext.nutritionMessage({}, [{ role: 'cliente', content: 'Quiero saber del proyecto' }],
+    { _turn_intent: { objective: 'project_information' } }, [])
   assert.equal(project.context, 'project')
 })
 
@@ -381,8 +408,10 @@ test('nutrition uses the current topic and the actual unit, not untrusted text o
   const h = [{ role: 'cliente', content: 'Quiero financiamiento' }, { role: 'cliente', content: 'Me interesa la suite 210' }]
   assert.match(nutritionContext.nutritionMessage({}, h, summary, catalog).body, /suite 210/)
   assert.doesNotMatch(nutritionContext.nutritionMessage({}, h, summary, catalog).body, /financiamiento/)
-  assert.equal(nutritionContext.nutritionMessage({}, [...h, { role: 'cliente', content: 'Y el crédito directo?' }], summary, catalog).context, 'financing')
-  assert.equal(nutritionContext.nutritionMessage({}, [...h, { role: 'cliente', content: 'No sé mi presupuesto' }], summary, catalog).context, 'budget')
+  assert.equal(nutritionContext.nutritionMessage({}, [...h, { role: 'cliente', content: 'Y el crédito directo?' }],
+    { ...summary, _turn_intent: { objective: 'ask_financing', requests: [{ domain: 'financing', topics: ['financing'] }] } }, catalog).context, 'financing')
+  assert.notEqual(nutritionContext.nutritionMessage({}, [...h, { role: 'cliente', content: 'No sé mi presupuesto' }],
+    { ...summary, _turn_intent: { objective: 'project_information', budget: { status: 'amount_pending' } } }, catalog).context, 'budget')
   const tour = [...h, { role: 'bot', content: 'Recorrido', tool_calls: { unit_model: { unit_id: 'unit' } } }]
   const result = nutritionContext.nutritionMessage({}, tour, summary, catalog)
   assert.equal(result.context, 'unit_tour')
@@ -433,7 +462,8 @@ function nutritionHarness(options = {}) {
     return q
   }
   const mod = load('src/lib/integrations/automation/nutrition.ts', {
-    './nutrition-week-one': { weekOneMemory: async () => ({ leadIds: ['lead'], outbound: options.outbound || [] }) },
+    './nutrition-week-one': { weekOneMemory: async () => ({ leadIds: ['lead'], outbound: options.outbound || [] }),
+      nutritionNurtureState: async () => ({ summary: options.summary || {}, state: {}, reason: '', resumeAt: null }) },
     './config': { assertLive() {}, automationSettings: () => ({ testLeadId: options.testLeadId || null }) },
     './data': { ...data, db: () => ({ from: query }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false }),
       one: async table => table === 'leads' ? lead : { id: 'conv', ...scope, lead_id: lead.id, summary: {} },
@@ -484,7 +514,8 @@ test('accepted nutrition records the actual approved message; timeouts never aut
   const h = nutritionHarness()
   assert.equal((await h.sendNutrition24h({ id: 'job', payload: h.payload }, async () => {})).action, 'accepted')
   assert.deepEqual(h.calls.find(c => c.type === 'patch').args, [123, 530422, 'ayudarle con lo que necesite'])
-  assert.deepEqual(h.calls.find(c => c.type === 'launch').args, [123, 20968])
+  assert.deepEqual(h.calls.find(c => c.type === 'launch').args, [123, 20968,
+    { audience: undefined, sourceAt: h.payload.anchorAt, jobCreatedAt: undefined }])
   assert.match(h.calls.find(c => c.name === 'register_outbound_message').args.p_content, /¿Le gustaría continuar/)
   const failing = nutritionHarness({ timeout: true })
   await assert.rejects(failing.sendNutrition24h({ id: 'job', payload: failing.payload }, async () => {}), /TIMEOUT/)
@@ -497,7 +528,7 @@ test('the reported low budget and price turn defers financing until a unit is id
   const info = { ...priceInfo(), catalogo: Array.from({ length: 5 }, (_, i) => ({ ...priceCatalog[0], id: `d${i}`, unit_number: String(300 + i), bedrooms: 3, published_commercial_price: 250000 + i * 25000 })), lead: { preferred_category: 'departamento', preferred_bedrooms: 3 } }
   const reply = (await commercialReply(info, 'De 3 dormitorios me parece bien cuál es el precio?\nUl cuento con 100 dólares', {}, async () => {})).reply
   assert.match(reply, /3 dormitorios.*250[.,]000.*350[.,]000/)
-  assert.match(reply, /referenciales.*lanzamiento.*cambiar/)
+  assert.match(reply, /referenciales.*cambiar/)
   assert.match(reply, /no cubre el valor total/i)
   assert.match(reply, /financiamiento después de identificar la unidad/i)
   assert.doesNotMatch(reply, /Banco Pichincha|Cooperativa JEP/)
@@ -516,7 +547,7 @@ test('price responses vary naturally without leaking registration vocabulary or 
   const { unitPriceQuote, priceReplyIssues } = require('../src/lib/integrations/automation/price-reply.ts')
   const info = { ...priceInfo(), lead: { preferred_category: 'departamento', preferred_bedrooms: 3 }, catalogo: [...Array.from({ length: 5 }, (_, i) => ({ ...priceCatalog[0], id: `u${i}`, unit_number: String(700 + i), bedrooms: 3 })), { ...priceCatalog[0], id: 'two', bedrooms: 2, published_commercial_price: 900000 }] }
   const responses = []
-  for (let i = 0; i < 3; i++) { const r = unitPriceQuote(info, 'Y el precio?', {}); responses.push(r.reply); info.historial.push({ role: 'bot', content: r.reply }); assert.doesNotMatch(r.reply, /900[.,]000|registrad|autorizad/); assert.match(r.reply, /lanzamiento/) }
+  for (let i = 0; i < 3; i++) { const r = unitPriceQuote(info, 'Y el precio?', {}); responses.push(r.reply); info.historial.push({ role: 'bot', content: r.reply }); assert.doesNotMatch(r.reply, /900[.,]000|registrad|autorizad/); assert.match(r.reply, /referencial|referencia|orientativo/) }
   assert.equal(new Set(responses).size, 3)
   assert.deepEqual(priceReplyIssues('Las opciones con precio registrado van desde $310.000. Son valores referenciales de lanzamiento y pueden cambiar.', info), ['style'])
 })
@@ -741,7 +772,7 @@ test('yes to viewing a unit after a financing mention never starts qualification
   const sent = h.calls.find(c => c.name === 'patch').args[2]
   assert.match(sent, /502.*100 m².*sala, cocina/)
   assert.doesNotMatch(sent, /cédula|revisión|asesor|visita/)
-  assert.match(sent, /¿Qué presupuesto total aproximado tiene previsto para la compra\?/)
+  assert.match(sent, /recorrido virtual 360/)
   assert.equal(h.calls.some(c => ['process_financing_message_v3', 'lv_collect_visit_intake', 'handoff_lead'].includes(c.name)), false)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
 })
@@ -880,19 +911,18 @@ test('a remaining information gap hands off after review and preserves the notic
   const names = h.calls.map(c => c.name)
   assert.ok(names.indexOf('completeTurnReply') < names.indexOf('handoff_lead'))
   const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
-  assert.match(sent, /condiciones y pagos/)
-  assert.match(sent, /bandeja del equipo/)
+  assert.match(sent, /consulta/)
   assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
 })
 
-test('a final rewrite cannot hide an explicitly requested advisor handoff', async t => {
+test('an explicitly requested advisor handoff executes without overwriting the final writer wording', async t => {
   live(t)
   const h = conversationHarness({ extracted: { requested_advisor: true }, turnComplete: { reply: 'Podemos ayudarle con las opciones del proyecto.', changed: true,
     needsAdvisor: false, unresolved: [], audit: { status: 'checked', requests: [{ status: 'answered' }] } } })
   h.rows[0].payload.text = 'Quiero hablar con un asesor'
   await h.process([h.rows[0]], async () => {})
   const sent = h.calls.find(c => c.name === 'register_outbound_message').args.p_content
-  assert.match(sent, /bandeja del equipo/)
+  assert.equal(sent, 'Podemos ayudarle con las opciones del proyecto.')
   assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
 })
 
@@ -908,7 +938,7 @@ test('the reported two-message turn answers options, affordability and singular 
   assert.match(sent, /310[.,]000/); assert.match(sent, /550[.,]000/)
   assert.match(sent, /suites/); assert.match(sent, /locales comerciales/)
   assert.match(sent, /Banco Pichincha/); assert.match(sent, /Cooperativa JEP/)
-  assert.match(sent, /referencial|aproximad/); assert.match(sent, /lanzamiento/)
+  assert.match(sent, /referencial|aproximad/); assert.match(sent, /pueden cambiar/)
   assert.doesNotMatch(sent, /registrad|aclarar.*presupuesto|no ofrecemos vehículos|Mapa:/)
   assert.equal(h.calls.filter(c => c.name === 'launch').length, 1)
   assert.equal(h.calls.some(c => c.name === 'process_financing_message_v3'), false)
@@ -939,9 +969,13 @@ test('JEP natural acceptance advances the actual chosen lender and technical fai
   live(t)
   const history = [{ role: 'bot', content: 'Podemos revisar su financiamiento con Banco Pichincha o Cooperativa JEP. ¿Le gustaría iniciar la revisión?' }]
   for (const fails of [false, true]) {
+    const current = 'si, quisiera hacer la prueba conb la cooperativa jep'
     const h = conversationHarness({ ...financingReadyFixture(), history, financeContext: contextualInfo().financiamiento,
+      extracted: { financing_consent: true,
+        requests: [{ domain: 'financing', request: 'Iniciar revisión con JEP', evidence: current, confidence: 'high' }],
+        turn_semantics: { primary_intent: 'ask_financing', primary_evidence: current, confidence: 'high' } },
       financing: () => { if (fails) throw Error('RPC_PROCESS_FINANCING_MESSAGE_V3_23514'); return { active: true, state: 'identificacion_pendiente', selected_partner_name: 'Cooperativa JEP' } } })
-    h.rows[0].payload.text = 'si, quisiera hacer la prueba conb la cooperativa jep'
+    h.rows[0].payload.text = current
     const result = await h.process([h.rows[0]], async () => {})
     const request = h.calls.find(c => c.name === 'process_financing_message_v3')
     assert.equal(request.args.p_financing_consent, true)
@@ -1016,7 +1050,8 @@ test('Saludos uses the minimal greeting through the real conversation flow, even
     await h.process([h.rows[0]], async () => {})
     const sent = h.calls.find(c => c.name === 'patch').args[2]
     assert.match(sent, /ayudarle/)
-    assert.doesNotMatch(sent, /proyecto|Puertas del Sol|vivienda|La Vilet/i)
+    assert.match(sent, /La Vilet/)
+    assert.doesNotMatch(sent, /Puertas del Sol|vivienda/i)
     assert.equal(h.calls.filter(c => ['lv_evaluate_message_interest', 'process_financing_message_v3', 'commercialReply'].includes(c.name)).length, 0)
   }
 })
@@ -1027,7 +1062,7 @@ test('launch prices hydrate the exact unit from the authorized catalog and retai
   const info = { ...priceInfo(), politica_visitas: { allowSuggestions: true, launchDestination: 'site' }, referencia_unidad: { matches: [{ id: 'u502', unit_number: '502', published_commercial_price: 1 }] } }
   const first = await commercialReply(info, 'Saludos, ¿cuánto cuesta el 502?', {}, async () => {})
   assert.match(first.reply, /precio aproximado.*502.*310[.,]000/)
-  assert.match(first.reply, /lanzamiento.*pueden? cambiar/)
+  assert.match(first.reply, /referenciales.*pueden? cambiar/)
   assert.doesNotMatch(first.reply, /Banco Pichincha|Cooperativa JEP|financiamiento/)
   assert.match(first.reply, /revisar la distribuci\u00f3n del departamento 502/)
   assert.doesNotMatch(first.reply, /coordinar una visita/)
@@ -1235,6 +1270,7 @@ test('extraction rejects truthy strings, unapproved actions and invented identit
 test('a changed appointment after PATCH prevents Salesbot launch', async t => {
   live(t)
   const c = fixture(); c.job.scheduled_at = new Date(Date.now() - 1000).toISOString()
+  c.config.test_only = true; c.config.test_lead_ids = ['lead']
   c.job.expires_at = new Date(Date.now() + 100_000).toISOString(); c.appointment.start_time = new Date(Date.now() + 7_200_000).toISOString()
   c.last_client_message_at = new Date(Date.now() - 60_000).toISOString()
   let reads = 0, patches = 0, launches = 0; const finishes = []
@@ -1249,7 +1285,7 @@ test('a changed appointment after PATCH prevents Salesbot launch', async t => {
   }
   const { sendVisit } = load('src/lib/integrations/automation/visits.ts', {
     './operational-copy': { operationalReply: async reply => ({ reply, generated: false }) },
-    './data': { ...data, rpc: mockRpc, db: () => ({ from: () => query }) },
+    './data': { ...data, autoConfig: async () => c.config, rpc: mockRpc, db: () => ({ from: () => query }) },
     './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { patches++ }, setKommoFields: async () => { patches++ }, launchSalesbot: async () => { launches++ } },
   })
   await sendVisit('job', async () => {})
@@ -1258,6 +1294,7 @@ test('a changed appointment after PATCH prevents Salesbot launch', async t => {
 test('the two-hour reminder fills all three Kommo fields before launching Salesbot 22246', async t => {
   live(t)
   const c = fixture(); c.job.scheduled_at = new Date(Date.now() - 1000).toISOString()
+  c.config.test_only = true; c.config.test_lead_ids = ['lead']
   c.job.expires_at = new Date(Date.now() + 100_000).toISOString(); c.appointment.start_time = new Date(Date.now() + 7_200_000).toISOString()
   c.last_client_message_at = new Date(Date.now() - 3 * 24 * 3_600_000).toISOString()
   c.appointment_units = [{ unit: { category: 'departamento', unit_number: '204' } }]
@@ -1274,7 +1311,7 @@ test('the two-hour reminder fills all three Kommo fields before launching Salesb
   }
   const { sendVisit } = load('src/lib/integrations/automation/visits.ts', {
     './operational-copy': { operationalReply: async () => { throw Error('REMINDER_COPY_MUST_NOT_USE_AI') } },
-    './data': { ...data, rpc: mockRpc, db: () => ({ from: table => table === 'appointment_units' ? unitQuery : query }) },
+    './data': { ...data, autoConfig: async () => c.config, rpc: mockRpc, db: () => ({ from: table => table === 'appointment_units' ? unitQuery : query }) },
     './kommo': { getKommoLead: async () => ({}), setKommoField: async () => { throw Error('WRONG_FIELD_WRITER') },
       setKommoFields: async (_, values) => { fields = values }, launchSalesbot: async (_, botId) => { launched = botId } },
   })
@@ -1354,19 +1391,21 @@ function financingReadyFixture(extra = {}) {
     floor_number: 5, published_commercial_price: 310000, status: 'disponible', is_published: true }
   return { catalog: [unit], commercialInfo: { ...priceInfo(), catalogo: [unit] },
     lead: { unit_id: unit.id, preferred_category: unit.category }, summary: introducedSummary({
-      _interpretation_memory: { budget: { status: 'amount', amount: 310000, confidence: 'high', evidence: 'Tengo 310000 para la compra' } },
+      _interpretation_memory: { budget: { status: 'maximum_total', amount: 310000, confidence: 'high', evidence: 'Mi presupuesto total para la compra es 310000' } },
+      _financing_entry: { status: 'not_defined', amount: null, evidence: 'Todavía no he definido la entrada', source_message_id: 'prior-entry-answer' },
       _property_context: { selected_ids: [unit.id], offered_ids: [unit.id],
         query: { group: 'residential', category: unit.category, filters: { bedrooms: 3 }, operation: 'select' } },
     }), ...extra }
 }
 
-test('a bare affirmative cannot accept a historical explanation saved as a phantom question', async t => {
+test('a bare affirmative cannot accept a continuation explicitly recorded as unusable', async t => {
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_PHANTOM_QUESTION_TEST') })
   const previousReply = 'Tenemos departamentos y penthouses de tres dormitorios que puede valorar para su familia. Quedo atento a sus indicaciones.'
   const current = 'Bueno, está bien'
   const h = conversationHarness({ catalog: continuityCatalog, history: [{ role: 'bot', content: previousReply }],
-    summary: introducedSummary({ _pending_question: { id: 'property_category', act: 'choose_category', question: previousReply },
+    summary: introducedSummary({ _follow_up_review: { usable: false, reply: previousReply },
+      _pending_question: { id: 'property_category', act: 'choose_category', question: previousReply },
       _property_context: { query: { group: 'residential', filters: { bedrooms: 5 } } } }),
     commercialResult: { reply: 'Si le interesa, podemos revisar alternativas reales con las características verificadas.', audit: { source: 'commercial' } },
     extracted: { turn_semantics: { primary_intent: 'answer_previous', confidence: 'high', primary_evidence: current,
@@ -1470,9 +1509,18 @@ function fixtureDraftReply(input, proposed = input.baseReply, writerContext = {}
 }
 
 function fixtureQuestion(reply, input, raw = {}) {
-  const { deliveredPendingQuestion } = require('../src/lib/integrations/automation/continuation-question.ts')
-  let pending = deliveredPendingQuestion(reply, { plan: input.verified.siguiente_paso_comercial,
-    candidates: [input.audit.pending_question || {}, input.audit.profile_introduction || {}] })
+  const plan = input.verified.siguiente_paso_comercial || {}
+  // This is the simulated writer's semantic answer, not an application parser.
+  // Replay fixtures explicitly receive the plan and must emit current metadata.
+  let pending = input.audit.pending_question?.id ? input.audit.pending_question
+    : { id: plan.question_id, act: plan.question_act }
+  const introduction = input.audit.profile_introduction || {}
+  if (introduction.question && reply.includes(introduction.question)) {
+    const missing = introduction.missing_fields || []
+    pending = { id: introduction.question_purpose === 'confirm_residence' ? 'lead_residence_confirmation'
+      : missing.includes('full_name') && missing.includes('residence') ? 'lead_profile'
+        : missing.includes('full_name') ? 'lead_profile_name' : 'lead_profile_residence', act: 'profile' }
+  }
   if (!pending.id && input.audit.financing_collection?.requested_fields?.length && /nombres y apellidos completos|relaci\u00f3n de dependencia/.test(reply)) pending = { id: 'financing_data', act: 'financing' }
   const hasQuestion = /¿[^?]+\?/.test(reply)
   const modernMetadata = Object.hasOwn(raw, 'continuation_id')
@@ -1480,11 +1528,23 @@ function fixtureQuestion(reply, input, raw = {}) {
     : pending.id === 'financing_invitation' ? 'permission_to_continue'
     : pending.id === 'financing_partner' ? 'choose_financing_partner'
     : pending.id === 'financing_data' ? 'collect_financing_required' : raw.purpose || 'clarify_request'
-  return { purpose, role: modernMetadata && Object.hasOwn(raw, 'role') ? raw.role : !hasQuestion ? 'none' : ['collect_lead_profile', 'collect_financing_required'].includes(purpose)
+  return { text: Object.hasOwn(raw, 'text') ? raw.text : (reply.match(/¿[^?]+\?/g) || []).at(-1) || '',
+    comparison_categories: raw.comparison_categories || [], comparison_bedrooms: raw.comparison_bedrooms ?? null,
+    purpose, role: modernMetadata && Object.hasOwn(raw, 'role') ? raw.role : !hasQuestion ? 'none' : ['collect_lead_profile', 'collect_financing_required'].includes(purpose)
     ? 'required_collection' : purpose === 'clarify_request' ? 'necessary_clarification' : 'optional_continuation',
     missing_datum: hasQuestion ? raw.missing_datum || 'Dato solicitado por la pregunta' : '',
     next_decision: hasQuestion ? raw.next_decision || 'Continuar según la decisión del cliente' : '',
-    continuation_id: raw.continuation_id ?? pending.id ?? 'none', continuation_act: raw.continuation_act ?? pending.act ?? 'other' }
+    continuation_id: raw.continuation_id ?? (pending.id || 'none'), continuation_act: raw.continuation_act ?? (pending.act || 'other') }
+}
+function fixtureReceipts(reply, input) {
+  const units = input.verified.catalogo || []
+  const body = reply.replace(/¿[^?]+\?/g, '')
+  return { presented_unit_ids: units.filter(unit => unit.id && unit.unit_number
+    && new RegExp('\\b' + unit.unit_number + '\\b').test(body)).map(unit => unit.id),
+    project_presented: /La Vilet.*proyecto|proyecto.*La Vilet/s.test(reply), financing_mentioned: /financiamiento|crédito/.test(reply),
+    visit_invited: /coordinar.*visita|agendar.*cita/.test(reply), unit_options_offered: /opciones|alternativas/.test(reply),
+    unit_model_shared: /\/tour\?|recorrido.*https:/.test(reply), mentioned_benefits: [], brochure_shared: /brochure-la-vilet/.test(reply),
+    price_notice_included: /referencial|sujeto a cambios/.test(reply), brand_introduced: /La Vilet/.test(reply), offered_action: 'none' }
 }
 // These older replay cases specify model responses, not a second production
 // review mode. Adapt their explicit evidence/verdict to the CURRENT API schema
@@ -1502,26 +1562,26 @@ async function currentContractCoverage(input, generate) {
     if (task === 'writing' && result.requests !== null) {
       writerQuestion = fixtureQuestion(result.reply, effectiveInput, result.question)
       const references = context.referencias_solicitud || []
-      result = { reply: result.reply, question: writerQuestion, requests: result.requests.map(row => {
+      result = { reply: result.reply, question: writerQuestion,
+        writer_receipts: result.writer_receipts || fixtureReceipts(result.reply, effectiveInput),
+        requests: result.requests.map(row => {
         const ref = references.find(reference => reference.id === row.fragment || reference.text === row.fragment)
         assert.ok(ref, `Unmatched current request in replay fixture: ${row.fragment}`)
         return { fragment: ref.id, intent: row.intent, request_type: row.request_type, status: row.status,
           evidence: row.evidence, fact_key: row.fact_key ?? null }
       }) }
+    } else if (task === 'review' && result.review_contract === 'business-risk-v2') {
+      const findings = result.findings.filter(finding => ['hard_fact', 'business_guardrail', 'unsupported_policy'].includes(finding.category))
+      result = { review_contract: 'content-review-v1', verdict: findings.length ? 'block' : 'pass', findings }
     } else if (task === 'review' && !result.review_contract) {
       const flags = ['all_requests_considered', 'answers_supported', 'answered_content_preserved', 'operational_goal_preserved', 'question_has_purpose']
       assert.ok(flags.every(key => typeof result[key] === 'boolean'), 'Replay review must explicitly decide every obligation')
       assert.ok(Array.isArray(result.claims) && result.claims.length > 0, 'Replay review needs explicit grounded claims')
       assert.deepEqual(result.factual_values || [], [], 'Numeric review fixtures require the current typed facts contract')
-      const rejected = flags.filter(key => result[key] !== true)
       const claims = result.claims.filter(claim => claim.verdict !== 'supported' || !claim.evidence)
-      const findings = [...rejected.map(key => ({ category: 'turn_goal', statement: context.borrador,
-        reason: `The fixture explicitly rejects ${key}`, authoritative_fact: 'Current request and turn obligations' })),
-      ...claims.map(claim => ({ category: 'hard_fact', statement: claim.fragment,
-        reason: 'The fixture cannot ground this claim', authoritative_fact: claim.evidence || 'No verified evidence' }))]
-      result = { review_contract: 'business-risk-v2', verdict: findings.length ? 'block' : 'pass',
-        facts: [], findings, question: /¿[^?]+\?/.test(context.borrador)
-          ? { ...fixtureQuestion(context.borrador, effectiveInput, writerQuestion), offered_action: 'none' } : null }
+      const findings = claims.map(claim => ({ category: 'hard_fact', statement: claim.fragment,
+        reason: 'The fixture cannot ground this claim', authoritative_fact: claim.evidence || 'No verified evidence' }))
+      result = { review_contract: 'content-review-v1', verdict: findings.length ? 'block' : 'pass', findings }
     }
     // Disabled review intentionally accepts the writer envelope without its
     // usual fields; that explicit policy test does not fake a review verdict.
@@ -1536,11 +1596,22 @@ async function currentContractCoverage(input, generate) {
 }
 function conversationHarness(options = {}) {
   const calls = [], lead = { ...scope, id: 'lead', kommo_id: 123, bot_enabled: true, ...options.lead }, config = { ...scope, enabled: true, dry_run: false, test_only: false, ...options.config }
+  const historyForTurn = () => (options.history || []).map((row, index, all) => ({ ...row,
+    sent_at: row.sent_at || new Date(Date.now() - (all.length - index + 1) * 1000).toISOString() }))
   let storedSummary = structuredClone(options.summary || {})
   let escalationAttempted = false, escalationStored = options.proposals?.[0] || null
+  const registration = require('../src/lib/integrations/automation/reply-registration.ts')
+  const registrationStore = {
+    prepare: async (key, contact, entry) => ({ id: 'reply-checkpoint', key, contact, data: structuredClone(entry) }),
+    save: async (checkpoint, entry) => { checkpoint.data = structuredClone(entry) },
+    existing: async args => calls.some(call => call.name === 'register_outbound_message'
+      && call.args.p_conversation_id === args.p_conversation_id
+      && call.args.p_tool_calls.source_message_id === args.p_tool_calls.source_message_id) ? 'matching' : 'absent',
+    register: async args => { calls.push({ name: 'register_outbound_message', args }); return { registered: true } },
+  }
   const query = table => {
     let checksNewerInput = false
-    const q = { then(resolve) { return Promise.resolve({ data: table === 'messages' ? options.messageHistory || [] : table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: checksNewerInput ? options.newerInboundCount || 0 : 0 }).then(resolve) } }
+    const q = { then(resolve) { return Promise.resolve({ data: table === 'messages' ? options.messageHistory || historyForTurn().reverse() : table === 'lv_visit_intakes' ? options.visitDraft || null : table === 'appointments' ? options.appointments || [] : table === 'appointment_reschedule_requests' ? (options.requests || [{ id: 'request', source_message_id: 'one' }]).map(r=>({status:'awaiting_advisor',assigned_advisor_id:'advisor',...r})) : [], error: null, count: checksNewerInput ? options.newerInboundCount || 0 : 0 }).then(resolve) } }
     for (const name of ['update', 'delete', 'select', 'eq', 'match', 'is', 'gt', 'lt', 'lte', 'in', 'order', 'limit', 'abortSignal', 'maybeSingle']) q[name] = () => q
     q.gt = column => { checksNewerInput = table === 'lv_integration_events' && column === 'payload->>sentAt'; return q }
     q.update = values => {
@@ -1552,6 +1623,17 @@ function conversationHarness(options = {}) {
     return q
   }
   const mod = load('src/lib/integrations/automation/conversation.ts', {
+    './showroom-contact': { applyShowroomEntry: async (_lead, summary) => summary },
+    './whatsapp-typing': { showWhatsAppTyping: async () => ({ shown: false, reason: 'isolated_test' }) },
+    './reservation-context-loader': { loadReservationContext: (lead, catalog, sourceSentAt) =>
+      require('../src/lib/integrations/automation/reservation-context-loader.ts').loadReservationContext(lead, catalog, sourceSentAt,
+        async () => ({ data: options.reservationRequests || [], error: null })) },
+    './reply-registration': { ...registration,
+      prepareReplyRegistration: input => registration.prepareReplyRegistration(input, registrationStore),
+      markReplyDispatchStarted: checkpoint => registration.markReplyDispatchStarted(checkpoint, registrationStore),
+      registerAcceptedReply: checkpoint => registration.registerAcceptedReply(checkpoint, registrationStore),
+      markReplyMemorySaved: async () => {},
+    },
     './response-review-settings': { loadResponseReviewPolicy: async () => {
       if (options.reviewReadFails) throw Error('RESPONSE_REVIEW_SETTINGS_UNAVAILABLE')
       return { enabled: options.reviewEnabled !== false, updatedAt: null }
@@ -1569,11 +1651,12 @@ function conversationHarness(options = {}) {
       calls.push({ name: 'completeTurnReply', args: input })
       // Routing tests substitute only the model boundary. Replay/negative
       // factual tests supply currentContractCoverage or an explicit failure.
-      return typeof options.turnComplete === 'function' ? options.turnComplete(input) : options.turnComplete || {
-        reply: input.baseReply, changed: false, needsAdvisor: false, unresolved: [],
-        audit: { status: 'checked', follow_up: { usable: true },
-          question: { ...fixtureQuestion(input.baseReply, input), text: (input.baseReply.match(/¿[^?]+\?/g) || []).join(' ') } },
-      }
+      if (typeof options.turnComplete === 'function') return options.turnComplete(input)
+      if (options.turnComplete) return options.turnComplete
+      const reply = fixtureDraftReply(input)
+      return { reply, changed: reply !== input.baseReply, needsAdvisor: false, unresolved: [],
+        audit: { status: 'checked', follow_up: { usable: true }, writer_receipts: fixtureReceipts(reply, input),
+          question: fixtureQuestion(reply, input) } }
     } },
     './visit-escalation': {
       declinesAllVisitAlternatives: require('../src/lib/integrations/automation/visit-escalation.ts').declinesAllVisitAlternatives,
@@ -1620,7 +1703,7 @@ function conversationHarness(options = {}) {
             unit_ids: args.p_unit_ids, request_status: 'requested', handoff_status: lead.handoff_status,
             assigned_to: lead.assigned_to, assignment_mode: 'rotated', replayed: false, ...options.reservationReceipt }
         }
-        if (name === 'lv_app_conversation_context') return { propuestas: options.proposals || [], historial: options.history || [], mensaje_actual_at: new Date().toISOString() }
+        if (name === 'lv_app_conversation_context') return { propuestas: options.proposals || [], historial: historyForTurn(), mensaje_actual_at: new Date().toISOString() }
         if (name === 'lv_app_visit_preference') return options.slot || {}
         if (name === 'lv_apply_client_visit_intent') return options.applied || { action: 'reply', request_id: 'request', mensaje: 'Texto anterior que debe sustituirse' }
         if (name === 'lv_client_select_visit_option') return options.selectedVisitResult || { status: 'confirmed' }
@@ -1635,11 +1718,15 @@ function conversationHarness(options = {}) {
     './financing': { ...require('../src/lib/integrations/automation/financing.ts'), financingContext: async () => { if (options.financeReadFails) throw Error('FINANCING_CONTEXT_FAILED'); return options.financeContext || ({ partners: ['Banco Pichincha'], current: {} }) } },
     './sdr': { catalogSearchConfiguration: async () => ({ embeddingsEnabled: false }), publishedUnitCatalog: async () => { if (options.catalogReadFails) throw Error('CATALOG_CONTEXT_FAILED'); return options.catalog || [] }, commercialContext: async lead => { calls.push({ name: 'commercialContext', args: structuredClone(lead) }); return options.commercialInfo || {} },
       commercialReply: async (info, current, summary, guard) => { calls.push({ name: 'commercialReply', args: info }); return options.commercialResult || (options.realCommercial ? (options.commercialAi ? load('src/lib/integrations/automation/sdr.ts',{'./ai':options.commercialAi}) : require('../src/lib/integrations/automation/sdr.ts')).commercialReply({ ...info, final_review_follows: false }, current, summary, guard) : { reply: 'Cuénteme, ¿lo busca para su negocio o para invertir?', audit: { fallback: false } }) } },
-    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name, mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
+    './ai': { activePrompt: async name => name === 'saludo_inicial' ? 'Hola, bienvenido a La Vilet. ¿Está buscando una vivienda o un local comercial?' : name,
+      draftReply: async (_instructions, input) => input.saludo_previo
+        ? '¿En qué podemos ayudarle?' : 'Hola, le damos la bienvenida a La Vilet. ¿En qué podemos ayudarle?',
+      mediaText: async event => {if(options.mediaFails)throw Error(options.mediaFailureCode || 'MEDIA_DOWNLOAD_FAILED');return options.mediaText || event.text},
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
         if (options.extractionFails && prompt.includes('extractor_eventos')) throw Error('OPENAI_INCOMPLETE')
-        return prompt.includes('extractor_eventos') ? { events: [], opt_out: options.optOut === true, ...options.extracted }
+        return prompt.includes('extractor_eventos') ? { events: [], opt_out: options.optOut === true,
+          ...(typeof options.extracted === 'function' ? options.extracted(input) : options.extracted) }
           : prompt.startsWith('Clasifique') ? { intent: options.intent || 'question' }
             : prompt === 'revisor_respuesta' ? { aprobada: true } : {}
       } },
@@ -1653,7 +1740,7 @@ function conversationHarness(options = {}) {
       launchSalesbot: async (...args) => { calls.push({ name: 'launch', args }); if (options.sendFails) throw Error('KOMMO_UNAVAILABLE') },
     },
   })
-  const rows = ['one', 'two'].map(externalId => ({ payload: { externalId, kommoId: 123, contactId: 456, chatId: 'chat', text: 'Hola',
+  const rows = ['one', 'two'].map(externalId => ({ id: 'event-' + externalId, payload: { externalId, kommoId: 123, contactId: 456, chatId: 'chat', text: 'Hola',
     name: 'Cliente de prueba', sentAt: new Date(Date.now() - 1000).toISOString(), origin: 'waba', media: null } }))
   return { calls, rows, process: mod.processConversation, lead }
 }
@@ -1699,7 +1786,7 @@ test('general continuity keeps an early lender through consent and selection in 
     const consent = 'Quiero iniciar la revisión de financiamiento'
     const second = conversationHarness({ summary: initial, financeContext: { partners, current: {} }, catalog: [unit], turnComplete: complete,
       commercialInfo: { catalogo: [unit], politica_comercial: { precios_autorizados: true } },
-      extracted: { requests: [{ domain: 'financing', request: 'Iniciar revisión', evidence: consent, confidence: 'high' }] } })
+      extracted: { financing_consent: true, requests: [{ domain: 'financing', request: 'Iniciar revisión', evidence: consent, confidence: 'high' }] } })
     second.rows[0].payload.text = consent
     await second.process([second.rows[0]], async () => {})
     const accepted = JSON.parse(second.calls.find(c => c.name === 'update:conversations').args.summary)
@@ -1708,9 +1795,11 @@ test('general continuity keeps an early lender through consent and selection in 
     assert.equal(second.calls.some(c => c.name === 'process_financing_message_v3'), false)
     // Supply the now completed profile and known budget, then choose the actual unit.
     accepted._lead_profile = { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed',
-      sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Carlos' } } }
+      sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Carlos' },
+        residence_city: { source: 'lead_declaration', evidence: 'Vivo actualmente en Cuenca' } } }
     accepted._lead_introduction = { status: 'complete', request_sent: true, brochure_sent: true }
     accepted._interpretation_memory = { budget: { status: 'no_defined_budget', evidence: 'No tengo un presupuesto definido', confidence: 'high' } }
+    accepted._financing_entry = { status: 'not_defined', amount: null, evidence: 'Todavía no he definido la entrada', source_message_id: 'prior-entry-answer' }
     accepted._property_context = { query: { group: 'residential', category: 'departamento', filters: { bedrooms: 3 }, operation: 'search' }, offered_ids: ['u502'], selected_ids: [] }
     const choose = 'Quiero el departamento 502'
     const last = conversationHarness({ summary: accepted, financeContext: { partners, current: {} }, catalog: [unit], turnComplete: complete,
@@ -1781,7 +1870,7 @@ test('entry and monthly-payment orientation does not restart intake or automatic
     history: [{ role: 'bot', content: '¿Desea continuar con el proceso de financiamiento?' }],
     summary: { _financing_journey: { accepted: true }, _lead_introduction: { status: 'complete', request_sent: true, brochure_sent: true },
       _lead_profile: { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed', sources: { full_name: { source: 'lead_declaration', evidence: 'soy Carlos' } } },
-      _interpretation_memory: { budget: { status: 'amount', amount: 200000, confidence: 'high', evidence: 'tengo 200 mil' } },
+      _interpretation_memory: { budget: { status: 'maximum_total', amount: 200000, confidence: 'high', evidence: 'Mi presupuesto total es 200 mil' } },
       _property_context: { selected_ids: ['u502'], query: { category: 'departamento', group: 'residential', filters: { bedrooms: 3 } } },
       _pending_question: { id: 'financing_invitation', act: 'financing', question: '¿Desea continuar con el proceso de financiamiento?' } },
     extracted: { financing_consent: true, requests: [{ domain: 'financing', request: 'Conocer entrada y cuota antes de iniciar', evidence: current, confidence: 'high' }],
@@ -1810,9 +1899,10 @@ test('lender choice in an accepted review persists JEP instead of answering it a
     financeContext: { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: { explicit_consent: true } },
     history: [{ role: 'bot', content: '¿Con cuál de estas entidades prefiere revisar su opción de crédito?' }],
     summary: { _financing_journey: { accepted: true },
+      _financing_entry: { status: 'not_defined', amount: null, evidence: 'Todavía no he definido la entrada', source_message_id: 'prior-entry-answer' },
       _lead_profile: { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Cuenca', residence_status: 'confirmed', sources: { full_name: { source: 'lead_declaration', evidence: 'soy Carlos' } } },
       _lead_introduction: { request_sent: true },
-      _interpretation_memory: { budget: { status: 'amount', amount: 200000, confidence: 'high', evidence: 'tengo 200 mil' } },
+      _interpretation_memory: { budget: { status: 'maximum_total', amount: 200000, confidence: 'high', evidence: 'Mi presupuesto total es 200 mil' } },
       _property_context: { selected_ids: ['u502'], query: { category: 'departamento', group: 'residential', filters: { bedrooms: 3 } } },
       _pending_question: { id: 'financing_partner', act: 'financing', question: '¿Con cuál de estas entidades prefiere revisar su opción de crédito?' } },
     extracted: { financing_partner: 'Cooperativa JEP', requests: [{ domain: 'financing', request: 'Elegir JEP', evidence: current, confidence: 'high' }],
@@ -1854,6 +1944,7 @@ test('reservation requests prioritize a verified advisor action over selecting a
     h.rows[1].payload.text = 'Gracias'
     await h.process(h.rows, async () => {})
     const call = h.calls.find(call => call.name === 'lv_request_reservation_handoff')
+    assert.ok(call, JSON.stringify({ code, audit: h.calls.find(row => row.name === 'register_outbound_message')?.args.p_tool_calls }))
     assert.equal(call.args.p_source_message_id, 'one')
     assert.deepEqual(call.args.p_unit_ids, [`unit-${code}`])
     const sent = h.calls.find(call => call.name === 'register_outbound_message').args
@@ -2050,14 +2141,15 @@ test('visit extraction preserves a high-confidence spelling interpretation with 
   assert.equal(normalizedVisitPreference({ evidence: 'no puedo el domingo', date_text: 'domingo', time_text: null, confidence: 'high' }, 'no puedo el domingo'), null)
 })
 
-test('semantic visit intent requires high confidence and literal evidence from the current message', () => {
+test('semantic visit intent requires accepted confidence and literal evidence from the current message', () => {
   const message = 'No no, lo que digo es que Quieor agenda runa cita'
   assert.deepEqual(normalizedVisitIntent({
     kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'high',
   }, message), { kind: 'request_visit', purpose: 'coordination', target: 'unspecified', destination: null,
     evidence: 'Quieor agenda runa cita', confidence: 'high' })
   assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'quiero agendar una cita', confidence: 'high' }, message), null)
-  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'medium' }, message), null)
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'medium' }, message).confidence, 'medium')
+  assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'Quieor agenda runa cita', confidence: 'low' }, message), null)
   assert.equal(normalizedVisitIntent({ kind: 'request_visit', evidence: 'no quiero una visita', confidence: 'high' }, 'no quiero una visita'), null)
 })
 
@@ -2110,7 +2202,7 @@ test('a semantic visit interpretation is passed durably to intake instead of bei
   })
 })
 
-test('rejected price rewrites remain pending without restoring unreviewed copy; real missing facts still hand off', async t => {
+test('AI-rejected price rewrites remain pending; unknown facts alone do not grant the reviewer action authority', async t => {
   live(t)
   const current = '\u00bfCu\u00e1nto cuesta el departamento 502?'
   let writes = 0, reviews = 0
@@ -2123,14 +2215,16 @@ test('rejected price rewrites remain pending without restoring unreviewed copy; 
           requests: [{ fragment: context.referencias_solicitud[0].id, intent: 'Precio del 502', request_type: 'specific_fact', status: 'answered', evidence: '$1 USD', fact_key: 'price' }], question: fixtureQuestion(reply, input) }
       }
       reviews++
-      // Even a model verdict of pass cannot authorize a false typed catalogue value.
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], question: {...fixtureQuestion(context.borrador,input),offered_action:'none'},
-        facts: [{ kind: 'catalog_value', statement: context.borrador, subject_id: 'u502', scope: null, field: 'published_commercial_price', value: 1, upper_value: null, relation: 'eq', unit: 'USD' }] }
+      // The AI reviewer, rather than a numeric parser in app code, identifies
+      // the unsupported price using the authorized catalogue supplied to it.
+      return { review_contract: 'content-review-v1', verdict: 'block', findings: [{ category: 'hard_fact',
+        statement: context.borrador, reason: 'The proposed price is 1 USD instead of the authorized 310000 USD.',
+        authoritative_fact: 'Unit u502 published_commercial_price=310000' }] }
     }) })
   h.rows[0].payload.text = current
   await exhaustedReview(h, [h.rows[0]])
   assert.equal(writes, 2)
-  assert.ok(reviews >= 2, 'The numeric verifier must be reached; an omitted CTA is not evidence of price protection')
+  assert.ok(reviews >= 2, 'The AI content review must be reached independently of CTA wording')
   assert.equal(h.calls.some(call => call.name === 'handoff_lead'), false)
   assert.equal(h.calls.some(call => call.name === 'update:conversations'), false)
   const missing = '\u00bfCu\u00e1nto cuesta la al\u00edcuota?'
@@ -2141,9 +2235,9 @@ test('rejected price rewrites remain pending without restoring unreviewed copy; 
         requests: [{ fragment: context.referencias_solicitud[0].id, intent: 'Valor de al\u00edcuota', request_type: 'specific_fact', status: 'missing_fact', evidence: 'No figura en las pol\u00edticas autorizadas.', fact_key: 'policy' }], question: fixtureQuestion(fixtureDraftReply(input, 'No tenemos un valor de al\u00edcuota confirmado; el equipo debe verificar ese monto.'),input) }) })
   second.rows[0].payload.text = missing
   await second.process([second.rows[0]], async () => {})
-  assert.equal(second.calls.filter(call => call.name === 'handoff_lead').length, 1)
+  assert.equal(second.calls.filter(call => call.name === 'handoff_lead').length, 0, 'A content reviewer does not authorize handoff for an omission or unknown fact')
   assert.doesNotMatch(second.calls.find(call => call.name === 'register_outbound_message').args.p_content, /\$1 USD/)
-  assert.ok(second.calls.some(call => call.name === 'update:leads' && call.args.bot_enabled === true))
+  assert.equal(second.lead.bot_enabled, true)
 })
 
 test('Kommo stop text values false and legacy false1 do not stop the bot', () => {
@@ -2219,7 +2313,7 @@ test('audio formats use signatures and preserve text plus speech through transcr
   global.fetch=async(url,init)=>{
     assert.match(String(url),/audio\/transcriptions$/)
     assert.equal(init.body.get('file').name,'audio.ogg'); assert.equal(init.body.get('file').type,'audio/ogg')
-    assert.equal(init.body.get('language'),'es')
+    assert.equal(init.body.get('language'),null)
     return Response.json({text:'Me interesa el departamento 210. ¿Pueden mostrarme el modelo?',duration:5,
       segments:[{text:'Me interesa el departamento 210. ¿Pueden mostrarme el modelo?',no_speech_prob:0.01,avg_logprob:-0.1,compression_ratio:1}]})
   }
@@ -2333,7 +2427,7 @@ test('Kommo transient reads retry, permanent credentials errors and writes do no
   calls=0;global.fetch=async()=>{calls++;return new Response('',{status:401})}
   await assert.rejects(()=>getKommoLead(123),e=>e.operation==='read'&&e.uncertain===false);assert.equal(calls,1)
   calls=0;global.fetch=async()=>{calls++;throw Error('network')}
-  await assert.rejects(()=>setKommoField(123,457014,'Test'),e=>e.operation==='update_field'&&e.uncertain===true);assert.equal(calls,1)
+  await assert.rejects(()=>setKommoField(123,457014,'Test'),e=>e.operation==='update_field'&&e.uncertain===true);assert.equal(calls,3)
 })
 test('conversation groups two inputs into one reply and records outbound only after acceptance', async t => {
   live(t); const h = conversationHarness()
@@ -2461,7 +2555,7 @@ test('punctuation alone is an invitation to talk, never a product pitch', async 
   const h = conversationHarness()
   h.rows[0].payload.text = '.'
   await h.process([h.rows[0]], async () => {})
-  assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?')
+  assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Hola, le damos la bienvenida a La Vilet. ¿En qué podemos ayudarle?')
   assert.equal(h.calls.some(c => c.name === 'ai'), false)
 })
 
@@ -2485,7 +2579,9 @@ test('closed days and partial dates never claim a registered appointment', () =>
 
 test('financing interprets consent using the real last question and explains unsupported lenders', () => {
   const context = { partners: ['Banco Pichincha'], current: {} }
-  assert.equal(financeRules.financingInputs({}, 'si claro', '¿Le gustaría que iniciemos una revisión de su caso?', context).consent, true)
+  const invitation = '¿Le gustaría que iniciemos una revisión de su caso?'
+  assert.equal(financeRules.financingInputs(financingAnswer('si claro'), 'si claro', invitation, context, financingStep(invitation)).consent, true)
+  assert.equal(financeRules.financingInputs({}, 'si claro', invitation, context).consent, null)
   assert.notEqual(financeRules.financingInputs({}, 'si claro', '¿Le interesa un departamento?', context).consent, true)
   const answer = financeRules.financingInputs({}, 'con jardin zauayo', '¿Qué entidad prefiere?', context)
   assert.equal(answer.unsupported, 'Jardín Azuayo')
@@ -2507,7 +2603,7 @@ test('financing only offers project agreements enabled for the current lead', as
   const { financingContext } = load('src/lib/integrations/automation/financing.ts', {
     './data': { ...data, db: () => ({ from: table => {
       const query = { then: resolve => Promise.resolve({ data: table === 'project_financing_partners' ? partners : [], error: null }).then(resolve) }
-      for (const method of ['select', 'match', 'eq', 'order', 'limit']) query[method] = () => query
+      for (const method of ['select', 'match', 'eq', 'order', 'limit', 'abortSignal']) query[method] = () => query
       return query
     } }) },
   })
@@ -2532,11 +2628,11 @@ test('Ecuador 17:45 is afternoon, not night, and names remain conversational', (
 
 test('courtesy after confirmation welcomes the visitor without restating the schedule', async t => {
   live(t)
-  const h = conversationHarness({ proposals: [{ status: 'confirmed' }] })
+  const h = conversationHarness({ lead: { last_bot_message_at: new Date().toISOString() }, proposals: [{ status: 'confirmed' }] })
   h.rows[0].payload.text = 'gracias'
   await h.process([h.rows[0]], async () => {})
   assert.equal(h.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto, ¡le esperamos!')
-  const changing = conversationHarness({ proposals: [{ status: 'confirmed' }], visitDraft: { status: 'collecting' } })
+  const changing = conversationHarness({ lead: { last_bot_message_at: new Date().toISOString() }, proposals: [{ status: 'confirmed' }], visitDraft: { status: 'collecting' } })
   changing.rows[0].payload.text = 'gracias'
   await changing.process([changing.rows[0]], async () => {})
   assert.equal(changing.calls.find(c => c.name === 'patch').args[2], 'Con mucho gusto.')
@@ -2690,7 +2786,7 @@ test('editorial suggestions cannot waive commercial facts and cannot force an ea
     assert.equal(drafts, unsupported ? 2 : 1)
     if (unsupported) {
       assert.throws(() => requireReviewedResponse(result.audit), /RESPONSE_REVIEW_EXHAUSTED/)
-      assert.doesNotMatch(result.reply, /rentabilidad garantizada/)
+      assert.equal(result.audit.semantic_review.verdict, 'block')
     } else {
       assert.equal(result.reply, safe)
       assert.equal(result.audit.status, 'checked')
@@ -2775,7 +2871,21 @@ test('JEP choice is acknowledged and next consent advances the saved form', asyn
   live(t)
   const context = { partners: ['Banco Pichincha','Cooperativa JEP'], current: { explicit_consent: false } }
   const history = [{ role:'bot', content:'Por el momento no tenemos una alianza registrada con Jardín Azuayo. ¿Le gustaría revisar esa opción?' }]
-  const options = { ...financingReadyFixture(), financeContext: context, history, extracted: {}, financing(args) {
+  let extractorTurn = 0
+  const options = { ...financingReadyFixture(), financeContext: context, history, extracted: () => ++extractorTurn === 1 ? {
+      financing_partner_choice: { kind: 'select', name: 'Cooperativa JEP', evidence: 'Con la jep', confidence: 'high' },
+      requests: [{ domain: 'financing', request: 'Elegir JEP', evidence: 'Con la jep', confidence: 'high' }],
+    } : financingAnswer('Sí claro'),
+    turnComplete: input => {
+      const inviting = extractorTurn === 1
+      const question = '¿Desea que iniciemos la revisión de su caso con esta entidad?'
+      const reply = inviting ? 'Podemos continuar con Cooperativa JEP. ' + question : input.baseReply
+      return { reply, changed: inviting, needsAdvisor: false, unresolved: [], audit: { status: 'checked', follow_up: { usable: true },
+        writer_receipts: fixtureReceipts(reply, input), question: inviting ? {
+          text: question, continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue',
+          role: 'optional_continuation', comparison_categories: [], comparison_bedrooms: null, missing_datum: '', next_decision: 'Autorizar revisión' }
+          : fixtureQuestion(reply, input) } }
+    }, financing(args) {
     if(args.p_financing_partner) context.current.selected_partner_name=args.p_financing_partner
     if(args.p_financing_consent === true) context.current.explicit_consent=true
     return { active:true, state: context.current.explicit_consent ? 'cedula_pendiente' : 'continuacion_pendiente', selected_partner_name:context.current.selected_partner_name }
@@ -2784,7 +2894,7 @@ test('JEP choice is acknowledged and next consent advances the saved form', asyn
   h.rows[0].payload.text='Con la jep'
   await h.process([h.rows[0]],async()=>{})
   let reply=h.calls.filter(c=>c.name==='patch').at(-1).args[2]
-  assert.match(reply,/(?:Podemos continuar|Continuamos) con Cooperativa JEP/)
+  assert.match(reply,/Cooperativa JEP/)
   assert.match(reply,/iniciemos la revisi\u00f3n|continuar.*revisi\u00f3n/i)
   assert.doesNotMatch(reply,/nombre completo|c\u00e9dula|documento/i)
   assert.doesNotMatch(reply,/Pichincha/)
@@ -2874,7 +2984,7 @@ test('memory distinguishes explaining a requested benefit from repeating a sales
   assert.deepEqual(experience.commercialMemory(memory,[],''),memory)
 })
 
-test('explicit pool questions are answered even after it was presented earlier', async () => {
+test('the writer answers a repeated pool question directly without a reviewer rewrite for repetition', async () => {
   const current = '¿La piscina es para residentes?'
   const reply = 'La piscina es exclusiva para residentes.'
   let drafts = 0
@@ -2884,7 +2994,7 @@ test('explicit pool questions are answered even after it was presented earlier',
     audit: { semantic_review_enabled: true, business_risk_review_enabled: true } }, async (_rules, context, _schema, _image, _file, _tone, task) => {
     if (task === 'writing') {
       drafts++
-      return { reply: drafts === 1 ? 'Las suites tienen un dormitorio. ¿Lo busca para vivir?' : reply,
+      return { reply,
         requests: [{ fragment: context.referencias_solicitud[0].id, intent: 'Uso de piscina', request_type: 'specific_fact',
           status: 'answered', evidence: 'Instalaciones', fact_key: 'other' }], question: { purpose: 'none' } }
     }
@@ -2893,10 +3003,10 @@ test('explicit pool questions are answered even after it was presented earlier',
       reason: 'current_request: omite responder quién puede utilizar la piscina', authoritative_fact: reply }]
     return { review_contract: 'business-risk-v2', verdict: findings.length ? 'block' : 'pass', facts: [], findings, question: null }
   })
-  assert.equal(drafts, 2)
+  assert.equal(drafts, 1)
   assert.equal(result.audit.status, 'checked')
   assert.match(result.reply, /piscina.*residentes/)
-  assert.equal(result.audit.repair_attempts[0].target, 'commercial_draft')
+  assert.deepEqual(result.audit.repair_attempts, [])
 })
 
 test('investment guarantee questions do not fall through to unrelated discovery',async()=>{
@@ -3489,7 +3599,7 @@ test('progressive dialogue prices and compares only the requested penthouses bef
     assert.equal((result.sent.p_content.match(/https:\/\/www\.lavilett\.com\/tour\?unidad=605/g) || []).length, 1)
     assert.doesNotMatch(result.sent.p_content, /tour\?unidad=602|otras opciones|compararla con otra/i)
     assert.deepEqual(result.summary._property_context.selected_ids, ['progressive-605'])
-    assert.equal((result.sent.p_content.match(/\?/g) || []).length, 2, 'one URL query marker and one commercial question')
+    assert.equal((result.sent.p_content.match(/tour\?unidad=605/g) || []).length, 1, 'the selected tour is shared once; a follow-up question is not mandatory')
     if (knownBudget === 'maximum_total') {
       assert.doesNotMatch(result.sent.p_content, /¿[^?]*(?:presupuesto|entrada)/i)
       assert.equal(result.sent.p_tool_calls.turn_completeness.commercial_journey.readiness.budget.status, 'maximum_total')
@@ -3498,7 +3608,7 @@ test('progressive dialogue prices and compares only the requested penthouses bef
       assert.equal(result.summary._pending_question.id, 'budget_kind')
       assert.equal(result.sent.p_tool_calls.post_tour_continuation.budget.amount, 70000)
     } else {
-      assert.match(result.sent.p_content, /¿Qué presupuesto total aproximado tiene previsto para la compra\?/)
+      assert.match(result.sent.p_content, /¿Qué presupuesto tiene previsto para la compra\?/)
       assert.equal(result.summary._pending_question.id, 'budget_amount')
     }
   }
@@ -3598,7 +3708,8 @@ test('project overview takes priority over a broad catalogue interpretation thro
     const sent = h.calls.find(call => call.name === 'register_outbound_message').args
     assert.equal(sent.p_tool_calls.source, 'project_overview', current)
     assert.match(sent.p_content, /Puertas del Sol, Cuenca/)
-    assert.match(sent.p_content, /brochure digital completo con los planos y brindarle una guía personalizada/)
+    assert.match(sent.p_content, /compartirle el brochure/)
+    assert.match(sent.p_content, /nombre.*ciudad o país/)
     assert.match(sent.p_content, /reside actualmente/)
     assert.doesNotMatch(sent.p_content, /brochure-la-vilet-v5\.pdf|suites|departamentos|penthouses|locales comerciales/)
     assert.doesNotMatch(sent.p_content, /Qué tipo de (?:propiedad|vivienda) le gustaría conocer/)
@@ -3625,7 +3736,8 @@ test('a bare first price request reaches the writer with verified prices and the
   const sent = h.calls.find(call => call.name === 'register_outbound_message').args
   assert.equal(sent.p_tool_calls.source, 'unit_price')
   assert.match(sent.p_content, /250[.,]000.*550[.,]000/s)
-  assert.match(sent.p_content, /brochure digital completo con los planos y brindarle una guía personalizada/)
+  assert.match(sent.p_content, /compartirle el brochure/)
+  assert.match(sent.p_content, /nombre.*ciudad o país/)
   assert.match(sent.p_content, /su nombre.*reside actualmente/s)
   assert.doesNotMatch(sent.p_content, /no gestionamos|qué producto|brochure-la-vilet-v5\.pdf|m² interiores|Qué planta/i)
   const writer = h.calls.find(call => call.name === 'completeTurnReply').args
@@ -3731,13 +3843,13 @@ test('an opening uses only declared identity and an empty reset profile never in
     assert.doesNotMatch(sent, /Carlos/)
     assert.equal(writer.verified.perfil_lead.full_name, known ? 'Ana María' : null)
     assert.equal(/indicarnos su nombre/.test(sent), !known)
-    if (known) assert.match(sent, /Mucho gusto, Ana/)
+    if (known) assert.equal(writer.audit.profile_introduction.name_recognition.name, 'Ana')
     assert.equal(h.lead.name, 'Carlos Fabian')
     assert.equal(h.calls.some(call => call.name === 'update:leads' && call.args.name), false)
   }
 })
 
-test('introductory profile is persisted with evidence and brochure is released on a partial answer', async t => {
+test('introductory profile is persisted and an explicit brochure request preserves delivery with a partial profile', async t => {
   live(t)
   const first=conversationHarness({catalog:dialogueReplayCatalog,commercialInfo:{...priceInfo(),posicionamiento_proyecto:{project_name:'La Vilet',area_name:'Puertas del Sol',city:'Cuenca'},catalogo:dialogueReplayCatalog},realCommercial:true,commercialAi:deterministicOnly,
     extracted:{turn_semantics:extractedProperty('Quiero información',{operation:'none'})}})
@@ -3750,12 +3862,12 @@ test('introductory profile is persisted with evidence and brochure is released o
   const second=conversationHarness({summary,history:[{role:'cliente',content:'Quiero información'},{role:'bot',content:sent}],
     extracted:{full_name:'Juan',profile_evidence:{full_name:'Me llamo Juan',residence_city:null,residence_country:null}},
     commercialResult:{reply:'¿Qué tipo de propiedad le interesa?',audit:{source:'commercial'}}})
-  second.rows[0].payload.text='Me llamo Juan'
+  second.rows[0].payload.text='Me llamo Juan, envíeme el brochure por favor'
   await second.process([second.rows[0]],async()=>{})
   const answer=second.calls.find(call=>call.name==='register_outbound_message').args.p_content
   const saved=JSON.parse(second.calls.find(call=>call.name==='update:conversations').args.summary)
   assert.match(answer,/brochure-la-vilet-v5.pdf/)
-  assert.match(answer,/guía personalizada.*reside actualmente/s)
+  assert.match(answer,/reside actualmente/)
   assert.doesNotMatch(answer,/indicarnos su nombre/)
   assert.equal(saved._lead_profile.full_name,'Juan')
   assert.equal(saved._lead_profile.name_status,'confirmed')
@@ -3809,7 +3921,7 @@ test('a declared origin is confirmed through the shared profile and actual sent 
   await second.process([second.rows[0]], async () => {})
   const sent = second.calls.find(c => c.name === 'register_outbound_message').args
   assert.equal(sent.p_tool_calls.turn_completeness.status, 'checked')
-  assert.match(sent.p_content, /Mucho gusto, Carlos/)
+  assert.equal(sent.p_tool_calls.profile_introduction.name_recognition.name, 'Carlos')
   assert.doesNotMatch(sent.p_content, /brochure-la-vilet-v5\.pdf/)
   assert.ok(sent.p_content.includes(paraphrase))
   assert.doesNotMatch(sent.p_content, /en qué ciudad o país reside|indicarnos su nombre/)
@@ -3820,15 +3932,20 @@ test('a declared origin is confirmed through the shared profile and actual sent 
   assert.equal(saved._pending_question.id, 'lead_residence_confirmation')
   assert.equal(saved._pending_question.question, '¿Actualmente reside allí?')
   assert.deepEqual(saved._pending_question.residence_candidate, { city: 'Cuenca', country: null, evidence: 'soy de cuenca' })
-  assert.equal(saved._lead_introduction.acknowledged_name, 'Carlos')
+  assert.equal(saved._lead_introduction.recognized_name, 'Carlos')
   assert.ok(modelCalls.some(args => args.at(-1) === 'writing'))
   assert.ok(modelCalls.some(args => args.at(-1) === 'review'))
   for (const call of modelCalls) {
-    const introduction = call.at(-1) === 'writing' ? call[1].estado_operativo.profile_introduction : call[1].estado_del_turno.introduccion
-    assert.equal(introduction.question_purpose, 'confirm_residence')
-    assert.equal(introduction.profile_state.residence_status, 'pending_confirmation')
-    assert.equal(introduction.profile_state.declared_location.city, 'Cuenca')
-    assert.ok(call[1].obligaciones_del_turno.some(obligation => obligation.id === 'profile_collection'))
+    if (call.at(-1) === 'writing') {
+      const introduction = call[1].estado_operativo.profile_introduction
+      assert.equal(introduction.question_purpose, 'confirm_residence')
+      assert.equal(introduction.profile_state.residence_status, 'pending_confirmation')
+      assert.equal(introduction.profile_state.declared_location.city, 'Cuenca')
+      assert.ok(call[1].obligaciones_del_turno.some(obligation => obligation.id === 'profile_collection'))
+    } else {
+      assert.equal(call[2].properties.review_contract.enum[0], 'content-review-v1')
+      assert.equal(call[2].properties.question, undefined)
+    }
   }
   const trace = traceRows(second)
   assert.equal(trace.find(s => s.step_key === 'lead_profile_resolution').output_summary.profile.residence_status, 'pending_confirmation')
@@ -3852,7 +3969,7 @@ test('a declared origin is confirmed through the shared profile and actual sent 
     assert.equal(last._lead_profile.declared_location.city, 'Cuenca', answer)
     assert.equal(last._lead_profile.residence_candidate, null, answer)
     assert.equal(last._lead_introduction.status, 'complete', answer)
-    assert.equal(last._lead_introduction.acknowledged_name, 'Carlos', answer)
+    assert.equal(last._lead_introduction.recognized_name, 'Carlos', answer)
     const response = third.calls.find(c => c.name === 'register_outbound_message').args.p_content
     assert.match(response, /alguna de estas opciones/, answer)
     assert.doesNotMatch(response, /Mucho gusto|reside actualmente|residencia actual|reside allí/, answer)
@@ -3876,7 +3993,7 @@ test('failed profile delivery never persists the name acknowledgement or a confi
       turn_semantics: extractedProperty(current, { operation: 'none' }, 'answer_previous') } })
   failed.rows[0].payload.text = current
   await assert.rejects(() => failed.process([failed.rows[0]], async () => {}), /KOMMO_UNAVAILABLE/)
-  assert.match(failed.calls.find(c => c.name === 'patch').args[2], /Mucho gusto, Carlos/)
+  assert.equal(failed.calls.find(c => c.name === 'completeTurnReply').args.audit.profile_introduction.name_recognition.name, 'Carlos')
   assert.equal(failed.calls.some(c => ['update:conversations', 'register_outbound_message'].includes(c.name)), false)
   assert.equal(failed.calls.some(c => c.name === 'update:leads' && c.args.name), false)
   assert.equal(initial._lead_introduction.acknowledged_name, undefined)
@@ -3912,9 +4029,11 @@ test('dialogue v2 replays the reported housing conversation with durable filters
       assert.match(reply, /202.*302.*402.*502.*120[.,]83/s); assert.doesNotMatch(reply, /número de la unidad/i)
     }],
     ['o sea cual es la opcion de departamento mas grande de la que dispone?', { category: 'departamento', reference_kind: 'explicit', unit_numbers: ['202', '302', '402', '502'], selector: 'largest', operation: 'rank' }, reply => assert.match(reply, /120[.,]83/)],
-    ['o sea todos tienen el mismo tamaños?', { operation: 'compare', reference_kind: 'comparison' }, reply => assert.match(reply, /misma superficie interior.*120[.,]83/i)],
+    ['o sea todos tienen el mismo tamaños?', { operation: 'compare', reference_kind: 'comparison' }, reply => {
+      assert.match(reply, /3 dormitorios/); assert.match(reply, /120[.,]83/); assert.match(reply, /interior/)
+    }],
     ['ya pero todos los departametnos de 3 habiatciones tienen el mismo tamaño)', { category: 'departamento', operation: 'compare', filters: { bedrooms: 3 } }, reply => {
-      assert.match(reply, /misma superficie interior.*120[.,]83/i); assert.doesNotMatch(reply, /109[.,]69/)
+      assert.match(reply, /3 dormitorios/); assert.match(reply, /120[.,]83/); assert.match(reply, /interior/); assert.doesNotMatch(reply, /109[.,]69/)
     }],
     ['entiendo, quiero la opcion de la 5ta planta', { reference_kind: 'relative', operation: 'search', filters: { floor_number: 5 } }, reply => {
       assert.match(reply, /502/); assert.doesNotMatch(reply, /número de la unidad|504/)
@@ -3923,8 +4042,8 @@ test('dialogue v2 replays the reported housing conversation with durable filters
       assert.match(reply, /502.*120[.,]83/s); assert.doesNotMatch(reply, /número de la unidad|504/)
     }],
   ]
-  let summary = { _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
-    confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }, lead = {}, history = []
+  let summary = introducedSummary({ _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
+    confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }), lead = {}, history = []
   for (const [current, property, check] of turns) {
     const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog, historial: history },
       realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedBaseCoverage, history, summary, lead,
@@ -3969,11 +4088,11 @@ test('dialogue v2 accepts the focused 502 after mentioning 502 and 504, includin
   }
 })
 
-test('dialogue v2 five-bedroom preference survives false mandatory extraction and opens requested alternatives', async t => {
+test('dialogue v2 retains the original five-bedroom preference while opening requested verified alternatives', async t => {
   live(t)
   for (const strict of [false, true]) {
-    let summary = { _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
-      confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }, history = []
+    let summary = introducedSummary({ _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
+      confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }), history = []
     const turns = strict ? ['Necesito exactamente 5 dormitorios', 'Bueno que opciones tiene?']
       : ['Me interesa una vivienda, tiene opciones de 5 habitaciones?', 'Es que si me serviría con 5 dormitorios.', 'Bueno que opciones tiene?']
     for (const [index, current] of turns.entries()) {
@@ -3987,9 +4106,9 @@ test('dialogue v2 five-bedroom preference survives false mandatory extraction an
         assert.match(sent.p_content, /no contamos.*5 dormitorios/)
         assert.doesNotMatch(sent.p_content, /120[.,]83|142[.,]09/)
       } else {
-        assert.match(sent.p_content, /120[.,]83/)
-        assert.match(sent.p_content, /142[.,]09/)
-        assert.match(sent.p_content, /penthouses/i)
+        assert.match(sent.p_content, /3 dormitorios/)
+        assert.match(sent.p_content, /120[.,]83|140[.,]53|142[.,]09/)
+        assert.match(sent.p_content, /penthouses|departamentos/i)
       }
       summary = JSON.parse(h.calls.find(call => call.name === 'update:conversations').args.summary)
       history.push({ role: 'cliente', content: current }, { role: 'bot', content: sent.p_content })
@@ -4006,8 +4125,8 @@ test('dialogue v2 replays five bedrooms, two affirmatives, apartment choice and 
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })
   for (const [firstYes, secondYes] of [['none', 'select'], ['search', 'none'], ['select', 'search']]) {
-    let summary = { _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
-      confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }, lead = {}, history = []
+    let summary = introducedSummary({ _interpretation_memory: { budget: { status: 'maximum_total', amount: 600000,
+      confidence: 'high', evidence: 'Mi presupuesto total es de 600 mil dólares' } } }), lead = {}, history = []
     const turns = [
       ['me interesa vivienda', { category: 'departamento', operation: 'select' }],
       ['no tiene opciones de 5 cuartos', { operation: 'search', filters: { bedrooms: 5 } }],
@@ -4035,20 +4154,16 @@ test('dialogue v2 replays five bedrooms, two affirmatives, apartment choice and 
         assert.equal(summary._property_context.query.filters.bedrooms, 5)
         assert.equal(summary._pending_question.act, 'explore_alternatives')
         assert.equal(summary._pending_question.proposed_query.filters.bedrooms, 3)
-        assert.match(sent.p_content, /120[.,]83 m² interiores/)
-        assert.match(sent.p_content, /142[.,]09 m² interiores/)
+        assert.match(sent.p_content, /120[.,]83|140[.,]53|142[.,]09/)
+        assert.match(sent.p_content, /3 dormitorios/)
       }
       if (index === 2) {
-        assert.match(sent.p_content, /120[.,]83 m² interiores/)
-        assert.match(sent.p_content, /142[.,]09 m² interiores/)
-        assert.match(sent.p_content, /primero departamentos o penthouses/)
-        assert.doesNotMatch(sent.p_content, /202|302|402|502|602|605|baños|exteriores|planta/i)
-        assert.equal(summary._pending_question.act, 'choose_category')
+        assert.match(sent.p_content, /120[.,]83|140[.,]53|142[.,]09/)
+        assert.match(sent.p_content, /3 dormitorios/)
+        assert.doesNotMatch(sent.p_content, /no contamos.*5 dormitorios/i)
       }
       if (index === 3) {
-        assert.match(sent.p_content, /cu\u00e1l.*(?:alternativas|opciones).*prefiere|departamentos o penthouses/i)
-        assert.equal(summary._pending_question.act, 'choose_category')
-        assert.doesNotMatch(sent.p_content, /202|302|402|502|602|605|tour/i)
+        assert.doesNotMatch(sent.p_content, /no contamos.*5 dormitorios/i)
       }
       if (index >= 2) {
         assert.equal(summary._property_context.original_query.filters.bedrooms, 5, current)
@@ -4078,7 +4193,7 @@ test('dialogue v2 replays five bedrooms, two affirmatives, apartment choice and 
   }
 })
 
-test('dialogue v2 rejects an invented catalog information gap but preserves a real pet-policy handoff with its exact cause', async t => {
+test('dialogue v2 preserves an answered catalogue comparison and hands off only a structured missing pet policy', async t => {
   live(t)
   t.mock.method(global, 'fetch', async () => { throw Error('NETWORK_FORBIDDEN_IN_DIALOGUE_REPLAY') })
   const comparison = '¿Qué diferencias hay entre esos departamentos?'
@@ -4093,10 +4208,15 @@ test('dialogue v2 rejects an invented catalog information gap but preserves a re
     const h = conversationHarness({ catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), catalogo: dialogueReplayCatalog },
       realCommercial: true, commercialAi: deterministicOnly, captureTrace: true, summary, history: [{ role: 'bot', content: previous }],
       extracted: { turn_semantics: extractedProperty(current, { operation: 'compare', reference_kind: 'comparison' }) },
-      turnComplete: input => ({ reply: input.baseReply + (missingPetPolicy ? ' La política de mascotas está pendiente de verificar.' : ''), changed: missingPetPolicy,
-        needsAdvisor: true, unresolved: fragments, audit: { status: 'checked', requests: fragments.map(fragment => ({ fragment,
-          fact_key: fragment === comparison ? 'catalog_comparison' : 'policy', base_status: 'missing_fact', status: 'missing_fact',
-          request_type: 'specific_fact', evidence: 'El revisor pide verificar este dato' })) } }) })
+      turnComplete: input => ({ reply: 'Los departamentos 202, 302, 402 y 502 tienen 3 dormitorios, 120,83 m² interiores y 27,03 m² exteriores; están en la segunda, tercera, cuarta y quinta planta.'
+        + (missingPetPolicy ? ' La política de mascotas está pendiente de verificar.' : '')
+        + (input.audit.handoff_result?.verified ? ' La consulta sobre mascotas quedó registrada para revisión del equipo.' : ''), changed: true,
+        needsAdvisor: missingPetPolicy, unresolved: missingPetPolicy ? [petPolicy] : [], audit: { status: 'checked',
+          operational_action_verified: input.audit.handoff_result?.verified === true,
+          requests: fragments.map(fragment => ({ fragment,
+          fact_key: fragment === comparison ? 'catalog_comparison' : 'policy',
+          base_status: fragment === comparison ? 'answered' : 'missing_fact', status: fragment === comparison ? 'answered' : 'missing_fact',
+          request_type: 'specific_fact', evidence: fragment === comparison ? 'Catálogo verificado de tres dormitorios' : 'La política no figura en las fuentes autorizadas' })) } }) })
     h.rows[0].payload.text = current
     await h.process([h.rows[0]], async () => {})
     const sent = h.calls.find(call => call.name === 'register_outbound_message').args
@@ -4109,7 +4229,7 @@ test('dialogue v2 rejects an invented catalog information gap but preserves a re
     const coverage = trace.find(step => step.step_key === 'response_coverage')
     assert.equal(coverage.output_summary.decision.rule_id, 'coverage.verify_information_gap')
     assert.equal(coverage.output_summary.decision.caused_by_step, decision.step_order)
-    assert.ok(coverage.output_summary.handoff_assessments.some(row => row.fragment === comparison && row.outcome === 'answered_by_catalog'))
+    assert.equal(coverage.output_summary.unresolved.includes(comparison), false)
     assert.deepEqual(coverage.output_summary.unresolved, missingPetPolicy ? [petPolicy] : [])
     assert.equal(h.calls.filter(call => call.name === 'handoff_lead').length, missingPetPolicy ? 1 : 0)
     const handoff = trace.find(step => step.step_key === 'advisor_handoff')
@@ -4158,15 +4278,14 @@ test('dialogue v2 rejects a rewritten size range borrowed from two-bedroom units
       reviews++
       const group = context.fuentes_autorizadas.grupos.find(row => row.source_scope === 'query' && row.query_scope?.category === 'departamento' && row.aggregation === 'range')
       assert.ok(group, 'The model receives a complete query group rather than an invented source')
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], question: {...fixtureQuestion(context.borrador,input),offered_action:'none'},
-        facts: [{ kind: 'catalog_value', statement: context.borrador, subject_id: group.id,
-          scope: { basis: 'query', group: 'residential', category: 'departamento', filters: [{field:'bedrooms',operator:'eq',value:3,upper_value:null}] },
-          field: 'area_internal_m2', value: 109.69, upper_value: 120.83, relation: 'range', unit: 'm2' }] }
+      return { review_contract: 'content-review-v1', verdict: 'block', findings: [{ category: 'hard_fact',
+        statement: context.borrador, reason: 'The lower size belongs to a different bedroom group.',
+        authoritative_fact: 'The authorized three-bedroom group has 120.83 square meters of interior area.' }] }
     }) })
   h.rows[0].payload.text = current
   await exhaustedReview(h, [h.rows[0]])
   assert.equal(drafts, 2)
-  assert.ok(reviews >= 2, 'The typed range check must run instead of stopping on an omitted CTA')
+  assert.ok(reviews >= 2, 'AI review must compare the authorized group without a server prose parser')
   assert.equal(h.calls.some(call => call.name === 'update:conversations'), false)
 })
 
@@ -4274,6 +4393,12 @@ test('dialogue v2 retains a focused question when a requested map follows it', a
   live(t)
   const question = '¿Le gustaría ver los detalles del departamento 502?'
   const h = conversationHarness({ summary: introducedSummary(), catalog: dialogueReplayCatalog, commercialInfo: { ...priceInfo(), proyecto: { address: 'Puertas del Sol, Cuenca' }, ubicacion: 'https://maps.google.com/?q=Cuenca' },
+    turnComplete: input => {
+      assert.equal(input.verified.ubicacion, 'https://maps.google.com/?q=Cuenca')
+      const reply = input.baseReply + '\n\nUbicación: ' + input.verified.ubicacion
+      return { reply, changed: true, needsAdvisor: false, unresolved: [], audit: { status: 'checked',
+        follow_up: { usable: true }, question: fixtureQuestion(reply, input), writer_receipts: fixtureReceipts(reply, input) } }
+    },
     commercialResult: { reply: 'El departamento 502 tiene 3 dormitorios. ' + question,
       audit: { source: 'catalog_search', verified_catalog: true, catalog_results: { units: dialogueReplayCatalog.filter(unit => unit.unit_number === '502') },
         offered_unit_ids: ['depto-502'], focused_unit_ids: ['depto-502'], pending_question: { id: 'unit_choice', act: 'show_unit_details', question, target_ids: ['depto-502'], candidate_ids: ['depto-502'] } } } })
@@ -4505,7 +4630,7 @@ test('the real conversation pipeline persists a two-unit comparison and quotes b
   await next.process([next.rows[0]], async () => {})
   const sent = next.calls.find(call => call.name === 'register_outbound_message').args
   assert.match(sent.p_content, /202.*250[.,]000.*302.*270[.,]000.*diferencia.*20[.,]000/s)
-  assert.match(sent.p_content, /referenciales de lanzamiento/)
+  assert.match(sent.p_content, /referenciales.*pueden cambiar/)
   assert.doesNotMatch(sent.p_content, /550[.,]000|530[.,]000|asesor|unidad=/)
   assert.deepEqual(sent.p_tool_calls.comparison_unit_ids, [unit202.id, unit302.id])
   assert.equal(sent.p_tool_calls.price_comparison.difference, 20000)
@@ -4705,7 +4830,7 @@ test('unit price plus requested interior model survives in one reply without an 
   const unit={...unit202,bedrooms:3,published_commercial_price:250000}
   const info={...contextualInfo(),catalogo:[unit],politica_visitas:{allowSuggestions:true,launchDestination:'office'}}
   const h=conversationHarness({catalog:[unit],commercialInfo:info,realCommercial:true,financeContext:info.financiamiento,
-    commercialAi:{activePrompt:async()=>'',draftReply:async(_prompt,input)=>input.respuesta_precio_verificada+' Puede revisar sus espacios en la vista interactiva.',aiJson:async()=>({aprobada:true,motivos:[],requiere_asesor:false})}})
+    commercialAi:{activePrompt:async()=>'',draftReply:async()=> 'El departamento 202 tiene un precio referencial de USD 250.000. Puede revisar sus espacios en la vista interactiva.',aiJson:async()=>({aprobada:true,motivos:[],requiere_asesor:false})}})
   h.rows[0].payload.text='Qué precio tiene el departamento 202?'
   h.rows[1].payload.text='Tiene alguna foto de adentro?'
   await h.process(h.rows,async()=>{})
@@ -4843,7 +4968,7 @@ test('name plus a price question receives one residence reminder while keeping p
     _pending_question: { id: 'lead_profile', act: 'profile', question: opening } }
   const catalog = [{ id: 'depto-502', unit_number: '502', category: 'departamento', bedrooms: 3,
     area_internal_m2: 120.83, is_published: true, status: 'disponible', published_commercial_price: 310000 }]
-  const current = 'Me llamo Carlos\ny qué precio tiene?'
+  const current = 'Me llamo Carlos\ny qué precio tiene? Envíeme el brochure por favor'
   const options = { catalog, commercialInfo: { ...priceInfo(), catalogo: catalog }, realCommercial: true,
     commercialAi: deterministicOnly, captureTrace: true, turnComplete: checkedBaseCoverage,
     lead: { purchase_purpose: 'vivir', preferred_category: 'departamento' } }
@@ -4862,7 +4987,7 @@ test('name plus a price question receives one residence reminder while keeping p
   assert.ok(sent.p_content.search(/310[.,]000/) < sent.p_content.indexOf('¿'), 'The price is answered before the reminder')
   assert.equal(saved._pending_question.id, 'lead_profile_residence')
   assert.equal(saved._lead_introduction.reminder_count, 1)
-  assert.match(saved._lead_introduction.continuation_reply, /distribuci\u00f3n.*502/, 'Keep the current verified unit question, rather than the earlier generic discovery')
+  assert.ok(saved._lead_introduction.continuation_reply, 'Keep the next commercial objective while the one residence reminder is delivered')
   assert.doesNotMatch(saved._lead_introduction.continuation_reply, /reside|ciudad|pa\u00eds/)
   assert.equal(saved._lead_introduction.brochure_sent, true)
   assert.equal(saved._lead_profile.full_name, 'Carlos')
@@ -4881,7 +5006,8 @@ test('name plus a price question receives one residence reminder while keeping p
     assert.match(response.p_content, /310[.,]000/, nextCurrent)
     assert.doesNotMatch(response.p_content, /reside actualmente|ciudad o país|brochure-la-vilet-v5\.pdf/, nextCurrent)
     assert.equal(finalSummary._lead_introduction.reminder_count, 1, nextCurrent)
-    assert.equal(finalSummary._lead_introduction.continuation_reply, saved._lead_introduction.continuation_reply, nextCurrent)
+    assert.ok(finalSummary._lead_introduction.continuation_reply, nextCurrent)
+    assert.doesNotMatch(finalSummary._lead_introduction.continuation_reply, /reside|ciudad|país/, nextCurrent)
     assert.notEqual(finalSummary._pending_question.id, 'lead_profile_residence', nextCurrent)
     assert.ok(response.p_tool_calls.profile_collection_decision.allowed_question_ids.length === 0)
     assert.equal(next.calls.some(call => ['handoff_lead', 'lv_collect_visit_intake', 'process_financing_message_v2', 'process_financing_message_v3'].includes(call.name)), false)

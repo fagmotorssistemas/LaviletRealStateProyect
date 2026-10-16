@@ -1,5 +1,26 @@
 import { normalized } from './sdr-rules'
 import { replyQuestions } from './reply-question'
+import { object, text, type Row } from './data'
+
+export const RESERVATION_INVITATION_RECEIPT_VERSION = 'reservation-invitation-v1'
+
+/** Persist only the writer's typed act and its independently verified target.
+ * The text is display context; no wording grants or removes permission. */
+export function reservationInvitationReceipt(question: unknown, targetIds: string[]): Row {
+  const value = object(question), targets = [...new Set(targetIds.filter(Boolean))]
+  return value.continuation_id === 'reservation_invitation' && value.continuation_act === 'reservation'
+    && value.purpose === 'permission_to_continue' && !!text(value.text).trim() && targets.length === 1
+    ? { version: RESERVATION_INVITATION_RECEIPT_VERSION, kind: 'start_reservation_request',
+      question_id: 'reservation_invitation', question_act: 'reservation', source: 'writer_metadata', unit_id: targets[0] } : {}
+}
+
+/** A legacy label or copied writer sentence is not a delivered operational act. */
+export function verifiedReservationInvitation(receipt: unknown, targetIds: string[]): boolean {
+  const value = object(receipt)
+  return value.version === RESERVATION_INVITATION_RECEIPT_VERSION && value.kind === 'start_reservation_request'
+    && value.question_id === 'reservation_invitation' && value.question_act === 'reservation' && value.source === 'writer_metadata'
+    && targetIds.length === 1 && !!targetIds[0] && value.unit_id === targetIds[0]
+}
 
 /** A short acknowledgement contains no prerequisite or independent request.
  * It authorizes nothing without a verified invitation and a current answer. */
@@ -39,7 +60,7 @@ export function explicitReservationAction(evidence: string): boolean {
   // verb until another direct request replaces them in the same clause.
   const requested = /\b(?:quiero|quisiera|deseo|necesito|prefiero|acepto|autorizo|solicito|pido|me gustaria|me interesa|ayud(?:a|e)(?:me|nos)|ayuden(?:me|nos))\b/g
   const informative = /\b(?:conocer|saber|entender|aprender|consultar|informarme|informarnos|informacion|explicar|expliqueme|explicame|requisitos|condiciones|como|cuanto|cuesta|costo|precio|cancelar|anular|posponer|evitar)\b/
-  const infinitive = /\b(?:reservar|separar|serpar|apartar|asegurar)\b/g
+  const infinitive = /\b(?:reservar|separar|serpar(?:ar)?|apartar|asegurar)\b/g
   const initiation = /\b(iniciar|empezar|solicitar|tramitar|gestionar|inicie|iniciemos|empiece|empecemos|solicite|solicitemos|tramite|tramitemos|gestione|gestionemos)\s+(?:(?:la|una|mi|nuestra)\s+)?(?:solicitud\s+de\s+)?(?:reserva|separacion)\b/g
   const imperative = /\b(?:reserv(?:e|emos)|separ(?:e|emos)|serpar(?:e|emos)|apart(?:e|emos)|asegur(?:e|emos))(?:me|nos)?(?:lo|la|los|las)?\b|\b(?:reserva|separa|aparta|asegura)(?:me|nos|lo|la|los|las)\b|\b(?:reserva|separa|aparta|asegura)(?=\s+(?:el|la|este|esta|ese|esa|unidad|departamento|suite|penthouse|local|\d)\b)/g
   return evidence.split(/[.!?;\n]+/).some(rawClause => {

@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply, type TurnCompletenessInput } from './turn-completeness'
@@ -8,9 +9,10 @@ import { operationalReply } from './operational-copy'
 import { MAX_REPLY_CHARACTERS } from './response-plan'
 import { OpenAIRequestError, AIRequestGuardError } from './openai-request'
 import { object, type Row } from './data'
+import { deliveredPendingQuestion } from './continuation-question'
 
 const demo = { ...responseReviewSettings(null), enabled: false, observationOnly: true }
-const pass = { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+const pass = { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
 const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
 const input: TurnCompletenessInput = { current: 'Quiero información del departamento 202',
   baseReply: 'El departamento 202 tiene 3 dormitorios.', verified: { catalogo: [{ id: 'd202', category: 'departamento',
@@ -23,15 +25,16 @@ function harness(reply: string, review: Row | Error, question: unknown = noQuest
     calls.push(task)
     if (task === 'review') { if (review instanceof Error) throw review; return review }
     const context = object(raw), ref = object((context.referencias_solicitud as Row[])[0])
-    return { reply, question, requests: requests ?? [{ fragment: ref.id, intent: 'Información', request_type: 'general_information',
-      status: 'answered', evidence: 'Respuesta contextual', fact_key: null }] }
+    return writerFixture({ reply, question, requests: requests ?? [{ fragment: ref.id, intent: 'Información', request_type: 'general_information',
+      status: 'answered', evidence: 'Respuesta contextual', fact_key: null }] })
   }
   return { calls, generate }
 }
 function assertObservation(result: Awaited<ReturnType<typeof completeTurnReply>>, passed: boolean) {
   assert.equal(result.audit.status, 'review_observed')
-  assert.equal(object(result.audit.final_validation).passed, passed)
-  assert.equal(object(result.audit.final_validation).policy, 'observation_only')
+  assert.equal(object(result.audit.final_validation).passed, true, 'transport validity is separate from AI approval')
+  assert.equal(object(result.audit.final_validation).policy, 'transport_only')
+  assert.equal(object(object(result.audit.semantic_review).acceptance).content_approved, passed)
   assert.equal(object(result.audit.transport_validation).passed, true)
   assert.equal(object(result.audit.review_enforcement).blocking, false)
   assert.equal(object(result.audit.recovery).pending, false)
@@ -67,7 +70,7 @@ for (const review of [
     const result = await completeTurnReply(input, mock.generate)
     assertObservation(result, false)
     assert.equal(result.reply, input.baseReply)
-    assert.deepEqual(mock.calls, ['writing', 'review'])
+    assert.deepEqual(mock.calls, review.verdict === 'not_a_verdict' ? ['writing', 'review', 'review'] : ['writing', 'review'])
     assert.ok(['rejected', 'invalid_review'].includes(String(object(result.audit.semantic_review).status)))
     assert.doesNotThrow(() => requireReviewedResponse(result.audit))
   })
@@ -80,37 +83,38 @@ for (const failure of [new Error('OPENAI_INVALID_JSON'), new OpenAIRequestError(
       const result = await completeTurnReply(input, mock.generate)
       assertObservation(result, false)
       assert.equal(result.reply, input.baseReply)
-      assert.equal(object(result.audit.semantic_review).status, 'unavailable')
-      assert.equal(object(result.audit.semantic_review).error_code, failure.message)
-      assert.deepEqual(mock.calls, ['writing', 'review'])
+      assert.equal(object(result.audit.semantic_review).status, failure.message === 'OPENAI_INVALID_JSON' ? 'invalid_review' : 'unavailable')
+      if (failure.message !== 'OPENAI_INVALID_JSON') assert.equal(object(result.audit.semantic_review).error_code, failure.message)
+      assert.deepEqual(mock.calls, failure.message === 'OPENAI_INVALID_JSON' ? ['writing', 'review', 'review'] : ['writing', 'review'])
     })
   })
 
-test('commercial guard findings are monitored but still reach the reviewer and do not block the demonstration draft', async () => {
+test('an AI pass is not replaced by legacy prose guards in observation mode', async () => {
   const reply = 'El departamento 202 tiene 90 dormitorios. Su crédito ya está aprobado. https://example.com/otro'
   const mock = harness(reply, pass)
   await run(async () => {
     const result = await completeTurnReply(input, mock.generate)
-    assertObservation(result, false)
+    assertObservation(result, true)
     assert.equal(result.reply, reply)
     assert.deepEqual(mock.calls, ['writing', 'review'])
-    assert.ok((object(result.audit.final_validation).issues as string[]).includes('unauthorized_link'))
+    assert.deepEqual(object(result.audit.final_validation).issues, [])
+    assert.equal(result.audit.server_semantic_validation, false)
     assert.equal(result.audit.operational_action_verified, false)
   })
 })
 
-test('recognized writer question recovers its meaning locally while other malformed metadata stays observed', async () => {
+test('writer question metadata remains authoritative even when unrelated coverage metadata is malformed', async () => {
   const reply = '¿En qué planta le gustaría revisar opciones?'
   const wrong = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Planta', next_decision: 'Mostrar opciones',
     continuation_id: 'unit_choice', continuation_act: 'choose_unit' }
   const mock = harness(reply, pass, wrong, { malformed: true })
   await run(async () => {
     const result = await completeTurnReply(input, mock.generate)
-    assertObservation(result, false)
+    assertObservation(result, true)
     assert.equal(result.reply, reply)
     assert.equal(object(result.audit.follow_up).usable, true)
     assert.equal(object(result.audit.question).continuation_id, 'unit_choice')
-    assert.equal(object(result.audit.question_metadata_recovery).corrected, false)
+    assert.equal(result.audit.server_semantic_validation, false)
     assert.deepEqual(mock.calls, ['writing', 'review'])
   })
 })
@@ -122,8 +126,10 @@ test('unknown writer questions retain their warning without borrowing an action'
   await run(async () => {
     const result = await completeTurnReply(input, mock.generate)
     assert.equal(result.reply, reply)
-    assert.equal(object(result.audit.follow_up).usable, false)
-    assert.equal(object(result.audit.question_metadata_recovery).corrected, false)
+    assert.equal(object(result.audit.follow_up).usable, true)
+    assert.deepEqual(deliveredPendingQuestion(reply, { metadata: result.audit.question }), {},
+      'a purpose of none cannot authorize a follow-up action')
+    assert.equal(result.audit.server_semantic_validation, false)
     assert.deepEqual(mock.calls, ['writing', 'review'])
   })
 })
@@ -132,7 +138,7 @@ test('a contradictory reviewer label does not replace the actual validated write
   const reply = '¿En qué planta le gustaría revisar opciones?'
   const question = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Planta', next_decision: 'Mostrar opciones',
     continuation_id: 'property_floor', continuation_act: 'choose_floor' }
-  const mock = harness(reply, { ...pass, question: { ...question, continuation_act: 'choose_unit', offered_action: 'none' } }, question)
+  const mock = harness(reply, { ...pass }, question)
   await run(async () => {
     const result = await completeTurnReply(input, mock.generate)
     assert.equal(result.reply, reply)
@@ -158,7 +164,8 @@ test('a forged audit cannot bypass recovery outside the server demonstration set
 })
 
 for (const review of [
-  { fiel_a_los_hechos: false, conserva_estado_y_objetivo: false, no_pide_datos_conocidos: true, tono_natural: true },
+  { review_contract: 'content-review-v1', verdict: 'block', findings: [{ category: 'business_guardrail',
+    statement: 'Su cita ya está confirmada.', reason: 'La solicitud sigue pendiente.', authoritative_fact: 'No hay confirmación registrada.' }] },
   new Error('REVIEW_TIMEOUT'),
 ]) test('operational copy is reviewed and delivered unchanged in observation, including reviewer failures: '+String(review instanceof Error ? review.message : 'block'), async () => {
   const calls: string[] = [], reply = 'Su cita ya está confirmada.'
@@ -171,14 +178,15 @@ for (const review of [
     }))
   assert.equal(result.reply, reply)
   assert.equal(result.audit?.status, 'review_observed')
-  assert.equal(object(result.audit?.final_validation).passed, false)
+  assert.equal(object(result.audit?.final_validation).passed, true, 'Transport validity is independent of the observed factual finding')
+  assert.equal(object(result.audit?.final_validation).policy, 'transport_only')
+  assert.equal(object(object(result.audit?.semantic_review).acceptance).content_approved, false)
+  assert.equal(object(result.audit?.recovery).pending, false)
   assert.deepEqual(calls, ['writing', 'review'])
 })
 
-for (const semantic of [false, true]) test('observation evaluates the '+(semantic ? 'focused' : 'legacy')+' review route without metadata repairs or blocking', async () => {
-  const review = semantic ? { review_contract: 'focused-review-v1', coverage: [], obligation_checks: [],
-    claims: [], factual_values: [], project_values: [], numeric_checks: [], pending_checks: [],
-    question: noQuestion, factual_inventory_complete: true, review_issues: [], missing_fact_fragments: [] }
+for (const semantic of [false, true]) test('observation records an obsolete '+(semantic ? 'focused' : 'legacy')+' review contract after one technical retry without blocking', async () => {
+  const review = semantic ? { review_contract: 'focused-review-v1', coverage: [], obligation_checks: [], claims: [], factual_values: [], project_values: [], numeric_checks: [], pending_checks: [], factual_inventory_complete: true, review_issues: [], missing_fact_fragments: [] }
     : { all_requests_considered: false, answers_supported: false, answered_content_preserved: true,
       operational_goal_preserved: true, question_has_purpose: true, question: { ...noQuestion, clarifies_request_ids: [] },
       missing_fact_fragments: [], review_issues: [] }
@@ -187,7 +195,8 @@ for (const semantic of [false, true]) test('observation evaluates the '+(semanti
     const result = await completeTurnReply({ ...input, audit: { semantic_review_enabled: semantic } }, mock.generate)
     assertObservation(result, false)
     assert.equal(result.reply, input.baseReply)
-    assert.deepEqual(mock.calls, ['writing', 'review'])
+    assert.deepEqual(mock.calls, ['writing', 'review', 'review'])
+    assert.equal(object(result.audit.semantic_review).metadata_retries, 1)
   })
 })
 
@@ -200,7 +209,10 @@ test('observation keeps writer omissions visible without adding greeting, brochu
       unit_number: '202', published_commercial_price: 250000, is_published: true, status: 'disponible' }] },
       audit: { ...input.audit, writer_greeting: 'Hola', profile_introduction: { brochure_required: true, brochure_url: brochure } } }, mock.generate)
     assert.equal(result.reply, reply)
-    assert.ok((object(result.audit.final_validation).issues as string[]).includes('required_link_omitted'))
+    assert.deepEqual(object(result.audit.final_validation).issues, [])
+    assert.ok((object(result.audit.writer_contract).enlaces_obligatorios as string[]).includes(brochure))
+    assert.equal(object(result.audit.writer_receipts).brochure_shared, false,
+      'material obligations and writer receipts remain visible without a code veto')
     assert.deepEqual(mock.calls, ['writing', 'review'])
   })
 })

@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { writerQuestion } from './fixtures/writer-objective.cjs'
@@ -151,10 +152,10 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) for (const 
           const plan = object(object(context.contexto_verificado).siguiente_paso_comercial)
           const reply = 'Con gusto le orientamos para su vivienda. ' + writerQuestion(context)
           assert.equal(plan.question, undefined)
-          return { reply, question, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,
-            intent: 'Atender su búsqueda de vivienda', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
+          return writerFixture({ reply, question, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,
+            intent: 'Atender su búsqueda de vivienda', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) })
         }
-        return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: { ...question, offered_action: 'none' } }
+        return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       }))
     const writer = object(contexts[0].contexto_verificado), plan = object(result.audit.commercial_journey)
     assert.equal(object(writer.commercial_engagement).passive, false)

@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { unitTourUrl } from '@/lib/tour/unitModels'
@@ -74,15 +75,14 @@ describe('the selected unit tour survives final writing', () => {
         semantic_review_enabled: true, business_risk_review_enabled: true } },
     async (_rules, data, _schema, _image, _file, _tone, task) => {
       const input = object(data); calls.push(task!)
-      if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [],
-        question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '', offered_action: 'none' } }
+      if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       try {
         assert.deepEqual(object(input.contrato_redaccion).enlaces_obligatorios, [tour.url])
         assert.equal(object(object(input.estado_operativo).unit_model).url, tour.url)
       } catch (error) { failures.push(String(error)) }
-      return { reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
+      return writerFixture({ reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
         requests: (input.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id, intent: 'Conocer el departamento', status: 'answered',
-          evidence: reply, fact_key: null, request_type: 'general_information' })) }
+          evidence: reply, fact_key: null, request_type: 'general_information' })) })
     })
     assert.deepEqual(failures, [])
     assert.deepEqual(calls, ['writing', 'review'])

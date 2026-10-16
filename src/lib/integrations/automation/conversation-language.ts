@@ -38,7 +38,10 @@ export function conversationLanguageInstructions(): string {
 }
 
 /** Emergency delivery receipt when inference is unavailable; never a sales draft. */
-export function generationRecoveryNotice(preference: unknown): string {
+export function generationRecoveryNotice(preference: unknown, handoffRecorded = true): string {
+  if (!handoffRecorded) return languageTag(object(preference).tag)?.split('-')[0] === 'en'
+    ? 'We could not complete the response to your question at this time. We apologize for the inconvenience.'
+    : 'En este momento no pudimos completar la respuesta a su consulta. Le pedimos disculpas por el inconveniente.'
   return languageTag(object(preference).tag)?.split('-')[0] === 'en'
     ? 'Please allow us to check that detail with our team so we can guide you better.'
     : 'Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.'

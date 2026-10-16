@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -5,7 +6,7 @@ import { interpretConversationTurn } from './turn-interpretation'
 import { completeTurnReply } from './turn-completeness'
 import { configuredToneInstructions } from './tone-settings'
 import { DEFAULT_TONE } from '@/lib/inmobiliaria/conversationTone'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { COMMERCIAL_ACCURACY_RULES } from './commercial-accuracy'
 import { aiJson } from './ai'
 import { AutomationExecutionTrace } from './execution-trace'
@@ -51,9 +52,9 @@ test('final writer gets one precision block; the factual reviewer does not inher
         assert.doesNotMatch(composed, /factual_values\.unit_id|opening_property_type_sentence_ids|REVISOR:|fuente project_fact|Para departamentos amplios, pregunte la planta/)
         assert.match(composed, /# Prioridades y obligaciones/)
         writerObligations = context.obligaciones_del_turno
-        return { reply, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,
+        return writerFixture({ reply, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,
           intent: 'Informar', request_type: 'general_information', status: 'answered', evidence: 'Opciones', fact_key: null })),
-          question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' } }
+          question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' } })
       }
       assert.ok(Array.isArray(writerObligations))
       const factualObligations = rows(context.obligaciones_del_turno)
@@ -61,7 +62,7 @@ test('final writer gets one precision block; the factual reviewer does not inher
       assert.ok(factualObligations.some(obligation => obligation.id === 'business_scope'))
       assert.ok(factualObligations.every(obligation => !['commercial_next_step', 'profile_introduction', 'greeting', 'turn_goal'].includes(String(obligation.id))))
       assert.match(instructions, /hechos|promesas/i)
-      return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+      return { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
     } catch (error) { errors.push(String(error)); throw error }
   })
   assert.deepEqual(errors, [])

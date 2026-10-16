@@ -1,6 +1,8 @@
 -- Canonical pipeline is projected from evidence, not the legacy bot-step column.
 -- Installing this migration never replays a chat, sends a message or reserves inventory.
-create table public.lead_commercial_profiles (
+begin;
+
+create table if not exists public.lead_commercial_profiles (
   lead_id uuid primary key references public.leads(id) on delete cascade,
   tenant_id uuid not null references public.tenants(id),
   nutrition_active boolean not null default false,
@@ -24,8 +26,8 @@ create table public.lead_commercial_profiles (
   constraint lead_commercial_profile_loss_reason check(opportunity_status <> 'lost' or nullif(trim(closure_reason),'') is not null),
   constraint lead_commercial_profile_action check(next_action_at is null or nullif(trim(next_action),'') is not null)
 );
-create index lead_commercial_profiles_tenant on public.lead_commercial_profiles(tenant_id);
-create table public.lead_commercial_profile_history (
+create index if not exists lead_commercial_profiles_tenant on public.lead_commercial_profiles(tenant_id);
+create table if not exists public.lead_commercial_profile_history (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid not null references public.leads(id) on delete cascade,
   tenant_id uuid not null references public.tenants(id),
@@ -35,9 +37,9 @@ create table public.lead_commercial_profile_history (
   new_data jsonb not null,
   created_at timestamptz not null default now()
 );
-create index lead_commercial_profile_history_lead on public.lead_commercial_profile_history(lead_id,created_at desc);
+create index if not exists lead_commercial_profile_history_lead on public.lead_commercial_profile_history(lead_id,created_at desc);
 
-create function public.lv_can_manage_lead_commercial_profile(p_lead_id uuid)
+create or replace function public.lv_can_manage_lead_commercial_profile(p_lead_id uuid)
 returns boolean language sql stable security definer set search_path='' as $$
   select exists (
     select 1 from public.leads l join public.profiles p on p.id=auth.uid()
@@ -52,9 +54,11 @@ revoke all on function public.lv_can_manage_lead_commercial_profile(uuid) from p
 grant execute on function public.lv_can_manage_lead_commercial_profile(uuid) to authenticated,service_role;
 alter table public.lead_commercial_profiles enable row level security;
 alter table public.lead_commercial_profile_history enable row level security;
+drop policy if exists lead_commercial_profiles_read on public.lead_commercial_profiles;
 create policy lead_commercial_profiles_read on public.lead_commercial_profiles for select to authenticated
   using(public.lv_can_manage_lead_commercial_profile(lead_id)
     and exists(select 1 from public.leads l where l.id=lead_id and l.tenant_id=lead_commercial_profiles.tenant_id));
+drop policy if exists lead_commercial_profile_history_read on public.lead_commercial_profile_history;
 create policy lead_commercial_profile_history_read on public.lead_commercial_profile_history for select to authenticated
   using(public.lv_can_manage_lead_commercial_profile(lead_id)
     and exists(select 1 from public.leads l where l.id=lead_id and l.tenant_id=lead_commercial_profile_history.tenant_id));
@@ -62,7 +66,7 @@ revoke all on public.lead_commercial_profiles,public.lead_commercial_profile_his
 grant select on public.lead_commercial_profiles,public.lead_commercial_profile_history to authenticated;
 grant all on public.lead_commercial_profiles,public.lead_commercial_profile_history to service_role;
 
-create function public.save_lead_commercial_profile(
+create or replace function public.save_lead_commercial_profile(
   p_lead_id uuid,
   p_nutrition_active boolean,
   p_nutrition_reason text,
@@ -116,17 +120,33 @@ grant execute on function public.save_lead_commercial_profile(uuid,boolean,text,
 -- In particular, a question about reservations never proves an operational request.
 -- Preserve installed argument names: older deployments used different names
 -- and PostgreSQL forbids renaming inputs with CREATE OR REPLACE.
+-- The original embudo migration returns public.leads; some installations use
+-- void. Preserve both contracts, the function OID and dependent objects.
 do $install$
-declare names text[];
+declare
+  installed pg_catalog.pg_proc;
+  result_type text := 'public.leads';
+  return_statement text := 'return customer;';
 begin
-  select p.proargnames into names from pg_catalog.pg_proc p
+  select p.* into installed from pg_catalog.pg_proc p
     where p.oid=pg_catalog.to_regprocedure('public.set_lead_stage(uuid,text,text)');
+  if found then
+    if installed.proretset or installed.proargmodes is not null
+      or installed.prorettype not in ('void'::regtype,'public.leads'::regtype) then
+      raise exception 'Contrato de set_lead_stage no compatible: %. La migración se cancela sin borrar la función.',
+        pg_catalog.pg_get_function_result(installed.oid);
+    end if;
+    if installed.prorettype='void'::regtype then
+      result_type := 'void';
+      return_statement := 'return;';
+    end if;
+  end if;
   execute format($definition$
 create or replace function public.set_lead_stage(%I uuid,%I text,%I text)
-returns void language plpgsql security definer set search_path='' as $body$
+returns %s language plpgsql security definer set search_path='' as $body$
 declare
   pipeline_lead_id alias for $1; pipeline_stage alias for $2; pipeline_reason alias for $3;
-  customer public.leads; target text:=pipeline_stage;
+  customer public.leads; target text:=pipeline_stage; previous_stage text;
 begin
   if coalesce(auth.role(),'')<>'service_role' and not public.lv_can_manage_lead_commercial_profile(pipeline_lead_id) then
     raise exception 'LEAD_STAGE_FORBIDDEN';
@@ -139,14 +159,18 @@ begin
     target:='preventa';
   end if;
   if customer.stage in ('perdido','descartado') or array_position(array['nuevo','contacto_inicial','precalificacion','preventa','reserva_venta'],customer.stage)
-    > array_position(array['nuevo','contacto_inicial','precalificacion','preventa','reserva_venta'],target) then return; end if;
+    > array_position(array['nuevo','contacto_inicial','precalificacion','preventa','reserva_venta'],target) then %s end if;
   if customer.stage is distinct from target then
-    update public.leads set stage=target,stage_reason=pipeline_reason,stage_updated_at=now(),updated_at=now() where id=pipeline_lead_id;
+    previous_stage:=customer.stage;
+    update public.leads set stage=target,stage_reason=pipeline_reason,stage_updated_at=now(),updated_at=now()
+      where id=pipeline_lead_id returning * into customer;
     insert into public.lead_stage_history(lead_id,from_stage,to_stage,reason,created_at)
-      values(pipeline_lead_id,customer.stage,target,pipeline_reason,now());
+      values(pipeline_lead_id,previous_stage,target,pipeline_reason,now());
   end if;
+  %s
 end $body$;
-  $definition$,coalesce(names[1],'p_lead_id'),coalesce(names[2],'p_stage'),coalesce(names[3],'p_reason'));
+  $definition$,coalesce(installed.proargnames[1],'p_lead_id'),coalesce(installed.proargnames[2],'p_stage'),
+    coalesce(installed.proargnames[3],'p_reason'),result_type,return_statement,return_statement);
 end $install$;
 revoke all on function public.set_lead_stage(uuid,text,text) from public,anon,authenticated;
 grant execute on function public.set_lead_stage(uuid,text,text) to service_role;
@@ -207,7 +231,7 @@ comment on table public.lead_commercial_profiles is
 
 -- These are observations made by the canonical projector, not a reconstruction
 -- of unobserved historical transitions. First observation always has from=NULL.
-create table public.lead_commercial_stage_observations (
+create table if not exists public.lead_commercial_stage_observations (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid not null references public.leads(id) on delete cascade,
   tenant_id uuid not null references public.tenants(id),
@@ -219,8 +243,9 @@ create table public.lead_commercial_stage_observations (
   observed_at timestamptz not null default clock_timestamp(),
   actor_id uuid references public.profiles(id)
 );
-create index lead_commercial_stage_observations_latest on public.lead_commercial_stage_observations(lead_id,observed_at desc);
+create index if not exists lead_commercial_stage_observations_latest on public.lead_commercial_stage_observations(lead_id,observed_at desc);
 alter table public.lead_commercial_stage_observations enable row level security;
+drop policy if exists lead_commercial_stage_observations_read on public.lead_commercial_stage_observations;
 create policy lead_commercial_stage_observations_read on public.lead_commercial_stage_observations for select to authenticated
   using(public.lv_can_manage_lead_commercial_profile(lead_id)
     and exists(select 1 from public.leads l where l.id=lead_id and l.tenant_id=lead_commercial_stage_observations.tenant_id));
@@ -228,7 +253,7 @@ revoke all on public.lead_commercial_stage_observations from public,anon,authent
 grant select on public.lead_commercial_stage_observations to authenticated;
 grant all on public.lead_commercial_stage_observations to service_role;
 
-create function public.record_lead_commercial_stage_observation(
+create or replace function public.record_lead_commercial_stage_observation(
   p_lead_id uuid,p_stage text,p_reason text,p_evidence jsonb,p_source_at timestamptz
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare customer public.leads; previous public.lead_commercial_stage_observations; saved public.lead_commercial_stage_observations;
@@ -252,7 +277,7 @@ end $$;
 revoke all on function public.record_lead_commercial_stage_observation(uuid,text,text,jsonb,timestamptz) from public,anon,authenticated;
 grant execute on function public.record_lead_commercial_stage_observation(uuid,text,text,jsonb,timestamptz) to service_role;
 
-create function public.record_lead_commercial_stage_observations(p_observations jsonb)
+create or replace function public.record_lead_commercial_stage_observations(p_observations jsonb)
 returns void language plpgsql security definer set search_path='' as $$
 declare observation jsonb;
 begin
@@ -277,3 +302,5 @@ begin
 end $$;
 revoke all on function public.record_lead_commercial_stage_observations(jsonb) from public,anon,authenticated;
 grant execute on function public.record_lead_commercial_stage_observations(jsonb) to service_role;
+
+commit;

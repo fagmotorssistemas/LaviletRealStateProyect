@@ -38,6 +38,7 @@ function databaseHarness(initial = []) {
       neq(k, v) { filters.push(r => value(r, k) !== v); return q },
       gt(k, v) { filters.push(r => value(r, k) > v); return q },
       in(k, values) { filters.push(r => values.map(String).includes(String(value(r, k)))); return q },
+      not(k, operator, list) { assert.equal(operator, 'in'); const values = list.slice(1, -1).split(','); filters.push(r => !values.includes(String(value(r, k)))); return q },
       contains(k, v) { filters.push(r => Object.entries(v).every(([key, x]) => r[k]?.[key] === x)); return q },
       or() { filters.push(r => r.status === 'uncertain' || (r.status === 'cancelled' && r.result.requires_review === true)); return q },
       order(k, opts) { order.push([k, opts]); return q },
@@ -63,6 +64,7 @@ function databaseHarness(initial = []) {
   }
   const mod = load('src/lib/integrations/automation/delivery-state.ts', {
     './data': { ...data, db: () => ({ from }), rpc: async (name, args) => { calls.push({ action: name, args }); return true } },
+    './transport-monitor': { transportHealth: async () => ({ checkedAt: new Date().toISOString(), error: null, missing: [], delayed: [], limited: false }) },
   })
   return { ...mod, rows, calls }
 }
@@ -158,7 +160,7 @@ test('a new rejection reopens the account block after an administrator allowed a
   assert.equal((await h.deliveryHealth()).httpStatus, 403)
 })
 
-function workerHarness({ blocked = false, failure = null, action = 'accepted', recoveryFailure = null, kind = 'inbound' } = {}) {
+function workerHarness({ blocked = false, failure = null, action = 'accepted', recoveryFailure = null, recoveryResult = null, kind = 'inbound' } = {}) {
   const calls = []
   let claimed = false, hasBlock = blocked
   const q = { then: resolve => Promise.resolve({ error: null }).then(resolve) }
@@ -170,7 +172,7 @@ function workerHarness({ blocked = false, failure = null, action = 'accepted', r
     './kommo': provider,
     './generation-recovery': { ...require('../src/lib/integrations/automation/generation-recovery.ts'), recoverGenerationFailure: async () => {
       calls.push({ name: 'generation_recovery' }); if (recoveryFailure) throw recoveryFailure
-      return { action: 'advisor_recovery', delivery_status: 'accepted' }
+      return recoveryResult || { action: 'advisor_recovery', delivery_status: 'accepted' }
     } },
     './delivery-state': { ...state, kommoDeliveryBlock: async () => hasBlock ? { http_status: 402 } : null },
     './nutrition': { cancelNutrition24h: async () => {}, sendNutrition24h: async () => ({}) },
@@ -179,6 +181,8 @@ function workerHarness({ blocked = false, failure = null, action = 'accepted', r
     './conversation': { processConversation: async () => { calls.push({ name: 'process' }); if (failure) { hasBlock = failure.status === 402; throw failure } return { action } } },
     './delivery-retry': { sendConfirmedDeliveryRetry: async () => { calls.push({ name: 'retry_saved_reply' }); if (failure) throw failure; return { action: 'confirmed_delivery_retry', delivery_status: 'accepted' } } },
     './visits': { pendingVisits: async () => { calls.push({ name: 'visits' }); return [] }, planVisits: async () => 0 },
+    './showroom-contact': { processShowroomContacts: async () => ({ contacts: [] }) },
+    './maintenance-recovery': { recheckMaintenanceReads: async () => ({ checked: 0 }) },
   })
   return { runAutomation, calls }
 }
@@ -203,6 +207,19 @@ test('an exhausted inference fails over to advisor once without replaying the co
   const finish = h.calls.find(c => c.name === 'lv_app_finish').args
   assert.equal(finish.p_status, 'completed')
   assert.equal(finish.p_result.action, 'advisor_recovery')
+})
+
+test('an accepted technical notice with a failed handoff remains visible for review without authorizing a resend', async () => {
+  const { OpenAIRequestError } = require('../src/lib/integrations/automation/openai-request.ts')
+  const recoveryResult = { action: 'advisor_recovery', delivery_status: 'accepted', handoff_recorded: false,
+    handoff_error: 'RPC_HANDOFF_LEAD_42P10', reason: 'RPC_HANDOFF_LEAD_42P10', requires_review: true }
+  const h = workerHarness({ failure: new OpenAIRequestError(503, true, 3), recoveryResult })
+  await h.runAutomation()
+  const finish = h.calls.find(c => c.name === 'lv_app_finish').args
+  assert.equal(finish.p_status, 'cancelled')
+  assert.equal(finish.p_result.delivery_status, 'accepted')
+  assert.equal(finish.p_result.requires_review, true)
+  assert.equal(h.calls.filter(c => c.name === 'generation_recovery').length, 1)
 })
 
 test('failed recovery separates generation failures from an uncertain fallback launch', async () => {

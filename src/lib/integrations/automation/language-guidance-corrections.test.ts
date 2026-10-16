@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -144,8 +145,8 @@ test('many bedrooms can offer an optional larger PH while preserving the origina
 test('choosing an explicitly offered PH accepts exploration, retains 300000, and offers financing without consent', () => {
   const input = info(9), plan = commercialJourneyPlan(input)
   const question = '¿Le gustaría revisar departamentos o penthouses de tres dormitorios?'
-  const pending = normalizedPendingQuestion(deliveredPendingQuestion(question, { plan, metadata: {
-    continuation_id: 'property_requirements', continuation_act: 'explore_alternatives', purpose: 'choose_property' } }, catalog), catalog)
+  const pending = normalizedPendingQuestion(deliveredPendingQuestion(question, { plan, metadata: writerFixture({ reply: question, question: {
+    continuation_id: 'property_requirements', continuation_act: 'explore_alternatives', purpose: 'choose_property' }, requests: [] }).question }, catalog), catalog)
   const current = 'prefiero los penthouses'
   const semantics = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'select_property', primary_evidence: current, confidence: 'high',
     property: { group: 'residential', category: 'penthouse', operation: 'search', query_scope: 'catalog', evidence: current, confidence: 'high' } } }, current, pending)
@@ -249,9 +250,9 @@ test('surface operands and approved view descriptions reach the complete writer 
     let observed: Row = {}
     const draft = 'Con gusto le ayudo a comparar esta opción.'
     const generate = async (_instructions: unknown, input: unknown, _schema: unknown, _a: unknown, _b: unknown, _c: unknown, task: unknown) => {
-      if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       observed = object(input)
-      return { reply: draft, requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+      return writerFixture({ reply: draft, requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
     }
     const result = await withResponseReviewPolicy({ ...control, updatedAt: null }, () => completeTurnReply({ current, history: [],
       baseReply: '', verified, audit: { source: 'commercial', semantic_review_enabled: true, business_risk_review_enabled: true } }, generate))
@@ -272,7 +273,7 @@ test('view and geometry questions do not disclose price ratios through the arith
   await withResponseReviewPolicy({ enabled: false, observationOnly: false, updatedAt: null }, () => completeTurnReply({ current, history: [], baseReply: '', verified,
     audit: { source: 'commercial', semantic_review_enabled: true } }, async (_rules, input) => {
       observed = object(input)
-      return { reply: 'Con gusto podemos comparar estas opciones.', requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+      return writerFixture({ reply: 'Con gusto podemos comparar estas opciones.', requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
     }))
   const reasoning = object(observed.razonamiento_contextual)
   assert.ok(Array.isArray(reasoning.facts))

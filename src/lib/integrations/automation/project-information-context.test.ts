@@ -114,6 +114,9 @@ test('the same compact context reaches writer and reviewer while the commercial 
   const current = 'bueno y para que necesitaria esa guia personalizada?'
   const answer = 'La guía permite conocer las opciones según sus intereses.', question = '¿Busca una vivienda o un local para su negocio?'
   const reply = `${answer} Para orientarle con las opciones del proyecto, ${question}`
+  const questionMetadata = { text: question, purpose: 'choose_property', role: 'optional_continuation',
+    missing_datum: 'category', next_decision: 'Elegir tipo de espacio',
+    continuation_id: 'property_category', continuation_act: 'choose_category' }
   for (const enabled of [false, true]) {
     const calls: string[] = [], errors: unknown[] = []
     const result = await withResponseReviewPolicy(responseReviewSettings({ response_review: { enabled } }),
@@ -121,22 +124,27 @@ test('the same compact context reaches writer and reviewer while the commercial 
         async (_rules, raw, _schema, _image, _file, _tone, task) => {
           calls.push(String(task))
           try {
-            const input = object(raw), obligation = (input.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
-            assert.equal(obligation.question_id, 'property_category')
+            const input = object(raw)
             if (task === 'writing') {
+              const obligation = (input.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
+              assert.equal(obligation.question_id, 'property_category')
               assert.deepEqual(object(input.evidencia_turno).units, []); assert.deepEqual(object(input.evidencia_turno).groups, [])
+              const selection = object(object(input.contexto_verificado).prompt_context_selection)
+              assert.equal(selection.included_unit_count, 0)
+              assert.equal(selection.included_group_count, 0)
+              assert.equal(((input.evidencia_afirmaciones || []) as Row[]).some(source => /^evidencia_turno\.(?:units|groups)\./.test(String(source.path))), false)
               assert.deepEqual(object(input.contexto_verificado).entrega_proyecto, fixture(current).entrega_proyecto)
             } else {
               assert.deepEqual(object(input.fuentes_autorizadas).unidades, []); assert.deepEqual(object(input.fuentes_autorizadas).grupos, [])
             }
           } catch (error) { errors.push(error); throw error }
-          return task === 'writing' ? { reply, question: null, requests: [] }
-            : { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+          return task === 'writing' ? { reply, question: questionMetadata, requests: [] }
+            : { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         }))
     assert.deepEqual(errors, [])
     assert.deepEqual(calls, enabled ? ['writing', 'review'] : ['writing'])
     assert.equal(result.audit.status, enabled ? 'checked' : 'review_disabled')
     assert.equal(result.reply, reply); assert.equal(result.needsAdvisor, false)
-    assert.equal(journeyPendingQuestion(reply, object(result.audit.commercial_journey), true).id, 'property_category')
+    assert.equal(journeyPendingQuestion(reply, object(result.audit.commercial_journey), true, questionMetadata).id, 'property_category')
   }
 })

@@ -1,6 +1,6 @@
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, type Row } from './data'
-import { operationalReservationInvitation, simpleReservationAcceptance, reservationInvitationUnitNumbers, explicitReservationAction } from './reservation-invitation'
+import { simpleReservationAcceptance, explicitReservationAction, verifiedReservationInvitation } from './reservation-invitation'
 
 const value = (input: unknown) => typeof input === 'string' ? input : ''
 const normalize = (input: unknown) => value(input).toLocaleLowerCase('es').replace(/\s+/g, ' ').trim()
@@ -103,10 +103,8 @@ export function reservationRequest(reservation: Row, messages: { externalId: str
   if (reservation.accepted_invitation) {
     const invitation = object(reservation.accepted_invitation)
     const targets = Array.isArray(invitation.target_ids) ? invitation.target_ids.map(value).filter(Boolean) : []
-    if (!operationalReservationInvitation(value(invitation.question)) || targets.length !== 1
+    if (!verifiedReservationInvitation(invitation, targets)
       || selectedUnits.length !== 1 || selectedUnits[0].id !== targets[0]) return null
-    const mentioned = reservationInvitationUnitNumbers(value(invitation.question))
-    if (mentioned.length && (mentioned.length !== 1 || mentioned[0] !== unitKey(value(selectedUnits[0].unit_number)))) return null
   }
   const explicitUnit = /\b(?:unidad|depart\w*|apart\w*|suite|penthouse|local(?: comercial)?|el|la)\s*(?:n[uú]mero\s*)?(?:lc[- ]*)?\d{1,4}(?!\d)/i.test(combined)
   const canResolveSelection = selectedUnits.length === 1 && mentioned.length === 0 && !explicitUnit

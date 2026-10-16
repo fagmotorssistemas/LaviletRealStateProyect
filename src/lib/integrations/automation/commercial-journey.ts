@@ -297,6 +297,11 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   let budgetGuidance: Row = {}
   const plan = (action: string, instruction: string, question = '', questionId = ''): Row => ({
     version: 'commercial-journey-v1', action, instruction, question, question_id: questionId,
+    question_act: questionId.startsWith('financing_') ? 'financing'
+      : questionId.startsWith('visit_') ? 'visit' : questionId.startsWith('budget_') ? 'budget'
+        : questionId.startsWith('lead_') ? 'profile' : questionId === 'reservation_invitation' ? 'reservation'
+          : ['property_category', 'property_purpose'].includes(questionId) ? 'choose_category'
+            : questionId === 'property_floor' ? 'choose_floor' : questionId === 'unit_choice' ? 'choose_unit' : 'other',
     selected_unit_id: selected || null, readiness, profile_complete: profileDone,
     financing_offer_allowed: false, visit_offer_allowed: false,
     ...(Object.keys(budgetGuidance).length ? { budget_guidance: budgetGuidance } : {}),

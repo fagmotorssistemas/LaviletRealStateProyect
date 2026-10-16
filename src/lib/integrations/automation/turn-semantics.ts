@@ -11,7 +11,7 @@ import { replyQuestions } from './reply-question'
 import { budgetAmountForCurrentTurn } from './turn-interpretation-input'
 import { groundedCurrentCategoryExclusions, isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
 import { floorEvidence, floorInvitationTarget } from './floor-evidence'
-import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction } from './reservation-invitation'
+import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction, verifiedReservationInvitation } from './reservation-invitation'
 import { categoryInvitationTarget } from './category-offer'
 import { AMOUNT_REFERENCE_SCHEMA } from './monetary-reference'
 import { DISCOUNT_REQUEST_SCHEMA, DISCOUNT_REQUEST_EXTRACTION_RULES, normalizedDiscountRequest } from './discount-request'
@@ -211,12 +211,16 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
     && !!text(proposedEntry.question_source).trim() && !!text(proposedEntry.delivered_question).trim()
     && ['delivered_total_budget_entry_proposal', 'writer_structured_total_budget_entry_proposal'].includes(text(proposedEntry.resolution))
     ? proposedEntry : null
+  const targets = ids(row.target_ids)
+  const reservationInvitation = id === 'reservation_invitation' && row.act === 'reservation'
+    && verifiedReservationInvitation(row.reservation_invitation, targets) ? object(row.reservation_invitation) : null
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id === 'reservation_invitation' ? 'reservation' : id === 'brochure_offer' ? 'material'
     : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
-  question: text(row.question).trim().slice(0, 500), target_ids: ids(row.target_ids), candidate_ids: comparisonCandidates ?? ids(row.candidate_ids),
+  question: text(row.question).trim().slice(0, 500), target_ids: targets, candidate_ids: comparisonCandidates ?? ids(row.candidate_ids),
   ...(comparisonCategories.length > 1 ? { comparison_categories: comparisonCategories, comparison_bedrooms: comparisonBedrooms } : {}),
   ...(entryReference ? { amount_reference: entryReference } : {}),
+  ...(reservationInvitation ? { reservation_invitation: reservationInvitation } : {}),
   ...(id === 'budget_amount' && row.budget_basis === 'total_budget' ? { budget_basis: 'total_budget' } : {}),
   ...(Object.keys(proposedQuery).length ? { proposed_query: { ...proposedQuery, operation: 'search', selector: null } } : {}) }
 }
@@ -340,15 +344,15 @@ export function normalizedReservation(raw: unknown, current: string, pendingRaw?
   } : { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' }
   const pending = normalizedPendingQuestion(pendingRaw), answer = object(answerRaw)
   const answerEvidence = literalEvidence(answer.evidence, current)
-  // Rebuild this proof from the caller's delivered question and current typed
+  // Rebuild this proof from the caller's delivered receipt and current typed
   // answer every time; never preserve a model-supplied accepted_invitation.
   if (['none', 'request'].includes(text(result.kind)) && pending.id === 'reservation_invitation'
-    && pending.act === 'reservation' && operationalReservationInvitation(text(pending.question))
+    && pending.act === 'reservation' && verifiedReservationInvitation(pending.reservation_invitation, pending.target_ids as string[])
     && answer.question_id === pending.id && answer.kind === 'affirmative' && acceptedExtractorConfidence(answer.confidence)
     && answerEvidence && simpleReservationAcceptance(current)
     && Array.isArray(pending.target_ids) && pending.target_ids.length === 1) {
     return { kind: 'request', evidence: answerEvidence, confidence: answer.confidence, unit_numbers: [],
-      accepted_invitation: { question: pending.question, target_ids: [...pending.target_ids] } }
+      accepted_invitation: { ...object(pending.reservation_invitation), target_ids: [...pending.target_ids] } }
   }
   return result.kind === 'request' && !explicitReservationAction(text(result.evidence))
     ? { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' } : result

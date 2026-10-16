@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
@@ -57,11 +58,10 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
           audit: { source: 'catalog_search', semantic_review_enabled: true, business_risk_review_enabled: true } },
         async (_rules, raw, _schema, _image, _file, _tone, task) => {
           tasks.push(task || ''); contexts.push(object(raw))
-          if (task === 'writing') return { reply, question: metadata, requests: rows(object(raw).referencias_solicitud)
+          if (task === 'writing') return writerFixture({ reply, question: metadata, requests: rows(object(raw).referencias_solicitud)
             .map(ref => ({ fragment: ref.id, intent: 'Atender la respuesta', request_type: 'general_information',
-              status: 'answered', evidence: reply, fact_key: null })) }
-          return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [],
-            question: { ...metadata, offered_action: 'none' } }
+              status: 'answered', evidence: reply, fact_key: null })) })
+          return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         }))
       assert.equal(result.reply, reply, JSON.stringify(result.audit.final_validation))
       assert.equal(result.needsAdvisor, false)

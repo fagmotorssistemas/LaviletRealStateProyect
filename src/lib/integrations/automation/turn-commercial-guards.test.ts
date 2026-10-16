@@ -1,8 +1,9 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import Ajv from 'ajv'
 import { completeTurnReply } from './turn-completeness'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { object, text, type Row } from './data'
 import { factualReviewObligations } from './reviewer-authority'
 import { LOCATION_DISCLOSURE_RULES } from './location-policy'
@@ -42,9 +43,9 @@ function harness(reply: string, inspect: (context: Row, task: string) => void, q
     try { inspect(context, task) } catch (error) { contextErrors.push(error) }
     const reference = rows(context.referencias_solicitud)[0]
     const answer = task === 'review'
-      ? { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
-      : { reply, requests: [{ fragment: reference?.id, intent: 'Atender la consulta vigente', request_type: 'general_information',
-        status: 'answered', evidence: 'La respuesta atiende la solicitud actual.', fact_key: null }], question }
+      ? { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
+      : writerFixture({ reply, requests: [{ fragment: reference?.id, intent: 'Atender la consulta vigente', request_type: 'general_information',
+        status: 'answered', evidence: 'La respuesta atiende la solicitud actual.', fact_key: null }], question })
     assert.ok(schema)
     const validate = ajv.compile(schema)
     assert.ok(validate(answer), ajv.errorsText(validate.errors))

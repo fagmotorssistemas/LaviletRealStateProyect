@@ -264,7 +264,7 @@ export async function runAutomation(contactKey?: string) {
           try {
             const recovery = await recoverGenerationFailure(batch, guard, original.message)
             await rpc('lv_app_finish', { p_token: token, p_ids: ids,
-              p_status: recovery.delivery_status === 'not_sent' ? 'cancelled' : 'completed', p_result: recovery })
+              p_status: recovery.delivery_status === 'not_sent' || recovery.requires_review === true ? 'cancelled' : 'completed', p_result: recovery })
             results.push({ kind: first.kind, ...recovery })
             continue
           } catch (recoveryError) {

@@ -15,6 +15,8 @@ import { reservationPermission, reservationRequest } from './reservation-action'
 import { financingInputs } from './financing'
 import { normalizedVisitPreference, normalizedVisitIntent } from './conversation-rules'
 import { resolvedCatalogQuery } from './resolved-catalog-query'
+import { deliveredPendingQuestion } from './continuation-question'
+import { financingInvitationReceipt } from './financing-invitation'
 
 function extraction(current: string, confidence = 'medium'): Row {
   const raw: Row = structuredClone(fixture)
@@ -131,8 +133,9 @@ test('low remains unavailable for routing, amounts and catalogue facts', () => {
 })
 
 test('medium accepts only the actual reservation invitation and keeps conditional, negated and stale targets blocked', () => {
-  const pending = { id: 'reservation_invitation', act: 'reservation', target_ids: ['d202'],
-    question: '¿Le gustaría que le ayudemos a iniciar la reserva del departamento 202?' }
+  const question = '¿Le gustaría que le ayudemos a iniciar la reserva del departamento 202?'
+  const pending = deliveredPendingQuestion(question, { plan: { question_id: 'reservation_invitation', question_act: 'reservation', selected_unit_id: 'd202' },
+    metadata: { text: question, purpose: 'permission_to_continue', continuation_id: 'reservation_invitation', continuation_act: 'reservation' } }, catalog)
   const answer = { question_id: pending.id, kind: 'affirmative', evidence: 'Sí', confidence: 'medium' }
   const reservation = normalizedReservation({ kind: 'none' }, 'Sí', pending, answer)
   assert.equal(reservation.kind, 'request'); assert.equal(reservation.confidence, 'medium')
@@ -152,7 +155,9 @@ test('medium financing consent still belongs to the real operational question, n
   const yes = { financing_consent: true, turn_semantics: { primary_intent: 'ask_financing', confidence: 'medium',
     answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: current, confidence: 'medium' } } }
   const operational = '¿Desea que continuemos con el proceso de financiamiento?'
-  assert.equal(financingInputs(yes, current, operational, context, { kind: 'financing_consent', reply: operational }).consent, true)
+  assert.equal(financingInputs(yes, current, operational, context, { kind: 'financing_consent', reply: operational,
+    invitation: financingInvitationReceipt({ text: operational, purpose: 'permission_to_continue',
+      continuation_id: 'financing_invitation', continuation_act: 'financing' }) }).consent, true)
   const informational = '¿Desea conocer las opciones de financiamiento?'
   assert.equal(financingInputs(yes, current, informational, context, { kind: 'financing_consent', reply: informational }).consent, null)
   assert.equal(financingInputs({}, 'Con Cooperativa JEP', operational, context, {}).consent, null)

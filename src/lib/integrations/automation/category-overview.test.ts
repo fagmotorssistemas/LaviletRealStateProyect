@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -81,39 +82,37 @@ test('residential presentation uses one writer and one reviewer with no sheets a
       const context = object(raw)
       if (task === 'writing') {
         assert.deepEqual(object(context.evidencia_turno).units, [])
-        return { reply, question: { ...question, text: '¿Cuántos dormitorios necesita?' }, requests: [
-          { fragment: 'R1', intent: request.request, status: 'answered', evidence: reply, request_type: 'general_information', fact_key: 'other' }] }
+        return writerFixture({ reply, question: { ...question, text: '¿Cuántos dormitorios necesita?' }, requests: [
+          { fragment: 'R1', intent: request.request, status: 'answered', evidence: reply, request_type: 'general_information', fact_key: 'other' }] })
       }
       const sources = object(context.fuentes_autorizadas)
       assert.deepEqual(sources.unidades, [])
       const group = (sources.grupos as Row[]).find(g => g.category === 'penthouse')!
       assert.ok(group)
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], question: { ...question, offered_action: 'information' },
-        facts: [{ statement: 'Tenemos penthouses', kind: 'catalog_value', subject_id: group.id,
-          field: 'category', value: 'penthouse', relation: 'eq', unit: 'text', scope: null, upper_value: null }] }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.deepEqual(calls, ['writing', 'review'])
   assert.equal(result.reply, reply)
 })
 
-test('first information request receives courtesy before review without adding a model call or repeating it later', async () => {
+test('first information request keeps the writer courtesy choice without adding or repeating a formula', async () => {
   const current = 'quieor informacion'
   const introduction = leadIntroductionTurn({ current, reply: '', extracted: { turn_semantics: {
     primary_intent: 'project_information', confidence: 'high' } }, audit: { source: 'project_overview' } })
   const draft = 'La Vilet está en Puertas del Sol, Cuenca. Para enviarle el brochure y brindarle una guía personalizada, ¿cuál es su nombre y en qué ciudad o país reside?'
   for (const first of [true, false]) {
     const calls: string[] = []
-    const expected = first ? 'Con mucho gusto le comparto información. ' + draft : draft
+    const expected = draft
     const result = await completeTurnReply({ current, baseReply: introduction.reply, verified: { proyecto: { name: 'La Vilet' } },
       audit: { ...audit, ...introduction.audit, profile_introduction: { ...object(introduction.audit.profile_introduction),
         reason: first ? 'first_substantive_project_contact' : 'continue_opening_profile_exchange' } } },
     async (_rules, raw, _schema, _image, _file, _tone, task) => {
       calls.push(task || '')
-      if (task === 'writing') return { reply: draft, question: { ...question, purpose: 'collect_lead_profile' }, requests: [
-        { fragment: 'R1', intent: 'Información', status: 'answered', evidence: draft, request_type: 'general_information', fact_key: 'other' }] }
+      if (task === 'writing') return writerFixture({ reply: draft, question: { ...question, purpose: 'collect_lead_profile' }, requests: [
+        { fragment: 'R1', intent: 'Información', status: 'answered', evidence: draft, request_type: 'general_information', fact_key: 'other' }] })
       assert.equal(object(raw).borrador, expected)
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: { ...question, purpose: 'collect_lead_profile', offered_action: 'information' } }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     })
     assert.equal(result.audit.status, 'checked')
     assert.equal(result.reply, expected)

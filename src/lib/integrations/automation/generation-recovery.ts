@@ -160,24 +160,35 @@ export async function recoverGenerationFailure(rows: Row[], guard: Guard, reason
         delivery_status: 'not_attempted', message_persisted: true, ...recoveryDetail, requires_review: false }
     }
     const handoffReason = `Atender consulta sin respuesta por ${reviewFailure ? 'revisión agotada' : 'fallo de generación'} (${reason}). Consulta: ${current}`
-    await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: handoffReason })
-    const reactivated = await db().from('leads').update({ bot_enabled: true }).match(scope)
-      .eq('id', lead.id).eq('handoff_reason', handoffReason).is('tracking_opt_out_at', null)
-    if (reactivated.error) throw Error('HANDOFF_BOT_STATE_FAILED')
-    const handed = await one('leads', text(lead.id))
-    if (!['queued', 'assigned', 'acknowledged'].includes(text(handed.handoff_status))) throw Error('HANDOFF_NOT_RECORDED')
+    let handoffRecorded = false, handoffError = ''
+    try {
+      await rpc('handoff_lead', { p_lead_id: lead.id, p_reason: handoffReason })
+      const reactivated = await db().from('leads').update({ bot_enabled: true }).match(scope)
+        .eq('id', lead.id).eq('handoff_reason', handoffReason).is('tracking_opt_out_at', null)
+      if (reactivated.error) throw Error('HANDOFF_BOT_STATE_FAILED')
+      const handed = await one('leads', text(lead.id))
+      handoffRecorded = ['queued', 'assigned', 'acknowledged'].includes(text(handed.handoff_status))
+      if (!handoffRecorded) throw Error('HANDOFF_NOT_RECORDED')
+    } catch (error) {
+      // A failed RPC must not erase the already persisted inbound question or
+      // prevent a truthful technical notice. Do not retry the handoff: its SQL
+      // transaction may have committed before the response was lost.
+      handoffError = error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'HANDOFF_RECOVERY_FAILED'
+    }
+    const recoveryState = { handoff_recorded: handoffRecorded, ...(handoffError ? { handoff_error: handoffError,
+      reason: handoffError, recovery: 'handoff_needs_review' } : {}), requires_review: !!handoffError }
     if (alreadyNotified) return { action: 'advisor_recovery', notice: 'already_notified', notice_sent: false,
-      delivery_status: 'not_attempted', message_persisted: true, ...recoveryDetail, requires_review: false }
+      delivery_status: 'not_attempted', message_persisted: true, ...recoveryDetail, ...recoveryState }
     const language = object(object(conversation.summary)._conversation_language)
-    const notice = generationRecoveryNotice(language)
-    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
+    const notice = generationRecoveryNotice(language, handoffRecorded)
+    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail, ...recoveryState }
     await setKommoField(last.kommoId, 457014, notice)
-    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail }
+    if (!await canRespond()) return { action: 'advisor_recovery', notice: 'superseded_or_paused', ...recoveryDetail, ...recoveryState }
     sendStarted = true
     await launchSalesbot(last.kommoId, 15578, { audience: config._audience, sourceAt: events[0].sentAt,
       jobCreatedAt: rows.map(row => text(row.received_at)).filter(Boolean).sort()[0] })
     await rpc('register_outbound_message', { p_conversation_id: conversationId, p_content: notice, p_model: reviewFailure ? 'system:review-recovery' : 'system:generation-recovery',
-      p_tool_calls: { source_message_id: last.externalId, provider_status: 'accepted', writer_greeting: '', source: reviewFailure ? 'review_recovery' : 'generation_recovery', ...recoveryDetail } })
-    return { action: 'advisor_recovery', delivery_status: 'accepted', ...recoveryDetail, requires_review: false }
+      p_tool_calls: { source_message_id: last.externalId, provider_status: 'accepted', writer_greeting: '', source: reviewFailure ? 'review_recovery' : 'generation_recovery', ...recoveryDetail, ...recoveryState } })
+    return { action: 'advisor_recovery', delivery_status: 'accepted', message_persisted: true, ...recoveryDetail, ...recoveryState }
   } catch (error) { throw new GenerationRecoveryError(error, sendStarted) }
 }

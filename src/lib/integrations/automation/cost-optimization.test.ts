@@ -10,6 +10,7 @@ import { interpretationInput, reconcilePassivePropertyMemory, interpretationSour
 import { aiRequestBody } from './ai-request-body'
 import { aiPromptCacheKey } from './ai-prompt-cache'
 import { object, type Row } from './data'
+import { plannedQuestionFixture } from './fixtures/writer-response.fixture'
 
 const units = [
   { id:'d302',unit_number:'302',category:'departamento',bedrooms:3,floor_number:3,published_commercial_price:270000 },
@@ -24,7 +25,7 @@ test('unavailable requirements preserve an approximate budget and ask for flexib
       semantica_turno:{ budget:{ status:'amount',amount,confidence:'high',evidence:`estimo ${amount}, no estoy seguro` } },
       financiamiento:{ partners:['Cooperativa JEP'],journey:{} } }
     info.presupuesto_del_turno=turnBudgetAssessment(info,{})
-    assert.equal(object(info.presupuesto_del_turno).status,'no_matching_features')
+    assert.equal(object(info.presupuesto_del_turno).status,'not_comparable', 'An approximate amount without a confirmed role is not compared with purchase prices')
     const plan=commercialJourneyPlan(info)
     assert.equal(plan.action,'clarify_requirements')
     assert.equal(plan.financing_offer_allowed,false)
@@ -42,7 +43,7 @@ test('unavailable requirements preserve an approximate budget and ask for flexib
     assert.match(String(budgetNext.instruction),/requisito/)
     assert.doesNotMatch(String(budgetNext.instruction),/Presente las plantas/)
     const pending=normalizedPendingQuestion(journeyPendingQuestion('¿Consideraría una opción de tres dormitorios?',plan,true,
-      { continuation_id:'property_requirements',continuation_act:'explore_alternatives',purpose:'clarify_request' }),units)
+      { ...plannedQuestionFixture(plan), text:'¿Consideraría una opción de tres dormitorios?' }),units)
     assert.equal(pending.id,'property_requirements')
   }
 })

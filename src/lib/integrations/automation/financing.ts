@@ -3,7 +3,6 @@ import { readCommercialContext } from './context-read'
 import { db, object, scope, text, type Row } from './data'
 import { normalized } from './sdr-rules'
 import { isConversationRepair, explicitlyRequestsVisit } from './turn-routing'
-import { acceptsUnitOptions } from './sales-policy'
 import { hasFinancingRequest } from './financing-guidance'
 import { financingQuoteInquiry } from './financing-quote'
 import { operationalFinancingInvitation } from './financing-invitation'
@@ -42,13 +41,15 @@ export function hasAffordabilityConcern(current: string) {
 
 export function financingInputs(extracted: Row, current: string, lastReply: string, context: Awaited<ReturnType<typeof financingContext>>, lastStep: Row = {}) {
   let message = normalized(current)
+  const semantics = object(extracted.turn_semantics)
+  const choice = object(extracted.financing_partner_choice)
   const jep = context.partners.find(name => /^(?:cooperativa )?jep$/.test(normalized(name)))
   const contextualJepTypo = !!jep && /\bgep\b/.test(message)
-    && (/\bcooperativa gep\b/.test(message) || /\bjep\b/.test(normalized(lastReply)))
+    && (/\bcooperativa gep\b/.test(message) || /\bjep\b/.test(normalized(text(context.current.selected_partner_name)))
+      || choice.kind === 'select' && /\bjep\b/.test(normalized(text(choice.name))))
   if (contextualJepTypo) message = message.replace(/\bgep\b/g, 'jep')
   const pendingAnswer = object(object(extracted.turn_semantics).answer_to_previous)
   const literal = (value: unknown) => !!text(value).trim() && normalized(current).includes(normalized(text(value)))
-  const semantics = object(extracted.turn_semantics)
   const currentFinancialRequest = hasFinancingRequest(extracted) && (
     semantics.primary_intent === 'ask_financing' && literal(semantics.primary_evidence)
     || Array.isArray(semantics.requests) && semantics.requests.map(object)
@@ -56,21 +57,18 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
   const otherQuestion = acceptedExtractorConfidence(pendingAnswer.confidence) && !!pendingAnswer.question_id
     && !['none', 'financing_invitation'].includes(text(pendingAnswer.question_id))
     || lastStep.kind === 'commercial_question' && lastStep.reply === lastReply
-  const asksConsent = !otherQuestion && !acceptsUnitOptions(current, lastReply) && operationalFinancingInvitation(lastReply)
+  const asksConsent = !otherQuestion && lastStep.kind === 'financing_consent'
+    && lastStep.reply === lastReply && operationalFinancingInvitation(lastStep.invitation)
   const decision = message.split(/\n+|\s+y\s+(?=(?:el local|la vivienda|el departamento|cuanto|que|como|eso)\b)/)[0]
-  const explicitHelp = /^(?:si |claro |de acuerdo )?(?:ayudeme|ayudenme|ayudennos|ayudanos) (?:con|en) (?:el |la )?(?:financiamiento|revision|evaluacion)\b/.test(decision)
-  const acceptsFinancialHelp = explicitHelp && /^(?:si|claro|de acuerdo)\b/.test(message) && /financ|credito|revision/.test(normalized(lastReply))
   const answerEvidence = text(pendingAnswer.evidence).trim()
   const currentAnswer = !!answerEvidence && normalized(current).includes(normalized(answerEvidence))
   const groundedInvitation = asksConsent && pendingAnswer.question_id === 'financing_invitation'
     && acceptedExtractorConfidence(pendingAnswer.confidence) && currentAnswer
-  const semanticAcceptance = groundedInvitation && pendingAnswer.kind === 'affirmative'
-    || asksConsent && extracted.financing_consent === true && currentFinancialRequest
+  const semanticAcceptance = extracted.financing_consent !== false && groundedInvitation && pendingAnswer.kind === 'affirmative'
+  const currentConsent = extracted.financing_consent === true && currentFinancialRequest
   const conditional = /\b(?:solo si|siempre que|a condicion|si me (?:aprueban|aseguran|garantizan))\b/.test(message)
-    || /\b(?:solo|credito directo|otra entidad)\b/.test(decision)
-    || /\bpero\b/.test(decision) && !semanticAcceptance
-    || (/[?¿]/.test(current) && !semanticAcceptance && !((asksConsent || acceptsFinancialHelp) && explicitHelp))
-  const choice = object(extracted.financing_partner_choice)
+    || /\b(?:credito directo|otra entidad)\b/.test(decision)
+    || /\bpero\b/.test(decision) && !semanticAcceptance && !currentConsent
   const choiceEvidence = text(choice.evidence).trim()
   const groundedChoice = acceptedExtractorConfidence(choice.confidence) && !!choiceEvidence && choiceEvidence.length <= 500
     && normalized(current).includes(normalized(choiceEvidence))
@@ -79,19 +77,13 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
       && !(groundedChoice && ['select', 'decline'].includes(text(choice.kind)))
   const explicitFinancialDecline = /\bno (?:quiero|deseo|autorizo|necesito|me interesa)\b[^.!?]{0,55}\b(?:financiamiento|credito|revision financiera|evaluacion financiera|precalificacion)\b/.test(message)
     || /\b(?:cancelar|cancele|cancelen|cancelamos|detener|detenga)\b[^.!?]{0,55}\b(?:financiamiento|credito|revision financiera|evaluacion financiera|precalificacion)\b/.test(message)
-  const explicitReview = /\b(?:quisiera|quiero|deseo|me gustaria|podemos|vamos a) (?:que (?:me |nos )?(?:ayuden|ayude) a )?(?:(?:hacer|iniciar|empezar|continuar|realizar) (?:la |una |el |una nueva )?(?:prueba|revision|evaluacion|precalificacion)|(?:probar|revisar|evaluar|precalificar)(?:lo|la)?\b)/.test(message)
-    || /\b(?:hagamos|iniciemos|empecemos|continuemos) (?:la |una |el )?(?:prueba|revision|evaluacion|precalificacion)\b/.test(message)
-  const plainYes = /^(si|si claro|claro|si por favor|si esta bien|si me parece bien|esta bien|bueno esta bien|adelante|de acuerdo|continuemos|si continuemos|por supuesto|si por supuesto|hagamoslo|me gustaria)$/.test(message)
-  const directContinuation = /^(?:(?:si|claro|bueno|de acuerdo|adelante|por supuesto)[, ]+)?(?:continuemos|sigamos|avancemos)(?:\s+(?:por favor|con\s+(?:el |la |banco |cooperativa )?[\p{L} .'-]+))?[.!]*$/u.test(message)
-  const confirmsReview = /^(?:si|claro|de acuerdo|adelante|por supuesto|acepto|autorizo|hagamoslo|me encantaria)\b/.test(message)
-  const explicitlyFinancialReview = explicitReview && /financ|credito|banco|cooperativa|pichincha|\bjep\b/.test(message)
-  // Choosing a lender alone is not consent. Accept an actual request to review the
-  // case, even when a natural response includes more words than a bare «sí».
+  // A new authorization belongs to the current AI interpretation. Keywords in
+  // a status inquiry cannot start another review, and choosing a lender alone
+  // is not consent. A grounded answer can accept the delivered typed invitation
+  // without depending on either model's particular wording.
   const inquiry = financingQuoteInquiry(extracted, current)
   const consent = inquiry.beforeApplication || conditional || declined || explicitFinancialDecline ? null
-    : semanticAcceptance || (asksConsent && (plainYes || directContinuation || explicitReview || explicitHelp)) || explicitlyFinancialReview || acceptsFinancialHelp ? true
-    : asksConsent && confirmsReview && extracted.financing_consent === true && currentFinancialRequest && !hasAffordabilityConcern(current) ? true
-    : null
+    : semanticAcceptance || currentConsent ? true : null
   let partner = text(extracted.financing_partner)
   if (contextualJepTypo && /^(?:cooperativa )?gep$/.test(normalized(partner))) partner = jep || ''
   // The extractor can carry an old lender forward; only accept a choice mentioned now.
@@ -105,9 +97,6 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
     // Preserve the extractor's choice for contrasts such as «Pichincha no, prefiero JEP».
     if (mentions.length === 1 && !/\bno\b/.test(message)) partner = mentions[0]
   }
-  if (!otherQuestion && context.current.explicit_consent === true && context.partners.length === 1
-    && normalized(lastReply).includes(normalized(context.partners[0]))
-    && /^(si|si claro|claro|si por favor|de acuerdo)$/.test(message)) partner = context.partners[0]
   let unsupported = partner && !context.partners.some(name => normalized(name) === normalized(partner)) ? partner : ''
   // Asking what a lender offers is not a new choice; keep any saved choice intact.
   if (inquiry.beforeApplication && !/\b(?:prefiero|elijo|escojo|me quedo con|continuemos con)\b/.test(message)) partner = ''
@@ -117,8 +106,8 @@ export function financingInputs(extracted: Row, current: string, lastReply: stri
       || normalized(text(choice.name)) === alias(name))
     const mentionedNow = canonical && (normalized(choiceEvidence).includes(alias(canonical)) || contextualJepTypo && canonical === jep)
     const acceptsOnlyEntity = pendingAnswer.question_id === 'financing_partner' && acceptedExtractorConfidence(pendingAnswer.confidence)
-      && pendingAnswer.kind === 'affirmative' && context.partners.filter(name => normalized(lastReply).includes(alias(name))).length === 1
-      && canonical && normalized(lastReply).includes(alias(canonical))
+      && pendingAnswer.kind === 'affirmative' && currentAnswer && context.partners.length === 1
+      && canonical === context.partners[0]
     partner = groundedChoice && canonical && (mentionedNow || acceptsOnlyEntity) && choice.kind === 'select' ? canonical : ''
     clearedPartner = groundedChoice && canonical && mentionedNow && choice.kind === 'decline' ? canonical : ''
     unsupported = groundedChoice && choice.kind === 'select' && !canonical ? text(choice.name) : ''
@@ -190,30 +179,30 @@ export function financingReply(fin: Row, partners: string[], unsupported = '') {
 }
 
 // An existing qualification is saved progress, not permission to monopolize every turn.
-export function isFinancingTurn(extracted: Row, current: string, lastReply: string, input: { partner: string | null; unsupported: string }) {
-  const message = normalized(current), previous = normalized(lastReply)
+export function isFinancingTurn(extracted: Row, current: string, _lastReply: string, input: { partner: string | null; unsupported: string }) {
+  void _lastReply // Conversation routing uses structured interpretation, never the writer's wording.
+  const message = normalized(current)
   if (extracted.requested_advisor || extracted.opt_out) return false
-  if (acceptsUnitOptions(current, lastReply)) return false
   if (isConversationRepair(current) || explicitlyRequestsVisit(current)) return false
   if (/\b(?:cita|visita|cancelar|reagendar)\b/.test(message)) return false
   if (hasFinancingRequest(extracted)) return true
   if (/financ|credito|entidad|banco|cooperativa|pichincha|\bjep\b|jardin azuayo/.test(message) || input.partner || input.unsupported) return true
-  if (!/financ|revision|entidad|cedula|ruc|ingreso mensual|cargo actual|empleo actual|relacion de dependencia|nombre completo/.test(previous)) return false
   if (/[?¿]/.test(current)) return false // A question deserves an answer, not the next form field.
-  return extracted.financing_consent != null || ['full_name', 'national_id', 'applicant_type', 'employment_stability_months', 'job_title', 'monthly_income', 'ruc']
-    .some(key => extracted[key] != null) || /^(si|si claro|claro|de acuerdo|si por favor)$/.test(message)
+  const answer = object(object(extracted.turn_semantics).answer_to_previous)
+  return ['financing_invitation', 'financing_partner', 'financing_data', 'financing_down_payment'].includes(text(answer.question_id))
+    && acceptedExtractorConfidence(answer.confidence) && ['affirmative', 'value'].includes(text(answer.kind))
+    || ['national_id', 'applicant_type', 'employment_stability_months', 'job_title', 'monthly_income', 'ruc']
+      .some(key => extracted[key] != null)
 }
 
-export function financingQuestionReply(current: string, partners: string[], lastReply = '', extracted: Row = {}) {
+export function financingQuestionReply(current: string, partners: string[], _lastReply = '', extracted: Row = {}) {
+  void _lastReply // References are interpreted upstream, not read from writer prose.
   const m = normalized(current)
   if (financingQuoteInquiry(extracted, current).requested) return 'Con mucho gusto le orientamos sobre la entrada y las cuotas. La entrada del proyecto y la aportación propia para el crédito se revisan por separado; las cifras disponibles se basan en las condiciones vigentes de cada entidad y la unidad de interés. Una orientación no inicia una solicitud ni confirma la aprobación.'
-  // Previous answers may resolve a reference to the set of lenders, never turn
-  // unrelated words such as «solo» and a household count into a credit query.
+  // The interpreted request resolves elliptical references such as «esas dos».
+  // A previous writer sentence cannot classify a new customer request.
   const financialSubject = /financ|credito|prestamo|entidad|banco|cooperativa|pichincha|\bjep\b|jardin azuayo/.test(m)
     || hasFinancingRequest(extracted)
-  const referenceClause = m.split(/[,.?!¿]/).map(clause => clause.trim()).filter(Boolean).at(-1) || m
-  const lenderReference = /^(?:(?:y|pero|entonces)\s+)?(?:solo|solamente|unicamente)\s+(?:con\s+)?(?:esas|estas|las)\s+(?:dos\s*)?(?:entidades|bancos|cooperativas)?$/.test(referenceClause)
-    && /financ|credito|prestamo|entidad|banco|cooperativa|pichincha|\bjep\b/.test(normalized(lastReply))
   if (/aprob|garanti|asegur/.test(m) && /credito|financ|prestamo/.test(m)) {
     return 'Le acompañamos en el proceso, pero no podemos asegurar la aprobación del crédito. La entidad necesita revisar su caso para confirmarla.'
   }
@@ -223,7 +212,7 @@ export function financingQuestionReply(current: string, partners: string[], last
   if (/credito directo|financi(?:amiento|ar).*direct|directamente con (?:ustedes|el proyecto)/.test(m)) {
     return `No ofrecemos crédito directo con el proyecto.${partners.length ? ' Podemos ayudarle a explorar un crédito con ' + partners.join(' o ') + '.' : ' Podemos revisar con el equipo qué alternativas bancarias hay.'}${asksReviewDetails ? ' ' + reviewDetails : ''}`
   }
-  if ((financialSubject || lenderReference) && /solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(m)
+  if (financialSubject && /solo.*(?:esas|estas|dos|entidades)|(?:otra|otras).*entidad/.test(m)
     && !/jardin|pichincha|\bjep\b/.test(m)) {
     return partners.length ? `Trabajamos con ${partners.join(' y ')}. ¿Tiene otra entidad en mente?`
       : 'El equipo puede ayudarle a comprobar las opciones vigentes. ¿Con qué entidad le gustaría financiarse?'

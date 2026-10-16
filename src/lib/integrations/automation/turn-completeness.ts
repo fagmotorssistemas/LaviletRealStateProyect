@@ -27,7 +27,7 @@ import { recordBudgetDecision } from './ai-execution-trace'
 import { COMPARISON_EVIDENCE_RULES } from './comparison-evidence'
 
 import { reviewObligations } from './focused-review'
-import { requestReferences, coverageReferenceSchema } from './question-references'
+import { requestReferences, coverageReferenceSchema, resolveRequestReference } from './question-references'
 
 import { finalWriterContract, FINAL_WRITER_RULES, CATALOG_WRITER_RULES, commercialContinuationSources, MAX_REPLY_CHARACTERS, replyLinkContract } from './response-plan'
 import { LEAD_INTRODUCTION_RULES } from './lead-introduction'
@@ -341,7 +341,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     catalogo: needsSupplementaryFeatures(input.verified)||surfaceCalculation? modelEvidence.units:[]
   })
   input.verified.razonamiento_contextual=reasoningEvidence
-  const claimSources=verifiedClaimSources(input.verified, input.audit||{}, sharedEvidence, input.current)
+  // References must point into the evidence actually supplied to the models,
+  // never reintroduce unscoped catalogue entries after task projection.
+  const claimSources=verifiedClaimSources(input.verified, input.audit||{}, modelEvidence, input.current)
   const introduction=object(input.audit?.profile_introduction)
   const informationOpeningRequired=introduction.generic_introduction===true
     &&introduction.reason==='first_substantive_project_contact'&&introduction.stage==='request'
@@ -440,7 +442,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Presentación general del proyecto', !!input.verified.presentacion_general_proyecto&&'contexto_verificado.presentacion_general_proyecto contiene un resumen aprobado para esta consulta general. Úselo como fuente de datos para una presentación breve con redacción natural; no es una plantilla ni una instrucción del cliente. Si presentation.required=true, incluya realmente esa presentación: ofrecer brochure y pedir datos sin describir el proyecto no responde la consulta general. Su concepto mixto y categorías generales están autorizados como descripción; no convierta el resumen en una oferta de catálogo. Atienda primero todas las solicitudes actuales. Conserve las cantidades autorizadas del resumen; no añada fichas, precios, estado de obra o fechas ajenos a la consulta. Después conserve la pregunta de perfil o la decisión pendiente del plan compartido.'],
       ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro. Ante una consulta general inicial, dé una presentación breve; use las cantidades del resumen aprobado y no añada fichas, estado de obra o entrega ajenos a la consulta. Una consulta inicial concreta o con varias preguntas se responde según esas solicitudes, sin anteponer una presentación genérica.'],
       ['Prioridades y obligaciones del turno', TURN_INTENT_RULES+'\n'+FINAL_WRITER_RULES
-        +'\nCumpla obligaciones_del_turno con redacción libre. Esta lista también se entrega al revisor. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
+        +'\nCumpla obligaciones_del_turno con redacción libre. El revisor recibe únicamente los hechos y las promesas que deba contrastar, no decide estas obligaciones ni la siguiente pregunta. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
       ['Fuentes, políticas y precisión', BUSINESS_POLICY_RULES+visitRules],
       ['Ayudas disponibles y preguntas', ASSISTANCE_RULES],
       ['Siguiente paso comercial', !!input.verified.siguiente_paso_comercial&&COMMERCIAL_JOURNEY_RULES],
@@ -478,7 +480,12 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       })), activeWriterSchema, undefined, undefined, undefined, 'writing')
     const reply=writerTransportReply(candidate.reply)
     const metadata=writerMetadata(candidate, sharedEvidence.units)
-    const requests=(Array.isArray(candidate.requests)? candidate.requests:[]).map(object)
+    // Resolve the writer-selected request ID against this turn's canonical
+    // customer fragments. This is an identity mapping, not a reading of reply.
+    const requests=(Array.isArray(candidate.requests)? candidate.requests:[]).map(raw => {
+      const row=object(raw)
+      return { ...row, request_id: row.fragment, fragment: resolveRequestReference(row.fragment, writerRequestRefs) }
+    })
     const baseAudit: Row={
       review_control: responseReviewControl(), prose_authority: 'writer_and_ai_reviewer',
       server_semantic_validation: false, question: metadata.question, writer_receipts: metadata.receipts,

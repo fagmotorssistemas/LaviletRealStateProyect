@@ -1,3 +1,5 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
+import { financingInvitationReceipt } from './financing-invitation'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -13,7 +15,6 @@ import { replyLinkContract, replyLinkIssues } from './response-plan'
 import { completeTurnReply } from './turn-completeness'
 import { resolvePropertyTurn } from './property-context'
 import { reviewObligations } from './focused-review'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
 import { FINANCING_COLLECTION_WRITER_RULES } from './financing-prompt'
 
 const fixture = JSON.parse(readFileSync('scripts/fixtures/financing-acceptance.json', 'utf8'))
@@ -129,12 +130,12 @@ test('legal-name collection uses selected-unit context, preserves the next field
           assert.ok(instructions.includes(FINANCING_COLLECTION_WRITER_RULES))
           assert.equal(instructions.includes('AUTORIDAD LIMITADA DEL REVISOR'), false)
           assert.ok(obligations.some(o => o.id === 'financing_collection' && !o.next_question && object(o.objetivo_conversacion).objective))
-          return { reply: next, requests: [{ fragment: 'R1', intent: 'Nombre', request_type: 'general_information',
+          return writerFixture({ reply: next, requests: [{ fragment: 'R1', intent: 'Nombre', request_type: 'general_information',
             status: 'answered', evidence: 'Solicita nombre legal completo', fact_key: 'none' }],
-          question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'nombres y apellidos completos', next_decision: 'continuar recopilación' } }
+          question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'nombres y apellidos completos', next_decision: 'continuar recopilación' } })
         }
         assert.equal(obligations.some(o => o.id === 'financing_collection'), false)
-        return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+        return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       } catch (error) { failures.push(String(error)); throw error }
     })
   assert.deepEqual(failures, [])
@@ -153,10 +154,10 @@ test('a deferred commercial draft can be completed and reviewed without an empty
   const result = await completeTurnReply({ current, baseReply: '', verified: taskVerifiedContext(verified, audit, current), audit },
     async (_instructions, _input, _schema, _image, _file, _tone, task = 'data') => {
       calls.push(task)
-      return task === 'writing' ? { reply, requests: [{ fragment: 'R1', intent: 'Continuar', request_type: 'general_information',
+      return task === 'writing' ? writerFixture({ reply, requests: [{ fragment: 'R1', intent: 'Continuar', request_type: 'general_information',
         status: 'answered', evidence: 'Se pregunta entidad', fact_key: 'none' }],
-      question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'entidad', next_decision: 'continuar' } }
-        : { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+      question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'entidad', next_decision: 'continuar' } })
+        : { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     })
   assert.equal(result.reply, reply)
   assert.equal(result.audit.status, 'checked')
@@ -165,12 +166,15 @@ test('a deferred commercial draft can be completed and reviewed without an empty
 
 test('recorded acceptance with a follow-up question stays in financing instead of requesting a human', async () => {
   const interpreted = await interpretConversationTurn({ mensaje_actual: fixture.message,
-    resumen: { _last_operational_step: { kind: 'financing_consent', reply: fixture.last_question } } },
+    resumen: { _last_operational_step: { kind: 'financing_consent', reply: fixture.last_question,
+      invitation: financingInvitationReceipt({ text: fixture.last_question, purpose: 'permission_to_continue',
+        continuation_id: 'financing_invitation', continuation_act: 'financing' }) } } },
   { activePrompt: async () => '', aiJson: async () => structuredClone(fixture.extraction) })
   assert.equal(interpreted.extracted.requested_advisor, false)
   const extracted = { ...interpreted.extracted, turn_semantics: interpreted.semantics }
   const input = financingInputs(extracted, fixture.message, fixture.last_question, finance,
-    { kind: 'financing_consent', reply: fixture.last_question })
+    { kind: 'financing_consent', reply: fixture.last_question, invitation: financingInvitationReceipt({ text: fixture.last_question,
+      purpose: 'permission_to_continue', continuation_id: 'financing_invitation', continuation_act: 'financing' }) })
   assert.equal(input.consent, true)
   assert.equal(isFinancingTurn(extracted, fixture.message, fixture.last_question, input), true)
   let journey = financingJourney({}, input, 'acceptance')
@@ -342,13 +346,12 @@ test('accepted financing with answered entry asks property selection with shared
       assert.ok(!obligations.some(o => ['budget_continuation', 'current_budget_answer'].includes(String(o.id))))
       if (task === 'review') {
         assert.equal(object(object(input.estado_del_turno).etapa_financiamiento).collection_allowed, false)
-        return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: {
-          role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'Unidad', next_decision: 'Continuar financiamiento', offered_action: 'information' } }
+        return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       }
       assert.equal(object(object(input.contexto_verificado).etapa_financiamiento).stage, 'select_property')
       assert.deepEqual(rows(object(input.evidencia_turno).units).map(u => u.unit_number), ['202', '502', '602'])
-      return { reply, question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'Unidad', next_decision: 'Continuar financiamiento' },
-        requests: rows(input.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Continuar financiamiento', status: 'answered', evidence: reply, fact_key: null, request_type: 'general_information' })) }
+      return writerFixture({ reply, question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'Unidad', next_decision: 'Continuar financiamiento' },
+        requests: rows(input.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Continuar financiamiento', status: 'answered', evidence: reply, fact_key: null, request_type: 'general_information' })) })
     } catch (error) { failures.push(String(error)); throw error }
   })
   assert.deepEqual(failures, [])

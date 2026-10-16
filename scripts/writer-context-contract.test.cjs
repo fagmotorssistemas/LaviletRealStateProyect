@@ -47,7 +47,7 @@ test('a verified generic introduction omits units while preserving business and 
 
   for (const change of [{ required_facts: ['price'] }, { objective: 'ask_price' },
     { requests: [...intent.requests, { domain: 'property', confidence: 'high', request: 'cinco dormitorios' }] },
-    { requests: [{ domain: 'property', confidence: 'medium' }] }, { scope: { kind: 'mixed' } },
+    { requests: [{ domain: 'property', confidence: 'low' }] }, { scope: { kind: 'mixed' } },
     { subject: { category: 'departamento' } }, { subject: { filters: { bedrooms: 5 } } },
     { subject: { unit_numbers: ['202'] } }]) {
     assert.equal(scopeTurnCatalog(verified, { ...audit, resolved_turn_intent: { ...intent, ...change } }), verified)
@@ -59,7 +59,7 @@ test('a verified generic introduction omits units while preserving business and 
     { referencia_unidad: { needsClarification: true } },
     { semantica_turno: { ...verified.semantica_turno, housing_quantities: [{ dimension: 'people', values: [6] }] } },
     { semantica_turno: { ...verified.semantica_turno, property: { operation: 'details', reference_kind: 'followup' } } },
-    { semantica_turno: { ...verified.semantica_turno, confidence: 'medium' } }]) {
+    { semantica_turno: { ...verified.semantica_turno, confidence: 'low' } }]) {
     const other = { ...verified, ...change }
     assert.equal(scopeTurnCatalog(other, audit), other)
   }
@@ -97,7 +97,8 @@ test('current request and factual contract are independent of a fallback wording
   assert.deepEqual(plans[0].datos_requeridos, ['price'])
   assert.deepEqual(plans[0].hechos_disponibles, units)
   assert.deepEqual(plans[0].cifras_obligatorias, [])
-  assert.equal(plans[0].pregunta_siguiente, null)
+  assert.equal(plans[0].pregunta_siguiente, undefined)
+  assert.equal(plans[0].objetivo_siguiente.question_id, null)
 })
 
 test('operational goals, explicit obligations and verified receipt survive without a base message', () => {
@@ -107,7 +108,9 @@ test('operational goals, explicit obligations and verified receipt survive witho
     response_contract: { required_numbers: ['12:00'] } }
   const contract = finalWriterContract('', audit, { current: 'Prefiero al mediodía' })
   assert.equal(contract.decisiones_protegidas, true)
-  assert.equal(contract.pregunta_siguiente, question.question)
+  assert.equal(contract.pregunta_siguiente, undefined)
+  assert.deepEqual(contract.pregunta_pendiente, question)
+  assert.equal(contract.objetivo_siguiente.question_id, question.id)
   assert.deepEqual(contract.cifras_obligatorias, ['12:00'])
   assert.equal(contract.estado_operativo.registration_verified, true)
   assert.deepEqual(contract.estado_operativo.preference, { time: '12:00' })
@@ -172,7 +175,10 @@ test('commercial stage asks only missing profile data and retains the brochure p
       question_purpose: purpose, brochure_deferred: true, generic_introduction: true } }).estado_comercial
     assert.equal(state.requiere_captura, true)
     assert.deepEqual(state.datos_a_pedir, expected)
-    assert.equal(state.proposito_captura, 'brochure_y_guia_personalizada')
+    assert.equal(state.proposito_captura, undefined)
+    assert.equal(state.objetivo_presentacion.offer_project_brochure, true)
+    assert.equal(state.objetivo_presentacion.link_offer_to_profile_request, true)
+    assert.equal(state.objetivo_presentacion.mandatory_justification, false)
     assert.equal(state.brochure.accion, 'offer_after_profile')
     assert.equal(state.presentacion_sin_tipos, true)
   }
@@ -199,7 +205,7 @@ test('topic changes preserve declared identity and brochure history; an explicit
   assert.equal(firstSend.brochure.compartido_previamente, false)
 })
 
-test('profile clarification uses the guide purpose when the brochure was shared or is delivered by direct request', () => {
+test('profile clarification does not impose a guide justification or condition an authorized brochure delivery', () => {
   for (const sharedBefore of [false, true]) {
     const candidate = { city: 'Cuenca', country: null }
     const verified = { perfil_lead: { ...declaredProfile, residence_status: 'pending_confirmation' },
@@ -207,7 +213,10 @@ test('profile clarification uses the guide purpose when the brochure was shared 
     const state = finalWriterContract('', { profile_introduction: { question_purpose: 'confirm_residence',
       candidate, brochure_deferred: !sharedBefore, brochure_previously_sent: sharedBefore } },
     { current: sharedBefore ? 'Soy de Cuenca' : 'Soy de Cuenca, envíeme el brochure', verified }).estado_comercial
-    assert.equal(state.proposito_captura, 'guia_personalizada')
+    assert.equal(state.proposito_captura, undefined)
+    assert.equal(state.objetivo_presentacion.offer_project_brochure, false)
+    assert.equal(state.objetivo_presentacion.link_offer_to_profile_request, false)
+    assert.equal(state.objetivo_presentacion.mandatory_justification, false)
     assert.equal(state.brochure.accion, sharedBefore ? 'already_shared' : 'share_now')
     assert.deepEqual(state.datos_a_pedir, ['current_residence'])
     assert.deepEqual(state.residencia_por_confirmar, candidate)

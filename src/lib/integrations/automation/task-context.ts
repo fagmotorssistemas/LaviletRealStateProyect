@@ -160,6 +160,10 @@ export function addTaskQueryEvidence<T extends { units: Row[]; groups: Row[] }>(
 export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evidence: T, verified: Row): T {
   const selection = object(verified.prompt_context_selection)
   if (selection.version !== 'task-context-v1') return evidence
+  if (selection.task === 'project_overview') return { ...evidence, units: [], groups: [],
+    query_result_ids: [], alternative_ids: [], catalog_summary: {},
+    model_scope: { task: 'project_overview', listed_unit_count: 0, evidence_unit_count: evidence.units.length,
+      note: 'Catálogo omitido por no corresponder a esta explicación general. No acredita falta de inmuebles. Se conservan las fuentes del proyecto, la memoria y el siguiente paso autorizado.' } }
   const property = object(verified.property_context)
   const resolvedIds = object(property.reference_resolution).status === 'resolved'
     ? rows(evidence.units).filter(unit => Array.isArray(object(property.reference_resolution).resolved_ids)

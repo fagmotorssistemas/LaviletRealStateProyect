@@ -26,14 +26,12 @@ function database(overrides = {}) {
         assert.equal(url.searchParams.get('project_id'), `eq.${project}`)
         assert.equal(url.searchParams.get('id'), 'eq.lead')
         assert.equal(url.searchParams.get('updated_at'), 'eq.version')
-        assert.equal(new Headers(init.headers).get('Accept'), 'application/vnd.pgrst.object+json')
+        assert.notEqual(new Headers(init.headers).get('Accept'), 'application/vnd.pgrst.object+json')
         writes.push(JSON.parse(init.body))
-        // PostgREST returns a singular object for PATCH.maybeSingle(); no-row
-        // optimistic updates use its singular-response error, not a JSON list.
+        // This installed SDK enforces maybeSingle cardinality client-side.
         return overrides.concurrent
-          ? Response.json({ code: 'PGRST116', message: 'Cannot coerce the result to a single JSON object',
-            details: 'The result contains 0 rows' }, { status: 406 })
-          : Response.json({ updated_at: 'new-version' })
+          ? Response.json([])
+          : Response.json([{ updated_at: 'new-version' }])
       }
       assert.equal(init.method, 'GET', 'Reviewing a result must not invoke another mutation or outbound request.')
       assert.ok(['leads', 'units', 'conversations', 'financing_prequalifications'].includes(table))

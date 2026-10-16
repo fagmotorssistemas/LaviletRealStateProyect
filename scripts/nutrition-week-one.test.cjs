@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Isolated CommonJS integration harness. */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs'), path = require('node:path'), Module = require('node:module'), ts = require('typescript')
@@ -22,7 +23,7 @@ const data = require('../src/lib/integrations/automation/data.ts')
 const c = { ...config.nutritionWeekOneConfig(null), enabled: true, activatedAt: '2026-09-01T00:00:00Z' }
 const catalog = [{ id: 'unit', unit_number: '202', category: 'departamento' }, { id: 'unit2', unit_number: '203', category: 'departamento' }, { id: 'local', unit_number: 'LC-11', category: 'local' }]
 const history = content => [{ role: 'cliente', content }]
-const choose = (input, h, shared, overrides = {}) => rules.weekOneChoice({ ...c, ...input }, overrides.lead || {}, h, overrides.outbound || [], overrides.catalog || catalog, shared, { financing: true, visits: true })
+const choose = (input, h, shared, overrides = {}) => rules.weekOneChoice({ ...c, ...input }, overrides.lead || {}, h, overrides.outbound || [], overrides.catalog || catalog, shared, { financing: true, visits: true }, overrides.summary || {})
 test('brochure is preferred once, sent evidence ignores inbound promises and rejects failed sends', () => {
   assert.equal(choose({}, history('Quiero financiamiento'), false).kind, 'brochure')
   assert.equal(rules.sharedBrochure(history(config.WEEK_ONE_BROCHURE_URL)), false)
@@ -32,7 +33,7 @@ test('brochure is preferred once, sent evidence ignores inbound promises and rej
   assert.equal(rules.sharedBrochure([], [{ behavior_signals: { _nutrition_resources: { brochure: true } } }]), true)
 })
 test('followup is short and relevant, never a second brochure or an unsupported invented option', () => {
-  const chosen = choose({}, history('Me interesa el departamento 202'), true)
+  const chosen = choose({}, history('Me interesa el departamento 202'), true, { summary: { _unit_reference: { ids: ['unit'] } } })
   assert.equal(chosen.topic, 'conocer la distribución del departamento 202')
   assert.equal(chosen.body, config.WEEK_ONE_FOLLOWUP_BODY.replace('{{1}}', chosen.topic))
   assert.doesNotMatch(chosen.body, /https:|brochure/)
@@ -41,26 +42,28 @@ test('followup is short and relevant, never a second brochure or an unsupported 
   assert.equal(choose({ comparison: false }, history('Quiero el departamento 999'), true), null)
   assert.equal(choose({ financing: false }, history('Crédito por favor'), true), null)
   assert.equal(choose({}, history('No necesito financiamiento, pago de contado'), true), null)
-  const changed = choose({}, [...history('Quiero financiamiento para el departamento 202'), ...history('Mejor quiero la suite 210')], true, { lead: { unit_id: 'unit', preferred_category: 'departamento' }, catalog: [...catalog, { id: 'suite', unit_number: '210', category: 'suite' }] })
+  const changed = choose({}, [...history('Quiero financiamiento para el departamento 202'), ...history('Mejor quiero la suite 210')], true, { lead: { unit_id: 'unit', preferred_category: 'departamento' }, catalog: [...catalog, { id: 'suite', unit_number: '210', category: 'suite' }], summary: { _unit_reference: { ids: ['suite'] }, _turn_intent: { subject: { category: 'suite' } } } })
   assert.equal(changed.topic, 'conocer la distribución de la suite 210')
 })
 test('positive financing requests starting with bueno remain eligible in both follow-up schedules', () => {
   for (const message of ['Quiero financiamiento', 'Bueno quiero financiamiento', 'Bueno necesito financiamiento', 'Bueno deseo financiamiento']) {
-    assert.equal(choose({}, history(message), true).action, 'financing_options', message)
-    assert.equal(laterRules.laterChoice(3, {}, history(message), [], ['JEP']).action, 'financing_options', message)
+    const summary = { _turn_intent: { objective: 'ask_financing', requests: [{ domain: 'financing', topics: ['financing'] }] } }
+    assert.equal(choose({}, history(message), true, { summary }).action, 'financing_options', message)
+    assert.equal(laterRules.laterChoice(3, {}, history(message), [], ['JEP'], summary).action, 'financing_options', message)
   }
   for (const message of ['No quiero financiamiento', 'Bueno, no necesito financiamiento', 'No deseo financiamiento', 'Pago de contado']) {
-    assert.equal(choose({}, history(message), true), null, message)
-    assert.notEqual(laterRules.laterChoice(3, {}, history(message), [], ['JEP'])?.action, 'financing_options', message)
+    const summary = { _financing_journey: { status: 'declined', accepted: false } }
+    assert.equal(choose({}, history(message), true, { summary }), null, message)
+    assert.notEqual(laterRules.laterChoice(3, {}, history(message), [], ['JEP'], summary)?.action, 'financing_options', message)
   }
 })
 
 test('visit follow-up distinguishes bueno from a real refusal', () => {
   for (const message of ['Quiero una visita', 'Bueno quiero una visita', 'Bueno puedo hacer una visita', 'Bueno deseo una visita']) {
-    assert.equal(choose({ visits: true }, history(message), true).action, 'office_visit', message)
+    assert.equal(choose({ visits: true }, history(message), true, { summary: { _turn_intent: { objective: 'request_visit' } } }).action, 'office_visit', message)
   }
   for (const message of ['No quiero una visita', 'Bueno, no puedo hacer una visita', 'No deseo una visita']) {
-    assert.equal(choose({ visits: true }, history(message), true), null, message)
+    assert.equal(choose({ visits: true }, history(message), true, { summary: { _visit_dialogue: { status: 'declined' } } }), null, message)
   }
 })
 
@@ -117,20 +120,21 @@ function harness(options = {}) {
       if (table === 'lv_outbox') result = options.visitJob ? [{ id: 'job' }] : []
       if (table === 'financing_prequalifications') result = options.financeConsent ? [{ id: 'finance' }] : []
       if (table === 'units') result = catalog
+      if (table === 'lead_commercial_profiles') result = patched && options.profileAfterPatch ? options.profileAfterPatch : options.profile || null
       if (table === 'lv_integration_events') result = eq('kind') === 'inbound' ? options.pendingInput ? [{ id: 'input' }] : [] : filters.some(f => f[0] === 'select' && f[1] === 'available_at') ? options.earlier || [] : options.attempts || []
-      return Promise.resolve({ data: result, error: null }).then(resolve, reject)
+      return Promise.resolve({ data: result, error: table === 'lead_commercial_profiles' && options.profileError ? { code: 'PGRST205' } : null }).then(resolve, reject)
     }
     return q
   }
   const mod = load('src/lib/integrations/automation/nutrition-week-one.ts', {
     './config': { assertLive() {}, automationSettings: () => ({ testLeadId: null }) },
     './financing': { financingContext: async () => ({ partners: ['Banco Pichincha'], current: {} }) },
-    './data': { ...data, db: () => ({ from: query }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false, _audience: patched && options.audienceAfterPatch ? options.audienceAfterPatch : options.audience }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
+    './data': { ...data, db: () => ({ from: query }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false, _audience: patched && options.audienceAfterPatch ? options.audienceAfterPatch : options.audience }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id, summary: options.summary || { _unit_reference: { ids: ['unit'] } } }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
     './kommo': { getKommoLead: async () => ({}), botStopped: () => !!options.remoteStopped, verifyWeekOneTemplates: async () => ({ brochure: options.approved !== false, followup: options.approved !== false }), setKommoField: async (...args) => { calls.push({ name: 'patch', args }); patched = true }, launchSalesbot: async (...args) => { calls.push({ name: 'launch', args }); if (options.timeout) throw Error('TIMEOUT') } },
   })
   const later = load('src/lib/integrations/automation/nutrition-later.ts', {
     './config': { assertLive() {} }, './nutrition-week-one': mod,
-    './data': { ...data, db: () => ({ from: query }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
+    './data': { ...data, db: () => ({ from: query }), one: async table => table === 'leads' ? lead : { ...data.scope, id: 'conv', lead_id: lead.id, summary: options.summary || { _unit_reference: { ids: ['unit'] } } }, rpc: async (name, args) => { calls.push({ name, args }); if (options.receiptFails) throw Error('RECEIPT_FAILED'); return {} } },
     './kommo': { getKommoLead: async () => ({}), botStopped: () => !!options.remoteStopped, verifyLaterTemplates: async () => ({ 2: options.approved !== false, 3: options.approved !== false }), setKommoField: async (...args) => { calls.push({ name: 'patch', args }); patched = true }, launchSalesbot: async (...args) => { calls.push({ name: 'launch', args }); if (options.timeout) throw Error('TIMEOUT') } },
   })
   return { ...mod, ...later, calls, queries, jobs, payload }
@@ -208,10 +212,10 @@ test('a missing or private brochure link blocks its campaign instead of sending 
   assert.equal(h.calls.length, 0)
 })
 
-test('week two variable describes purpose without old action verbs or inventing a purpose', () => {
-  assert.equal(laterRules.laterChoice(2, {}, history('No es para vivir, es para invertir'), [], []).topic, 'una propiedad para invertir')
-  assert.equal(laterRules.laterChoice(2, {}, history('Para invertir, no para vivir'), [], []).topic, 'una propiedad para invertir')
-  for (const [lead, input, expected] of [[{}, 'Quiero algo para vivir', 'un nuevo hogar'], [{}, 'Busco un local para mi negocio', 'un local para su negocio'], [{}, 'Para invertir y arrendar', 'una propiedad para invertir'], [{}, 'Busco un local', 'un local comercial'], [{}, 'Gracias', 'el espacio adecuado para usted'], [{ purchase_purpose: 'invertir' }, 'Ahora quiero algo para vivir', 'un nuevo hogar']]) {
+test('week two uses interpreted purpose without rereading a negated or changed client phrase', () => {
+  assert.equal(laterRules.laterChoice(2, { purchase_purpose: 'invertir' }, history('No es para vivir, es para invertir'), [], []).topic, 'una propiedad para invertir')
+  assert.equal(laterRules.laterChoice(2, { purchase_purpose: 'invertir' }, history('Para invertir, no para vivir'), [], []).topic, 'una propiedad para invertir')
+  for (const [lead, input, expected] of [[{ purchase_purpose: 'vivir' }, 'Quiero algo para vivir', 'un nuevo hogar'], [{ preferred_category: 'local', purchase_purpose: 'negocio' }, 'Busco un local para mi negocio', 'un local para su negocio'], [{ purchase_purpose: 'invertir' }, 'Para invertir y arrendar', 'una propiedad para invertir'], [{ preferred_category: 'local' }, 'Busco un local', 'un local comercial'], [{}, 'Gracias', 'el espacio adecuado para usted'], [{ purchase_purpose: 'vivir' }, 'Ahora quiero algo para vivir', 'un nuevo hogar']]) {
     const choice = laterRules.laterChoice(2, lead, history(input), [], [])
     assert.equal(choice.topic, expected)
     assert.match(choice.body, new RegExp('Sabemos que elegir ' + expected))
@@ -219,12 +223,13 @@ test('week two variable describes purpose without old action verbs or inventing 
 })
 test('week three chooses a new next step, avoids repeating financing and skips exhausted offers', () => {
   const h = history('Me interesa comprar un departamento pero no sé si me alcanza')
-  assert.equal(laterRules.laterChoice(3, {}, h, [], ['JEP']).action, 'financing_options')
-  const finance = [{ role: 'bot', content: 'Puede revisar financiamiento con JEP.' }]
-  assert.equal(laterRules.laterChoice(3, {}, h, finance, ['JEP']).action, 'purchase_process')
-  const steps = [...finance, { role: 'bot', content: 'Le explico el proceso de compra.' }]
-  assert.equal(laterRules.laterChoice(3, {}, h, steps, ['JEP']).action, 'advisor_conversation')
-  assert.equal(laterRules.laterChoice(3, {}, h, [...steps, { role: 'bot', content: 'Podemos coordinar una conversación con un asesor.' }], ['JEP']), null)
+  const summary = { _turn_intent: { objective: 'ask_financing', subject: { category: 'departamento' } } }
+  assert.equal(laterRules.laterChoice(3, {}, h, [], ['JEP'], summary).action, 'financing_options')
+  const finance = [{ role: 'bot', content: 'Puede revisar financiamiento con JEP.', tool_calls: { nutrition_week_one: { action: 'financing_options' } } }]
+  assert.equal(laterRules.laterChoice(3, {}, h, finance, ['JEP'], summary).action, 'purchase_process')
+  const steps = [...finance, { role: 'bot', content: 'Le explico el proceso de compra.', tool_calls: { nutrition_week_three: { action: 'purchase_process' } } }]
+  assert.equal(laterRules.laterChoice(3, {}, h, steps, ['JEP'], summary).action, 'advisor_conversation')
+  assert.equal(laterRules.laterChoice(3, {}, h, [...steps, { role: 'bot', content: 'Podemos coordinar una conversación con un asesor.', tool_calls: { nutrition_week_three: { action: 'advisor_conversation' } } }], ['JEP'], summary), null)
 })
 test('week two and three accepted templates require exact bodies, fields and the known image only', () => {
   const { approvedLaterTemplate } = require('../src/lib/integrations/automation/kommo.ts')
@@ -340,4 +345,76 @@ test('followups recheck activation after patching fields and verify the actual a
   forged.payload.anchorAt='2026-09-10T15:00:00Z'
   assert.equal((await forged.sendNutritionWeekOne({payload:forged.payload,received_at:'2026-09-11T15:00:00Z'},async()=>{})).reason,'anchor_timestamp_mismatch')
   assert.equal(forged.calls.length,0)
+})
+
+test('a future pause needs separate contact permission and a saved date in every follow-up schedule', async t => {
+  fixedClock(t)
+  for (const week of [1, 2, 3]) {
+    for (const [state, expected] of [
+      [{ future_interest: true, purchase_horizon: 'el próximo año' }, 'future_contact_permission_required'],
+      [{ active: true, future_interest: true, contact_consent: true, purchase_horizon: 'el próximo año' }, 'future_contact_date_required'],
+      [{ contact_consent: false, contact_evidence: 'No me contacten' }, 'contact_permission_declined'],
+    ]) {
+      const h = harness({ week, summary: { _lead_nurture: state } })
+      const schedule = week === 1 ? h.scheduleNutritionWeekOne : h.scheduleNutritionLater
+      assert.equal((await schedule('lead', 'conv', 'external')).reason, expected)
+      const send = week === 1 ? h.sendNutritionWeekOne : h.sendNutritionLater
+      assert.equal((await send({ payload: h.payload }, async () => {})).reason, expected)
+      assert.equal(h.jobs.size, 0)
+      assert.deepEqual(h.calls, [])
+    }
+  }
+})
+
+test('a manual resume date postpones the permitted informational follow-up without expiring it by the old anchor', async t => {
+  fixedClock(t)
+  const profile = { nutrition_active: true, nutrition_reason: 'Compra futura', nutrition_evidence: 'Podemos retomar en enero',
+    purchase_horizon: 'enero', contact_consent: true, resume_at: '2027-01-04T15:00:00Z', updated_at: '2026-09-15T14:00:00Z' }
+  const h = harness({ profile, shared: true })
+  assert.equal((await h.scheduleNutritionWeekOne('lead', 'conv', 'external')).nextAt, profile.resume_at.replace('Z', '.000Z'))
+  const result = await h.sendNutritionWeekOne({ payload: h.payload }, async () => {})
+  assert.equal(result.action, 'deferred')
+  assert.equal(result.nextAt, profile.resume_at.replace('Z', '.000Z'))
+  assert.equal((await h.scheduleNutritionLater('lead', 'conv', 'external')).reason, 'information_only_template')
+  assert.deepEqual(h.calls, [])
+})
+
+test('informational mode never dispatches frozen 14/21-day purchase templates', async t => {
+  fixedClock(t)
+  for (const week of [2, 3]) {
+    const h = harness({ week, summary: { _interaction_mode: { mode: 'information_only' } } })
+    assert.equal((await h.scheduleNutritionLater('lead', 'conv', 'external')).reason, 'information_only_template')
+    assert.equal((await h.sendNutritionLater({ payload: h.payload }, async () => {})).reason, 'information_only_template')
+    assert.equal(h.jobs.size, 0)
+    assert.deepEqual(h.calls, [])
+  }
+})
+
+test('a contact refusal saved while the template variable is written prevents dispatch', async t => {
+  fixedClock(t)
+  const h = harness({ shared: true, profileAfterPatch: { nutrition_active: false, contact_consent: false,
+    nutrition_evidence: 'No me contacten', updated_at: '2026-09-15T14:59:00Z' } })
+  assert.equal((await h.sendNutritionWeekOne({ payload: h.payload }, async () => {})).reason, 'contact_permission_declined')
+  assert.equal(h.calls.filter(call => call.name === 'patch').length, 1)
+  assert.equal(h.calls.some(call => call.name === 'launch'), false)
+})
+
+test('unavailable commercial permission data cannot be treated as an empty profile', async t => {
+  fixedClock(t)
+  const h = harness({ profileError: true })
+  await assert.rejects(h.scheduleNutritionWeekOne('lead', 'conv', 'external'), /NUTRITION_COMMERCIAL_PROFILE_FAILED/)
+  await assert.rejects(h.sendNutritionWeekOne({ payload: h.payload }, async () => {}), /NUTRITION_COMMERCIAL_PROFILE_FAILED/)
+  assert.equal(h.jobs.size, 0)
+  assert.deepEqual(h.calls, [])
+})
+
+test('a future manual date cannot revive historical audience jobs', async t => {
+  fixedClock(t)
+  const h = harness({ audience: { version: 1, mode: 'future_messages', activatedAt: '2026-09-09T00:00:00Z' },
+    profile: { nutrition_active: true, nutrition_reason: 'Compra futura', nutrition_evidence: 'Retomamos en enero',
+      purchase_horizon: 'enero', contact_consent: true, resume_at: '2027-01-04T15:00:00Z', updated_at: '2026-09-15T14:00:00Z' } })
+  assert.equal((await h.scheduleNutritionWeekOne('lead', 'conv', 'external')).reason, 'before_audience_activation')
+  assert.equal((await h.sendNutritionWeekOne({ payload: h.payload, received_at: '2026-09-15T14:00:00Z' }, async () => {})).reason, 'before_audience_activation')
+  assert.equal(h.jobs.size, 0)
+  assert.deepEqual(h.calls, [])
 })

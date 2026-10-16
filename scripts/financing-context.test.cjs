@@ -11,8 +11,16 @@ Module._load = function (id, parent, main) {
   return originalLoad.call(this, id, parent, main)
 }
 const { financingInputs, isFinancingTurn, financingQuestionReply, hasAffordabilityConcern } = require('../src/lib/integrations/automation/financing.ts')
+const { financingInvitationReceipt } = require('../src/lib/integrations/automation/financing-invitation.ts')
+const invitation = reply => ({ kind: 'financing_consent', reply, invitation: financingInvitationReceipt({ text: reply,
+  purpose: 'permission_to_continue', continuation_id: 'financing_invitation', continuation_act: 'financing' }) })
 const context = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} }
 const offer = 'Podemos explorar opciones con Banco Pichincha o Cooperativa JEP. ¿Le gustaría que le ayudemos a iniciar la revisión con alguna de estas entidades para su caso?'
+const interpretedRequest = (message, consent = true) => ({ financing_consent: consent,
+  turn_semantics: { primary_intent: 'ask_financing', primary_evidence: message, confidence: 'high',
+    requests: [{ domain: 'financing', evidence: message, confidence: 'high' }] } })
+const interpretedAnswer = message => ({ financing_consent: true, turn_semantics: { primary_intent: 'answer_previous', confidence: 'high',
+  answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: message, confidence: 'high' } } })
 
 test('the reported natural acceptance grants review consent and preserves the chosen lender', () => {
   for (const message of [
@@ -22,17 +30,19 @@ test('the reported natural acceptance grants review consent and preserves the ch
     'Me gustaría probar con la JEP',
     'Hagamos la revisión con JEP',
   ]) {
-    const input = financingInputs({}, message, offer, context)
+    const input = financingInputs(interpretedRequest(message), message, offer, context)
     assert.equal(input.consent, true, message)
     assert.equal(input.partner, 'Cooperativa JEP', message)
     assert.equal(isFinancingTurn({}, message, offer, input), true, message)
   }
-  assert.equal(financingInputs({}, 'Deseo iniciar la evaluación con Pichincha', offer, context).partner, 'Banco Pichincha')
+  const current = 'Deseo iniciar la evaluación con Pichincha'
+  assert.equal(financingInputs(interpretedRequest(current), current, offer, context).partner, 'Banco Pichincha')
 })
 
 test('a contextual GEP typo resolves only to the publicly available JEP option already discussed', () => {
   const message = 'Quiero hacer la prueba con la gep'
-  const input = financingInputs({}, message, offer, context)
+  const input = financingInputs({ financing_consent: true, financing_partner_choice: { kind: 'select', name: 'Cooperativa JEP', evidence: message, confidence: 'high' },
+    turn_semantics: { primary_intent: 'ask_financing', primary_evidence: message, confidence: 'high' } }, message, offer, context)
   assert.deepEqual(input, { consent: true, partner: 'Cooperativa JEP', unsupported: '', partner_evidence: message, cleared_partner: null })
   assert.equal(financingInputs({}, message, '¿Qué vivienda busca?', context).partner, null)
   assert.equal(financingInputs({}, message, offer, { partners: ['Banco Pichincha'], current: {} }).partner, null)
@@ -55,8 +65,8 @@ test('lender choice, uncertainty, conditions and questions alone never authorize
 
 test('a verified natural finance step accepts yes while a later visit question does not inherit that consent', () => {
   const last = 'Podemos acompañarle con Cooperativa JEP. ¿Desea iniciar la revisión financiera?'
-  const step = { kind: 'financing_consent', reply: last }
-  assert.equal(financingInputs({}, 'Sí, por supuesto', last, context, step).consent, true)
+  const step = invitation(last)
+  assert.equal(financingInputs(interpretedAnswer('Sí, por supuesto'), 'Sí, por supuesto', last, context, step).consent, true)
   const vague = 'Podemos acompañarle con Cooperativa JEP. ¿Desea avanzar?'
   assert.equal(financingInputs({}, 'Sí, por supuesto', vague, context, { kind: 'financing_consent', reply: vague }).consent, null)
   assert.equal(financingInputs({}, 'Sí, por supuesto', '¿Le gustaría visitar nuestra oficina?', context, step).consent, null)
@@ -97,7 +107,8 @@ test('questions explain internal requirements without requesting identifiers or 
     assert.match(reply, /nombres completos, número de cédula/)
     assert.match(reply, /datos laborales e ingresos/)
     assert.doesNotMatch(reply, /indica.*cédula|envíe.*documentos|está aprobado|¿.*asesor|¿.*inici/)
-    assert.equal(financingInputs({}, 'Sí, quisiera hacer la prueba con JEP', reply, context).consent, true)
+    const accepted = 'Sí, quisiera hacer la prueba con JEP'
+    assert.equal(financingInputs(interpretedRequest(accepted), accepted, reply, context).consent, true)
   }
 })
 
@@ -129,7 +140,7 @@ test('explicit financial help remains consent when another current question foll
     'Sí ayúdeme en el financiamiento.\nY el local lo quiero para rentarlo, eso influye en algo?',
     'Sí, ayúdeme con el financiamiento y el local lo quiero para rentarlo, ¿eso influye en algo?',
   ]) {
-    const input=financingInputs({},message,offer,context)
+    const input=financingInputs(interpretedRequest(message),message,offer,context,invitation(offer))
     assert.equal(input.consent,true,message)
     assert.equal(isFinancingTurn({},message,offer,input),true,message)
   }
@@ -161,7 +172,7 @@ test('room distribution and counts never activate lender clarification, even aft
 
 test('lender references need a financial subject or a bounded contextual reference', () => {
   for (const message of ['¿Sólo con esas dos?', 'Sí está bien, pero sólo con esas entidades?']) {
-    assert.match(financingQuestionReply(message, context.partners, offer), /Banco Pichincha.*Cooperativa JEP/, message)
+    assert.match(financingQuestionReply(message, context.partners, offer, interpretedRequest(message, null)), /Banco Pichincha.*Cooperativa JEP/, message)
   }
   assert.equal(financingQuestionReply('¿Sólo con esas dos?', context.partners, '¿Prefiere departamento o penthouse?'), '')
   assert.match(financingQuestionReply('¿Trabajan sólo con esas dos entidades de crédito?', context.partners), /Banco Pichincha.*Cooperativa JEP/)

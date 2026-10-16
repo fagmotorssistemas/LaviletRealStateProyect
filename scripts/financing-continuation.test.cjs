@@ -33,7 +33,8 @@ test('short answers match the requested field and do not infer identifiers or un
 })
 test('all modes receive concise collection rule without changing extraction instructions',async()=>{
   for(const style of ['actual','cercano','equilibrado','elegante'])for(const warmth of [0,1,2])for(const detail of [0,1,2]){
-    for(const task of ['writing','review'])assert.ok((await configuredToneInstructions('Base',{style,warmth,detail},task)).includes(FINANCING_COLLECTION_RULE))
+    assert.ok((await configuredToneInstructions(FINANCING_COLLECTION_RULE,{style,warmth,detail},'writing')).includes(FINANCING_COLLECTION_RULE))
+    assert.equal(await configuredToneInstructions('Base',{style,warmth,detail},'review'),'Base')
     assert.equal(await configuredToneInstructions('Base',{style,warmth,detail},'data'),'Base')
   }
 })

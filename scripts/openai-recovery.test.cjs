@@ -313,8 +313,43 @@ test('recovery still stops contact for genuine refusals after a courtesy', async
   }
 })
 
-test('failed queueing cannot promise handoff and uncertain notices are never automatically repeated', async () => {
-  for (const [option, uncertain] of [['handoffFails', false], ['uncertainOutbox', false], ['launchFails', true], ['registrationFails', true]]) {
+test('failed queueing still sends one truthful technical notice and preserves an actionable incident', async () => {
+  const h = recoveryHarness({ handoffFails: true, newInbound: true })
+  const result = await h.run()
+  assert.equal(result.delivery_status, 'accepted')
+  assert.equal(result.handoff_recorded, false)
+  assert.equal(result.handoff_error, 'HANDOFF_FAILED')
+  assert.equal(result.requires_review, true)
+  assert.equal(result.recovery, 'handoff_needs_review')
+  assert.equal(result.message_persisted, true)
+  assert.equal(h.calls.filter(c => c.name === 'register_inbound_message').length, 1)
+  assert.equal(h.calls.filter(c => c.name === 'handoff_lead').length, 1)
+  assert.equal(h.calls.filter(c => c.name === 'send').length, 1)
+  const out = h.calls.find(c => c.name === 'register_outbound_message').args
+  assert.equal(out.p_content, 'En este momento no pudimos completar la respuesta a su consulta. Le pedimos disculpas por el inconveniente.')
+  assert.equal(out.p_tool_calls.handoff_recorded, false)
+  assert.equal(out.p_tool_calls.provider_status, 'accepted')
+  assert.doesNotMatch(out.p_content, /equipo|asesor|registrad|derivad|comunicaremos|team|advisor/)
+})
+
+test('failed handoff does not repeat an already accepted recovery notice', async () => {
+  const h = recoveryHarness({ handoffFails: true, history: [{ role: 'bot', model_used: 'system:generation-recovery',
+    tool_calls: { provider_status: 'accepted' } }] })
+  const result = await h.run()
+  assert.equal(result.notice, 'already_notified')
+  assert.equal(result.requires_review, true)
+  assert.equal(h.calls.some(c => c.name === 'send'), false)
+})
+
+test('failed handoff preserves the known conversation language without claiming a transfer', async () => {
+  const h = recoveryHarness({ handoffFails: true, summary: { _conversation_language: { tag: 'en-US' } } })
+  await h.run()
+  assert.equal(h.calls.find(c => c.name === 'register_outbound_message').args.p_content,
+    'We could not complete the response to your question at this time. We apologize for the inconvenience.')
+})
+
+test('uncertain notices and unresolved sends are never automatically repeated', async () => {
+  for (const [option, uncertain] of [['uncertainOutbox', false], ['launchFails', true], ['registrationFails', true]]) {
     const h = recoveryHarness({ [option]: true })
     await assert.rejects(h.run, e => e.deliveryUncertain === uncertain)
     assert.equal(h.calls.filter(c => c.name === 'send').length, uncertain ? 1 : 0)

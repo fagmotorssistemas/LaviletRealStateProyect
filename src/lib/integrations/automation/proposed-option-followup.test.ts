@@ -1,3 +1,4 @@
+import { plannedQuestionFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { commercialJourneyPlan, journeyPendingQuestion } from './commercial-journey'
@@ -26,7 +27,7 @@ function offered(category: string | null = null): { context: Row; pending: Row }
     financiamiento: { partners: [] } }
   const plan = commercialJourneyPlan(input)
   const reply = `Como alternativa, podemos revisar departamentos y penthouses de tres dormitorios. ${String(plan.question)}`
-  const pending = normalizedPendingQuestion(journeyPendingQuestion(reply, plan, true), catalog)
+  const pending = normalizedPendingQuestion(journeyPendingQuestion(reply, plan, true, plannedQuestionFixture(plan)), catalog)
   return { pending, context: rememberPropertyReply(catalog, input.property_context, reply,
     { pending_question: pending, original_query: plan.requested_query }) }
 }
@@ -141,7 +142,7 @@ test('a literal price or details question keeps exactly that proposed unit as th
     assert.equal(plan.action, 'clarify_requirements')
     assert.equal(plan.question_id, 'property_requirements')
     const reply = `La unidad 502 tiene esa información verificada. ${String(plan.question)}`
-    const afterPending = journeyPendingQuestion(reply, plan, true)
+    const afterPending = journeyPendingQuestion(reply, plan, true, plannedQuestionFixture(plan))
     const delivered = rememberPropertyReply(catalog, resolved.context, reply, {
       catalog_query: resolved.query, catalog_retrieval: { optimized: true }, catalog_summary: { request: { requirements: [] } },
       pending_question: afterPending, offered_unit_ids: ['d502'],

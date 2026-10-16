@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -103,9 +104,9 @@ async function run(enabled: boolean, failSearch = false, compareCosts = false, w
     const data = object(context)
     costComparisons.push(promptCostComparison(instructions, context, _schema))
     calls.push({ task: task!, instructions, context: data })
-    if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-    return { reply, question: { role: 'required_collection', purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure' },
-      requests: rows(data.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Buscar local', status: 'answered', evidence: 'Locales con espacio exterior.', fact_key: null, request_type: 'general_information' })) }
+    if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
+    return writerFixture({ reply, question: { role: 'required_collection', purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure' },
+      requests: rows(data.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Buscar local', status: 'answered', evidence: 'Locales con espacio exterior.', fact_key: null, request_type: 'general_information' })) })
   })
   return { calls, result, embeddings, costComparisons }
 }
@@ -118,8 +119,8 @@ test('exact contexts are compact with the switch on or off; optional ranking fai
     assert.deepEqual(r.calls.map(c => c.task), ['writing', 'review'])
     for (const call of r.calls) {
       const obligations = rows(call.context.obligaciones_del_turno).map(o => o.id)
-      assert.ok(obligations.includes('profile_full_name'))
-      assert.ok(obligations.includes('profile_current_residence'))
+      assert.equal(obligations.includes('profile_full_name'), call.task === 'writing')
+      assert.equal(obligations.includes('profile_current_residence'), call.task === 'writing')
     }
   }
   assert.equal(off.embeddings, 0)
@@ -140,7 +141,7 @@ test('exact contexts are compact with the switch on or off; optional ranking fai
       catalog_search: { ...object(object(call.context.contexto_verificado).catalog_search), embeddingsEnabled: false } } },
   } : call)
   assert.deepEqual(withoutVectorSwitch(on.calls), withoutVectorSwitch(off.calls))
-  assert.equal(object(on.result.audit.prompt_context_selection).mode, 'task_context')
+  assert.equal(object(object(writer.contexto_verificado).prompt_context_selection).mode, 'task_context')
 })
 
 test('cost comparison observes both agents without changing their inputs, output, calls or off behavior', async () => {

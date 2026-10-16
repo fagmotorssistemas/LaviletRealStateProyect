@@ -1,3 +1,4 @@
+import { plannedQuestionFixture, writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import Ajv from 'ajv'
@@ -14,6 +15,7 @@ import { assessMissingFacts } from './coverage-evidence'
 import { unresolvedChoice } from './conversation-next-step'
 import { completeTurnReply } from './turn-completeness'
 import { businessRiskSchemaForSources, BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { validateBusinessFacts } from './business-facts'
 
 const units: Row[] = [
@@ -25,12 +27,13 @@ const units: Row[] = [
     area_internal_m2: inside, area_exterior_m2: outside, published_commercial_price: 405000,
   })),
 ]
-const finance = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {}, journey: { accepted: true } }
+const finance = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {}, journey: { accepted: true },
+  entry: { status: 'not_defined', evidence: 'Todavía no defino cuánto aportaré de entrada', source_message_id: 'entry-answer' } }
 const baseQuery = { group: 'residential', category: null, operation: 'search', scope: 'catalog', filters: { bedrooms: 2 } }
 const baseInfo = (): Row => ({ catalogo: units, politica_comercial: { precios_autorizados: true }, catalog_read: { complete: true },
   lead: { purchase_purpose: 'vivir' }, perfil_lead: { full_name: 'Carlos', residence_city: 'Cuenca' },
   property_context: { query: baseQuery, selected_ids: [] }, financiamiento: finance, recorrido_comercial: {},
-  hechos_confirmados: { budget: { status: 'amount', amount: 200000, confidence: 'high', evidence: 'tengo 200 mil' } } })
+  hechos_confirmados: { budget: { status: 'maximum_total', amount: 200000, confidence: 'high', evidence: 'tengo 200 mil de presupuesto total' } } })
 
 test('bedroom evidence keeps all compatible types and inherits only a previously chosen category', () => {
   const current = 'prefiero algo de 2 dormitorios'
@@ -76,7 +79,7 @@ test('a floor with a single compatible unit shows its features and protected 360
   assert.equal(plan.question_act, 'confirm_unit')
   const saved = rememberPropertyReply(units, reference.context, response.reply, response.audit)
   assert.deepEqual(saved.selected_ids, [])
-  const followup = journeyPendingQuestion(String(plan.question), plan, true)
+  const followup = journeyPendingQuestion(String(plan.question), plan, true, plannedQuestionFixture(plan))
   const yes = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'answer_previous', primary_evidence: 'si claro', confidence: 'high',
     answer_to_previous: { question_id: 'unit_choice', kind: 'affirmative', evidence: 'si claro', confidence: 'high' } } }, 'si claro', followup)
   const selected = resolvePropertyTurn(units, 'si claro', { _property_context: saved, _pending_question: followup }, [], yes)
@@ -133,12 +136,15 @@ test('invalid identity remains a clarification with all basic pending fields, ne
     verified: { ...baseInfo(), property_context: { selected_ids: ['d504'] } } },
   async (_rules, input, _schema, _image, _file, _tone, task) => {
     calls.push(String(task))
-    if (task === 'writing') return { reply: intake.reply, requests: [{ fragment: 'R1', intent: 'Aportar identidad', request_type: 'general_information',
-      status: 'missing_fact', fact_key: 'other', evidence: 'La cédula tiene once dígitos' }],
-      question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'identidad y empleo', next_decision: 'seguir recopilando' } }
     const obligations = object(input).obligaciones_del_turno as Row[]
-    assert.equal(obligations.find(o => o.id === 'financing_collection')?.selected_partner, 'Cooperativa JEP')
-    return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+    if (task === 'writing') {
+      assert.equal(obligations.find(o => o.id === 'financing_collection')?.selected_partner, 'Cooperativa JEP')
+      return writerFixture({ reply: intake.reply, requests: [{ fragment: 'R1', intent: 'Aportar identidad', request_type: 'general_information',
+      status: 'missing_fact', fact_key: 'other', evidence: 'La cédula tiene once dígitos' }],
+      question: { role: 'required_collection', purpose: 'collect_financing_required', missing_datum: 'identidad y empleo', next_decision: 'seguir recopilando' } })
+    }
+    assert.equal(obligations.some(o => o.id === 'financing_collection'), false)
+    return { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
   })
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.needsAdvisor, false)

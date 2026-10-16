@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { greetingForTurn, applyTurnGreeting } from './conversation-style'
@@ -9,8 +10,8 @@ import { REFERENTIAL_PRICE_NOTICE } from './price-conditions'
 
 const at = '2026-10-07T17:00:00Z'
 const none = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
-const pass = { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-function candidate(reply: string) { return { reply, question: none, requests: [{ fragment: 'R1', intent: 'Atender solicitud', request_type: 'general_information', status: 'answered', evidence: 'Respuesta', fact_key: null }] } }
+const pass = { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
+function candidate(reply: string) { return writerFixture({ reply, question: none, requests: [{ fragment: 'R1', intent: 'Atender solicitud', request_type: 'general_information', status: 'answered', evidence: 'Respuesta', fact_key: null }] }) }
 
 for (const current of ['hola', 'Quiero precios', 'Necesito visitar', 'Gracias', '[Audio recibido]', '[Archivo pendiente de revisar]', ''])
   test('the first allowed response greets independently of inbound content: '+JSON.stringify(current), () => {
