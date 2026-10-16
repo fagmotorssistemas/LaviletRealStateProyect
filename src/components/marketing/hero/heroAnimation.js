@@ -315,7 +315,14 @@ export function createHeroAnimation(root, classes, state) {
         return im && im.decode ? im.decode().catch(function () {}) : Promise.resolve();
       });
       if (document.fonts && document.fonts.ready) critical.push(document.fonts.ready);
-      Promise.all(critical).then(function () { if (!disposed) layout(); });
+      Promise.all(critical).then(function () {
+        if (disposed) return;
+        layout();
+        ["imgBgS", "imgGroundS", "imgBldS"].forEach(function (id) {
+          var im = $(id);
+          if (im && im.decode) im.decode().catch(function () {});
+        });
+      });
     },
     destroy() {
       disposed = true;

@@ -38,21 +38,21 @@ export function HeroLaVilet() {
   <section className={styles['hero']} data-part="hero" aria-label="La Vilet">
     <div className={styles['bg-inner']} data-part="bgInner">
       <img data-part="imgBg" src="/hero/fondo-dia.webp" alt="" fetchPriority="high" decoding="async" />
-      <img data-part="imgBgS" src="/hero/fondo-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" loading="lazy" fetchPriority="low" />
+      <img data-part="imgBgS" src="/hero/fondo-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" />
       <img data-part="imgBgN" src="/hero/fondo-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
     </div>
     <div className={styles['ground']} data-part="ground">
       <img data-part="imgGround" src="/hero/calle-dia.webp" alt="" fetchPriority="high" decoding="async" />
-      <img data-part="imgGroundS" src="/hero/calle-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" loading="lazy" fetchPriority="low" />
+      <img data-part="imgGroundS" src="/hero/calle-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" />
       <img data-part="imgGroundN" src="/hero/calle-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
     </div>
     <div className={styles['bld']} data-part="bld">
       <img data-part="imgBld" src="/hero/edificio-dia.webp" alt="Edificio La Vilet con su plaza comercial" fetchPriority="high" decoding="async" />
       <span className={styles['bld-tint']} aria-hidden="true"></span>
-      <img className={styles['night']} data-part="imgBldS" src="/hero/edificio-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
+      <img className={styles['night']} data-part="imgBldS" src="/hero/edificio-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" />
       <img className={styles['night']} data-part="imgBldN" src="/hero/edificio-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
       {/* the afternoon rooftop people (couple on the left tower and couple on the roof terrace): they come with the afternoon and leave at night */}
-      <img className={styles['night']} data-part="imgBldX" src="/hero/personas-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
+      <img className={styles['night']} data-part="imgBldX" src="/hero/personas-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" />
       {/* the person on the roof terrace at night */}
       <img className={styles['night']} data-part="imgBldY" src="/hero/personas-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
       <div className={styles['walker']} data-part="walker">
