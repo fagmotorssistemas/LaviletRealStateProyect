@@ -112,11 +112,14 @@ export function EspaciosAccordion() {
                 onBlur={() => setHover(null)}
                 onClick={() => go(index)}
               >
+                {/* Next 16 prunes small srcset widths for literal vw sizes; calc keeps 256/384 available for the 220px closed panels. */}
                 <Image
                   src={space.src}
                   alt={space.alt}
                   fill
-                  sizes={isActive ? '70vw' : '18vw'}
+                  sizes={isActive
+                    ? '(max-width: 1024px) 100vw, 70vw'
+                    : '(max-width: 1024px) calc(100vw), 220px'}
                   className={cn(
                     'object-cover transition-transform duration-700',
                     isActive ? 'scale-100' : 'scale-105',
@@ -126,7 +129,7 @@ export function EspaciosAccordion() {
                 <div
                   className={cn(
                     'absolute inset-0 transition-colors duration-500',
-                    isActive ? 'bg-lv-bg' : 'bg-lv-bg',
+                    isActive ? 'bg-lv-bg/10' : 'bg-lv-bg/65',
                   )}
                 />
 
@@ -183,7 +186,7 @@ export function EspaciosAccordion() {
             <button
               type="button"
               aria-label="Espacio anterior"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-lv-bg text-lv-ink-soft transition-colors hover:bg-lv-bg"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-lv-bg text-lv-ink-soft transition-colors hover:bg-[#3a382f]"
               onClick={() => go(active - 1)}
             >
               <ArrowLeft size={16} strokeWidth={1.75} />
@@ -191,7 +194,7 @@ export function EspaciosAccordion() {
             <button
               type="button"
               aria-label="Espacio siguiente"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-lv-bg text-lv-ink-soft transition-colors hover:bg-lv-bg"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-lv-bg text-lv-ink-soft transition-colors hover:bg-[#3a382f]"
               onClick={() => go(active + 1)}
             >
               <ArrowRight size={16} strokeWidth={1.75} />
