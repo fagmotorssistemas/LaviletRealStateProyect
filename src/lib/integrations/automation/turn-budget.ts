@@ -1,4 +1,5 @@
 import { informationOnly } from './interaction-mode'
+import { projectObjectionRequests } from './project-objections'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
 import { catalogQuery, filterCatalog, partitionCatalog } from './catalog-dialogue'
@@ -57,6 +58,12 @@ export function turnBudgetAssessment(verified: Row, audit: Row): Row | null {
   const semantics = object(verified.semantica_turno), currentBudget = object(semantics.budget)
   const currentDeclaration = currentBudget.status && currentBudget.status !== 'not_discussed'
   const requests = rows(verified.solicitudes_interpretadas || object(verified.contrato_turno).requests)
+  // A price-value concern does not ask to repeat an older affordability
+  // assessment. A genuinely new amount or explicit price/finance request keeps
+  // its existing path, independently of any simultaneous objection.
+  if (!currentDeclaration && projectObjectionRequests(verified, text(object(verified.contrato_turno).current_message || verified.mensaje_actual)).length
+    && !requests.some(request => request.domain === 'financing'
+      || Array.isArray(request.topics) && request.topics.includes('purchase_price'))) return null
   const financeDeclined = object(object(verified.financiamiento).journey).status === 'declined'
   const financeAccepted = !financeDeclined && (object(verified.etapa_financiamiento).accepted === true
     || object(object(verified.financiamiento).journey).accepted === true

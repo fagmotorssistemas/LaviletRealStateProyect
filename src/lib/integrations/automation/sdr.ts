@@ -1,4 +1,5 @@
 import { informationOnly } from './interaction-mode'
+import { withProjectObjectionContext, PROJECT_OBJECTION_WRITER_RULES } from './project-objections'
 import { configuredResponseReviewEnabled, responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply } from './response-review-policy'
 import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
 import 'server-only'
@@ -149,6 +150,7 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
 }
 
 export async function commercialReply(info: Row, current: string, summary: Row, guard: Guard) {
+  info = withProjectObjectionContext(info, current)
   const project = object(info.proyecto)
   if (project.name || project.public_name) info = { ...info, proyecto: { ...project,
     name: projectPublicName(project), public_name: projectPublicName(project) } }
@@ -341,6 +343,7 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   delete writerInfo.final_review_follows
   const input = { response_content_scope: info.alcance_contenido_turno, ...experienceContext(writerInfo, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
   const rules = RESPONSE_CONTENT_SCOPE_RULES + '\n' + NATURAL_CONVERSATION_RULES + '\n' + TURN_INTENT_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
+    + (info.objeciones_proyecto ? '\n' + PROJECT_OBJECTION_WRITER_RULES : '')
     + '\n' + FINANCING_PROCESS_RULES + '\n' + ASSISTANCE_CONTINUATION_RULES
     + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
     + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')

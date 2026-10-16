@@ -14,6 +14,7 @@ import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
 import { isPassivePurchaseEvidence } from './purchase-evidence'
 import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy } from './budget-evaluation'
 import { selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, prioritizesViews, withoutBedroomConstraint, spaciousOptions } from './selection-preferences'
+import { projectObjectionRequests } from './project-objections'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -172,6 +173,39 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const topics = requests.flatMap(request => ids(request.topics))
   const pending = object(object(info.property_context).pending_question)
   const previousJourney = object(info.recorrido_comercial)
+  const semantics = object(info.semantica_turno), current = text(object(info.contrato_turno).current_message || info.mensaje_actual)
+  const objections = projectObjectionRequests(info, current)
+  const currentAnswer = object(semantics.answer_to_previous), currentBudget = object(semantics.budget)
+  const declaredNow = acceptedExtractorConfidence(currentBudget.confidence) && currentBudget.status
+    && currentBudget.status !== 'not_discussed'
+  const chosenNow = acceptedExtractorConfidence(object(semantics.property).confidence)
+    && object(semantics.property).operation === 'select'
+  const financialRequest = requests.some(request => request.source !== 'pending'
+    && (request.domain === 'financing' || ids(request.topics).some(topic =>
+      ['financing', 'cash_payment', 'credit_approval', 'financing_process', 'monthly_payment'].includes(topic))))
+  const explicitContinuation = declaredNow || chosenNow || financialRequest
+    || ['request_visit', 'request_reservation', 'ask_financing'].includes(text(semantics.primary_intent))
+    || acceptedExtractorConfidence(currentAnswer.confidence)
+      && ['affirmative', 'value'].includes(text(currentAnswer.kind)) && text(currentAnswer.question_id)
+      && currentAnswer.question_id !== 'none'
+  const automaticStep = ['ask_budget', 'clarify_budget_kind', 'discover_use', 'discover_bedrooms', 'select_property',
+    'clarify_financing_down_payment', 'continue_financing', 'offer_financing', 'offer_reservation', 'offer_visit',
+    'await_reservation', 'clarify_purchase'].includes(text(plan.action))
+  if (objections.length && automaticStep && !operation && !explicitContinuation) return {
+    ...plan, action: 'answer_current_question', question: '', question_id: '', question_act: 'other',
+    requires_unit_presentation: false, continuation_optional: true, financing_offer_allowed: false, visit_offer_allowed: false,
+    ...(!topics.includes('purchase_price') && Object.keys(object(plan.budget_guidance)).length ? {
+      budget_guidance: { ...object(plan.budget_guidance), comparison_required: false, mention_required: false,
+        mention_policy: { ...object(object(plan.budget_guidance).mention_policy), required: false } },
+    } : {}),
+    ...(plan.question_id ? { deferred_question: { id: plan.question_id,
+      act: plan.question_act || (pending.id === plan.question_id ? pending.act : '')
+        || (text(plan.question_id).startsWith('financing') ? 'financing' : text(plan.question_id).startsWith('budget') ? 'budget' : 'other'),
+      question: pending.id === plan.question_id && pending.question ? pending.question : plan.question,
+      candidate_ids: ids(object(plan.selection_scope).unit_ids),
+      ...(plan.question_amount_reference ? { amount_reference: plan.question_amount_reference } : {}) } } : {}),
+    instruction: 'Atienda la objeción actual con atributos verificados relacionados con el objetivo del cliente y responda también las demás consultas. No sustituya el argumento por repetir rangos de precios o desconocer cómo se fijaron. Conserve internamente las preferencias, selecciones, permisos y la decisión pendiente. No retome ahora capturas ni ofrezca automáticamente financiamiento, reserva o visita. Una continuación es opcional y debe ayudar a aclarar o comparar el aspecto cuestionado, sin una pregunta prefabricada.',
+  }
   const capture = ['clarify_financing_down_payment', 'discover_use', 'discover_bedrooms', 'select_property', 'ask_budget', 'clarify_budget_kind'].includes(text(plan.action))
   const hasInquiry = requests.some(request => ['financing', 'property', 'project'].includes(text(request.domain))
     && (ids(request.topics).some(topic => !['property_options', 'visualization'].includes(topic))

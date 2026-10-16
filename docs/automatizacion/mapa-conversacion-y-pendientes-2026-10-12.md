@@ -499,3 +499,167 @@ Ejemplos de intención, pendientes de aprobación como argumentos del bot:
 > Para su idea de comprar un local y rentarlo, el concepto reúne comercio y viviendas dentro del mismo proyecto. Podemos comparar la ubicación y distribución de los locales, junto con los usos permitidos, para valorar cuál encaja mejor con su inversión.
 
 Estos argumentos no se incorporaron a código ni prompts en este cambio. AUT-106 conserva el incidente para su futura validación; la definición de atributos diferenciales y el manejo completo de objeciones siguen pendientes.
+
+## Auditoría de reglas antiguas y nuevas — corte 17615fc, 15 de octubre
+
+La revisión ampliada documenta **29 familias de conflictos y desalineaciones**: **18 corregidas en código**, **4 parcialmente corregidas**, **6 pendientes** y **1 aplazada expresamente**. El primer inventario de 25 agrupaba causas conocidas; no era un censo de todas las instrucciones del repositorio. Esta ampliación incorpora RC-26 a RC-29: tres correcciones históricas omitidas y una contradicción actual de apertura. No se cambió el bot durante esta auditoría.
+
+El [inventario estructurado con fuentes](auditoria-reglas-2026-10-15.json) conserva cada regla anterior, criterio nuevo, efecto, archivo, alcance y estado. Distingue contradicciones literales de prompts, contratos incompletos y falta de integración de estados nuevos. Una causa repetida en varias instrucciones, reparaciones y escenarios se cuenta una vez. La cantidad no equivale a fallos actuales en producción ni a pruebas ejecutadas.
+
+### Magnitud de fuentes y método de recuento
+
+El barrido estático usa el AST de TypeScript sobre src/lib/integrations/automation. Excluye archivos de pruebas; cuenta líneas con blancos y comentarios. Detecta declaraciones de texto con nombres RULES/PROMPT/INSTRUCTIONS/OBJECTIVES/GUIDANCE y ocurrencias léxicas normativas. El método y sus límites están guardados en el inventario.
+
+| Medida | Cantidad | Qué significa |
+| --- | ---: | --- |
+| Archivos TypeScript de ejecución | 222 | Volumen del motor de automatización; el rastreo del showroom se revisó además de esa carpeta. |
+| Archivos de pruebas excluidos | 172 | No se suman al código de ejecución ni se ejecutaron en esta auditoría. |
+| Líneas de fuentes de ejecución | 28.200 | Incluyen comentarios y blancos; no certifican lectura manual de cada línea. |
+| Declaraciones literales de instrucciones/prompts | 102 | Bloques de texto detectables por nombre, no reglas únicas. |
+| Expresiones normativas aproximadas | 464 | Apariciones de debe, nunca, siempre y otras fórmulas; contienen duplicaciones. |
+| Condiciones if / switch | 3.344 / 5 | Incluyen validaciones técnicas y manejo de datos, no solo decisiones comerciales. |
+| Familias de conflictos confirmadas | 29 | Inventario semántico contrastado; no se deriva de contar palabras o condiciones. |
+
+No hay evidencia para afirmar miles de reglas contradictorias. Sí hay miles de líneas y condiciones. El barrido cuantitativo no es una prueba de ausencia de otros conflictos; las reglas dinámicas y los prompts guardados necesitan contraste con sus consumidores. Para los prompts almacenados se conserva la consulta de solo lectura del corte anterior, 22:13 UTC; no se supone que una etiqueta activo implique uso en todas las rutas.
+
+### Evidencia de depuración ya realizada
+
+| Commit | Cambio comprobable |
+| --- | --- |
+| c428b03, 08/10 | Retiró borrados de la unidad elegida provocados por propuestas del bot. |
+| f40958b, 14/10 | Retiró advertencias familiares automáticas y reemplazo completo de preferencias ante una categoría. |
+| 9f9af78, 14/10 | Retiró añadidos finales de saludo, continuación y avisos en la ruta revisada; sustituyó comparaciones de preguntas por objetivos. |
+| 343793e, 15/10 | Retiró la obligación de escribir español en la recopilación financiera. |
+| 8ddb377, 15/10 | Retiró «Mucho gusto, Nombre» obligatorio y la justificación fija de brochure/guía; añadió modo informativo persistente. |
+
+Entre e2c7aac y f73802b (14–15/10), ocho commits tocaron 66 archivos de ejecución de automatización: 1.586 líneas agregadas y 365 eliminadas; las pruebas corresponden a otros 36 archivos, con 1.333 agregadas y 102 eliminadas. Entre 0adbe80 y f73802b (07–15/10), 34 commits tocaron 131 archivos de ejecución, con 7.009 agregadas y 1.438 eliminadas. Estos cambios netos mezclan depuración, funciones nuevas, recuperación e instrumentación: no se presentan todas sus líneas como limpieza de reglas obsoletas. El commit posterior 17615fc modifica el cálculo de precios de inventario; no se atribuye a esta depuración.
+
+### Inventario completo documentado
+
+| ID | Regla anterior → criterio nuevo | Efecto o riesgo | Estado |
+| --- | --- | --- | --- |
+| RC-01 | Código completa el mensaje del redactor → Autoría completa del mensaje por la IA | Doble saludo, preguntas o enlaces añadidos; quedan instrucciones legacy que aún dicen que el sistema completa el texto. | Parcial: restos secundarios |
+| RC-02 | Comparar palabras y actos deducidos de preguntas → Objetivo libre con metadatos coherentes | Falso commercial_next_question_mismatch aun con la pregunta de financiamiento esperada. | Corregida en código |
+| RC-03 | Revisor puede bloquear estilo y siguiente paso → Revisión de hechos y promesas comerciales | Rechazos de respuestas válidas por estilo o flujo; persiste el prompt del revisor legacy en rutas secundarias. | Parcial: restos secundarios |
+| RC-04 | Justificar el perfil mediante brochure y guía personalizada → Conectar oferta y datos con redacción libre | Pregunta de nombre y residencia con justificación repetida y prefabricada. | Corregida en código |
+| RC-05 | Mucho gusto, Nombre como reconocimiento literal obligatorio → Reconocimiento opcional del nombre, sin reiteración | Presentación ceremonial repetida al devolver el cliente la cortesía. | Corregida en código |
+| RC-06 | Presupuesto total aproximado como formulación dirigida → Pregunta natural y rol monetario guardado internamente | La pregunta parecía un formulario y repetía total sin necesidad. | Corregida en código |
+| RC-07 | La palabra brochure activa entrega → La intención estructurada distingue mención de solicitud | El código reenviaba un material al que el lead solo hacía referencia. | Corregida en código |
+| RC-08 | Excluir introducciones y justificaciones de las preguntas → Permitir transiciones útiles y calidez configurada | Se eliminaban conexiones amables o una respuesta cálida terminaba reparada como texto seco. | Corregida en código |
+| RC-09 | Advertir distribución ajustada para familias por defecto → Recomendar con hechos pertinentes a la consulta | Se desacreditaban alternativas con una advertencia que el lead no había pedido. | Corregida en código |
+| RC-10 | Orientación financiera por oportunidad genérica o presupuesto indefinido → Finanzas pertinentes a la petición y al estado vigente | Bancos y crédito aparecían en consultas de alquiler o reventa; quedan instrucciones amplias en la ruta SDR antigua. | Parcial: restos secundarios |
+| RC-11 | Captura comercial obligatoria después de cada duda → Diferir preguntas y respetar el modo informativo persistente | Volvía a presupuesto o dormitorios después de cada consulta. | Corregida en código |
+| RC-12 | Filtros de compra usados para toda consulta del proyecto → Alcance informativo temporal separado de la selección | Al preguntar otras categorías se conservaba solo el catálogo de departamentos. | Corregida en código |
+| RC-13 | Cautela fija de condiciones de instalaciones no verificadas → Política de acceso publicada y aprobada prevalece | El bot continuaba presentando como desconocido un permiso ya aprobado. | Corregida en código |
+| RC-14 | Aviso referencial de precios por rutina → Respetar activación y evitar duplicados innecesarios | Repetición del aviso o aparición pese a estar desactivado. | Corregida en código |
+| RC-15 | Dudas de contado/procedimiento cambian aceptación financiera → Conservar aceptación mientras se responde la duda | Se perdía la aceptación o se volvía a pedir permiso para el mismo financiamiento. | Corregida en código |
+| RC-16 | Entrada pendiente como condición para continuar → Orientar sin entrada exacta y continuar pasos permitidos | La interacción terminaba tras elegir JEP aunque quedaban pasos útiles. | Corregida en código |
+| RC-17 | Pedir dormitorios tras para vivir sin respetar indiferencia → Separar prioridades y restricciones declaradas | La prioridad de amplitud era ignorada; el flujo principal se corrigió pero el prompt comercial viejo conserva la secuencia. | Parcial: restos secundarios |
+| RC-18 | Mantener el importe antiguo como techo tras confirmarlo como entrada → Aplicar los roles monetarios actuales | Se excluían alternativas al tratar el aporte para entrada como precio máximo de compra. | Corregida en código |
+| RC-19 | Precios solo con ask_price explícito → Atender comparaciones de costo implícitas interpretadas | Se bloqueaba una comparación pertinente aunque el cliente ya la estaba planteando. | Corregida en código |
+| RC-20 | Nutrición no consulta el modo informativo → El modo informativo debe mantenerse entre canales y seguimientos | Un seguimiento podría reactivar calificación o crédito durante una pausa informativa. | Pendiente |
+| RC-21 | Nutrición infiere intención por palabras → Interpretación contextual estructurada con alcance y negaciones | Presupuesto o una negativa breve pueden convertirse en una orientación financiera no pertinente. | Pendiente |
+| RC-22 | Categorías incompletas en nutrición → Contrato común de suites, departamentos, penthouses y locales | Un penthouse puede nombrarse departamento o recibir contenido de otra categoría. | Pendiente |
+| RC-23 | Showroom guarda lo observado como preferencia → Distinguir actividad observada de declaración del cliente | Ver una tipología puede fijar dormitorios o categoría que el lead no pidió. | Pendiente |
+| RC-24 | Exigir todas las unidades de la planta en una respuesta → Permitir presentación breve cuando corresponda | La comprobación exige los nueve locales y puede rechazar una selección breve. El responsable aplazó expresamente este cambio. | Aplazada por el responsable |
+| RC-25 | Extractor permite false por aplazamiento financiero → Pausa informativa no revoca consentimiento | Contradicción en instrucciones efectivamente cargadas; la normalización posterior protege el consentimiento. No se confirmó pérdida efectiva por esta línea. | Pendiente |
+| RC-26 | Prohibir categorías y concepto mixto en toda apertura genérica → Permitir los hechos del resumen inicial aprobado, manteniendo fuera las ofertas de catálogo ajenas | El mismo redactor recibe la prohibición general y la autorización específica; puede omitir o reparar indebidamente la presentación aprobada. Contradicción estática, sin incidente productivo nuevo demostrado. | Pendiente |
+| RC-27 | Redactor financiero obligado a responder en español → Mantener el idioma de conversación del cliente | La instrucción podía forzar español durante financiamiento aunque la conversación fuera en inglés. | Corregida en código |
+| RC-28 | Una oferta del bot reemplaza las referencias y puede borrar la unidad elegida → Actualizar lo ofrecido sin revocar la elección confirmada del cliente | Mostrar otras unidades o continuar con detalles podía vaciar selected_ids y reabrir la selección. | Corregida en código |
+| RC-29 | La última declaración de categoría reemplaza todas las preferencias guardadas → Actualizar campos declarados conservando necesidades previas compatibles | Responder penthouse podía borrar tres dormitorios ya conocidos y provocar otra pregunta sobre ellos. Es distinto de respetar indiferencia o prioridad de amplitud (RC-17). | Corregida en código |
+
+### Qué queda y en qué rutas
+
+- RC-01, RC-03, RC-10 y RC-17 conservan instrucciones secundarias SDR. La guarda de sdr.ts:335–339 evita cargar esos prompts en la configuración principal consultada. RC-03 además filtra rechazos exclusivamente editoriales. Son restos que limpiar, no cuatro fallos demostrados hoy en la ruta principal.
+- RC-20 a RC-23 afectan integración, interpretación o etiquetas de nutrición/showroom. La nutrición conserva otros filtros operativos; el showroom rellena preferencias vacías desde lo observado. No se afirma que todos los leads sufran esos efectos.
+- RC-25 mantiene una contradicción en el prompt del extractor cargado, pero la normalización posterior protege el consentimiento. No se acreditó una pérdida actual causada por esa línea.
+- RC-26 combina en el redactor final una prohibición general de tipos con la autorización del resumen aprobado. La revisión semántica ya reconoce la excepción; faltan alinear las instrucciones y una reparación antiguas. Se cuenta una familia, aunque tenga varias apariciones.
+- RC-24 sigue activo y aplazado por decisión expresa: no se habilita aquí una lista abreviada de locales.
+
+No se suman como reglas enfrentadas los errores HTTP400/JSON, datos faltantes, galerías no conectadas, capacidades nuevas o una cortesía mal elegida sin instrucción que la imponga. AUT-087 conserva un rechazo histórico de un cálculo en el corpus, pero su control actual requiere rastreo antes de clasificarlo como otra familia. El corpus de 106 escenarios mide incidentes y variantes, no 106 reglas ni 106 simulaciones aprobadas.
+
+Texto utilizable para documentar el trabajo: **«Se realizó una depuración progresiva del código y los prompts de la automatización. La auditoría ampliada documenta 29 familias de conflictos y desalineaciones: 18 corregidas en código, 4 con restos en rutas secundarias, 6 pendientes y 1 aplazada. El historial de cambios respalda la eliminación o sustitución de instrucciones, validadores y transiciones antiguas. El estado de código se distingue de la validación posterior en producción.»**
+
+No se ejecutaron pruebas, modelos ni mensajes a leads durante esta auditoría; solo se actualizaron documentos. Las correcciones de código no certifican despliegue ni validación en WhatsApp. Los trabajos anteriores quedan guardados en f73802b y en el checkpoint: galerías por enlaces y ejemplos financieros implementados; imágenes adjuntas dinámicas, argumentos de objeciones y simulaciones pendientes; presentación breve de locales aplazada; entrega del brochure e identidad conservadas según decisión del responsable.
+
+## Definiciones operativas en revisión: retoma, citas y showroom — 15 de octubre
+
+Esta sección conserva las definiciones conversadas después de la auditoría. No implementa retoma, primer contacto del showroom ni cambios a recordatorios. Las correcciones abiertas del inventario de 29 familias siguen pendientes con sus estados anteriores.
+
+### Retoma de leads sin respuesta
+
+Propuesta: un lead es apto para retoma si hubo interés identificable, oportunidad vigente, permiso de contacto, última consulta atendida, plazo o fecha cumplidos y una continuación útil. No debe existir rechazo global, gestión humana o trámite incompatible, respuesta nueva ni envío incierto pendiente de revisar. Registrar motivo, siguiente fecha e intentos por contacto y proyecto.
+
+Separar silencio, compra aplazada y oportunidad perdida. Una negativa a financiamiento no es rechazo global; solo querer información conserva ese modo. Una consulta que el bot no atendió requiere recuperación de atención. No contactar por rutina a quien retiró permiso, compró, rechazó el proyecto o agotó intentos. Una visita posterior al showroom no revoca la negativa. La recuperación de días 30 y 60 sigue planificada; el tiempo transcurrido solo dispara una evaluación.
+
+### Terminología acordada: nutrición desde el primer contacto y seguimiento por silencio
+
+El responsable distingue nutrición como información y acompañamiento desde el primer contacto, y seguimiento como el contacto posterior cuando el lead deja de responder. No se requiere que el lead esté inactivo para recibir nutrición durante la conversación.
+
+El comportamiento revisado responde las consultas en la conversación activa y, después de registrar una respuesta aceptada por Kommo, intenta programar tareas futuras si el lead es elegible. Puede preparar esas tareas desde la primera respuesta; no implica enviar otro mensaje inmediatamente. Los plazos se calculan desde el último mensaje del lead, con ajuste de horario y frecuencia. Al procesar un nuevo mensaje se cancelan los seguimientos pendientes y se atiende la conversación; antes de enviar también se verifica que no exista actividad posterior ni una gestión incompatible.
+
+La consulta de solo lectura del 15/10/2026 a las 23:24 UTC confirmó seguimiento de 24 horas desactivado y sin aprobación/vínculo de plantilla, y pasos de 7, 14 y 21 días habilitados. La automatización mantiene test_only=true, por lo que esos interruptores no equivalen a activación para todos los leads ni certifican entregas reales. Internamente el código llama nutrition_* a esas tareas por silencio; documentar su función como seguimiento según la terminología del responsable. No se renombró código ni se cambió el calendario. RC-20 a RC-22 conservan sus pendientes de modo informativo, interpretación y categorías.
+
+### Oferta y solicitud de cita
+
+El plan actual puede sugerir atención presencial tras declinar una reserva de una unidad lista para ese paso, o ante dificultad expresa para elegir entre varias opciones compatibles, sin unidad elegida ni aceptación financiera. No basta preguntar precio, ubicación o características. Respetar modo informativo, negativas, invitaciones previas, coordinación vigente, lugares habilitados y configuración de sugerencias.
+
+Una solicitud expresa de cita se atiende sin exigir terminar presupuesto, dormitorios ni unidad. Preguntar horarios no autoriza agendar. Ofrecer, coordinar y confirmar son estados distintos. Sigue pendiente revisar la prioridad comercial actual de reserva antes que visita; no se cambió esa secuencia.
+
+### Recordatorio de cita: comprobación actual
+
+La consulta de solo lectura del 15/10/2026 a las 23:02 UTC confirmó automatización enabled=true, dry_run=false y test_only=true; ruta visit_2h habilitada y aprobada, Salesbot 22246. La tabla lv_routes se filtra por project_id y kind; no tiene tenant_id. Esta comprobación de configuración no demuestra entrega real.
+
+El código programa dos horas antes y permite una ventana de treinta minutos. La revisión vigente de la cita debe haberse observado con más de dos horas y media de anticipación. Se vuelve a comprobar vigencia y coordinación antes del envío. El mensaje usa la plantilla de visit-reminder.ts con saludo, nombre seguro, fecha/hora, asesor, motivo y Maps. Pendientes de evaluación: citas creadas tarde, idioma distinto de español y contenido para citas remotas.
+
+### Showroom: estado actual y contacto solicitado
+
+El visitante puede identificarse, guardar una unidad o solicitar información. Se conserva contacto, consentimiento y contexto; info_request guarda motivo y mensaje en tour_info_requests y una interacción CRM. El after de api/tour/lead solo despacha conversiones publicitarias Meta, no mensajes de WhatsApp. No se encontró una tarea de primer WhatsApp proactivo en esa ruta ni un consumidor de esas solicitudes en el motor conversacional. Esto no certifica ausencia de integraciones externas ajenas al código revisado.
+
+El botón WhatsApp sí prepara una consulta con contexto de unidad, planta, ambiente o comparación; el visitante debe enviarla. La automatización puede resolver una unidad nombrada por número y tratar una planta como filtro. El redactor recibe señales parciales del showroom, pero el extractor no consulta sesiones, solicitudes ni unidades vinculadas de la web. Por eso «el del cuarto piso que vi» no tiene una referencia web garantizada; si hay varias opciones, corresponde aclarar.
+
+Requisito solicitado: conectar el contacto del showroom con un primer mensaje pertinente y su continuación conversacional. Propuesta de funcionamiento:
+
+- Para quien dejó datos y permiso de contacto, agradecer la visita y ofrecer información. Mencionar la unidad solo si está identificada de forma verificable; si revisó varias, mantener el alcance general o aclarar cuál desea conocer.
+- Distinguir visto, guardado, consultado y elegido. Resolver RC-23 antes de convertir navegación en preferencias declaradas. No afirmar «le interesó» solo porque abrió un espacio.
+- Si ya solicitó información concreta, atender esa solicitud en lugar de volver a preguntar si quiere recibir información.
+- Dejar el plazo configurable. Como propuesta inicial para definir: contacto breve tras solicitud expresa y después de un periodo de inactividad cuando únicamente se identificó; los minutos exactos no están aprobados ni implementados.
+- Verificar teléfono, permiso, identidad del mismo contacto, proyecto y ruta de envío habilitada. Un teléfono o una ubicación estimada no son por sí solos nombre y residencia declarados.
+- Evitar mensajes duplicados por recarga, solicitudes repetidas o varias unidades. Cancelar el primer contacto genérico si el lead ya escribió o un asesor tomó la conversación.
+- Guardar el mensaje realmente enviado y la unidad a la que se refiere. Un «sí» posterior acepta recibir esa información; no selecciona una unidad ni acepta financiamiento, cita o reserva. Respetar datos ya conocidos y el modo informativo.
+- Revisar las confirmaciones de interfaz: TourLeadGate promete «Le escribiremos con planos y disponibilidad», pero identificar no dispara WhatsApp en la ruta revisada. El resultado mostrado debe corresponder a una tarea o gestión que exista realmente.
+
+Referencia de tono, sin imponer una frase al redactor: «Buenas tardes, Carlos. Le saludamos de La Vilet. Gracias por visitar nuestro showroom virtual. Vimos que estuvo revisando el departamento 304. Podemos ampliarle la información sobre este espacio o sobre el proyecto. ¿Le gustaría conocer más detalles?».
+
+Fuentes: api/tour/lead/route.ts, enrichTourLead.ts, tourWhatsApp.ts, TourLeadGate.tsx, catalog-reference.ts, conversation.ts y turn-interpretation-input.ts. El envío inicial y el puente estructurado entre showroom y conversación siguen pendientes de implementación; esta revisión no envió mensajes ni ejecutó simulaciones.
+
+## Implementación local: manejo de objeciones y revisión de adjuntos — 15 de octubre
+
+Por la instrucción posterior «haz los cambios», AUT-106 pasa de propuesta documental a implementación local pendiente de despliegue y validación real. La propuesta y el checkpoint anteriores conservan su valor histórico; ya no representan el estado actual de los argumentos ante objeciones. El inventario de 29 familias mantiene sus cantidades: esta capacidad no resuelve automáticamente los conflictos abiertos de nutrición, showroom u otros prompts.
+
+### Comportamiento incorporado
+
+- El extractor dispone del tema estructurado `value_objection` para preocupaciones de precio, ubicación, seguridad, competencia, arriendo o etapa de obra. Conserva también las consultas independientes de cifras, financiamiento, elección o material. Las palabras aisladas no disparan un argumento ni crean presupuesto o permisos.
+- Solo se admite una objeción con confianza aceptada y evidencia literal del mensaje actual. Una consulta pendiente debe estar en el contrato compartido, vinculada al ID de su mensaje y sin resolver. No se reactiva una preocupación histórica a partir de un «claro» sin esa vinculación.
+- Redactor y revisor comparten el concepto aprobado: viviendas y comercio en dos plantas comerciales, con propuesta de reunir distintos productos y servicios. Las guías editoriales quedan separadas de los hechos autorizados. No acreditan negocios confirmados, exclusividad en la zona, afluencia, rentabilidad ni seguridad del barrio.
+- Las características, instalaciones, entorno y estado de obra proceden de sus fuentes canónicas. Se conservan los datos pertinentes en el contexto reducido, respetando los permisos de comunicación de precios, dirección exacta y enlaces. La nueva guía no copia un catálogo o condiciones financieras para eludir esos filtros.
+- Una objeción no obliga a desconocer la fórmula del precio, repetir rangos o volver al presupuesto. Se difieren las capturas y ofertas automáticas de financiamiento, reserva o visita, conservando internamente la selección, preferencias, consentimientos y decisiones pendientes. Una solicitud o declaración explícita del turno conserva su ruta.
+- Se admite una pregunta opcional que ayude a aclarar la preocupación. Se alineó también el plan comercial secundario para evitar ofertas automáticas de unidades o brochure y observaciones de «pregunta repetida» por esa aclaración útil. La redacción completa sigue siendo responsabilidad del redactor; no se añade una respuesta prefabricada al final.
+
+Fuentes de implementación: `project-objections.ts`, `request-topics.ts`, `commercial-journey.ts`, `turn-budget.ts`, `task-context.ts`, `semantic-catalog-context.ts`, `response-content-scope.ts`, `turn-completeness.ts`, `sdr.ts`, `sales-policy.ts`, `turn-evidence.ts` y `project-quantities.ts`.
+
+### Comprobaciones y límites
+
+Pasaron 43 comprobaciones específicas de admisión, continuidad, fuentes, filtros y conexión con redactor/revisor, incluidos sus modos normal, de observación y desactivado. TypeScript y ESLint terminaron sin errores. Las salidas del modelo se sustituyeron por resultados controlados: estos controles verifican la integración, no certifican la calidad de respuestas generadas por un modelo real.
+
+La batería relacionada anterior ejecutó 131 comprobaciones: 130 pasaron y una prueba antigua de `semantic-catalog-context.test.ts` falló por exigir capturas de perfil dentro del contexto del revisor. Se reprodujo el mismo fallo con las fuentes de HEAD mediante una superposición de lectura; no fue introducido por este cambio ni se modificó esa prueba para ocultarlo. La batería de 43 comprobaciones se ejecutó de nuevo después de los ajustes finales del plan secundario. Las simulaciones amplias del corpus siguen aplazadas y no se enviaron mensajes a leads.
+
+El registro conserva 106 escenarios; AUT-106 se actualizó con variantes y archivos de comprobación. No equivale a 106 simulaciones ejecutadas. La entrega del brochure conserva sus excepciones, la identidad legal sigue reservada al financiamiento autorizado y la presentación abreviada de locales continúa aplazada.
+
+### Imágenes adjuntas: dependencia externa comprobada
+
+Los enlaces a galerías ya implementados se conservan. El envío dinámico de renders como adjuntos sigue pendiente. La [API oficial de envío a conversaciones](https://developers.kommo.com/reference/send-message-to-conversation) admite adjuntos de tipo `picture` con identificadores de archivo, mediante el [complemento Chats API](https://developers.kommo.com/reference/chats-api-add-on). La ruta actual basada en ejecutar el Salesbot no incorpora ese contrato de adjuntos.
+
+La consulta de solo lectura a la cuenta devolvió HTTP 403, `Feature not available for current account`, al consultar el historial externo de una conversación. El token declara ámbitos de mensajes externos, pero eso no acredita que la función esté disponible para la cuenta. Se necesita resolver esa disponibilidad antes de integrar y verificar el envío. No se activaron complementos, subieron archivos, crearon llamadas de envío ni modificaron Salesbots. No se certificó el plan o costo aplicable a la cuenta.
+
+Pendientes de este trabajo: despliegue y comprobación del texto generado en ejecución real; habilitación efectiva de la capacidad de adjuntos e integración posterior. Retoma, primer mensaje del showroom y cambios de seguimiento conservan su definición anterior y no se implementan en este cambio.

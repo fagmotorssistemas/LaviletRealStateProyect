@@ -36,7 +36,7 @@ function propertyPresentation(verified: Row, audit: Row, requested: Set<string>,
   const query = object(object(context.information_query).query || context.query), journey = object(verified.siguiente_paso_comercial || audit.commercial_journey)
   const intent = object(audit.resolved_turn_intent || verified.contrato_turno)
   const answer = object(semantics.answer_to_previous), pending = object(verified.pregunta_pendiente || context.pending_question)
-  const featuresRequested = ['property_features', 'spatial_fit', 'accessibility', 'visualization']
+  const featuresRequested = ['property_features', 'spatial_fit', 'accessibility', 'visualization', 'value_objection']
     .some(name => requested.has(name))
   const comparisonRequested = grounded.some(request => request.domain === 'property')
     && (object(semantics.catalog_request).purpose === 'compare' || object(semantics.property).operation === 'compare')

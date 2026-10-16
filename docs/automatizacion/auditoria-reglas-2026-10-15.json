@@ -1,0 +1,676 @@
+{
+  "schema_version": 2,
+  "date": "2026-10-15",
+  "code_version": "17615fc",
+  "scope": "Familias únicas de conflictos y desalineaciones entre instrucciones, controles y contratos comerciales. Distingue hallazgos históricos corregidos, restos de rutas secundarias, integraciones pendientes y decisiones aplazadas.",
+  "production_validation": "No certifica despliegue ni comportamiento posterior en producción.",
+  "prompt_configuration_read_at": "2026-10-15T22:13:00Z",
+  "counting_rules": [
+    "Agrupar síntomas y repeticiones de la misma causa.",
+    "Un conflicto parcialmente corregido se cuenta una vez; sus restos legacy no suman otra familia.",
+    "Excluir datos faltantes, HTTP400/JSON, respuestas desacertadas sin regla obligatoria y capacidades nuevas.",
+    "Las plantillas aprobadas de recordatorio o nutrición no son obsoletas por ser fijas."
+  ],
+  "counts": {
+    "total": 29,
+    "partial": 4,
+    "corrected_in_code": 18,
+    "pending": 6,
+    "deferred_by_owner": 1
+  },
+  "paused_work_checkpoint": {
+    "commit": "f73802b",
+    "brochure_delivery_exceptions": "preserved",
+    "identity_flow": "presentation_name_then_legal_identity_during_authorized_financing",
+    "visual_links": "implemented_locally",
+    "dynamic_image_attachments": "not_implemented",
+    "dynamic_image_dependency": "Consulta de solo lectura: Kommo devuelve HTTP 403, Feature not available for current account, al consultar historial externo de conversaciones. Chats API add-on requerido; no se activaron servicios, subieron archivos ni enviaron mensajes.",
+    "short_catalog_presentation": "deferred_by_owner",
+    "objection_arguments": "implemented_locally_pending_validation",
+    "conversation_simulations": "deferred",
+    "previous_validation": "111 comprobaciones locales, TypeScript y ESLint; seis fallos antiguos reproducidos en versión anterior."
+  },
+  "excluded_examples": [
+    {
+      "case": "AUT-001",
+      "reason": "Error de contrato JSON Schema; no conflicto de regla comercial vieja/nueva."
+    },
+    {
+      "case": "AUT-094",
+      "reason": "Contexto de no casas independientes trasladado sin necesidad; no se encontró obligación de mencionarlo."
+    },
+    {
+      "case": "AUT-099",
+      "reason": "La simulación ilustrativa es una ampliación de capacidad, no una contradicción vieja contada como adicional."
+    },
+    {
+      "case": "AUT-100",
+      "reason": "Faltaban requisitos bancarios como conocimiento estructurado."
+    },
+    {
+      "case": "AUT-105",
+      "reason": "Faltaba conectar las galerías disponibles al contexto; no se duplica como regla antigua adicional."
+    },
+    {
+      "case": "AUT-104",
+      "reason": "Cortesía repetida del redactor sin una obligación literal de Con gusto en cada turno."
+    }
+  ],
+  "inventory": [
+    {
+      "id": "RC-01",
+      "status": "partial",
+      "old_rule": "Código completa el mensaje del redactor",
+      "new_rule": "Autoría completa del mensaje por la IA",
+      "effect": "Doble saludo, preguntas o enlaces añadidos; quedan instrucciones legacy que aún dicen que el sistema completa el texto.",
+      "scenario_ids": [
+        "AUT-008",
+        "AUT-019"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:331",
+        "src/lib/integrations/automation/conversation.ts:1748",
+        "src/lib/integrations/automation/sdr.ts:348"
+      ],
+      "reachability": "Restos SDR secundarios. sdr.ts:335–339 evita cargar esos prompts en la configuración principal; la recuperación sin reviewedText no demuestra reinyección sobre una respuesta final."
+    },
+    {
+      "id": "RC-02",
+      "status": "corrected_in_code",
+      "old_rule": "Comparar palabras y actos deducidos de preguntas",
+      "new_rule": "Objetivo libre con metadatos coherentes",
+      "effect": "Falso commercial_next_question_mismatch aun con la pregunta de financiamiento esperada.",
+      "scenario_ids": [
+        "AUT-046"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:332",
+        "src/lib/integrations/automation/writer-objectives.ts:5"
+      ]
+    },
+    {
+      "id": "RC-03",
+      "status": "partial",
+      "old_rule": "Revisor puede bloquear estilo y siguiente paso",
+      "new_rule": "Revisión de hechos y promesas comerciales",
+      "effect": "Rechazos de respuestas válidas por estilo o flujo; persiste el prompt del revisor legacy en rutas secundarias.",
+      "scenario_ids": [
+        "AUT-048"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:249",
+        "src/lib/integrations/automation/reviewer-authority.ts:14",
+        "src/lib/integrations/automation/sdr.ts:339"
+      ],
+      "reachability": "Revisor SDR secundario. sdr.ts:404–407 además evita bloquear por rechazos exclusivamente editoriales; no se acredita bloqueo actual de estilo en la ruta principal."
+    },
+    {
+      "id": "RC-04",
+      "status": "corrected_in_code",
+      "old_rule": "Justificar el perfil mediante brochure y guía personalizada",
+      "new_rule": "Conectar oferta y datos con redacción libre",
+      "effect": "Pregunta de nombre y residencia con justificación repetida y prefabricada.",
+      "scenario_ids": [
+        "AUT-011",
+        "AUT-090",
+        "AUT-103"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:418",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:463",
+        "src/lib/integrations/automation/lead-introduction.ts:452"
+      ]
+    },
+    {
+      "id": "RC-05",
+      "status": "corrected_in_code",
+      "old_rule": "Mucho gusto, Nombre como reconocimiento literal obligatorio",
+      "new_rule": "Reconocimiento opcional del nombre, sin reiteración",
+      "effect": "Presentación ceremonial repetida al devolver el cliente la cortesía.",
+      "scenario_ids": [
+        "AUT-091",
+        "AUT-093"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:419",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:449"
+      ]
+    },
+    {
+      "id": "RC-06",
+      "status": "corrected_in_code",
+      "old_rule": "Presupuesto total aproximado como formulación dirigida",
+      "new_rule": "Pregunta natural y rol monetario guardado internamente",
+      "effect": "La pregunta parecía un formulario y repetía total sin necesidad.",
+      "scenario_ids": [
+        "AUT-092"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:421",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:450",
+        "src/lib/integrations/automation/writer-objectives.ts:17"
+      ]
+    },
+    {
+      "id": "RC-07",
+      "status": "corrected_in_code",
+      "old_rule": "La palabra brochure activa entrega",
+      "new_rule": "La intención estructurada distingue mención de solicitud",
+      "effect": "El código reenviaba un material al que el lead solo hacía referencia.",
+      "scenario_ids": [
+        "AUT-019"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:334",
+        "src/lib/integrations/automation/project-material.ts:23"
+      ]
+    },
+    {
+      "id": "RC-08",
+      "status": "corrected_in_code",
+      "old_rule": "Excluir introducciones y justificaciones de las preguntas",
+      "new_rule": "Permitir transiciones útiles y calidez configurada",
+      "effect": "Se eliminaban conexiones amables o una respuesta cálida terminaba reparada como texto seco.",
+      "scenario_ids": [
+        "AUT-012",
+        "AUT-014",
+        "AUT-086"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:216",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:263",
+        "src/lib/integrations/automation/conversation-style.ts:65"
+      ]
+    },
+    {
+      "id": "RC-09",
+      "status": "corrected_in_code",
+      "old_rule": "Advertir distribución ajustada para familias por defecto",
+      "new_rule": "Recomendar con hechos pertinentes a la consulta",
+      "effect": "Se desacreditaban alternativas con una advertencia que el lead no había pedido.",
+      "scenario_ids": [
+        "AUT-035",
+        "AUT-069"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:290",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:321"
+      ]
+    },
+    {
+      "id": "RC-10",
+      "status": "partial",
+      "old_rule": "Orientación financiera por oportunidad genérica o presupuesto indefinido",
+      "new_rule": "Finanzas pertinentes a la petición y al estado vigente",
+      "effect": "Bancos y crédito aparecían en consultas de alquiler o reventa; quedan instrucciones amplias en la ruta SDR antigua.",
+      "scenario_ids": [
+        "AUT-003"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:403",
+        "src/lib/integrations/automation/writer-financial-context.ts:15",
+        "src/lib/integrations/automation/sales-policy.ts:134"
+      ],
+      "reachability": "Resto SDR secundario; el redactor principal usa contexto financiero condicionado y modo informativo persistente."
+    },
+    {
+      "id": "RC-11",
+      "status": "corrected_in_code",
+      "old_rule": "Captura comercial obligatoria después de cada duda",
+      "new_rule": "Diferir preguntas y respetar el modo informativo persistente",
+      "effect": "Volvía a presupuesto o dormitorios después de cada consulta.",
+      "scenario_ids": [
+        "AUT-004",
+        "AUT-096",
+        "AUT-097",
+        "AUT-098"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:404",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:452",
+        "src/lib/integrations/automation/interaction-mode.ts:52"
+      ]
+    },
+    {
+      "id": "RC-12",
+      "status": "corrected_in_code",
+      "old_rule": "Filtros de compra usados para toda consulta del proyecto",
+      "new_rule": "Alcance informativo temporal separado de la selección",
+      "effect": "Al preguntar otras categorías se conservaba solo el catálogo de departamentos.",
+      "scenario_ids": [
+        "AUT-095"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:423",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:455"
+      ]
+    },
+    {
+      "id": "RC-13",
+      "status": "corrected_in_code",
+      "old_rule": "Cautela fija de condiciones de instalaciones no verificadas",
+      "new_rule": "Política de acceso publicada y aprobada prevalece",
+      "effect": "El bot continuaba presentando como desconocido un permiso ya aprobado.",
+      "scenario_ids": [
+        "AUT-016",
+        "AUT-017"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:337",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:360",
+        "src/lib/integrations/automation/sdr.ts:145"
+      ]
+    },
+    {
+      "id": "RC-14",
+      "status": "corrected_in_code",
+      "old_rule": "Aviso referencial de precios por rutina",
+      "new_rule": "Respetar activación y evitar duplicados innecesarios",
+      "effect": "Repetición del aviso o aparición pese a estar desactivado.",
+      "scenario_ids": [
+        "AUT-067"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:137",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:227",
+        "src/lib/integrations/automation/price-conditions.ts"
+      ]
+    },
+    {
+      "id": "RC-15",
+      "status": "corrected_in_code",
+      "old_rule": "Dudas de contado/procedimiento cambian aceptación financiera",
+      "new_rule": "Conservar aceptación mientras se responde la duda",
+      "effect": "Se perdía la aceptación o se volvía a pedir permiso para el mismo financiamiento.",
+      "scenario_ids": [
+        "AUT-039",
+        "AUT-040"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:322",
+        "src/lib/integrations/automation/financing-guidance.ts:19"
+      ]
+    },
+    {
+      "id": "RC-16",
+      "status": "corrected_in_code",
+      "old_rule": "Entrada pendiente como condición para continuar",
+      "new_rule": "Orientar sin entrada exacta y continuar pasos permitidos",
+      "effect": "La interacción terminaba tras elegir JEP aunque quedaban pasos útiles.",
+      "scenario_ids": [
+        "AUT-043"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:361",
+        "src/lib/integrations/automation/financing-stage.ts:78"
+      ]
+    },
+    {
+      "id": "RC-17",
+      "status": "partial",
+      "old_rule": "Pedir dormitorios tras para vivir sin respetar indiferencia",
+      "new_rule": "Separar prioridades y restricciones declaradas",
+      "effect": "La prioridad de amplitud era ignorada; el flujo principal se corrigió pero el prompt comercial viejo conserva la secuencia.",
+      "scenario_ids": [
+        "AUT-028"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:335",
+        "src/lib/integrations/automation/writer-objectives.ts:19",
+        "src/lib/integrations/automation/sdr.ts:335"
+      ],
+      "reachability": "Restos SDR secundarios; no prueba de que el plan principal siga ignorando prioridades o indiferencia."
+    },
+    {
+      "id": "RC-18",
+      "status": "corrected_in_code",
+      "old_rule": "Mantener el importe antiguo como techo tras confirmarlo como entrada",
+      "new_rule": "Aplicar los roles monetarios actuales",
+      "effect": "Se excluían alternativas al tratar el aporte para entrada como precio máximo de compra.",
+      "scenario_ids": [
+        "AUT-031",
+        "AUT-042"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:287",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:303",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:317"
+      ]
+    },
+    {
+      "id": "RC-19",
+      "status": "corrected_in_code",
+      "old_rule": "Precios solo con ask_price explícito",
+      "new_rule": "Atender comparaciones de costo implícitas interpretadas",
+      "effect": "Se bloqueaba una comparación pertinente aunque el cliente ya la estaba planteando.",
+      "scenario_ids": [
+        "AUT-068"
+      ],
+      "evidence": [
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:218",
+        "docs/automatizacion/mapa-conversacion-y-pendientes-2026-10-12.md:228",
+        "src/lib/integrations/automation/response-content-scope.ts:190",
+        "src/lib/integrations/automation/catalog-request.ts:28"
+      ]
+    },
+    {
+      "id": "RC-20",
+      "status": "pending",
+      "old_rule": "Nutrición no consulta el modo informativo",
+      "new_rule": "El modo informativo debe mantenerse entre canales y seguimientos",
+      "effect": "Un seguimiento podría reactivar calificación o crédito durante una pausa informativa.",
+      "scenario_ids": [],
+      "evidence": [
+        "src/lib/integrations/automation/nutrition-week-one.ts:141",
+        "src/lib/integrations/automation/nutrition-later.ts:49"
+      ],
+      "classification": "missing_state_integration",
+      "reachability": "Elegibilidad de nutrición conserva sus filtros operativos, pero no recibe el modo informativo para decidir el tema."
+    },
+    {
+      "id": "RC-21",
+      "status": "pending",
+      "old_rule": "Nutrición infiere intención por palabras",
+      "new_rule": "Interpretación contextual estructurada con alcance y negaciones",
+      "effect": "Presupuesto o una negativa breve pueden convertirse en una orientación financiera no pertinente.",
+      "scenario_ids": [],
+      "evidence": [
+        "src/lib/integrations/automation/nutrition-week-one-rules.ts:24",
+        "src/lib/integrations/automation/nutrition-context.ts:19",
+        "src/lib/integrations/automation/nutrition-later-rules.ts:25"
+      ],
+      "classification": "keyword_intent_rule",
+      "reachability": "Condicional al envío elegible de nutrición; independiente de omitir el modo informativo."
+    },
+    {
+      "id": "RC-22",
+      "status": "pending",
+      "old_rule": "Categorías incompletas en nutrición",
+      "new_rule": "Contrato común de suites, departamentos, penthouses y locales",
+      "effect": "Un penthouse puede nombrarse departamento o recibir contenido de otra categoría.",
+      "scenario_ids": [],
+      "evidence": [
+        "src/lib/integrations/automation/nutrition-context.ts:28",
+        "src/lib/integrations/automation/nutrition-week-one-rules.ts:37",
+        "src/lib/integrations/automation/nutrition-later-rules.ts:14"
+      ],
+      "classification": "incomplete_category_contract"
+    },
+    {
+      "id": "RC-23",
+      "status": "pending",
+      "old_rule": "Showroom guarda lo observado como preferencia",
+      "new_rule": "Distinguir actividad observada de declaración del cliente",
+      "effect": "Ver una tipología puede fijar dormitorios o categoría que el lead no pidió.",
+      "scenario_ids": [],
+      "evidence": [
+        "src/lib/tour/enrichTourLead.ts:186"
+      ],
+      "classification": "observed_vs_declared_contract",
+      "reachability": "Enriquecimiento del showroom; rellena preferencias vacías desde lo visto, no sobrescribe siempre datos existentes."
+    },
+    {
+      "id": "RC-24",
+      "status": "deferred_by_owner",
+      "old_rule": "Exigir todas las unidades de la planta en una respuesta",
+      "new_rule": "Permitir presentación breve cuando corresponda",
+      "effect": "La comprobación exige los nueve locales y puede rechazar una selección breve. El responsable aplazó expresamente este cambio.",
+      "scenario_ids": [
+        "AUT-101"
+      ],
+      "evidence": [
+        "src/lib/integrations/automation/commercial-journey.ts:597",
+        "src/lib/integrations/automation/turn-completeness.ts:282"
+      ],
+      "classification": "deferred_product_policy",
+      "reachability": "El control de todos los IDs sigue activo para la presentación de selección; el responsable aplazó la lista breve."
+    },
+    {
+      "id": "RC-25",
+      "status": "pending",
+      "old_rule": "Extractor permite false por aplazamiento financiero",
+      "new_rule": "Pausa informativa no revoca consentimiento",
+      "effect": "Contradicción en instrucciones efectivamente cargadas; la normalización posterior protege el consentimiento. No se confirmó pérdida efectiva por esta línea.",
+      "scenario_ids": [],
+      "evidence": [
+        "src/lib/integrations/automation/turn-interpretation.ts:289",
+        "src/lib/integrations/automation/interaction-mode.ts:52",
+        "src/lib/integrations/automation/financing.ts:91",
+        "src/lib/integrations/automation/conversation.ts:703"
+      ],
+      "classification": "instruction_conflict",
+      "reachability": "Prompt extractor realmente cargado, con normalización posterior que conserva consentimiento; no se confirmó pérdida efectiva atribuible a esta instrucción."
+    },
+    {
+      "id": "RC-26",
+      "status": "pending",
+      "old_rule": "Prohibir categorías y concepto mixto en toda apertura genérica",
+      "new_rule": "Permitir los hechos del resumen inicial aprobado, manteniendo fuera las ofertas de catálogo ajenas",
+      "effect": "El mismo redactor recibe la prohibición general y la autorización específica; puede omitir o reparar indebidamente la presentación aprobada. Contradicción estática, sin incidente productivo nuevo demostrado.",
+      "scenario_ids": [],
+      "evidence": [
+        "src/lib/integrations/automation/dialogue-writing-rules.ts:8",
+        "src/lib/integrations/automation/lead-introduction.ts:457",
+        "src/lib/integrations/automation/lead-introduction.ts:551",
+        "src/lib/integrations/automation/response-plan.ts:191",
+        "src/lib/integrations/automation/turn-completeness.ts:693",
+        "src/lib/integrations/automation/turn-completeness.ts:727",
+        "src/lib/integrations/automation/commercial-experience.ts:140"
+      ],
+      "classification": "instruction_conflict",
+      "reachability": "Ambas instrucciones se componen en el redactor final. La revisión semántica ya contempla el resumen aprobado; quedan texto general, ruta secundaria y reparación antigua."
+    },
+    {
+      "id": "RC-27",
+      "status": "corrected_in_code",
+      "old_rule": "Redactor financiero obligado a responder en español",
+      "new_rule": "Mantener el idioma de conversación del cliente",
+      "effect": "La instrucción podía forzar español durante financiamiento aunque la conversación fuera en inglés.",
+      "scenario_ids": [],
+      "evidence": [
+        "src/lib/integrations/automation/financing-prompt.ts:30"
+      ],
+      "classification": "instruction_conflict",
+      "historical_evidence": {
+        "commit": "343793e",
+        "file": "src/lib/integrations/automation/financing-prompt.ts",
+        "removed": "Redacte naturalmente en español",
+        "replacement": "Redacte naturalmente en el idioma de conversación del cliente"
+      }
+    },
+    {
+      "id": "RC-28",
+      "status": "corrected_in_code",
+      "old_rule": "Una oferta del bot reemplaza las referencias y puede borrar la unidad elegida",
+      "new_rule": "Actualizar lo ofrecido sin revocar la elección confirmada del cliente",
+      "effect": "Mostrar otras unidades o continuar con detalles podía vaciar selected_ids y reabrir la selección.",
+      "scenario_ids": [
+        "AUT-026"
+      ],
+      "evidence": [
+        "src/lib/integrations/automation/property-context.ts:79",
+        "src/lib/integrations/automation/property-context.ts:1075",
+        "docs/automatizacion/correcciones-pendientes-conversacion-2026-10-07.md:113"
+      ],
+      "classification": "state_contract_conflict",
+      "historical_evidence": {
+        "commit": "c428b03",
+        "file": "src/lib/integrations/automation/property-context.ts",
+        "removed": "Asignaciones selected_ids=[] al reconstruir la respuesta o mostrar ofertas diferentes.",
+        "replacement": "La decisión del cliente se conserva; las propuestas actualizan referencias de oferta."
+      }
+    },
+    {
+      "id": "RC-29",
+      "status": "corrected_in_code",
+      "old_rule": "La última declaración de categoría reemplaza todas las preferencias guardadas",
+      "new_rule": "Actualizar campos declarados conservando necesidades previas compatibles",
+      "effect": "Responder penthouse podía borrar tres dormitorios ya conocidos y provocar otra pregunta sobre ellos. Es distinto de respetar indiferencia o prioridad de amplitud (RC-17).",
+      "scenario_ids": [
+        "AUT-023"
+      ],
+      "evidence": [
+        "src/lib/integrations/automation/interpretation-memory.ts:81"
+      ],
+      "classification": "state_contract_conflict",
+      "historical_evidence": {
+        "commit": "f40958b",
+        "file": "src/lib/integrations/automation/interpretation-memory.ts",
+        "removed": "memory.property = { ...pick(property, [...propertyFields, 'evidence']), confidence: property.confidence }",
+        "replacement": "Merge por campo; conserva filtros y exclusiones compatibles. Un cambio real entre vivienda y comercio inicia necesidades distintas."
+      }
+    }
+  ],
+  "audit_revision": 2,
+  "initial_inventory": {
+    "code_version": "f73802b",
+    "counts": {
+      "total": 25,
+      "partial": 4,
+      "corrected_in_code": 15,
+      "pending": 5,
+      "deferred_by_owner": 1
+    },
+    "note": "Inventario inicial de familias documentadas; no fue un censo exhaustivo de todo el repositorio."
+  },
+  "exhaustiveness": "Inventario confirmado en el alcance revisado, no certificación de ausencia de otras contradicciones. El barrido AST mide volumen de fuentes; no significa que cada línea se haya revisado manualmente ni que cada condición sea una regla comercial.",
+  "audit_method": [
+    "Contrastar reglas antiguas y nuevas con sus condiciones de aplicación, consumidores y guardas de ruta.",
+    "Comparar commits históricos con código actual para comprobar qué control se retiró o sustituyó.",
+    "Agrupar repeticiones de la misma causa entre archivos, prompts, reparaciones y escenarios.",
+    "No contar como contradicción una prioridad explícita que resuelve instrucciones condicionales.",
+    "Separar contradicción literal, contrato incompleto y falta de integración de un estado nuevo.",
+    "No inferir despliegue, incidente productivo ni simulación aprobada a partir de una inspección estática."
+  ],
+  "source_metrics": {
+    "all_typescript_files": 394,
+    "production_typescript_files": 222,
+    "excluded_test_files": 172,
+    "source_lines": 28200,
+    "source_characters": 2370707,
+    "named_instruction_literal_declarations": 102,
+    "normative_word_occurrences_in_literals": 464,
+    "literal_nodes_with_normative_words": 252,
+    "if_statements": 3344,
+    "switch_statements": 5,
+    "source_root": "src/lib/integrations/automation",
+    "code_version": "17615fc",
+    "method": "TypeScript AST; tests excluded; source-line count includes trailing split line; only directly initialized literal/template declarations with matching identifiers; normative occurrences are a lexical approximation.",
+    "limitations": [
+      "Metrics describe source volume, not unique instructions or conflicts.",
+      "Instruction text composed dynamically or stored outside this folder is not a complete part of the literal-declaration count.",
+      "Conditional statements include technical validation and plumbing, not only commercial decisions.",
+      "Repeated instructions remain repeated occurrences; no runtime-path reachability or semantic uniqueness is inferred."
+    ],
+    "reproduction": "node tmp/audit-rule-density-readonly.cjs",
+    "instruction_name_pattern": "RULES|PROMPT|INSTRUCTIONS|OBJECTIVES|GUIDANCE",
+    "test_exclusion": "*.test.*, *.spec.* y directorios __tests__",
+    "interpretation": "102 bloques literales y 464 expresiones normativas aproximan volumen; no son reglas únicas ni contradicciones. if/switch también cuentan validaciones técnicas."
+  },
+  "change_volume": {
+    "scope": "Cambios netos dentro de src/lib/integrations/automation, separados de pruebas.",
+    "windows": [
+      {
+        "range": "e2c7aac..f73802b",
+        "runtime": {
+          "files": 66,
+          "added": 1586,
+          "deleted": 365
+        },
+        "tests": {
+          "files": 36,
+          "added": 1333,
+          "deleted": 102
+        },
+        "commits": 8
+      },
+      {
+        "range": "0adbe80..f73802b",
+        "runtime": {
+          "files": 131,
+          "added": 7009,
+          "deleted": 1438
+        },
+        "tests": {
+          "files": 117,
+          "added": 13335,
+          "deleted": 352
+        },
+        "commits": 34
+      }
+    ],
+    "limitation": "Incluye depuración, funciones nuevas, recuperación e instrumentación. Las líneas agregadas/eliminadas no son un conteo de reglas obsoletas ni de líneas auditadas manualmente."
+  },
+  "cleanup_history": [
+    {
+      "commit": "c428b03",
+      "date": "2026-10-08",
+      "change": "Retira borrados de selected_ids provocados por propuestas y respuestas del bot.",
+      "families": [
+        "RC-28"
+      ]
+    },
+    {
+      "commit": "f40958b",
+      "date": "2026-10-14",
+      "change": "Retira advertencias familiares automáticas y sustituye reemplazo completo de preferencias por actualización de campos.",
+      "families": [
+        "RC-09",
+        "RC-29"
+      ]
+    },
+    {
+      "commit": "9f9af78",
+      "date": "2026-10-14",
+      "change": "Retira añadidos finales de saludo, continuación y avisos de precio de la ruta revisada; sustituye comparación de preguntas por objetivos.",
+      "families": [
+        "RC-01",
+        "RC-02"
+      ]
+    },
+    {
+      "commit": "343793e",
+      "date": "2026-10-15",
+      "change": "Sustituye obligación de español por idioma de conversación del cliente en redactor financiero.",
+      "families": [
+        "RC-27"
+      ]
+    },
+    {
+      "commit": "8ddb377",
+      "date": "2026-10-15",
+      "change": "Retira reconocimiento literal del nombre y propósito fijo de brochure/guía; incorpora estado informativo persistente.",
+      "families": [
+        "RC-04",
+        "RC-05",
+        "RC-11"
+      ]
+    }
+  ],
+  "revision_history": [
+    {
+      "revision": 1,
+      "code_version": "f73802b",
+      "total": 25
+    },
+    {
+      "revision": 2,
+      "code_version": "17615fc",
+      "total": 29,
+      "added_ids": [
+        "RC-26",
+        "RC-27",
+        "RC-28",
+        "RC-29"
+      ],
+      "reason": "Ampliación del barrido estático y de la evidencia histórica. Tres conflictos corregidos omitidos y una contradicción actual adicional; las cuatro apariciones de apertura se agrupan en una familia."
+    }
+  ],
+  "unconfirmed_candidates": [
+    {
+      "case": "AUT-087",
+      "description": "Rechazo histórico de diferencia de áreas calculada por no ser cifra literal.",
+      "reason": "No se clasificó aquí como otra regla comercial enfrentada sin rastrear su control actual. Conservado en corpus para revisión; no aumenta este total."
+    }
+  ]
+}

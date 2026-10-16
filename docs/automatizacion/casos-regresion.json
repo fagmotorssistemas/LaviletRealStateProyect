@@ -2953,7 +2953,7 @@
       "id": "AUT-106",
       "group": "objection_handling",
       "title": "Por qué tan caro se trata como solicitud de fórmula del precio y vuelve a enumerar cifras",
-      "status": "current_observed",
+      "status": "implemented_locally_pending_validation",
       "source": "oct15_brochure_visual_objections",
       "initial_state": {
         "category": "local",
@@ -2972,8 +2972,29 @@
         "Preparar argumentos de valor pertinentes al objetivo de vivienda o inversión, con hechos aprobados.",
         "Distinguir valor, capacidad de pago, distancia, seguridad, comparación y viabilidad comercial.",
         "No afirmar exclusividad en la zona, negocios confirmados, seguridad absoluta, afluencia o rentabilidad sin respaldo.",
-        "Los argumentos quedan como propuesta documental por instrucción del responsable; no se modifican todavía los prompts de objeciones."
-      ]
+        "Conservar preferencias, selección, consentimiento y modo informativo sin reactivar capturas, crédito, reserva o cita por rutina.",
+        "Atender también consultas explícitas de precio, financiamiento, selección o material presentes junto con la objeción."
+      ],
+      "variants": [
+        "El precio me parece elevado, sin solicitar otra cifra ni declarar un presupuesto nuevo.",
+        "Me queda lejos para mis recorridos habituales.",
+        "La zona me preocupa por seguridad; distinguir medidas del edificio de seguridad del barrio.",
+        "Otro proyecto me ofrece algo más amplio por menos; el importe ajeno no es presupuesto del cliente ni precio verificado.",
+        "Me preocupa si podré rentar el local; no garantizar afluencia, renta ni permisos.",
+        "Me preocupa que la obra no haya empezado; no inventar fechas ni describir renders como espacios terminados.",
+        "Objeción junto con una consulta expresa de precio, crédito o elección de unidad.",
+        "Objeción pendiente validada por mensaje e ID; no reactivar una objeción resuelta desde el historial."
+      ],
+      "local_implementation": {
+        "date": "2026-10-15",
+        "detail": "Tema estructurado value_objection con evidencia literal; concepto mixto aprobado separado de guías editoriales; contexto factual compartido por redactor y revisor; suspensión de capturas automáticas y de comparaciones de presupuesto histórico que no fueron solicitadas.",
+        "checks": [
+          "src/lib/integrations/automation/project-objections.test.ts",
+          "src/lib/integrations/automation/objection-journey.test.ts",
+          "src/lib/integrations/automation/project-objection-pipeline.test.ts"
+        ],
+        "limits": "Las comprobaciones locales usan salidas controladas, no conversaciones generadas por modelos. Pendientes despliegue y validación real; no se enviaron mensajes a leads."
+      }
     }
   ],
   "variation_axes": [

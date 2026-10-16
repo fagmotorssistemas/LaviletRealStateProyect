@@ -5,6 +5,7 @@ import { isUnitVisualRequest } from './unit-visual-request'
 import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
 import { commercialEngagement, passiveSalesRules, COMMERCIAL_ENGAGEMENT_VERSION, type CommercialEngagementTurn } from './commercial-engagement'
 import { commercialJourneyPlan } from './commercial-journey'
+import { projectObjectionRequests } from './project-objections'
 
 const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
 const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|prefiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
@@ -104,26 +105,28 @@ export function salesPlan(info: Row, current: string, summary: Row) {
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
   if (policy.readiness) visits.readiness = policy.readiness as NonNullable<typeof visits.readiness>
   const recentInvitation = replies.slice(-3).some(row => invitation(text(row.content)))
-  const journey = commercialJourneyPlan({ ...info, recorrido_comercial: summary._commercial_journey || {}, _sales_memory: memory, commercial_engagement: engagement })
+  const journey = commercialJourneyPlan({ ...info, mensaje_actual: current, recorrido_comercial: summary._commercial_journey || {}, _sales_memory: memory, commercial_engagement: engagement })
+  const answeringObjection = journey.action === 'answer_current_question' && projectObjectionRequests(info, current).length > 0
   const invite = journey.visit_offer_allowed === true && !engagement.passive && visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
     && (!memory.visit_invited || replies.length >= 3) && !memory.visit_declined
   // An old offer must not block a useful next step after the client starts a new search.
   const recentUnitOffer = replies.slice(-2).some(row => /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(text(row.content))))
-  const offerUnits = !engagement.passive && !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
+  const offerUnits = !answeringObjection && !engagement.passive && !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
     && !/\bsolo (?:quiero )?(?:el )?precio\b|\bno (?:quiero|deseo|necesito)\b.*(?:ver|opcion|modelo|distribucion)/.test(m) && !isUnitVisualRequest(current)
   const quoted = rows(info.unidades_cotizadas)
   const unitClosing = quoted.length === 1
     ? `¿Le gustaría revisar la distribución ${quoted[0].category === 'suite' ? 'de la suite' : quoted[0].category === 'local' ? 'del local' : 'del departamento'} ${text(quoted[0].unit_number)}?`
     : '¿Le gustaría que le muestre una opción de ese rango?'
   const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
-  const shareBrochure = !engagement.passive && twoQuestions && !pendingVisit && !invite && !offerUnits
+  const shareBrochure = !answeringObjection && !engagement.passive && twoQuestions && !pendingVisit && !invite && !offerUnits
     && !replies.some(r => /brochure-la-vilet|brochure|folleto/i.test(text(r.content)))
     && !/\bno (?:quiero|deseo|necesito)\b.*(?:material|brochure|folleto|informacion)/.test(m)
   const uncertain = /\bno (?:se\b|estoy segur|tengo claro\b|tengo idea\b)|\bno he pensado\b/.test(m)
-  const answerOnly = engagement.passive || pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
+  const answerOnly = answeringObjection || engagement.passive || pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
   return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : shareBrochure ? 'share_brochure' : answerOnly ? 'answer_only' : 'discover', topics,
     question_purpose: invite ? 'Obtener permiso para coordinar la visita, sin confirmarla.' : offerUnits ? 'Elegir una unidad y mostrar su distribución.' : answerOnly ? null : object(info.siguiente_pregunta).purpose || 'Aclarar un dato faltante que cambie la recomendación o el siguiente paso.',
-    max_questions: invite || offerUnits || !answerOnly ? 1 : 0,
+    max_questions: answeringObjection || invite || offerUnits || !answerOnly ? 1 : 0,
+    optional_objection_question: answeringObjection,
     closing: invite ? visitInvitation(text(info.modo_comercial), visits) : offerUnits ? unitClosing : '',
     visits_allowed: visits.allowSuggestions,
     launch: info.modo_comercial === 'lanzamiento',
@@ -136,17 +139,18 @@ Ofrezca financiamiento únicamente si lo pide, si su presupuesto no cubre la uni
 Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
 No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
 ${invite ? 'El sistema añadirá una invitación a una visita. El mapa se entrega solo al solicitarlo el cliente o al confirmar realmente la cita, nunca por esta invitación.' : 'No añada una invitación a visita en este turno; si el cliente la solicita expresamente el sistema coordina esa petición.'}
-El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : offerUnits ? 'responder el precio; el sistema ofrecerá revisar una unidad, NO escriba otra pregunta ni invite a una visita' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
+El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : offerUnits ? 'responder el precio; el sistema ofrecerá revisar una unidad, NO escriba otra pregunta ni invite a una visita' : answeringObjection ? 'responder la objeción; puede hacer una pregunta útil sobre la inquietud actual, sin capturas comerciales por rutina' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
 No prometa reventa, arriendo, rentabilidad, disponibilidad, aprobación bancaria ni tiempos sin datos. No invente reservas, anticipos ni pasos legales de compra.
 Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.
-${passiveSalesRules(engagement)}` }
+${passiveSalesRules(engagement)}
+${answeringObjection ? 'La objeción actual se atiende con argumentos pertinentes y respaldados. En este turno no añada capturas, crédito, reserva, visita ni materiales por rutina; conserve la decisión pendiente internamente y responda las solicitudes independientes.' : ''}` }
 }
 
 export function salesIssues(reply: string, plan: ReturnType<typeof salesPlan>) {
   const r = normalized(reply), issues: string[] = []
   if (!plan.visits_allowed && /(?:le gustaria|podemos|puede|le invito|coordin|agend|visitenos).{0,50}(?:visita|visitarnos|conocerlo|conocer el lugar|verlo en persona)/.test(r)) issues.push('unsupported_fact')
   if (plan.launch && /(?:visitar|recorrer|conocer|ver).{0,30}(?:departamento|suite|vivienda).{0,20}(?:persona|presencial|construid)|(?:departamentos|suites) (?:terminados|construidos) disponibles/.test(r)) issues.push('unsupported_fact')
-  if ((plan.action !== 'discover') && /[¿?]/.test(reply)) issues.push('repeated_question')
+  if (plan.action !== 'discover' && !plan.optional_objection_question && /[¿?]/.test(reply)) issues.push('repeated_question')
   if (plan.topics.includes('jardines') && !/jardin|verde/.test(r)) issues.push('ignored_question')
   if (plan.topics.includes('sector') && !/sector|puertas del sol|barrio|cerca|entorno/.test(r)) issues.push('ignored_question')
   if (plan.topics.includes('reventa') && !/reventa|vender|venta futura/.test(r)) issues.push('ignored_question')

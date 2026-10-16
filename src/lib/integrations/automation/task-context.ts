@@ -10,6 +10,7 @@ import { turnEvidence } from './turn-evidence'
 import { proposalInformationContext } from './commercial-journey'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
 import { budgetRecommendationPresentation } from './budget-presentation'
+import { projectObjectionRequests, withProjectObjectionContext } from './project-objections'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const hasValues = (value: unknown): boolean => value != null && value !== false && value !== ''
@@ -96,7 +97,9 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     : financeOnly ? 'financing' : selectionRequired ? 'property_selection'
       : generalPrice ? 'price_summary' : overview ? 'project_overview' : categoryOverview ? 'category_overview' : broadInformation ? 'catalog_overview'
         : domains.size > 1 || requests.length > 1 ? 'multiple_requests' : 'property'
-  const result = withProjectIntroductionForTurn(verified)
+  const objections = projectObjectionRequests(verified, current)
+  const objectionLocation = objections.some(request => Array.isArray(request.topics) && request.topics.includes('location'))
+  const result = withProjectIntroductionForTurn(withProjectObjectionContext(verified, current))
   const categoryComparison = object(verified.category_price_comparison)
   if (categoryComparison.version === 'category-price-comparison-v1') {
     // Validation keeps the source members; the models need only these ranges.
@@ -106,10 +109,12 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
   }
   const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
   // Include facts requested by ANY current request, never only the primary intent.
-  result.instalaciones = supplementaryFeatureFacts(verified, current,
+  result.instalaciones = objections.length ? rows(verified.instalaciones) : supplementaryFeatureFacts(verified, current,
     relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/))
-  result.lugares_cercanos = relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
-  result.contexto_sector = relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
+  result.lugares_cercanos = objectionLocation ? rows(verified.lugares_cercanos)
+    : relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
+  result.contexto_sector = objectionLocation ? rows(verified.contexto_sector)
+    : relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
   result.politicas_negocio = selectPolicies(verified, queryText, domains)
   if (financeOnly && audit.verified_catalog !== true) {
     const unit = selectedFinancingUnit(verified)

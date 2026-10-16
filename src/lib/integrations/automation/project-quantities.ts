@@ -1,6 +1,7 @@
 import { object, text, type Row } from './data'
 import { decimalNumber, relationBefore, satisfiesNumeric } from './numeric-relations'
 import { EARLY_PURCHASE_DISCOUNT_VERSION } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
+import { PROJECT_OBJECTION_CONTEXT_VERSION } from './project-objections'
 
 /** Project quantities are independent of unit prices/areas, handled by the catalogue contract. */
 type Quantity = { value: number; dimension: string; unit: string; literal: string; start: number; end: number }
@@ -48,6 +49,13 @@ export function projectQuantityEvidence(verified: Row): ProjectFact[] {
     }
   }
   for (const source of sources) if (verified[source] != null) visit(verified[source], source)
+  const objection = object(verified.objeciones_proyecto), concept = object(objection.project_facts)
+  if (objection.version === PROJECT_OBJECTION_CONTEXT_VERSION && concept.commercial_floors === 2 && text(concept.source)) {
+    facts.push({ id: 'project:objeciones_proyecto:commercial_floors',
+      source: 'objeciones_proyecto.project_facts.commercial_floors', subject: 'Plantas comerciales del proyecto',
+      evidence: `${text(concept.source)}: el proyecto combina viviendas y dos plantas comerciales.`,
+      value: 2, dimension: 'count', unit: 'floor' })
+  }
   // The server adapter exposes only rules backed by at least one current unit
   // quote. A general percentage can cite that rule without inventing USD ranges.
   const policy = object(verified.politica_descuentos)

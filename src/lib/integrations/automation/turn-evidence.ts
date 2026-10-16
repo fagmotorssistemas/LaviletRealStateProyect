@@ -291,6 +291,9 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
     if (Array.isArray(value)) value.forEach((item, index) => add(`contexto_verificado.${key}.${index}`, 'project_fact', item))
     else add(`contexto_verificado.${key}`, 'project_fact', value)
   }
+  // Objection guidance is editorial, not a new factual authority. Only the
+  // owner's explicit project concept is registered as a source for claims.
+  add('contexto_verificado.objeciones_proyecto.project_facts', 'project_fact', object(verified.objeciones_proyecto).project_facts)
   const financingQuote = object(verified.financing_quote)
   add('contexto_verificado.financing_quote.monthly_payment_policy', 'project_fact', financingQuote.monthly_payment_policy)
   add('contexto_verificado.financing_quote.estimates', 'project_fact', financingQuote.estimates,

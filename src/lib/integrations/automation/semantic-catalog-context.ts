@@ -1,5 +1,6 @@
 import { object, text, type Row } from './data'
 import { supplementaryFeatureFacts } from './needs-guidance'
+import { projectObjectionRequests, withProjectObjectionContext } from './project-objections'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -44,7 +45,9 @@ export function semanticCatalogContext(verified: Row, audit: Row, current: strin
   if (!(object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true)
     || !['semantic_candidates', 'optimized_catalog'].includes(text(object(verified.catalog_context_scope).kind))) return verified
 
-  const result = { ...verified }
+  const objections = projectObjectionRequests(verified, current)
+  const objectionLocation = objections.some(request => Array.isArray(request.topics) && request.topics.includes('location'))
+  const result = withProjectObjectionContext(verified, current)
   const requests = [...rows(object(verified.contrato_turno).requests), ...rows(verified.solicitudes_interpretadas), ...rows(verified.consultas_pendientes)]
   const queryText = [current, ...requests.map(r => text(r.evidence) || text(r.request) || text(r.content))].join('\n')
   // Select against every request, including pending questions. A short
@@ -52,10 +55,12 @@ export function semanticCatalogContext(verified: Row, audit: Row, current: strin
   result.politicas_negocio = selectPolicies(verified, queryText, new Set(requests.map(r => text(r.domain))))
   result.business_policy_context = { ...object(verified.business_policy_context),
     selection: 'semantic_property_search', included_count: rows(result.politicas_negocio).length }
-  result.instalaciones = supplementaryFeatureFacts(verified, current,
+  result.instalaciones = objections.length ? rows(verified.instalaciones) : supplementaryFeatureFacts(verified, current,
     relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/))
-  result.lugares_cercanos = relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
-  result.contexto_sector = relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
+  result.lugares_cercanos = objectionLocation ? rows(verified.lugares_cercanos)
+    : relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
+  result.contexto_sector = objectionLocation ? rows(verified.contexto_sector)
+    : relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
   // Project identity/location suffice for the opening. Keep a requested
   // description when its facts overlap with this search.
   const project = object(verified.proyecto)
