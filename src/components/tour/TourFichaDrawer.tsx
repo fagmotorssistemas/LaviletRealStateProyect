@@ -1,6 +1,7 @@
 'use client'
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
+import { unitStatusBadge } from '@/lib/tour/unitStatusColors'
 
 import { QrShareButton } from './QrShareButton'
 
@@ -75,19 +76,6 @@ function formatBathroomsCompact(
 
 function statusLabel(status: UnitStatus) {
   return UNIT_STATUS_OPTIONS.find((item) => item.value === status)?.label ?? status
-}
-
-function statusBadgeClass(status: UnitStatus) {
-  if (status === 'disponible' || status === 'en_preventa') {
-    return 'bg-[#3d9b4a] text-white'
-  }
-  if (status === 'reservado' || status === 'en_proceso' || status === 'bajo_contrato') {
-    return 'bg-[#e8a54b] text-white'
-  }
-  if (status === 'vendido' || status === 'deshabilitado') {
-    return 'bg-[#d64545] text-white'
-  }
-  return 'bg-[#9ca3af] text-white'
 }
 
 function formatPrice(value: number | null, locale: string = 'es') {
@@ -642,7 +630,7 @@ export function TourFichaDrawer({
                     <span
                       className={cn(
                         'rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] uppercase',
-                        statusBadgeClass(unit.status),
+                        unitStatusBadge(unit.status),
                       )}
                     >
                       {t(statusLabel(unit.status))}
