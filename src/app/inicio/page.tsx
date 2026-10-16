@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import type { Metadata, Viewport } from 'next'
 import { MarketingShell } from '@/components/marketing/MarketingShell'
 import { FullLanding } from '@/components/marketing/FullLanding'
+import { HeroMediaPreload } from '@/components/marketing/HeroMediaPreload'
 
 export const metadata: Metadata = {
   title: {
@@ -26,6 +27,7 @@ export default async function InicioPage({
 
   return (
     <MarketingShell>
+      <HeroMediaPreload />
       <FullLanding />
     </MarketingShell>
   )

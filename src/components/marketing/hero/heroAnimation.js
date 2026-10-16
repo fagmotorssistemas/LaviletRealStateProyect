@@ -310,11 +310,12 @@ export function createHeroAnimation(root, classes, state) {
       window.addEventListener("resize", onResize);
       media.addEventListener("change", onMotionChange);
       navbar.start(onScroll);
-      var imgs = Array.from(root.querySelectorAll("img"), function (im) {
-        return im.decode ? im.decode().catch(function () {}) : Promise.resolve();
+      var critical = ["imgBg", "imgGround", "imgBld"].map(function (id) {
+        var im = $(id);
+        return im && im.decode ? im.decode().catch(function () {}) : Promise.resolve();
       });
-      if (document.fonts && document.fonts.ready) imgs.push(document.fonts.ready);
-      Promise.all(imgs).then(function () { if (!disposed) layout(); });
+      if (document.fonts && document.fonts.ready) critical.push(document.fonts.ready);
+      Promise.all(critical).then(function () { if (!disposed) layout(); });
     },
     destroy() {
       disposed = true;

@@ -38,36 +38,36 @@ export function HeroLaVilet() {
   <section className={styles['hero']} data-part="hero" aria-label="La Vilet">
     <div className={styles['bg-inner']} data-part="bgInner">
       <img data-part="imgBg" src="/hero/fondo-dia.webp" alt="" fetchPriority="high" decoding="async" />
-      <img data-part="imgBgS" src="/hero/fondo-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" />
-      <img data-part="imgBgN" src="/hero/fondo-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" />
+      <img data-part="imgBgS" src="/hero/fondo-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" loading="lazy" fetchPriority="low" />
+      <img data-part="imgBgN" src="/hero/fondo-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
     </div>
     <div className={styles['ground']} data-part="ground">
-      <img data-part="imgGround" src="/hero/calle-dia.webp" alt="" decoding="async" />
-      <img data-part="imgGroundS" src="/hero/calle-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" />
-      <img data-part="imgGroundN" src="/hero/calle-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" />
+      <img data-part="imgGround" src="/hero/calle-dia.webp" alt="" fetchPriority="high" decoding="async" />
+      <img data-part="imgGroundS" src="/hero/calle-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" loading="lazy" fetchPriority="low" />
+      <img data-part="imgGroundN" src="/hero/calle-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
     </div>
     <div className={styles['bld']} data-part="bld">
       <img data-part="imgBld" src="/hero/edificio-dia.webp" alt="Edificio La Vilet con su plaza comercial" fetchPriority="high" decoding="async" />
       <span className={styles['bld-tint']} aria-hidden="true"></span>
-      <img className={styles['night']} data-part="imgBldS" src="/hero/edificio-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" />
-      <img className={styles['night']} data-part="imgBldN" src="/hero/edificio-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" />
+      <img className={styles['night']} data-part="imgBldS" src="/hero/edificio-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
+      <img className={styles['night']} data-part="imgBldN" src="/hero/edificio-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
       {/* the afternoon rooftop people (couple on the left tower and couple on the roof terrace): they come with the afternoon and leave at night */}
-      <img className={styles['night']} data-part="imgBldX" src="/hero/personas-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" />
+      <img className={styles['night']} data-part="imgBldX" src="/hero/personas-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
       {/* the person on the roof terrace at night */}
-      <img className={styles['night']} data-part="imgBldY" src="/hero/personas-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" />
+      <img className={styles['night']} data-part="imgBldY" src="/hero/personas-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
       <div className={styles['walker']} data-part="walker">
         <span className={styles['shadow']}></span>
-        <img src="/hero/peaton-a.webp" alt="" decoding="async" />
-        <img src="/hero/peaton-p.webp" alt="" decoding="async" style={{ opacity: 0 }} />
-        <img src="/hero/peaton-b.webp" alt="" decoding="async" style={{ opacity: 0 }} />
+        <img src="/hero/peaton-a.webp" alt="" decoding="async" loading="lazy" fetchPriority="low" />
+        <img src="/hero/peaton-p.webp" alt="" decoding="async" style={{ opacity: 0 }} loading="lazy" fetchPriority="low" />
+        <img src="/hero/peaton-b.webp" alt="" decoding="async" style={{ opacity: 0 }} loading="lazy" fetchPriority="low" />
       </div>
     </div>
     <div className={styles['car']} data-part="car" aria-hidden="true">
       <span className={styles['shadow']}></span>
       <span className={styles['beam']}></span>
       <span className={styles['trail']}></span>
-      <img className={styles['refl']} src="/hero/carro.webp" alt="" />
-      <img className={styles['body']} src="/hero/carro.webp" alt="" />
+      <img className={styles['refl']} src="/hero/carro.webp" alt="" loading="lazy" fetchPriority="low" />
+      <img className={styles['body']} src="/hero/carro.webp" alt="" loading="lazy" fetchPriority="low" />
     </div>
     <div className={styles['veil']} data-part="veil" aria-hidden="true"></div>
 
