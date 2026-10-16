@@ -314,15 +314,24 @@ export function createHeroAnimation(root, classes, state) {
         var im = $(id);
         return im && im.decode ? im.decode().catch(function () {}) : Promise.resolve();
       });
-      if (document.fonts && document.fonts.ready) critical.push(document.fonts.ready);
+      var heroStyle = getComputedStyle(hero);
+      var fonts = document.fonts
+        ? Promise.all([
+            document.fonts.load('400 1em ' + heroStyle.getPropertyValue('--font-display').trim().split(',')[0]).catch(function () {}),
+            document.fonts.load('200 1em ' + heroStyle.getPropertyValue('--font-body').trim().split(',')[0]).catch(function () {}),
+          ])
+        : Promise.resolve();
+      critical.push(fonts);
       Promise.all(critical).then(function () {
         if (disposed) return;
         layout();
+        hero.setAttribute('data-ready', '1');
         ["imgBgS", "imgGroundS", "imgBldS"].forEach(function (id) {
           var im = $(id);
           if (im && im.decode) im.decode().catch(function () {});
         });
       });
+      setTimeout(function () { if (!disposed) hero.setAttribute('data-ready', '1'); }, 3000);
     },
     destroy() {
       disposed = true;

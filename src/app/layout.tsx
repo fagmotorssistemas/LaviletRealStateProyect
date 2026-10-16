@@ -18,7 +18,7 @@ const satoshi = localFont({
 
 // Keep display fonts local so production builds do not depend on Google Fonts.
 const cormorant = localFont({
-  src: '../../public/fonts/CormorantGaramond/CormorantGaramond-Variable.ttf',
+  src: '../../public/fonts/CormorantGaramond/CormorantGaramond-Variable.woff2',
   weight: '300 700',
   style: 'normal',
   variable: '--font-cormorant',
@@ -26,7 +26,7 @@ const cormorant = localFont({
 })
 
 const bodoni = localFont({
-  src: '../../public/fonts/BodoniModa/BodoniModa-Variable.ttf',
+  src: '../../public/fonts/BodoniModa/BodoniModa-Variable.woff2',
   weight: '400 900',
   style: 'normal',
   display: 'swap',

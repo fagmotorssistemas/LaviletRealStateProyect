@@ -10,6 +10,7 @@ import { LaviletLockup, useLockupDocked } from './LaviletLockup'
 import { AboutLetterPlay } from './AboutLetterPlay'
 import { ParallaxPhoto } from './ParallaxPhoto'
 import { gsap, ScrollTrigger, useGSAP } from '@/lib/marketing/gsap'
+import { useNearViewport } from '@/hooks/useNearViewport'
 
 const ABOUT = [
   'La Vilet, Suites & Apartments, se encuentra ubicado en una de las zonas residenciales más privilegiadas de la ciudad, en el sector Puertas del Sol.',
@@ -661,6 +662,7 @@ export function StoryBoard({
   const clipId = `story-step-${useId().replace(/:/g, '')}`
   const stepped = Boolean(featured.stepped)
   const boardRef = useRef<HTMLDivElement>(null)
+  const loadFeatured = useNearViewport(boardRef)
   const reduceMotion = useReducedMotion()
   const wide = useWideBoard()
   const [sequenceStep, setSequenceStep] = useState(0)
@@ -776,13 +778,14 @@ export function StoryBoard({
               )}
               style={stepped ? { clipPath: `url(#${clipId})` } : undefined}
       >
-        <Image
+        {loadFeatured ? <Image
                 src={featured.src}
                 alt={featured.alt}
                 fill
                 className={cn('object-cover', featured.object ?? 'object-center')}
                 sizes="(max-width: 1024px) 100vw, 62vw"
-              />
+                loading="eager"
+              /> : null}
               <div
                 className={cn(
                   'absolute inset-0',

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ArrowRight, Pause, Play, Volume2, VolumeX, X } from 'lucide-react'
 import { BrandLetter } from './BrandName'
+import { useNearViewport } from '@/hooks/useNearViewport'
 
 const CLIPS = [
   {
@@ -46,10 +47,12 @@ type Clip = (typeof CLIPS)[number]
 function ClipVideo({
   clip,
   paused,
+  showPoster,
   onOpen,
 }: {
   clip: Clip
   paused: boolean
+  showPoster: boolean
   onOpen: () => void
 }) {
   const ref = useRef<HTMLVideoElement>(null)
@@ -80,11 +83,11 @@ function ClipVideo({
         ref={ref}
         className="absolute inset-0 h-full w-full object-cover"
         src={clip.src}
-        poster={clip.poster}
+        poster={showPoster ? clip.poster : undefined}
         muted
         loop
         playsInline
-        preload="metadata"
+        preload="none"
         aria-hidden
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-lv-bg/45 via-lv-bg/15 to-lv-bg/25" />
@@ -386,11 +389,14 @@ function LaviletLetterParade() {
 }
 
 export function LifestyleStrip() {
+  const sectionRef = useRef<HTMLElement>(null)
+  const showPosters = useNearViewport(sectionRef)
   const [open, setOpen] = useState<Clip | null>(null)
   const reduce = useReducedMotion()
 
   return (
     <section
+      ref={sectionRef}
       id="showroom"
       className="relative z-20 overflow-hidden bg-lv-bg py-16 sm:py-20 lg:py-24"
       aria-labelledby="showroom-title"
@@ -449,6 +455,7 @@ export function LifestyleStrip() {
               <ClipVideo
                 clip={clip}
                 paused={open !== null}
+                showPoster={showPosters}
                 onOpen={() => setOpen(clip)}
               />
             </div>

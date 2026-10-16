@@ -264,3 +264,15 @@
   .pin { height: 100vh; height: 100svh; }
   .hero { position: relative; }
 }
+
+.hero [data-part="bgInner"],
+.hero [data-part="ground"],
+.hero [data-part="bld"],
+.hero [data-part="car"],
+.hero [data-part="comp"] { opacity: 1; transition: opacity 240ms ease-out; }
+
+.hero[data-ready="0"] [data-part="bgInner"],
+.hero[data-ready="0"] [data-part="ground"],
+.hero[data-ready="0"] [data-part="bld"],
+.hero[data-ready="0"] [data-part="car"],
+.hero[data-ready="0"] [data-part="comp"] { opacity: 0; }

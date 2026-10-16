@@ -47,7 +47,14 @@ export function HeroLaVilet() {
   useEffect(() => { animationRef.current?.start() }, [])
   return (
 <div ref={pinRef} id="inicio" className={`${styles.pin} ${italiana.variable} ${archivo.variable}`} data-part="pin">
-  <section className={styles['hero']} data-part="hero" aria-label="La Vilet">
+  <section className={styles['hero']} data-part="hero" data-ready="0" aria-label="La Vilet">
+    <noscript><style>{`
+      .${styles.hero} [data-part="bgInner"],
+      .${styles.hero} [data-part="ground"],
+      .${styles.hero} [data-part="bld"],
+      .${styles.hero} [data-part="car"],
+      .${styles.hero} [data-part="comp"] { opacity: 1 !important; }
+    `}</style></noscript>
     <div className={styles['bg-inner']} data-part="bgInner">
       <img data-part="imgBg" src="/hero/fondo-dia.webp" alt="" fetchPriority="high" decoding="async" />
       <img data-part="imgBgS" src="/hero/fondo-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" />
