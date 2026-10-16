@@ -61,19 +61,19 @@ test('parallel turns keep independent snapshots and restore enabled mode afterwa
   assert.equal(responseReviewEnabled(), true)
 })
 
-test('disabled review blocks commercial errors without calling a reviewer or retrying the writer', async () => {
+test('disabled review preserves the writer without commercial checks, a reviewer or a rewrite', async () => {
   const reply = 'El departamento 202 cuesta $1 y tiene 90 dormitorios. Su crédito ya está aprobado. https://example.com/otro'
   const mock = writer(reply, { invalid: true })
   const result = await withResponseReviewPolicy(off, () => completeTurnReply(input, mock.generate))
-  assert.notEqual(result.reply, reply)
+  assert.equal(result.reply, reply)
   assert.deepEqual(mock.calls, ['writing'])
-  assert.equal(result.audit.status, 'rejected_guard')
+  assert.equal(result.audit.status, 'review_disabled')
   assert.equal(result.needsAdvisor, false)
   assert.deepEqual(result.unresolved, [])
   assert.deepEqual(result.audit.repair_attempts, [])
-  assert.equal(object(result.audit.final_validation).passed, false)
-  assert.equal(object(result.audit.final_validation).policy, 'mandatory_server_guards')
-  assert.throws(() => requireReviewedResponse(result.audit))
+  assert.equal(object(result.audit.final_validation).passed, true)
+  assert.equal(object(result.audit.final_validation).policy, 'transport_only')
+  assert.doesNotThrow(() => requireReviewedResponse(result.audit))
   assert.notEqual(reviewDecision(result.audit).tone, 'accepted')
 })
 
@@ -86,7 +86,33 @@ test('disabled review permits verified copy without inventing a semantic approva
   assert.equal(result.audit.status, 'review_disabled')
   assert.equal(object(result.audit.semantic_review).status, 'disabled')
   assert.equal(object(result.audit.semantic_review).approved, undefined)
-  assert.equal(object(result.audit.final_validation).policy, 'mandatory_server_guards')
+  assert.equal(object(result.audit.final_validation).policy, 'transport_only')
+  assert.doesNotThrow(() => requireReviewedResponse(result.audit))
+})
+
+test('disabled review does not strand a suite request on the legacy exterior-area guard', async () => {
+  const reply = 'Las suites tienen 1 dormitorio y áreas interiores de 49.86 a 73.86 m², con espacios exteriores de 9.34 a 22.14 m².'
+  const mock = writer(reply)
+  let validations = 0
+  const result = await withResponseReviewPolicy(off, () => completeTurnReply({
+    current: 'Me gustaría tener más información sobre una suite', baseReply: 'Contamos con suites de 1 dormitorio.',
+    verified: { catalogo: [
+      { id: 's1', unit_number: '101', category: 'suite', bedrooms: 1, area_internal_m2: 49.86, area_exterior_m2: 9.34, is_published: true },
+      { id: 's2', unit_number: '102', category: 'suite', bedrooms: 1, area_internal_m2: 73.86, area_exterior_m2: 22.14, is_published: true },
+    ] },
+    audit: { verified_catalog: true, semantic_review_enabled: true, business_risk_review_enabled: true,
+      catalog_query: { category: 'suite', operation: 'search', scope: 'catalog' },
+      catalog_results: { units: [
+        { id: 's1', unit_number: '101', category: 'suite', bedrooms: 1, area_internal_m2: 49.86, area_exterior_m2: 9.34 },
+        { id: 's2', unit_number: '102', category: 'suite', bedrooms: 1, area_internal_m2: 73.86, area_exterior_m2: 22.14 },
+      ] } },
+    validateReply: () => { validations++; return ['catalog_area_mismatch'] },
+  }, mock.generate))
+  assert.equal(result.reply, reply)
+  assert.deepEqual(mock.calls, ['writing'])
+  assert.equal(validations, 0)
+  assert.equal(result.audit.status, 'review_disabled')
+  assert.equal(object(result.audit.recovery).pending, undefined)
   assert.doesNotThrow(() => requireReviewedResponse(result.audit))
 })
 
@@ -96,6 +122,16 @@ test('disabled review does not send empty or oversized writer output', async () 
     await assert.rejects(withResponseReviewPolicy(off, () => completeTurnReply(input, mock.generate)), InvalidWriterTransportError)
     assert.deepEqual(mock.calls, ['writing'])
   }
+})
+
+test('disabled review does not relabel an empty turn or writer failure as an exhausted review', async () => {
+  const mock = writer('Respuesta')
+  await assert.rejects(withResponseReviewPolicy(off, () => completeTurnReply({ ...input, current: ' ' }, mock.generate)),
+    { message: 'EMPTY_CUSTOMER_TURN' })
+  assert.deepEqual(mock.calls, [])
+  const failure = Error('WRITER_PREPARATION_FAILED')
+  await assert.rejects(withResponseReviewPolicy(off, () => completeTurnReply(input, async () => { throw failure })),
+    error => error === failure)
 })
 
 test('disabled review keeps the scheduled authorized brochure without another model call', async () => {

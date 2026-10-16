@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { automationSettings, secretMatches } from '@/lib/integrations/automation/config'
 import { autoConfig } from '@/lib/integrations/automation/data'
 import { automationModelForRole } from '@/lib/integrations/automation/ai-model-routing'
+import { loadResponseReviewPolicy } from '@/lib/integrations/automation/response-review-settings'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,6 +27,8 @@ export async function GET(request: Request) {
       testOnly: config.test_only !== false,
       audience: config._audience,
       conversationAnalysisModel: automationModelForRole('interpretation') || null,
+      responseReviewPolicyVersion: 2,
+      responseReview: await loadResponseReviewPolicy(),
     }, { headers: { 'Cache-Control': 'no-store' } })
   } catch {
     return NextResponse.json({ error: 'No se pudo comprobar la configuración' }, { status: 503 })

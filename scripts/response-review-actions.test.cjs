@@ -99,6 +99,22 @@ test('runtime cannot interpret a failed configuration read as permission to bypa
     await assert.rejects(harness(options).loadResponseReviewPolicy(), /RESPONSE_REVIEW_SETTINGS_UNAVAILABLE/)
 })
 
+test('global disablement overrides previous demonstration for test and ordinary contacts without an enrollment lookup', async () => {
+  for (const testContact of [false, true]) {
+    const h = harness({ testContact, policies: { response_review: { enabled: false, observation_only: true },
+      automation_audience: { version: 1, mode: 'future_messages', activatedAt: '2026-10-16T14:18:28.183Z' } } })
+    const saved = await h.saveResponseReviewAction(false, 'version')
+    assert.equal(saved.ok, true)
+    for (const kommoId of [undefined, 123, 6066856]) {
+      const resolved = await h.loadResponseReviewPolicy(kommoId)
+      assert.equal(resolved.enabled, false)
+      assert.equal(resolved.observationOnly, false)
+    }
+    assert.equal(h.calls.some(call => call.table === 'lv_test_contacts_state'), false)
+    assert.equal(h.project.policies_json.automation_audience.activatedAt, '2026-10-16T14:18:28.183Z')
+  }
+})
+
 test('expected access/read failures return renderable errors instead of masked Server Component exceptions', async () => {
   for (const options of [{ authorized: false }, { readError: true }, { projectAccess: false }]) {
     const result = await harness(options).loadResponseReviewAction()
