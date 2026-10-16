@@ -39,8 +39,8 @@ export function areaAssertions(clause: string) {
   return matches.map(match => {
     const before = clause.slice(0, match.index)
     const after = clause.slice((match.index || 0) + match[0].length)
-    const suffix = after.match(/^\s*(?:(?:de|del)\s+)?(?:(?:area|superficie|espacio)\s+)?(interior(?:es)?|exterior(?:es)?)/)?.[1]
-    const prefix = before.match(/(?:area|superficie|espacio)\s+(interior|exterior)\s*(?:de\s*)?$/)?.[1]
+    const suffix = after.match(/^\s*(?:(?:de|del)\s+)?(?:(?:areas?|superficies?|espacios?)\s+)?(interior(?:es)?|exterior(?:es)?)\b/)?.[1]
+    const prefix = before.match(/\b(?:areas?|superficies?|espacios?)\s+(interior(?:es)?|exterior(?:es)?)\s*(?:(?:de|entre|desde|hasta)\s*)?$/)?.[1]
     const field = (suffix || prefix)?.startsWith('exterior') ? 'area_exterior_m2' : 'area_internal_m2'
     const values = [decimalNumber(match[1]), ...(match[3] ? [decimalNumber(match[3])] : [])]
     const range = values.length === 2 && (['a', '–', '-'].includes(match[2]) || /\bentre\s*$/.test(before))
