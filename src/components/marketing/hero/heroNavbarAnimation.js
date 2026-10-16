@@ -2,6 +2,7 @@
 export function createHeroNavbar(root, geometry) {
   const header = document.querySelector('[data-site-header]')
   const desktop = window.matchMedia('(min-width: 1024px)')
+  const mouse = window.matchMedia('(hover: hover) and (pointer: fine)')
   const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
   const comp = root.querySelector('[data-part="comp"]')
   const originals = new Map()
@@ -25,7 +26,7 @@ export function createHeroNavbar(root, geometry) {
 
   function render(T) {
     if (!header) return
-    const active = desktop.matches && !motion.matches && root.getBoundingClientRect().bottom > 0
+    const active = desktop.matches && !mouse.matches && !motion.matches && root.getBoundingClientRect().bottom > 0
     header.dataset.heroVisible = String(active)
     if (!active) { release(); return }
     const t0 = Math.min(Math.max((T - 0.16) / 0.20, 0), 1)
@@ -65,7 +66,7 @@ export function createHeroNavbar(root, geometry) {
     setPath(paths.pV, `M93.5 ${y.toFixed(3)} V893`)
     const links = Array.from(header.querySelectorAll('nav a')).filter(el => el.getClientRects().length)
     const link = links.find(el => el.getAttribute('href') === '/proyectos') || links[0]
-    paths.pU.el.style.visibility = link ? 'visible' : 'hidden'
+    paths.pU.el.style.visibility = link && (!mouse.matches || header.dataset.navPeek === 'true') ? 'visible' : 'hidden'
     if (link) {
       const r = link.getBoundingClientRect()
       const item = link.closest('[data-hero-nav-item]')
@@ -80,15 +81,19 @@ export function createHeroNavbar(root, geometry) {
     start(onChange) {
       update = onChange
       desktop.addEventListener('change', update)
+      mouse.addEventListener('change', update)
       if (!header) return
       observer = new ResizeObserver(update)
       observer.observe(header)
       if (header.firstElementChild) observer.observe(header.firstElementChild)
       mutation = new MutationObserver(update)
-      mutation.observe(header, { childList: true, subtree: true })
+      mutation.observe(header, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-nav-peek'] })
     },
     destroy() {
-      if (update) desktop.removeEventListener('change', update)
+      if (update) {
+        desktop.removeEventListener('change', update)
+        mouse.removeEventListener('change', update)
+      }
       observer?.disconnect()
       mutation?.disconnect()
       release()
