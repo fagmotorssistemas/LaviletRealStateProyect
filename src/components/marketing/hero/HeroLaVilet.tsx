@@ -69,17 +69,17 @@ export function HeroLaVilet() {
       <img className={styles['night']} data-part="imgBldY" src="/hero/personas-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
       <div className={styles['walker']} data-part="walker">
         <span className={styles['shadow']}></span>
-        <img src="/hero/peaton-a.webp" alt="" decoding="async" loading="lazy" fetchPriority="low" />
-        <img src="/hero/peaton-p.webp" alt="" decoding="async" style={{ opacity: 0 }} loading="lazy" fetchPriority="low" />
-        <img src="/hero/peaton-b.webp" alt="" decoding="async" style={{ opacity: 0 }} loading="lazy" fetchPriority="low" />
+        <img src="/hero/peaton-a.webp" alt="" decoding="async" fetchPriority="low" />
+        <img src="/hero/peaton-p.webp" alt="" decoding="async" style={{ opacity: 0 }} fetchPriority="low" />
+        <img src="/hero/peaton-b.webp" alt="" decoding="async" style={{ opacity: 0 }} fetchPriority="low" />
       </div>
     </div>
     <div className={styles['car']} data-part="car" aria-hidden="true">
       <span className={styles['shadow']}></span>
       <span className={styles['beam']}></span>
       <span className={styles['trail']}></span>
-      <img className={styles['refl']} src="/hero/carro.webp" alt="" loading="lazy" fetchPriority="low" />
-      <img className={styles['body']} src="/hero/carro.webp" alt="" loading="lazy" fetchPriority="low" />
+      <img className={styles['refl']} src="/hero/carro.webp" alt="" fetchPriority="low" />
+      <img className={styles['body']} src="/hero/carro.webp" alt="" fetchPriority="low" />
     </div>
     <div className={styles['veil']} data-part="veil" aria-hidden="true"></div>
 
