@@ -1,4 +1,5 @@
 import { interactionMode } from './interaction-mode'
+import { audienceAllows } from './audience-boundary'
 import { applyShowroomEntry } from './showroom-contact'
 import { showWhatsAppTyping } from './whatsapp-typing'
 import { rememberLeadNurture, nurtureWithCommercialProfile } from './lead-nurture-state'
@@ -233,6 +234,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     return { action: 'disabled' }
   }
   const settings = automationSettings()
+  if (rows.some(row => !audienceAllows(initialConfig._audience, object(row.payload).sentAt, row.received_at))) {
+    trace.finish(inboundStep, 'skipped', { reason: 'BEFORE_PRODUCTION_ACTIVATION', delivery_status: 'not_sent' })
+    return { action: 'cancelled', reason: 'BEFORE_PRODUCTION_ACTIVATION', delivery_status: 'not_sent' }
+  }
   // Persistencia (mensaje + CTWA) va antes del gate test_only para no perder
   // trazabilidad. Registrar nunca autoriza una respuesta del bot.
   const inbound = await register(events, guard)
@@ -1855,9 +1860,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     catalog_guard: text(audit.final_catalog_guard) || (audit.verified_catalog === true ? 'passed' : 'not_applicable'),
   })
   const conversationId = text(inbound.registration.conversation_id)
+  let sendAudience = initialConfig._audience
   async function authorized() {
     await guard()
     const currentLead = await one('leads', text(lead.id)), config = await autoConfig()
+    if (!audienceAllows(config._audience, activeLast.sentAt, receivedAt)) return false
+    sendAudience = config._audience
     if (!permitted(config, currentLead, settings.testLeadId) || Number(currentLead.kommo_id) !== last.kommoId
       || (!finalNotice && (currentLead.bot_enabled !== true || currentLead.tracking_opt_out_at))) return false
     if (Date.now() - Date.parse(activeLast.sentAt) >= 24 * 3_600_000) return false
@@ -1962,7 +1970,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     trace.finish(deliveryStep, 'paused', { action: 'paused_before_salesbot', reason: 'AUTHORIZATION_CHANGED' })
     return { action: 'paused_before_salesbot' }
   }
-  await launchSalesbot(last.kommoId, 15578)
+  await launchSalesbot(last.kommoId, 15578, { audience: sendAudience, sourceAt: activeLast.sentAt, jobCreatedAt: receivedAt })
   delivery.acceptedCheckpoint = replyCheckpoint
   await registerAcceptedReply(replyCheckpoint)
   trace.finish(deliveryStep, 'succeeded', {

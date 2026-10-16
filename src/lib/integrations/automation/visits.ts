@@ -9,8 +9,46 @@ import { operationalReply } from './operational-copy'
 import { responseReviewSettings } from '@/lib/inmobiliaria/responseReview'
 import { withResponseReviewPolicy } from './response-review-policy'
 import { buildVisitReminderFields, googleMapsSearchUrl, verifiedGoogleMapsUrl, VISIT_REMINDER_FIELD_IDS } from './visit-reminder'
+import { audienceAllows } from './audience-boundary'
 
 export type Guard = () => Promise<void>
+/** Use the originating client message, never a rescheduled send/start date. */
+async function visitAudienceSource(context: Row): Promise<string | undefined> {
+  const job = object(context.job), payload = object(job.payload), audience = object(context.config)._audience
+  if (audience == null) return text(payload.source_at || object(context.appointment).confirmed_at) || undefined
+  const lead = object(context.lead), appointment = object(context.appointment)
+  let request = object(context.request)
+  if (job.kind === 'visit_2h') {
+    if (!audienceAllows(audience, text(appointment.confirmed_at))) return undefined
+    // A coordinator confirming an old request today does not create new client
+    // interest. Resolve the confirmation's actual customer action as well.
+    let requests = db().from('appointment_reschedule_requests').select('id,source_message_id,client_acceptance_message_id')
+      .match(scope).eq('lead_id', lead.id).eq('appointment_id', appointment.id).eq('status', 'confirmed')
+      .eq('proposed_start_time', appointment.start_time)
+    if (text(appointment.end_time)) requests = requests.eq('proposed_end_time', appointment.end_time)
+    const latest = await requests.order('client_accepted_at', {ascending:false,nullsFirst:false})
+      .order('created_at', {ascending:false}).order('id', {ascending:false}).limit(1).maybeSingle()
+    if (latest.error) throw Error('VISIT_AUDIENCE_SOURCE_FAILED')
+    request = object(latest.data)
+  }
+  const reference = text(job.kind === 'visit_propose' ? request.source_message_id : request.client_acceptance_message_id || request.source_message_id)
+  if (!reference) return undefined
+  const conversations = await db().from('conversations').select('id').match(scope).eq('lead_id', lead.id)
+  if (conversations.error) throw Error('VISIT_AUDIENCE_SOURCE_FAILED')
+  const ids = (conversations.data || []).map(row => row.id)
+  if (!ids.length) return undefined
+  const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(reference)
+  // Kommo external IDs can also be UUIDs. Check both namespaces and reject an
+  // ambiguous collision rather than substituting a different message's date.
+  const sources = await Promise.all([
+    db().from('messages').select('sent_at').in('conversation_id', ids).eq('role', 'cliente').eq('external_message_id', reference).limit(2),
+    uuid ? db().from('messages').select('sent_at').in('conversation_id', ids).eq('role', 'cliente').eq('id', reference).limit(2)
+      : Promise.resolve({data:[],error:null}),
+  ])
+  if (sources.some(source => source.error)) throw Error('VISIT_AUDIENCE_SOURCE_FAILED')
+  const dates = [...new Set(sources.flatMap(source => source.data || []).map(row => text(row.sent_at)).filter(Boolean))]
+  return dates.length === 1 ? dates[0] : undefined
+}
 export async function visitContext(jobId: string) {
   const result = object(await rpc('lv_app_visit_context', { p_job: jobId }))
   if (object(result.config).test_only === true) result.config = { ...object(result.config), ...await autoConfig() }
@@ -20,6 +58,12 @@ export async function visitContext(jobId: string) {
     db().from('project_automation_config').select('mode,visit_location_url').match(scope).maybeSingle(),
   ])
   if (project.error || !project.data || config.error) throw new Error('VISIT_LOCATION_CONTEXT_FAILED')
+  result.config = { ...object(result.config), _audience: object(project.data.policies_json).automation_audience }
+  if (object(result.config).test_only === false && object(result.config)._audience == null) throw Error('AUTOMATION_AUDIENCE_REQUIRED')
+  const audienceSourceAt = await visitAudienceSource(result)
+  const job = object(result.job), payload = object(job.payload)
+  const audienceAllowed = audienceAllows(object(result.config)._audience, audienceSourceAt, text(job.created_at) || undefined)
+    && (object(result.config)._audience == null || !payload.source_at || Date.parse(text(payload.source_at)) === Date.parse(audienceSourceAt || ''))
   let address = text(project.data?.address)
   if (appointment.location_type === 'oficina' && appointment.office_id) {
     const office = await db().from('offices').select('address').eq('id', appointment.office_id).eq('tenant_id', scope.tenant_id).maybeSingle()
@@ -34,7 +78,7 @@ export async function visitContext(jobId: string) {
   const location = appointment.location_type === 'oficina'
     ? verifiedGoogleMapsUrl(payloadLocation) || googleMapsSearchUrl(address)
     : verifiedGoogleMapsUrl(config.data?.visit_location_url) || verifiedGoogleMapsUrl(result.location) || googleMapsSearchUrl(address)
-  return { ...result, address, location, appointment_units: Array.isArray(unitRows.data) ? unitRows.data : [],
+  return { ...result, address, location, audience_source_at: audienceSourceAt, audience_allowed: audienceAllowed, appointment_units: Array.isArray(unitRows.data) ? unitRows.data : [],
     response_review: responseReviewSettings(project.data.policies_json),
     mode: config.data?.mode, estado_proyecto: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).readiness,
     launch_destination: botVisitPolicy(project.data?.policies_json, text(config.data?.mode)).launchDestination }
@@ -68,6 +112,10 @@ async function updatePending(id: string, update: Row) {
 export async function sendVisit(jobId: string, guard: Guard) {
   assertLive(); await guard()
   let context = prepareVisit(await visitContext(jobId))
+  if (context.audience_allowed === false) {
+    await updatePending(jobId, {status:'cancelled',detail:'before_audience_activation'})
+    return {jobId,status:'cancel',reason:'before_audience_activation'}
+  }
   let decision = validateVisit(context)
   const lead = object(context.lead), config = object(context.config)
   if (!permitted(config, lead, automationSettings().testLeadId)) return { jobId, status: 'disabled' }
@@ -93,7 +141,7 @@ export async function sendVisit(jobId: string, guard: Guard) {
     payload.ai_operational_copy = draft.generated
     if (draft.review_control) payload.review_control = draft.review_control
   }
-  const send = { ...payload, detail: payload.detail, link: '', rendered: text(payload.detail),
+  const send = { ...payload, source_at: context.audience_source_at, detail: payload.detail, link: '', rendered: text(payload.detail),
     _kommo_id: lead.kommo_id, _route: routeSignature(route), _material: null, _app: 'lavilet' }
   await guard()
   const reservation = object(await rpc('lv3_reserve', { p_job: jobId, p_payload: send }))
@@ -105,7 +153,7 @@ export async function sendVisit(jobId: string, guard: Guard) {
   let launched = false
   try {
     decision = validateVisit(context)
-    if (decision.action !== 'send' || !permitted(object(context.config), object(context.lead), automationSettings().testLeadId)) {
+    if (context.audience_allowed === false || decision.action !== 'send' || !permitted(object(context.config), object(context.lead), automationSettings().testLeadId)) {
       await rpc('lv3_finish', { p_job: jobId, p_token: token, p_status: 'failed', p_detail: 'Revalidación: ' + decision.reasons.join(',') })
       return { jobId, status: 'changed_before_send' }
     }
@@ -122,13 +170,14 @@ export async function sendVisit(jobId: string, guard: Guard) {
     }
     context = await visitContext(jobId)
     decision = validateVisit(context)
-    if (decision.action !== 'send' || !permitted(object(context.config), object(context.lead), automationSettings().testLeadId)) {
+    if (context.audience_allowed === false || decision.action !== 'send' || !permitted(object(context.config), object(context.lead), automationSettings().testLeadId)) {
       await rpc('lv3_finish', { p_job: jobId, p_token: token, p_status: 'failed', p_detail: 'Cambió antes de Salesbot' })
       return { jobId, status: 'changed_before_salesbot' }
     }
     await guard()
     launched = true
-    await launchSalesbot(Number(lead.kommo_id), Number(route.bot_id))
+    await launchSalesbot(Number(lead.kommo_id), Number(route.bot_id), {audience:object(context.config)._audience,
+      sourceAt:text(context.audience_source_at)||undefined,jobCreatedAt:text(object(context.job).created_at)||undefined})
     await rpc('lv3_finish', { p_job: jobId, p_token: token, p_status: 'accepted',
       p_detail: 'Kommo aceptó iniciar Salesbot; entrega no confirmada' })
     return { jobId, status: 'accepted' }
@@ -151,6 +200,9 @@ export async function planVisits(guard: Guard) {
     await guard()
     const d = object(raw), a = object(d.appointment), lead = object(d.lead), state = object(d.visit_state)
     if (!permitted(config, lead, automationSettings().testLeadId)) continue
+    if (!audienceAllows(config._audience, text(a.confirmed_at))) continue
+    const sourceAt = await visitAudienceSource({...d,config:{...object(d.config),_audience:config._audience},job:{kind:'visit_2h',payload:{}}})
+    if (!audienceAllows(config._audience, sourceAt)) continue
     const now = Date.now(), start = Date.parse(text(a.start_time)), revision = text(d.revision)
     const seen = state.revision === revision ? Date.parse(text(state.seen_at)) : now
     const future = ['aceptado', 'reprogramado'].includes(text(a.status)) && !a.no_show && start > now
@@ -167,7 +219,7 @@ export async function planVisits(guard: Guard) {
     if (error) throw new Error('VISIT_STATE_UPDATE_FAILED')
     if (!future
       || !(start - 2 * 3_600_000 > seen + 1_800_000)) continue
-    const payload = { start_time: a.start_time, end_time: a.end_time, advisor_id: a.responsible_id,
+    const payload = { source_at: sourceAt, start_time: a.start_time, end_time: a.end_time, advisor_id: a.responsible_id,
       preferred_category: lead.preferred_category || null,
       location: object(d.policy).location_override || d.location || null }
     const prepared = prepareVisit({ ...d, job: { kind: 'visit_2h', payload } })

@@ -216,7 +216,7 @@ function recoveryHarness(options = {}) {
   const conversation = { lead_id: lead.id, summary: structuredClone(options.summary || {}) }
   let stopped = !!options.paused
   function from(table) {
-    const filters = {}, q = { select() { return q }, eq(k, v) { filters[k] = v; return q }, match() { return q }, gt() { return q }, in() { return q }, is() { return q }, order() { return q }, limit() { return q },
+    const filters = {}, q = { select() { return q }, eq(k, v) { filters[k] = v; return q }, match() { return q }, gt() { return q }, in() { return q }, is() { return q }, order() { return q }, limit() { return q }, abortSignal() { return q },
       update(values) { calls.push({ name: 'update:' + table, values }); if (table === 'leads') Object.assign(lead, values); return q },
       then(resolve) {
         const count = table === 'messages' ? (filters.role === 'bot' ? options.answered : options.human)
@@ -227,7 +227,7 @@ function recoveryHarness(options = {}) {
   }
   const recovery = load('src/lib/integrations/automation/generation-recovery.ts', {
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live', testLeadId: null }) },
-    './data': { ...data, db: () => ({ from }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false }),
+    './data': { ...data, db: () => ({ from }), autoConfig: async () => ({ enabled: true, dry_run: false, test_only: false, _audience: options.audience }),
       one: async table => table === 'leads' ? { ...lead } : structuredClone(conversation),
       rpc: async (name, args) => {
         calls.push({ name, args })
@@ -243,9 +243,9 @@ function recoveryHarness(options = {}) {
     './ctwa-lead-store': { preserveCtwaForContact: async () => {} },
   })
   const texts = options.messages || [options.message || 'Tiene una distribución preliminar?']
-  const rows = texts.map((text, index) => ({ payload: { externalId: texts.length === 1 ? 'source-message' : 'source-message-' + index,
+  const rows = texts.map((text, index) => ({ received_at: options.receivedAt, payload: { externalId: texts.length === 1 ? 'source-message' : 'source-message-' + index,
     kommoId: 3577404, contactId: 8105914, text,
-    sentAt: new Date(Date.now() - (options.expired ? 25 * 3600000 : 1000) + index).toISOString(), media: null } }))
+    sentAt: options.sentAts?.[index] || options.sentAt || new Date(Date.now() - (options.expired ? 25 * 3600000 : 1000) + index).toISOString(), media: null } }))
   return { ...recovery, calls, conversation, lead, run: () => recovery.recoverGenerationFailure(rows, async () => {}, options.reason || 'OPENAI_HTTP_503') }
 }
 
@@ -386,4 +386,23 @@ test('a rejected earlier send does not alter the approved recovery notice', asyn
     tool_calls: { provider_status: 'rejected' } }] })
   await h.run()
   assert.equal(h.calls.find(call => call.name === 'register_outbound_message').args.p_content, 'Permítanos revisar ese detalle con nuestro equipo para orientarle mejor.')
+})
+
+test('recovery excludes historical or mixed batches before registering inbound or creating a handoff', async () => {
+  const cutoff=new Date(Date.now()-60_000).toISOString(),old=new Date(Date.now()-120_000).toISOString(),fresh=new Date(Date.now()-1000).toISOString()
+  const audience={version:1,mode:'future_messages',activatedAt:cutoff}
+  for (const input of [{sentAt:old,receivedAt:fresh},{sentAt:fresh,receivedAt:old},{messages:['old','fresh'],sentAts:[old,fresh],receivedAt:fresh}]) {
+    const h=recoveryHarness({audience,...input})
+    const result=await h.run()
+    assert.equal(result.action,'before_audience_activation')
+    assert.deepEqual(h.calls,[])
+  }
+})
+
+test('recovery admits a new message regardless of contact age and passes its real source to Salesbot', async () => {
+  const cutoff=new Date(Date.now()-60_000).toISOString(),fresh=new Date(Date.now()-1000).toISOString()
+  const audience={version:1,mode:'future_messages',activatedAt:cutoff},h=recoveryHarness({audience,sentAt:fresh,receivedAt:fresh})
+  h.lead.created_at='2020-01-01T00:00:00Z'
+  assert.equal((await h.run()).delivery_status,'accepted')
+  assert.deepEqual(h.calls.find(c=>c.name==='send').args,[3577404,15578,{audience,sourceAt:fresh,jobCreatedAt:fresh}])
 })

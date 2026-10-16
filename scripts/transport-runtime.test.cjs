@@ -90,7 +90,7 @@ test('Kommo launch records connection causes and never repeats an uncertain POST
   }
 })
 
-test('database maintenance completes even when the global send worker cannot acquire its lease', async () => {
+function maintenanceWorker(registrationFails = false) {
   const calls = [], q = { then: resolve => Promise.resolve({ error: null }).then(resolve) }
   for (const method of ['upsert', 'update', 'match', 'eq', 'contains', 'lt']) q[method] = () => q
   let maintenanceClaimed = false
@@ -105,10 +105,16 @@ test('database maintenance completes even when the global send worker cannot acq
     './delivery-state': { ...require('../src/lib/integrations/automation/delivery-state.ts'), kommoDeliveryBlock: async () => null },
     './visits': { planVisits: async () => { calls.push(['plan']); return 2 }, pendingVisits: async () => { throw Error('SEND_WORKER_NOT_ACQUIRED') } },
     './transport-monitor': { syncTransportIncidents: async () => ({ missing: 0 }) },
+    './conversation-analysis': { analyzeIdleConversation: async () => ({ reason: 'no_idle_candidate' }) },
     './reply-registration': { ...require('../src/lib/integrations/automation/reply-registration.ts'),
-      recoverAcceptedReplyRegistrations: async guard => { await guard(); calls.push(['reply_registration_recovery']); return { repaired: 0, unresolved: 0 } } },
+      recoverAcceptedReplyRegistrations: async guard => { await guard(); calls.push(['reply_registration_recovery']); if (registrationFails) throw Error('REGISTRATION_STORAGE_UNAVAILABLE'); return { repaired: 0, unresolved: 0 } } },
   })
-  const result = await runAutomation()
+  return { calls, run: runAutomation }
+}
+
+test('database maintenance completes even when the global send worker cannot acquire its lease', async () => {
+  const { calls, run } = maintenanceWorker()
+  const result = await run()
   assert.equal(result.reason, 'worker_busy')
   assert.equal(result.maintenance[0].enqueued, 2)
   assert.deepEqual(result.maintenance[0].reply_registrations, { repaired: 0, unresolved: 0 })
@@ -119,14 +125,24 @@ test('database maintenance completes even when the global send worker cannot acq
   assert.equal(calls.some(([name]) => name === 'lv_app_claim'), false)
 })
 
-function registrationWorker({ failure, acceptedResult, finishFails = false, resetCancelled = false } = {}) {
+test('reservation alert recovery runs before a registration-maintenance failure and does not invoke a chat worker', async () => {
+  const { calls, run } = maintenanceWorker(true)
+  const result = await run()
+  assert.equal(result.maintenance[0].reason, 'REGISTRATION_STORAGE_UNAVAILABLE')
+  const alert = calls.findIndex(([name]) => name === 'lv_retry_reservation_alerts')
+  assert.ok(alert >= 0)
+  assert.ok(alert < calls.findIndex(([name]) => name === 'reply_registration_recovery'))
+  assert.equal(calls.some(([name]) => name === 'lv_app_claim'), false)
+})
+
+function registrationWorker({ failure, acceptedResult, finishFails = false, resetCancelled = false, audience, batch } = {}) {
   const calls = []
   let claimed = false, finishFailurePending = finishFails
   const registration = require('../src/lib/integrations/automation/reply-registration.ts')
   const provider = require('../src/lib/integrations/automation/kommo.ts')
   const { runAutomation } = load('src/lib/integrations/automation/worker.ts', {
     './config': { assertLive() {}, automationSettings: () => ({ mode: 'live', globalMaintenance: false }) },
-    './data': { ...data, autoConfig: async () => ({ enabled: true, dry_run: false }),
+    './data': { ...data, autoConfig: async () => ({ enabled: true, dry_run: false, _audience: audience }),
       db: () => {
         if(!resetCancelled)throw Error('UNEXPECTED_DIRECT_DATABASE_ACCESS')
         const q={then:resolve=>Promise.resolve({error:null,data:[{id:'input-1'}]}).then(resolve)}
@@ -138,7 +154,7 @@ function registrationWorker({ failure, acceptedResult, finishFails = false, rese
         if (name === 'lv_app_claim_contact') {
           if (claimed) return []
           claimed = true
-          return [{ id: 'input-1', kind: 'inbound', contact_key: '42:100', payload: { kommoId: 42 } }]
+          return batch || [{ id: 'input-1', kind: 'inbound', contact_key: '42:100', payload: { kommoId: 42 } }]
         }
         if (name === 'lv_app_finish' && finishFailurePending) {
           finishFailurePending = false
@@ -146,8 +162,8 @@ function registrationWorker({ failure, acceptedResult, finishFails = false, rese
         }
         return true
       } },
-    './conversation': { processConversation: async () => {
-      calls.push({ name: 'process_conversation' })
+    './conversation': { processConversation: async rows => {
+      calls.push({ name: 'process_conversation', ids: rows.map(row => row.id) })
       if (failure) throw failure
       return acceptedResult
     } },
@@ -167,6 +183,35 @@ function registrationWorker({ failure, acceptedResult, finishFails = false, rese
   })
   return { calls, run: () => runAutomation('42:100'), registration }
 }
+
+test('production cutover retires old inbound work without processing or sending', async () => {
+  const audience = { version: 1, mode: 'future_messages', activatedAt: '2026-01-02T00:00:00Z' }
+  const h = registrationWorker({ audience, batch: [{ id: 'old', kind: 'inbound', contact_key: '42:100',
+    received_at: '2026-01-01T23:59:00Z', payload: { kommoId: 42, sentAt: '2026-01-01T23:58:00Z' } }] })
+  await h.run()
+  const finish = h.calls.find(call => call.name === 'lv_app_finish').args
+  assert.equal(finish.p_status, 'cancelled')
+  assert.equal(finish.p_result.reason, 'BEFORE_PRODUCTION_ACTIVATION')
+  assert.equal(h.calls.some(call => ['process_conversation', 'generation_recovery', 'publish', 'provider_write'].includes(call.name)), false)
+})
+
+test('mixed inbound batch only processes fresh messages from an existing contact', async () => {
+  const audience = { version: 1, mode: 'future_messages', activatedAt: '2026-01-02T00:00:00Z' }
+  const batch = [
+    { id: 'old', kind: 'inbound', contact_key: '42:100', received_at: '2026-01-02T00:02:00Z',
+      payload: { kommoId: 42, sentAt: '2026-01-01T23:58:00Z' } },
+    { id: 'new', kind: 'inbound', contact_key: '42:100', received_at: '2026-01-02T00:03:00Z',
+      payload: { kommoId: 42, sentAt: '2026-01-02T00:02:00Z' } },
+  ]
+  const h = registrationWorker({ audience, batch, acceptedResult: { action: 'reply' } })
+  await h.run()
+  assert.deepEqual(h.calls.find(call => call.name === 'process_conversation').ids, ['new'])
+  const finishes = h.calls.filter(call => call.name === 'lv_app_finish').map(call => call.args)
+  assert.deepEqual(finishes.map(call => call.p_status), ['cancelled', 'completed'])
+  assert.deepEqual(finishes[0].p_ids, ['old'])
+  assert.deepEqual(finishes[1].p_ids, ['new'])
+  assert.equal(h.calls.some(call => ['generation_recovery', 'publish', 'provider_write'].includes(call.name)), false)
+})
 
 test('a full test reset retires late worker failures without recovery, incidents or provider calls', async () => {
   const { AcceptedReplyRegistrationError } = require('../src/lib/integrations/automation/reply-registration.ts')

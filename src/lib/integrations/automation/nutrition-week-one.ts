@@ -10,6 +10,7 @@ import { botStopped, getKommoLead, launchSalesbot, setKommoField, verifyWeekOneT
 import { financingContext } from './financing'
 import { sharedBrochure, weekOneChoice } from './nutrition-week-one-rules'
 import type { Guard } from './visits'
+import { audienceAllows } from './audience-boundary'
 
 const DAY = 86_400_000
 export async function weekOneSettings() {
@@ -19,7 +20,7 @@ export async function weekOneSettings() {
   ])
   if (project.error || automation.error) throw Error('WEEK_ONE_SETTINGS_FAILED')
   return { config: nutritionWeekOneConfig(project.data?.policies_json), later: nutritionLaterConfig(project.data?.policies_json), hours: automation.data?.business_hours,
-    visits: botVisitPolicy(project.data?.policies_json, automation.data?.mode || 'lanzamiento') }
+    visits: botVisitPolicy(project.data?.policies_json, automation.data?.mode || 'lanzamiento'), audience: object(project.data?.policies_json).automation_audience }
 }
 
 export async function scheduleNutritionWeekOne(leadId: string, conversationId: string, externalId: string) {
@@ -32,6 +33,7 @@ export async function scheduleNutritionWeekOne(leadId: string, conversationId: s
     .eq('role', 'cliente').order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(1)
   if (error) throw Error('WEEK_ONE_ANCHOR_FAILED')
   const anchor = object(data?.[0]), at = Date.parse(text(anchor.sent_at))
+  if (!audienceAllows(settings.audience, text(anchor.sent_at))) return { scheduled: false, reason: 'before_audience_activation' }
   if (anchor.external_message_id !== externalId || !Number.isFinite(at) || at < Date.parse(settings.config.activatedAt!)) return { scheduled: false, reason: 'old_input' }
   const due = nutritionSendTime(at + 7 * DAY, settings.hours)
   if (!due) return { scheduled: false, reason: 'no_business_hours' }
@@ -69,9 +71,10 @@ export async function weekOneMemory(lead: Row) {
   return { leads, leadIds, outbound, latestClientId: latest.data?.[0]?.id, brochureShared: sharedBrochure(outbound, leads) }
 }
 
-export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1) {
+export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1, jobCreatedAt?: string) {
   const [lead, conversation, settings, auto] = await Promise.all([one('leads', text(payload.leadId)), one('conversations', text(payload.conversationId)), weekOneSettings(), autoConfig()])
   if (conversation.lead_id !== lead.id) throw Error('WEEK_ONE_CONVERSATION_MISMATCH')
+  if (!audienceAllows(auto._audience, text(payload.anchorAt), jobCreatedAt)) return { reason: 'before_audience_activation' } as const
   const active = week === 1 ? settings.config : settings.later[week]
   if (!active.enabled || !Number.isFinite(Date.parse(active.activatedAt || '')) || payload.activatedAt !== active.activatedAt) return { reason: 'disabled_or_changed' } as const
   if (!nutritionLeadEligible(lead) || !permitted(auto, lead, automationSettings().testLeadId) || Number(lead.kommo_id) !== Number(payload.kommoId)) return { reason: 'ineligible' } as const
@@ -91,6 +94,7 @@ export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1) {
   const history = (messages.data || []).reverse() as Row[]
   const lastClient = history.findLast(m => m.role === 'cliente')
   if (latest.data?.[0]?.id !== conversation.id || lastClient?.id !== payload.anchorId || memory.latestClientId !== payload.anchorId) return { reason: 'new_context' } as const
+  if (Date.parse(text(lastClient?.sent_at)) !== Date.parse(text(payload.anchorAt))) return { reason: 'anchor_timestamp_mismatch' } as const
   if (memory.leads.some(l => l.bot_enabled !== true || l.tracking_opt_out_at || (l.handoff_status && l.handoff_status !== 'none'))) return { reason: 'contact_paused' } as const
   if (inputs.data?.length || history.at(-1)?.role !== 'bot') return { reason: 'unanswered_input' } as const
   if (visits.data?.length || drafts.data?.length || jobs.data?.length || qualifications.data?.length) return { reason: 'active_coordination' } as const
@@ -116,7 +120,7 @@ export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1) {
   }
   const due = nutritionSendTime(Math.max(Date.now(), Date.parse(text(payload.anchorAt)) + week * 7 * DAY, lastFollowup + 7 * DAY, earlierDue), settings.hours)
   if (!due) return { reason: 'no_business_hours' } as const
-  return { reason: '', lead, conversation, settings, memory, history, financing, due } as const
+  return { reason: '', lead, conversation, settings, memory, history, financing, due, audience: auto._audience } as const
 }
 
 export async function brochureLinkReady() {
@@ -132,7 +136,7 @@ export async function sendNutritionWeekOne(job: Row, guard: Guard) {
   assertLive(); await guard()
   const payload = object(job.payload)
   if (!Number.isFinite(Date.parse(text(payload.anchorAt))) || Date.now() - Date.parse(text(payload.anchorAt)) > 21 * DAY) return { action: 'cancelled', reason: 'expired' }
-  let c = await weekOneContext(payload)
+  let c = await weekOneContext(payload, 1, text(job.received_at) || undefined)
   if (c.reason || !c.lead) return { action: 'cancelled', reason: c.reason }
   if (c.due > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due).toISOString(), reason: 'business_hours_or_shared_frequency' }
   const catalog = await db().from('units').select('id,unit_number,category,bedrooms').match(scope).eq('is_published', true).eq('status', 'disponible').limit(100)
@@ -148,14 +152,14 @@ export async function sendNutritionWeekOne(job: Row, guard: Guard) {
   const signature = JSON.stringify({ config: c.settings.config, choice })
   await guard()
   if (choice.kind === 'followup') await setKommoField(Number(payload.kommoId), WEEK_ONE_ROUTES.followup.fieldId, choice.topic)
-  c = await weekOneContext(payload)
+  c = await weekOneContext(payload, 1, text(job.received_at) || undefined)
   if (c.reason || !c.lead) return { action: 'cancelled', reason: c.reason }
   if (signature !== JSON.stringify({ config: c.settings.config, choice: choose(c) })) return { action: 'cancelled', reason: 'content_changed_before_send' }
   if (c.due > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due).toISOString() }
   if (botStopped(await getKommoLead(Number(payload.kommoId)))) return { action: 'cancelled', reason: 'kommo_paused' }
   await guard()
   const route = WEEK_ONE_ROUTES[choice.kind]
-  await launchSalesbot(Number(payload.kommoId), route.botId)
+  await launchSalesbot(Number(payload.kommoId), route.botId, { audience: c.audience, sourceAt: text(payload.anchorAt), jobCreatedAt: text(job.received_at) || undefined })
   const receipt = { kind: choice.kind, action: choice.action, topic: choice.topic, unit_id: choice.unitId || null, reason: choice.reason, template_id: route.templateId, salesbot_id: route.botId }
   await rpc('register_outbound_message', { p_conversation_id: payload.conversationId, p_content: choice.body, p_model: 'template:nutrition_week_one',
     p_tool_calls: { provider_status: 'accepted', source_message_id: payload.anchorId, nutrition_week_one: receipt, ...(choice.kind === 'brochure' ? { brochure_sent: true } : {}) } })

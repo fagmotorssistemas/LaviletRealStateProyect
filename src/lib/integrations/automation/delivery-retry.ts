@@ -4,13 +4,14 @@ import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } fr
 import { botStopped, getKommoLead, launchSalesbot, setKommoField } from './kommo'
 import { markReplyDispatchStarted, registerAcceptedReply, markReplyMemorySaved, type ReplyCheckpoint } from './reply-registration'
 import { PreReplySendError } from './delivery-phase'
+import { audienceAllows } from './audience-boundary'
 
 export type DeliveryRetryStore = {
   checkpoint: (key: string) => Promise<ReplyCheckpoint>
   allowed: (event: Row, checkpoint: ReplyCheckpoint) => Promise<boolean>
   start: (checkpoint: ReplyCheckpoint) => Promise<void>
   field: (lead: number, content: string) => Promise<void>
-  launch: (lead: number) => Promise<void>
+  launch: (lead: number, event: Row) => Promise<void>
   register: (checkpoint: ReplyCheckpoint) => Promise<void>
   memory: (checkpoint: ReplyCheckpoint) => Promise<boolean>
 }
@@ -24,8 +25,10 @@ const productionStore: DeliveryRetryStore = {
   },
   async allowed(event, checkpoint) {
     const args = object(checkpoint.data.args), payload = object(event.payload)
+    const config = await autoConfig()
+    if (!audienceAllows(config._audience, text(payload.sentAt), text(event.received_at) || undefined)) return false
     const conversation = await one('conversations', text(args.p_conversation_id))
-    const lead = await one('leads', text(conversation.lead_id)), config = await autoConfig()
+    const lead = await one('leads', text(conversation.lead_id))
     if (!permitted(config, lead, automationSettings().testLeadId) || lead.bot_enabled !== true || lead.tracking_opt_out_at
       || Number(lead.kommo_id) !== Number(payload.kommoId) || String(lead.contact_id) !== String(payload.contactId)
       || (conversation.summary ?? null) !== (checkpoint.data.summary_before ?? null)) return false
@@ -46,7 +49,10 @@ const productionStore: DeliveryRetryStore = {
   },
   start: markReplyDispatchStarted,
   field: (lead, content) => setKommoField(lead, 457014, content),
-  launch: lead => launchSalesbot(lead, 15578),
+  async launch(lead, event) {
+    const config = await autoConfig()
+    await launchSalesbot(lead, 15578, { audience: config._audience, sourceAt: text(object(event.payload).sentAt), jobCreatedAt: text(event.received_at) || undefined })
+  },
   register: registerAcceptedReply,
   async memory(checkpoint) {
     const saved = await rpc('lv_app_save_retry_memory', { p_checkpoint: checkpoint.id }) === true
@@ -78,7 +84,7 @@ export async function sendConfirmedDeliveryRetry(event: Row, guard: () => Promis
     if (!await store.allowed(event, checkpoint)) return cancelled('DELIVERY_RETRY_NO_LONGER_AUTHORIZED')
     await store.start(checkpoint)
   } catch (error) { throw new PreReplySendError(error) }
-  await store.launch(Number(payload.kommoId))
+  await store.launch(Number(payload.kommoId), event)
   await store.register(checkpoint)
   let memorySaved = false
   try { memorySaved = await store.memory(checkpoint) } catch { /* Accepted-reply recovery can finish registration; never resend. */ }

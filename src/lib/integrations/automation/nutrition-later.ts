@@ -8,6 +8,7 @@ import { weekOneContext, weekOneSettings } from './nutrition-week-one'
 import { laterChoice } from './nutrition-later-rules'
 import { botStopped, getKommoLead, launchSalesbot, setKommoField, verifyLaterTemplates } from './kommo'
 import type { Guard } from './visits'
+import { audienceAllows } from './audience-boundary'
 
 export async function scheduleNutritionLater(leadId: string, conversationId: string, externalId: string) {
   const settings = await weekOneSettings()
@@ -20,6 +21,7 @@ export async function scheduleNutritionLater(leadId: string, conversationId: str
     .order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(1)
   if (error) throw Error('NUTRITION_ANCHOR_FAILED')
   const anchor = object(data?.[0]), at = Date.parse(text(anchor.sent_at))
+  if (!audienceAllows(settings.audience, text(anchor.sent_at))) return { scheduled: false, reason: 'before_audience_activation' }
   if (anchor.external_message_id !== externalId || !Number.isFinite(at)) return { scheduled: false, reason: 'old_input' }
   const jobs = weeks.flatMap(week => {
     if (at < Date.parse(settings.later[week].activatedAt!)) return []
@@ -43,7 +45,7 @@ export async function sendNutritionLater(job: Row, guard: Guard) {
   const week: LaterWeek | null = payload.task === LATER_ROUTES[2].task ? 2 : payload.task === LATER_ROUTES[3].task ? 3 : null
   if (!week) throw Error('INVALID_NUTRITION_WEEK')
   if (!Number.isFinite(Date.parse(text(payload.anchorAt))) || Date.now() - Date.parse(text(payload.anchorAt)) > (week * 7 + 14) * 86_400_000) return { action: 'cancelled', reason: 'expired' }
-  let c = await weekOneContext(payload, week)
+  let c = await weekOneContext(payload, week, text(job.received_at) || undefined)
   if (c.reason || !c.lead) return { action: 'cancelled', reason: c.reason }
   if (c.due > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due).toISOString() }
   const choose = (context: typeof c) => context.lead && laterChoice(week, context.lead, context.history, context.memory.outbound, context.financing.partners)
@@ -54,13 +56,13 @@ export async function sendNutritionLater(job: Row, guard: Guard) {
   const route = LATER_ROUTES[week], signature = JSON.stringify({ config: c.settings.later[week], choice })
   await guard()
   await setKommoField(Number(payload.kommoId), route.fieldId, choice.topic)
-  c = await weekOneContext(payload, week)
+  c = await weekOneContext(payload, week, text(job.received_at) || undefined)
   if (c.reason || !c.lead) return { action: 'cancelled', reason: c.reason }
   if (signature !== JSON.stringify({ config: c.settings.later[week], choice: choose(c) })) return { action: 'cancelled', reason: 'content_changed_before_send' }
   if (c.due > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due).toISOString() }
   if (botStopped(await getKommoLead(Number(payload.kommoId)))) return { action: 'cancelled', reason: 'kommo_paused' }
   await guard()
-  await launchSalesbot(Number(payload.kommoId), route.botId)
+  await launchSalesbot(Number(payload.kommoId), route.botId, { audience: c.audience, sourceAt: text(payload.anchorAt), jobCreatedAt: text(job.received_at) || undefined })
   const receipt = { week, ...choice, template_id: route.templateId, salesbot_id: route.botId, attachment_id: route.attachmentId }
   await rpc('register_outbound_message', { p_conversation_id: payload.conversationId, p_content: choice.body, p_model: `template:${route.task}`,
     p_tool_calls: { provider_status: 'accepted', source_message_id: payload.anchorId, [route.task]: receipt } })
