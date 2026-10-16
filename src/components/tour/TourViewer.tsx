@@ -56,6 +56,7 @@ import { TourNavModeModal, type TourNavMode } from '@/components/tour/TourNavMod
 import { TourVoiceAssist } from '@/components/tour/TourVoiceAssist'
 import { ShowroomMenu } from '@/components/tour/ShowroomMenu'
 import { TourAmenitiesGallery } from '@/components/tour/TourAmenitiesGallery'
+import { TourConstructionBoard } from '@/components/tour/TourConstructionBoard'
 import { TourLocationView } from '@/components/tour/TourLocationView'
 import { SITE } from '@/lib/marketing/site'
 import { buildTourWhatsAppMessage, tourWhatsAppHref, type TourWhatsAppContext } from '@/lib/tour/tourWhatsApp'
@@ -1400,6 +1401,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
   const [amenitiesOpen, setAmenitiesOpen] = useState(false)
   const [amenityCaption, setAmenityCaption] = useState('')
   const [constructionOpen, setConstructionOpen] = useState(false)
+  const [constructionPhoto, setConstructionPhoto] = useState<number | null>(null)
   const [locationFromMenu, setLocationFromMenu] = useState(false)
   const [showroomReady, setShowroomReady] = useState(false)
   const [fichaExpanded, setFichaExpanded] = useState(false)
@@ -3742,6 +3744,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     >
       {showUnitChrome && selectedUnit && (!currentTypology || (isPlanosMode(viewMode) && !stillUrl))?<div className="absolute inset-0 z-[12] flex items-center justify-center bg-[#29251e] p-8 text-center text-sm text-[#f7f3ee]">{t("La unidad ")}{t(selectedUnit.unit_number)} {t(" aún no tiene un recurso disponible para esta vista.")}</div>:null}
       <ShowroomMenu units={allUnits} catalog={publicCatalog} selected={showUnitChrome && !viewingCommonArea ? selectedUnit : null} root={rootRef}
+        hidden={constructionOpen}
         hideWebReturn={planEntryOpen}
         onFavorites={() => {setAmenitiesOpen(false);setConstructionOpen(false);setLocationFromMenu(false);setFavoritesOpen(true)}}
         place={favoritesOpen ? 'favorites' : constructionOpen ? 'progress' : (amenitiesOpen || viewingCommonArea) ? 'amenities' : locationFromMenu ? 'contact' : shellMode === 'plan' ? 'home' : null}
@@ -3781,7 +3784,7 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
           if (reopen) void coverVideoRef.current?.play().catch(() => undefined)
         }}
         onAmenities={()=>{setFavoritesOpen(false);setLocationFromMenu(false);setConstructionOpen(false);setAmenitiesOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
-        onConstructionProgress={()=>{setFavoritesOpen(false);setLocationFromMenu(false);setAmenitiesOpen(false);setConstructionOpen(true);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
+        onConstructionProgress={()=>{setFavoritesOpen(false);setLocationFromMenu(false);setAmenitiesOpen(false);setConstructionOpen(true);setConstructionPhoto(null);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false)}}
         onLocation={()=>{setFavoritesOpen(false);setAmenitiesOpen(false);setConstructionOpen(false);setFichaOpen(false);setCompareOpen(false);setFinishCompareOpen(false);setSimulatorOpen(false);setTerminacionesFocus(false);setVoiceAssistOpen(false);setLocationFromMenu(true)}}
         onPick={unit=>{setAmenitiesOpen(false);setConstructionOpen(false);setSelectedUnitId(unit.id);if(unit.typology_code)setSelectedTypology(unit.typology_code);const floor=unitFloorNumber(unit);if(floor!=null)setPlanFloor(floor);setShellMode('unit');setViewMode('galeria');setGaleriaIndex(0);setCompareOpen(false);setFinishCompareOpen(false);fichaOriginRef.current='menu';setFichaExpanded(true);setFichaOpen(true);writeUnitQueryParam(unit.unit_number)}}
         onTour={unit=>{
@@ -3808,7 +3811,10 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
         }}
       />
       <TourAmenitiesGallery open={amenitiesOpen} onCaptionChange={setAmenityCaption} />
-      <TourAmenitiesGallery open={constructionOpen} source="construction" />
+      <TourConstructionBoard open={constructionOpen && constructionPhoto === null}
+        onClose={() => setConstructionOpen(false)} onOpenPhoto={setConstructionPhoto} />
+      <TourAmenitiesGallery key={constructionPhoto ?? 'construction'} open={constructionOpen && constructionPhoto !== null} source="construction"
+        initialIndex={constructionPhoto ?? 0} onClose={() => setConstructionPhoto(null)} />
       <TourLocationView open={locationFromMenu} fromMenu onClose={() => setLocationFromMenu(false)} />
       <div
         className="absolute inset-0 overflow-hidden"

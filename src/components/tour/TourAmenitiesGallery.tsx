@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Minus, Plus, X } from 'lucide-react'
 import { useTourLanguage } from '@/lib/tour/tourLocale'
 import { useDualBuffer } from '@/components/tour/useDualBuffer'
 import { fitStill as amenityFit } from '@/lib/tour/stillFit'
@@ -16,15 +16,17 @@ type AmenitySlide = {
   imageUrl: string
 }
 
-export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenities' }: {
+export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenities', initialIndex, onClose }: {
   open: boolean
   onCaptionChange?: (caption: string) => void
   source?: 'amenities' | 'construction'
+  initialIndex?: number
+  onClose?: () => void
 }) {
   const { locale, t } = useTourLanguage()
   const [items, setItems] = useState<AmenitySlide[]>([])
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [index, setIndex] = useState(0)
+  const [index, setIndex] = useState(initialIndex ?? 0)
   const [zoom, setZoom] = useState(1)
   const containerRef = useRef<HTMLDivElement>(null)
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
@@ -50,7 +52,7 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
     if (!open) return
     let cancelled = false
     setState((current) => (current === 'ready' ? current : 'loading'))
-    void fetch(source === 'construction' ? '/api/tour/construction-updates' : '/api/tour/amenities')
+    void fetch(source === 'construction' ? '/api/tour/construction-updates' : '/api/tour/amenities', source === 'construction' ? { cache: 'no-store' } : undefined)
       .then(async (response) => {
         if (!response.ok) throw new Error(source)
         return response.json() as Promise<{ items: AmenitySlide[] | ConstructionUpdate[] }>
@@ -70,6 +72,7 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
             })
           : (data.items ?? []) as AmenitySlide[]
         setItems(next)
+        if (initialIndex !== undefined) setIndex(Math.max(0, Math.min(initialIndex, next.length - 1)))
         setState('ready')
       })
       .catch(() => {
@@ -78,7 +81,7 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
     return () => {
       cancelled = true
     }
-  }, [open, source])
+  }, [open, source, initialIndex])
 
   const count = items.length
   const step = useCallback(
@@ -221,6 +224,14 @@ export function TourAmenitiesGallery({ open, onCaptionChange, source = 'amenitie
               : t(source === 'construction' ? 'Aún no hay fotos del avance de obra.' : 'Aún no hay fotos de amenidades.')}
         </div>
       )}
+
+      {onClose ? (
+        <button type="button" aria-label={t('Cerrar')} onClick={onClose} onPointerDown={event => event.stopPropagation()}
+          className="absolute z-10 grid h-10 w-10 place-items-center rounded-full border border-[#bda27e]/50 bg-[#f7f3ee] text-[#8e7654] hover:bg-[#eae3d8] focus-visible:outline-2 focus-visible:outline-[#8e7654]"
+          style={{ top: 'max(1rem, env(safe-area-inset-top))', right: 'max(1rem, env(safe-area-inset-right))' }}>
+          <X size={20} />
+        </button>
+      ) : null}
 
       {count > 1 ? (
         <>
