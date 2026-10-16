@@ -1,6 +1,7 @@
 'use client'
 
 import { useTourLanguage } from '@/lib/tour/tourLocale'
+import { unitStatusDot } from '@/lib/tour/unitStatusColors'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Box, Hand, Minus, Plus, Square } from 'lucide-react'
@@ -92,15 +93,6 @@ type FloorLayer = ReadyFloorView & {
 const ZOOM_MIN = 1
 const ZOOM_MAX = 3
 const ZOOM_STEP = 0.25
-
-function statusDotClass(status: TourUnitSummary['status']) {
-  if (status === 'disponible' || status === 'en_preventa') return 'bg-[#2f9e44]'
-  if (status === 'reservado' || status === 'en_proceso' || status === 'bajo_contrato') {
-    return 'bg-[#d64545]'
-  }
-  if (status === 'vendido' || status === 'deshabilitado') return 'bg-[#d64545]'
-  return 'bg-[#9ca3af]'
-}
 
 function slotCentroid(points: string) {
   const pairs = points
@@ -1761,7 +1753,7 @@ export function TourFloorPlan({
                     <span
                       className={cn(
                         'h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5',
-                        slot.area ? 'bg-[#BDA27E]' : slot.unit ? statusDotClass(slot.unit.status) : 'bg-[#c4c4c4]',
+                        slot.area ? 'bg-[#BDA27E]' : slot.unit ? unitStatusDot(slot.unit.status) : 'bg-[#c4c4c4]',
                       )}
                     />
                     <span className="text-[10px] font-semibold tracking-wide text-[#2b2f36] sm:text-[11px]">
