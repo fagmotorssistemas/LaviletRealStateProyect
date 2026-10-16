@@ -104,6 +104,7 @@ export function useLeadAutomationDashboard() {
         }),
         getLeadAutomationKpis(supabase, {
           tenantId: ids[0],
+          tenantIds: ids,
           projectId: filters.projectId || undefined,
           from: range.from,
           to: range.to,
@@ -135,23 +136,29 @@ export function useLeadAutomationDashboard() {
   }, [authLoading, filters, page, supabase, user])
 
   useEffect(() => {
-    void load()
-    const activeSequence = loadSequence.current
+    let activeSequence = -1
+    const timer = window.setTimeout(() => {
+      void load()
+      activeSequence = loadSequence.current
+    }, 0)
     return () => {
+      window.clearTimeout(timer)
       if (loadSequence.current === activeSequence) loadSequence.current = activeSequence + 1
     }
   }, [load])
 
   useEffect(() => {
-    if (!selectedLeadId || !tenantIds.length) {
-      setDetail(null)
-      setDetailError(null)
-      return
-    }
     let cancelled = false
-    setDetailLoading(true)
-    setDetailError(null)
-    getLeadAutomationDetail(supabase, selectedLeadId, tenantIds)
+    const timer = window.setTimeout(() => {
+      if (!selectedLeadId || !tenantIds.length) {
+        setDetail(null)
+        setDetailError(null)
+        setDetailLoading(false)
+        return
+      }
+      setDetailLoading(true)
+      setDetailError(null)
+      void getLeadAutomationDetail(supabase, selectedLeadId, tenantIds)
       .then((data) => {
         if (!cancelled) setDetail(data)
       })
@@ -166,7 +173,9 @@ export function useLeadAutomationDashboard() {
       .finally(() => {
         if (!cancelled) setDetailLoading(false)
       })
+    }, 0)
     return () => {
+      window.clearTimeout(timer)
       cancelled = true
     }
   }, [selectedLeadId, supabase, tenantIds])
@@ -212,7 +221,7 @@ export function useLeadAutomationDashboard() {
     filters,
     hasFilters: hasActiveAutomationFilters(filters),
     selectedLeadId,
-    detail,
+    detail: detail?.row.lead_id === selectedLeadId ? detail : null,
     detailLoading,
     detailError,
     updateFilter,

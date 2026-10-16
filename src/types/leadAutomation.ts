@@ -1,9 +1,11 @@
 export type LeadSlaStatus = 'no_aplica' | 'pendiente' | 'vencido' | 'respondido'
 export type LeadHandoffStatus = 'none' | 'queued' | 'assigned' | 'acknowledged' | 'resolved'
-export type LeadStage = 'lanzamiento' | 'precalificacion' | 'nutricion' | 'preventa' | 'reserva_venta'
+export type LeadStage = import('./leadPipeline').LeadPipelineStage | 'lanzamiento' | 'precalificacion' | 'nutricion' | 'preventa' | 'reserva_venta'
 export type LeadPurchasePurpose = 'vivir' | 'invertir' | 'segunda_vivienda' | 'negocio'
 
 export interface LeadAutomationRow {
+  /** Same evidence-based projection displayed in Leads; legacy stage columns are not authoritative. */
+  pipeline?: import('./leadPipeline').LeadPipelineSnapshot
   tenant_id: string
   project_id: string | null
   project_name: string | null

@@ -1,4 +1,6 @@
 import { interactionMode } from './interaction-mode'
+import { rememberLeadNurture, nurtureWithCommercialProfile } from './lead-nurture-state'
+import { rememberPipelineAvailability } from './lead-pipeline-receipts'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJourney, purchaseReadiness, commercialJourneyPlan } from './commercial-journey'
@@ -635,6 +637,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor'),
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
   const interaction = interactionMode(previousSummary._interaction_mode || object(previousSummary._sales_memory).interaction_mode, turnSemantics)
+  const nurtureState = rememberLeadNurture(nurtureWithCommercialProfile(previousSummary._lead_nurture, context.ficha_comercial),
+    turnSemantics.nurture_request, current, activeLast.sentAt)
+  if (nurtureState.active === true) {
+    interaction.mode = 'information_only'
+    interaction.evidence = nurtureState.evidence
+  }
   const informationalOnly = interaction.mode === 'information_only'
   const currentFinancialRequest = turnSemantics.primary_intent === 'ask_financing'
     || interpretation.requests.some(request => request.domain === 'financing' && acceptedExtractorConfidence(request.confidence))
@@ -658,6 +666,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     ? { ...extracted, preferred_category: null, purchase_purpose: null } : extracted, unresolvedPropertyScope ? {} : turnSemantics),
     _turn_intent: turnIntent,
     _interaction_mode: interaction,
+    _lead_nurture: nurtureState,
+    _lead_pipeline_events: rememberPipelineAvailability(previousSummary._lead_pipeline_events, interpretation.requests, current, activeLast.externalId, activeLast.sentAt),
     _unit_reference: minimalTurn || unresolvedPropertyScope ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn || unresolvedPropertyScope ? previousPropertyContext : reference.context }
   const declaredProfile = object(extracted.lead_profile)

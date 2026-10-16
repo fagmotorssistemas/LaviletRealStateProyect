@@ -1,7 +1,8 @@
 ﻿'use client'
 
 import { Suspense } from 'react'
-import { Activity, ArrowRight, BellRing, Inbox, RefreshCw } from 'lucide-react'
+import Link from 'next/link'
+import { Activity, ArrowRight, BellRing, Columns3, Inbox, RefreshCw } from 'lucide-react'
 import { useLeadAutomationDashboard } from '@/hooks/inmobiliaria/useLeadAutomationDashboard'
 import { useVisitInboxContext } from '@/contexts/VisitInboxContext'
 import { AutomationKpiCards } from '@/components/inmobiliaria/automation/AutomationKpiCards'
@@ -38,6 +39,7 @@ function AutomationDashboard() {
       <div className={styles.headerActions}>
         <AutomationSectionTabs active="monitoreo" attentionCount={attentionRows.filter(row => row.handoff_status !== 'resolved').length} />
         <div className={styles.actions}>
+          <Link href="/inmobiliaria/leads" className={styles.action}><Columns3 size={14} />Embudo de leads</Link>
           <button type="button" className={styles.action} disabled={isLoading || inbox.loading} onClick={refresh}><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />Actualizar</button>
           <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => inbox.openInbox()}><Inbox size={14} />Bandeja de citas{inbox.ready ? ` (${inbox.pending.length})` : ''}</button>
         </div>

@@ -72,7 +72,7 @@ export function leadProfileCard(lead: Data, summary: Data, financing: Data, unit
         ['Aporte revisado', money(review.own_funds)], ['Financiamiento revisado', money(review.financing_amount)],
       ]) },
       { title: 'Seguimiento', fields: fields([
-        ['Etapa actual', statuses[str(state.stage)] || 'Sin siguiente paso registrado'], ['Siguiente paso', state.next_step],
+        ['Próxima acción del bot', statuses[str(state.stage)] || 'Sin siguiente paso registrado'], ['Detalle del siguiente paso', state.next_step],
         ['Reserva de la unidad elegida', (Array.isArray(state.reservation_declined_ids) ? state.reservation_declined_ids : []).includes(selectedIds[0]) ? 'No desea avanzar por ahora' : (Array.isArray(state.reservation_offered_ids) ? state.reservation_offered_ids : []).includes(selectedIds[0]) ? 'Ofrecida' : 'No ofrecida'],
         ['Visita', state.visit_declined === true || row(summary._sales_memory).visit_declined === true ? 'Declinada por ahora' : state.visit_offered === true || row(summary._sales_memory).visit_invited === true ? 'Ofrecida; consulte la pestaña Visitas para el estado de la cita' : 'No ofrecida'],
       ]) },

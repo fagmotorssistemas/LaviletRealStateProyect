@@ -2,8 +2,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createClient } from '@supabase/supabase-js'
 import { getLeadAutomationDetail, getLeadNutritionJobs } from './leadAutomation.service'
+import * as pipelineActions from '@/app/inmobiliaria/leads/pipeline-actions'
+import { projectLeadPipeline } from '@/lib/inmobiliaria/leadPipeline'
 
 test('lead detail loads its selected unit and distinguishes unavailable follow-ups from an empty list', async t => {
+  t.mock.method(pipelineActions, 'readLeadPipelineSnapshotsAction', async (ids: string[]) => {
+    assert.deepEqual(ids, ['lead-a'])
+    return { ok: true as const, data: [{ leadId: 'lead-a', pipeline: projectLeadPipeline({ lead: { id: 'lead-a', name: 'Carlos' } }) }] }
+  })
   t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 500 }))
   const urls: URL[] = []
   const client = createClient('https://example.supabase.co', 'test-key', {
@@ -34,6 +40,8 @@ test('lead detail loads its selected unit and distinguishes unavailable follow-u
     } },
   })
   const detail = await getLeadAutomationDetail(client, 'lead-a', ['tenant-a'])
+  assert.equal(detail.row.stage, 'nuevo')
+  assert.equal(detail.row.pipeline?.stage, detail.row.stage)
   assert.equal(detail.profileCard?.selectedUnitNumber, '502')
   assert.equal(detail.profileCard?.financingAccepted, true)
   assert.ok(detail.profileCard?.groups.flatMap(group => group.fields).some(field => field.value === 'Cooperativa JEP'))

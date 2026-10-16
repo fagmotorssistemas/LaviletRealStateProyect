@@ -4,12 +4,12 @@ export const REQUEST_TOPICS = [
   'construction_status', 'delivery', 'spatial_fit', 'accessibility',
   'property_features', 'property_options', 'financing', 'visualization',
   'cash_payment', 'credit_approval', 'financing_process', 'monthly_payment',
-  'common_area_access', 'value_objection',
+  'common_area_access', 'value_objection', 'availability',
 ] as const
 export type RequestTopic = typeof REQUEST_TOPICS[number]
 export const COMMON_AREA_REQUEST_RULES = 'common_area_access identifica quién puede acceder a instalaciones comunes y si se cobra por ese acceso: piscina, gimnasio, jardines u otros espacios comunes. «Vi en el brochure esos espacios, ¿debo pagar más para acceder?» no solicita precio de compra, no redefine presupuesto ni entrada y no solicita reenviar el brochure. Use common_area_access sin purchase_price para esa duda; agregue purchase_price solo si además consulta expresamente el precio de la vivienda. Mantenga el catálogo de inmuebles y sus restricciones sin iniciar una búsqueda o selección por esa consulta.'
 export const FINANCING_REQUEST_TOPICS_RULES = 'Distinga en topics cash_payment (condiciones o comparación del pago al contado), credit_approval (si obtendría aprobación), financing_process (cómo funciona el procedimiento) y monthly_payment (consulta sobre cuota mensual). Añada financing cuando corresponda. Preguntar por contado no elige esa modalidad, ni rechaza financiamiento ya aceptado. No añada monthly_payment a una pregunta sobre aprobación. Una aceptación seguida de «pero cómo funciona» conserva answer_to_previous=affirmative si acepta continuar y solo añade una duda; «solo si me aprueban» sigue siendo una condición, nunca consentimiento.'
-export const REQUEST_TOPICS_SCHEMA = { type: 'array', items: { type: 'string', enum: [...REQUEST_TOPICS] } }
+export const REQUEST_TOPICS_SCHEMA = { type: 'array', description: 'availability indica que consulta disponibilidad de inmuebles; no equivale a elegir una unidad, declarar presupuesto o autorizar trámites. Use property como dominio para esta consulta.', items: { type: 'string', enum: [...REQUEST_TOPICS] } }
 
 /** Missing topics in historical extractions remain missing, not an assertion of absence. */
 export function normalizedRequestTopics(value: unknown): RequestTopic[] | undefined {

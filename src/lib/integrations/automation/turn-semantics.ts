@@ -1,4 +1,5 @@
 import { INTERACTION_GOAL_SCHEMA, INTERACTION_GOAL_RULES, normalizedInteractionGoal } from './interaction-mode'
+import { LEAD_NURTURE_SCHEMA, LEAD_NURTURE_EXTRACTION_RULES, normalizedNurtureRequest } from './lead-nurture-state'
 import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { object, text, type Row } from './data'
@@ -80,6 +81,7 @@ const housingQuantityBases = new Set(['total', 'excluding_speaker', 'unspecified
 export const TURN_SEMANTICS_SCHEMA = strictObject({
   primary_intent: enumSchema(primaryIntents), primary_evidence: { type: 'string' }, confidence: confidenceSchema,
   interaction_goal: INTERACTION_GOAL_SCHEMA,
+  nurture_request: LEAD_NURTURE_SCHEMA,
   discount_request: DISCOUNT_REQUEST_SCHEMA,
   selection_preferences: SELECTION_PREFERENCES_SCHEMA,
   housing_quantities: { type: 'array', description: 'Solo cantidades declaradas o evaluadas en mensaje_actual; [] si no hay. Nunca copie cantidades del catálogo, de una pregunta previa ni del historial. No cree elementos vacíos.', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
@@ -210,7 +212,7 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
 
 export const RELATIVE_PROPERTY_CHOICE_RULE = 'Una elección relativa actual, como «prefiero el que tiene más baños», puede identificar en unit_numbers la única unidad que cumple esa referencia entre las opciones ofrecidas, aunque no escriba su código. Use operation=select, reference_kind=relative y evidencia literal de la elección. Si hay empate o falta el atributo, no elija ni invente un código. Preguntar cuál tiene más baños es información, no selección. Conserve la elección aunque el mismo grupo también pregunte el precio o añada comentarios; elegir categoría conserva las necesidades ya aceptadas.'
 
-export const TURN_SEMANTIC_EXTRACTION_RULES = INTERACTION_GOAL_RULES + `
+export const TURN_SEMANTIC_EXTRACTION_RULES = INTERACTION_GOAL_RULES + '\n' + LEAD_NURTURE_EXTRACTION_RULES + `
 ${RELATIVE_PROPERTY_CHOICE_RULE}
 ${DISCOUNT_REQUEST_EXTRACTION_RULES}
 ${SELECTION_PREFERENCES_RULES}
@@ -640,6 +642,7 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     confidence: primaryIntent === 'other' ? 'low' : reservationIntent ? reservation.confidence : data.confidence,
     reservation,
     interaction_goal: normalizedInteractionGoal(data.interaction_goal, current),
+    ...(data.nurture_request !== undefined ? { nurture_request: normalizedNurtureRequest(data.nurture_request, current) } : {}),
     selection_preferences: normalizedSelectionPreferences(data.selection_preferences, current),
     ...(data.discount_request !== undefined ? { discount_request: normalizedDiscountRequest(data.discount_request, current) } : {}),
     ...(hasQuantityContract ? { housing_quantities: housingQuantities, household: householdFromQuantities(housingQuantities) } : {}),

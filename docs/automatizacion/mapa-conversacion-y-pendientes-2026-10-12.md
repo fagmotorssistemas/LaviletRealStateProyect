@@ -663,3 +663,47 @@ Los enlaces a galerías ya implementados se conservan. El envío dinámico de re
 La consulta de solo lectura a la cuenta devolvió HTTP 403, `Feature not available for current account`, al consultar el historial externo de una conversación. El token declara ámbitos de mensajes externos, pero eso no acredita que la función esté disponible para la cuenta. Se necesita resolver esa disponibilidad antes de integrar y verificar el envío. No se activaron complementos, subieron archivos, crearon llamadas de envío ni modificaron Salesbots. No se certificó el plan o costo aplicable a la cuenta.
 
 Pendientes de este trabajo: despliegue y comprobación del texto generado en ejecución real; habilitación efectiva de la capacidad de adjuntos e integración posterior. Retoma, primer mensaje del showroom y cambios de seguimiento conservan su definición anterior y no se implementan en este cambio.
+
+## Embudo y ficha comercial: implementación local — 15 de octubre
+
+La autorización posterior «bien aplica estos cambios» incorpora el tablero dentro de Leads y su conexión con Monitoreo. Esta definición sustituye las propuestas anteriores de etapas y la interpretación de nutrición desde el primer contacto. No modifica las columnas de Kommo.
+
+### Etapas y señales independientes
+
+| Etapa canónica | Criterio |
+| --- | --- |
+| Nuevo / Por atender | No se acredita atención en las fuentes disponibles. Las fuentes fallidas se señalan; no se consideran ausencia demostrada. |
+| Contacto inicial | Existe respuesta registrada del bot o del asesor. Se consulta también evidencia de sincronización de WhatsApp para no omitir atención humana. |
+| Necesidad identificada | Declaración aceptada y respaldada de necesidad o señal de necesidad registrada. Navegación y preferencias predeterminadas del showroom no cuentan. |
+| Interés comercial | Consulta de precio, disponibilidad, financiamiento, reserva informativa, gestión de cita o selección expresa. No demuestra solvencia ni consentimiento para trámites. |
+| Proceso de reserva | Solicitud operacional con unidad, evidencia y mensaje de origen. Una pregunta sobre cómo reservar no basta. |
+| Venta cerrada | Cierre real de `unit_sales_closings` vinculado al lead y unidad. Un estado manual vendido, una puntuación alta o un inmueble vendido a otro contacto no bastan. |
+
+Se permiten saltos y se conserva el avance al volver a consultas generales o ante silencio. La nutrición no es una columna: activa/no activa, con interés futuro expreso, motivo, plazo o condición y acuerdo de contacto. El extractor conserva citas literales y confianza aceptada; las consultas ordinarias mantienen la pausa y una petición expresa de avanzar ahora puede terminarla. Se puede completar o corregir la ficha manualmente con auditoría. La memoria nueva y los cambios manuales se concilian por fecha.
+
+Mientras la nutrición está activa, la atención continúa en modo informativo; no se reactivan capturas comerciales por rutina. Las gestiones expresamente solicitadas conservan sus rutas. La definición no cambia por sí sola el calendario de seguimientos ni crea contactos proactivos. La retoma futura anotada requiere una gestión o tarea real para convertirse en un envío programado.
+
+Las citas se muestran por separado: solicitada, en coordinación, confirmada, realizada o cancelada. Una fecha propuesta no equivale a confirmación. Nutrición, atención, próxima acción y cierre sin venta son campos separados de la etapa; el silencio no cierra la oportunidad.
+
+### Ubicación y datos
+
+- `/inmobiliaria/leads`: Lista y Embudo comparten tarjetas, filtros y clasificación. Cada columna tiene contador completo y paginación propia; no se agrupa únicamente una página de 25. Filtros de etapa, nutrición, citas, resultado, responsable, temperatura y fechas. Actualización manual y cada treinta segundos mientras la vista está visible.
+- Ficha del lead: pestaña comercial predeterminada con resumen, identificación, origen, necesidades, preferencias, unidad elegida, alternativas, roles monetarios, propósito actual, pendientes, citas, estado financiero, solicitudes de reserva, showroom, seguimiento real, evidencia e historial. Las pestañas anteriores de conversación, Agenda, Showroom y recorrido se conservan. El estado CRM antiguo queda identificado como histórico y de lectura.
+- Datos financieros: nombre legal, documento enmascarado y datos económicos solo se presentan con aceptación registrada y permiso de acceso a financiamiento. La consulta de precios o cuotas no activa esa recopilación.
+- `/inmobiliaria/automatizacion`: lista, detalle, cola de atención y recuentos por etapa usan `projectLeadPipeline`, igual que Leads. Los filtros se aplican antes de paginar todos los resultados autorizados; una falla de proyección no presenta la etiqueta antigua como actual.
+
+La ficha se completa progresivamente; campos no conocidos no se convierten en requisitos para responder. La próxima acción manual se identifica como anotación. «Programado» requiere un evento de seguimiento real pendiente. Se conserva la distinción entre unidad vista, ofrecida, comparada y elegida.
+
+### Persistencia, permisos e historial
+
+La migración `supabase/migrations/20261015210000_lead_commercial_pipeline.sql` crea `lead_commercial_profiles`, su historial de cambios y `lead_commercial_stage_observations`. Escritura de ficha mediante RPC auditada, con rol activo, alcance de tenant/proyecto y restricción al responsable o contactos sin asignar para asesores; administradores autorizados pueden gestionar el conjunto. La lectura compartida del proyecto no otorga escritura sobre otro asesor.
+
+La etapa se calcula mediante una proyección común de hechos, sin reutilizar la antigua etiqueta `leads.stage` como prueba. El servidor puede registrar una observación de etapa con service role únicamente después de comprobar las filas visibles mediante la sesión/RLS y con fuentes completas. La primera observación tiene origen nulo y fecha de observación actual; la fecha de la evidencia se guarda aparte. No se inventan transiciones históricas para contactos antiguos. Las observaciones iguales no se duplican y el RPC por lotes limita a 200, serializando cambios por lead.
+
+Se alinea la antigua promoción SQL: preguntar por reservas no pasa a reserva/venta y estar caliente no basta para avanzar etapa. Se conservan puntuación, idempotencia e indicaciones de traspaso. No se traducen masivamente las etiquetas antiguas a las nuevas.
+
+### Verificación y despliegue
+
+Pasaron las comprobaciones locales de etapas, nutrición, permisos y auditoría SQL, disponibilidad, paginación, acciones del servidor y contratos de esquema. La migración se ejecutó en PGlite con aislamiento, nunca contra la base productiva. También se verificaron los componentes reales en Chromium con fuentes simuladas: escritorio, móvil, filtros, apertura de ficha, validación, guardado, permisos de solo lectura y errores recuperables. TypeScript, ESLint y compilación de producción se comprobaron localmente; la compilación emitió el aviso existente de carga de contactos de prueba sin sesión, sin impedir terminar.
+
+Pendiente para producción: aplicar la migración y desplegar frontend/ejecutor conjuntamente; comprobar con contactos autorizados el guardado, la lectura de fuentes y las clasificaciones reales. Sin la migración, la aplicación señala la falta de persistencia y no anuncia que una ficha se guardó. No se enviaron mensajes a leads ni se crearon citas, reservas o ventas durante esta implementación. Las simulaciones amplias y los otros pendientes comerciales conservan su alcance anterior.

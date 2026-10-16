@@ -6,6 +6,7 @@ import type {
   LeadSlaStatus,
   MessageRow,
 } from '@/types/leadAutomation'
+import { LEAD_PIPELINE_STAGE_OPTIONS } from '@/types/leadPipeline'
 
 export { computeSlaStatus, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/slaStatus'
 
@@ -39,13 +40,7 @@ export const EMPTY_AUTOMATION_FILTERS: LeadAutomationFilters = {
   sla: '',
 }
 
-export const LEAD_STAGE_OPTIONS = [
-  { value: 'lanzamiento', label: 'Lanzamiento' },
-  { value: 'precalificacion', label: 'Precalificación' },
-  { value: 'nutricion', label: 'Nutrición' },
-  { value: 'preventa', label: 'Preventa' },
-  { value: 'reserva_venta', label: 'Reserva / venta' },
-]
+export const LEAD_STAGE_OPTIONS = [...LEAD_PIPELINE_STAGE_OPTIONS]
 
 export const HANDOFF_STATUS_OPTIONS = [
   { value: 'none', label: 'Sin traspaso' },
@@ -86,7 +81,9 @@ export function sourceLabel(source: string | null | undefined): string {
 }
 
 export function stageLabel(stage: string | null | undefined): string {
-  return LEAD_STAGE_OPTIONS.find((option) => option.value === stage)?.label ?? stage?.replace(/_/g, ' ') ?? '—'
+  const historical: Record<string, string> = { lanzamiento: 'Lanzamiento (histórico)', precalificacion: 'Precalificación (histórico)',
+    nutricion: 'Nutrición (etiqueta histórica)', preventa: 'Preventa (histórico)', reserva_venta: 'Reserva / venta (histórico)' }
+  return LEAD_STAGE_OPTIONS.find((option) => option.value === stage)?.label ?? historical[stage || ''] ?? stage?.replace(/_/g, ' ') ?? '—'
 }
 
 export function handoffLabel(status: string | null | undefined): string {

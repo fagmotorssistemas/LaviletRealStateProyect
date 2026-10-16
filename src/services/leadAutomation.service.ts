@@ -18,6 +18,8 @@ import type {
 } from '@/types/leadAutomation'
 import { buildAutomationTimeline, EMPTY_AUTOMATION_KPIS, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/leadAutomation'
 import { leadProfileCard, parseLeadSummary } from '@/lib/inmobiliaria/leadProfileCard'
+import { readLeadPipelineSnapshotsAction } from '@/app/inmobiliaria/leads/pipeline-actions'
+import { LEAD_PIPELINE_STAGE_OPTIONS } from '@/types/leadPipeline'
 
 const VIEW = 'vw_lead_automation_dashboard'
 
@@ -28,13 +30,14 @@ function applyDashboardFilters(
   tenantIds: string[],
   filters: LeadAutomationFilters,
 ) {
-  const range = toInclusiveRange(filters.from, filters.to)
+  const range = toInclusiveRange(filters.from.includes('T') ? '' : filters.from, filters.to.includes('T') ? '' : filters.to)
+  if (filters.from.includes('T')) range.from = filters.from
+  if (filters.to.includes('T')) range.to = filters.to
   let next = query.in('tenant_id', tenantIds)
   if (filters.projectId) next = next.eq('project_id', filters.projectId)
   if (range.from) next = next.gte('created_at', range.from)
   if (range.to) next = next.lte('created_at', range.to)
   if (filters.source) next = next.eq('source', filters.source)
-  if (filters.stage) next = next.eq('stage', filters.stage)
   if (filters.temperature === 'tibio_caliente') next = next.in('temperature', ['tibio', 'caliente'])
   else if (filters.temperature) next = next.eq('temperature', filters.temperature)
   if (filters.assignedTo === UNASSIGNED_ASSIGNEE) next = next.is('assigned_to', null)
@@ -60,6 +63,41 @@ function applyDashboardFilters(
   return next
 }
 
+async function withCommercialPipeline(rows: LeadAutomationRow[]): Promise<LeadAutomationRow[]> {
+  if (!rows.length) return []
+  const ids = [...new Set(rows.map(row => row.lead_id))]
+  const snapshots = new Map<string, NonNullable<LeadAutomationRow['pipeline']>>()
+  for (let from = 0; from < ids.length; from += 200) {
+    const response = await readLeadPipelineSnapshotsAction(ids.slice(from, from + 200))
+    if (!response.ok) throw new Error(response.error)
+    for (const item of response.data) snapshots.set(item.leadId, item.pipeline)
+  }
+  return rows.map(row => {
+    const pipeline = snapshots.get(row.lead_id)
+    if (!pipeline) throw new Error('No se pudo verificar la etapa comercial de uno de los leads. Actualice el monitoreo.')
+    return { ...row, pipeline, stage: pipeline.stage, stage_reason: pipeline.stageReason,
+      stage_changed_at: pipeline.stageChangedAt, last_stage_reason: pipeline.stageReason,
+      last_interaction_at: pipeline.lastActivityAt || row.last_interaction_at }
+  })
+}
+
+/** Read every authorized result before applying a projected commercial-stage filter. */
+async function readDashboardRows(supabase: SupabaseClient, tenantIds: string[], filters: LeadAutomationFilters) {
+  const rows: LeadAutomationRow[] = []
+  const batchSize = 500
+  for (let from = 0; ; from += batchSize) {
+    const query = supabase.from(VIEW).select('*')
+      .order('last_interaction_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false }).order('lead_id', { ascending: true })
+    const result = await applyDashboardFilters(query, tenantIds, filters).range(from, from + batchSize - 1)
+    if (result.error) throw result.error
+    const batch = (result.data ?? []) as LeadAutomationRow[]
+    rows.push(...batch)
+    if (batch.length < batchSize) break
+  }
+  return withCommercialPipeline(rows)
+}
+
 export async function listLeadAutomationDashboard(
   supabase: SupabaseClient,
   params: {
@@ -70,23 +108,14 @@ export async function listLeadAutomationDashboard(
     pageSize?: number
   },
 ) {
-  const page = params.page ?? 1
-  const pageSize = params.pageSize ?? 25
+  const page = Math.max(1, params.page ?? 1)
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25))
   const from = (page - 1) * pageSize
-  const to = from + pageSize - 1
   const tenantIds = params.tenantIds?.length ? params.tenantIds : [params.tenantId]
 
-  let query = supabase
-    .from(VIEW)
-    .select('*', { count: 'exact' })
-    .order('last_interaction_at', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-
-  query = applyDashboardFilters(query, tenantIds, params.filters)
-
-  const { data, error, count } = await query.range(from, to)
-  if (error) throw error
-  const dashboardRows = (data ?? []) as Omit<LeadAutomationRow, 'interest_unit_number'>[]
+  const projectedRows = await readDashboardRows(supabase, tenantIds, params.filters)
+  const filteredRows = params.filters.stage ? projectedRows.filter(row => row.stage === params.filters.stage) : projectedRows
+  const dashboardRows = filteredRows.slice(from, from + pageSize)
   const leadIds = dashboardRows.map(row => row.lead_id)
   const interestNumbers = new Map<string, string>()
   if (leadIds.length) {
@@ -109,7 +138,7 @@ export async function listLeadAutomationDashboard(
   }
   return {
     data: dashboardRows.map(row => ({ ...row, interest_unit_number: interestNumbers.get(row.lead_id) ?? null })),
-    total: count ?? 0,
+    total: filteredRows.length,
   }
 }
 
@@ -127,7 +156,7 @@ export async function listLeadAttentionQueue(
     .limit(150)
   if (error) throw error
 
-  const rows = (data ?? []) as LeadAutomationRow[]
+  const rows = await withCommercialPipeline((data ?? []) as LeadAutomationRow[])
   const conversationIds = [...new Set(rows.map((row) => row.latest_conversation_id).filter((id): id is string => Boolean(id)))]
   if (!conversationIds.length) return rows.map((row) => ({ ...row, last_customer_message: null, last_customer_message_at: null }))
 
@@ -161,7 +190,7 @@ export async function listLeadAttentionQueue(
 
 export async function getLeadAutomationKpis(
   supabase: SupabaseClient,
-  params: { tenantId: string; projectId?: string; from?: string; to?: string },
+  params: { tenantId: string; tenantIds?: string[]; projectId?: string; from?: string; to?: string },
 ): Promise<LeadAutomationKpis> {
   const { data, error } = await supabase.rpc('get_lead_automation_kpis', {
     p_tenant_id: params.tenantId,
@@ -170,12 +199,16 @@ export async function getLeadAutomationKpis(
     p_to: params.to ?? null,
   })
   if (error) throw error
+  const stageRows = await readDashboardRows(supabase, params.tenantIds?.length ? params.tenantIds : [params.tenantId], {
+    search: '', from: params.from || '', to: params.to || '', projectId: params.projectId || '',
+    source: '', stage: '', temperature: '', assignedTo: '', handoff: '', bot: '', sla: '',
+  })
   const payload = (data ?? {}) as Partial<LeadAutomationKpis>
   return {
     ...EMPTY_AUTOMATION_KPIS,
     ...payload,
     leads_by_source: payload.leads_by_source ?? [],
-    leads_by_stage: payload.leads_by_stage ?? [],
+    leads_by_stage: LEAD_PIPELINE_STAGE_OPTIONS.map(stage => ({ stage: stage.value, count: stageRows.filter(row => row.stage === stage.value).length })),
   }
 }
 
@@ -192,7 +225,7 @@ export async function getLeadAutomationRow(
     .maybeSingle()
   if (error) throw error
   if (!data) throw new Error('Lead no encontrado')
-  return data as LeadAutomationRow
+  return (await withCommercialPipeline([data as LeadAutomationRow]))[0]
 }
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
