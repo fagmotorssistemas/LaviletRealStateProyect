@@ -11,6 +11,14 @@ export const LEAD_PIPELINE_STAGE_OPTIONS = [
 export type LeadPipelineStage = typeof LEAD_PIPELINE_STAGE_OPTIONS[number]['value']
 export type LeadPipelineSourceRow = Record<string, unknown>
 export type LeadPipelineCoverage = Record<string, boolean>
+export interface LeadPipelineIssue {
+  source: string
+  label: string
+  category: 'schema' | 'permission' | 'temporary' | 'configuration' | 'unknown'
+  code: string | null
+  reference: string
+  message: string
+}
 export interface LeadPipelineEvidence {
   source: string
   sourceId: string | null
@@ -31,6 +39,8 @@ export interface LeadPipelineSnapshot {
   stageChangedAt: string | null
   evidence: LeadPipelineEvidence[]
   nutritionActive: boolean
+  nutritionKnown?: boolean
+  stageProvisional?: boolean
   nutritionReason: string | null
   purchaseHorizon: string | null
   resumeAt: string | null
@@ -52,6 +62,7 @@ export interface LeadPipelineSnapshot {
   history: LeadPipelineHistoryEntry[]
   coverage: LeadPipelineCoverage
   warnings: string[]
+  issues?: LeadPipelineIssue[]
 }
 
 export interface LeadPipelineInput {
@@ -68,4 +79,5 @@ export interface LeadPipelineInput {
   history?: LeadPipelineSourceRow[]
   coverage?: LeadPipelineCoverage
   warnings?: string[]
+  issues?: LeadPipelineIssue[]
 }

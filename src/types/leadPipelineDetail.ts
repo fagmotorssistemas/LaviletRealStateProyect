@@ -1,5 +1,7 @@
 import type { LeadCardGroup } from '@/lib/inmobiliaria/leadProfileCard'
 import type { LeadPipelineSnapshot } from '@/types/leadPipeline'
+import type { LeadPipelineIssue } from '@/types/leadPipeline'
+import type { LeadProfileCardData } from '@/lib/inmobiliaria/leadProfileCard'
 
 export interface LeadPipelineDetail {
   pipeline: LeadPipelineSnapshot
@@ -29,8 +31,11 @@ export interface LeadPipelineDetail {
     toStage: string | null
   }[]
   metadataAvailable: boolean
+  canEdit?: boolean
+  financialReview?: LeadProfileCardData
   metadata: LeadPipelineMetadataInput
   warnings: string[]
+  issues?: LeadPipelineIssue[]
 }
 
 export type LeadPipelineDetailResult = { ok: true; data: LeadPipelineDetail } | { ok: false; error: string }

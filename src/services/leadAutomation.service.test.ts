@@ -6,6 +6,15 @@ import * as pipelineActions from '@/app/inmobiliaria/leads/pipeline-actions'
 import { projectLeadPipeline } from '@/lib/inmobiliaria/leadPipeline'
 
 test('lead detail loads its selected unit and distinguishes unavailable follow-ups from an empty list', async t => {
+  const pipeline = projectLeadPipeline({ lead: { id: 'lead-a' }, scoreEvents: [{ event_type: 'asked_price' }],
+    conversation: { summary: { _property_context: { selected_ids: ['unit-502'] } } }, units: [{ id: 'unit-502', unit_number: '502' }],
+    history: [{ id: 'history', to_stage: 'interes_comercial', reason: 'Consulta de precio', observed_at: '2026-10-15T10:00:00Z' }] })
+  t.mock.method(pipelineActions, 'getLeadPipelineDetailAction', async () => ({ ok: true as const, data: {
+    pipeline, groups: [{ title: 'Financiamiento', fields: [{ label: 'Entidad', value: 'Cooperativa JEP' }] }], appointments: [], reservations: [],
+    financing: { accepted: true, partner: 'Cooperativa JEP', status: null }, jobs: [], history: [], metadataAvailable: true, warnings: [],
+    metadata: { leadId: 'lead-a', nutritionActive: false, nutritionReason: '', purchaseHorizon: '', nutritionEvidence: '', contactConsent: false,
+      resumeAt: null, nextAction: '', nextActionAt: null, opportunityStatus: 'open' as const, closureReason: '' },
+  } }))
   t.mock.method(pipelineActions, 'readLeadPipelineSnapshotsAction', async (ids: string[]) => {
     assert.deepEqual(ids, ['lead-a'])
     return { ok: true as const, data: [{ leadId: 'lead-a', pipeline: projectLeadPipeline({ lead: { id: 'lead-a', name: 'Carlos' } }) }] }
@@ -17,6 +26,8 @@ test('lead detail loads its selected unit and distinguishes unavailable follow-u
     global: { fetch: async input => {
       const url = new URL(String(input)); urls.push(url)
       const table = url.pathname.split('/').at(-1)
+      assert.notEqual(table, 'financing_prequalifications', 'The browser detail must use the shared server profile and its financial permissions.')
+      assert.notEqual(table, 'lead_stage_history', 'Legacy bot stages must not become the commercial history.')
       let data: unknown = [], status = 200
       if (table === 'vw_lead_automation_dashboard') data = { lead_id: 'lead-a', tenant_id: 'tenant-a', project_id: 'project-a' }
       if (table === 'leads') {
@@ -40,14 +51,15 @@ test('lead detail loads its selected unit and distinguishes unavailable follow-u
     } },
   })
   const detail = await getLeadAutomationDetail(client, 'lead-a', ['tenant-a'])
-  assert.equal(detail.row.stage, 'nuevo')
+  assert.equal(detail.row.stage, 'interes_comercial')
   assert.equal(detail.row.pipeline?.stage, detail.row.stage)
-  assert.equal(detail.profileCard?.selectedUnitNumber, '502')
-  assert.equal(detail.profileCard?.financingAccepted, true)
-  assert.ok(detail.profileCard?.groups.flatMap(group => group.fields).some(field => field.value === 'Cooperativa JEP'))
+  assert.equal(detail.commercialProfile?.pipeline.selectedUnitNumber, '502')
+  assert.equal(detail.commercialProfile?.financing.accepted, true)
+  assert.ok(detail.commercialProfile?.groups.flatMap(group => group.fields).some(field => field.value === 'Cooperativa JEP'))
+  assert.equal(detail.stageHistory[0]?.to_stage, 'interes_comercial')
   assert.deepEqual(detail.nutritionJobs, [])
   assert.equal(detail.nutritionJobsUnavailable, true)
-  assert.ok(urls.some(url => url.pathname.endsWith('/leads')))
+  assert.ok(urls.some(url => url.pathname.endsWith('/conversations')))
 })
 
 test('follow-ups load through the authenticated endpoint, including a legitimate empty result', async t => {

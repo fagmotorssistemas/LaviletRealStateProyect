@@ -11,14 +11,12 @@ import type {
   LeadInterestUnitRow,
   LeadNutritionJob,
   LeadScoreEventRow,
-  LeadStageHistoryRow,
   LeadTemperatureHistoryRow,
   LeadVisitRow,
   MessageRow,
 } from '@/types/leadAutomation'
 import { buildAutomationTimeline, EMPTY_AUTOMATION_KPIS, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/leadAutomation'
-import { leadProfileCard, parseLeadSummary } from '@/lib/inmobiliaria/leadProfileCard'
-import { readLeadPipelineSnapshotsAction } from '@/app/inmobiliaria/leads/pipeline-actions'
+import { getLeadPipelineDetailAction, readLeadPipelineSnapshotsAction } from '@/app/inmobiliaria/leads/pipeline-actions'
 import { LEAD_PIPELINE_STAGE_OPTIONS } from '@/types/leadPipeline'
 
 const VIEW = 'vw_lead_automation_dashboard'
@@ -256,17 +254,14 @@ export async function getLeadAutomationDetail(
     conversationsRes,
     scoreRes,
     tempRes,
-    stageRes,
     unitsRes,
     visitsRes,
     nutritionJobsRes,
-    profileRes,
-    financingRes,
+    commercialRes,
   ] = await Promise.all([
-    supabase.from('conversations').select('*').eq('lead_id', leadId).order('started_at', { ascending: false }),
+    supabase.from('conversations').select('id,lead_id,channel,status,started_at,last_message_at,closed_at').eq('lead_id', leadId).order('started_at', { ascending: false }),
     supabase.from('lead_score_events').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
     supabase.from('lead_temperature_history').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
-    supabase.from('lead_stage_history').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
     supabase
       .from('lead_units')
       .select('lead_id, unit_id, interest_level, source, rejected, rejection_reason, notes, created_at, unit:units(id, unit_number, category, status, published_commercial_price)')
@@ -279,21 +274,15 @@ export async function getLeadAutomationDetail(
       .in('tenant_id', tenantIds)
       .order('requested_at', { ascending: false }),
     getLeadNutritionJobs(leadId),
-    supabase.from('leads').select('name,phone,email,budget,budget_max,preferred_bedrooms,preferred_category,purchase_purpose,behavior_signals,updated_at')
-      .eq('id', leadId).in('tenant_id', tenantIds).single(),
-    supabase.from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,legal_name,legal_name_confirmed,national_id,applicant_type,employment_stability_months,job_title,monthly_income')
-      .eq('lead_id', leadId).in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(1),
+    getLeadPipelineDetailAction(leadId),
   ])
 
   const firstError = [
     conversationsRes.error,
     scoreRes.error,
     tempRes.error,
-    stageRes.error,
     unitsRes.error,
     visitsRes.error,
-    profileRes.error,
-    financingRes.error,
   ].find(Boolean)
   if (firstError) throw firstError
 
@@ -306,7 +295,7 @@ export async function getLeadAutomationDetail(
   let escalations: BotEscalationRow[] = []
   if (conversationIds.length) {
     const [messagesRes, escalationsRes] = await Promise.all([
-      supabase.from('messages').select('id, conversation_id, role, content, media_url, sent_at').in('conversation_id', conversationIds).order('sent_at', { ascending: true }),
+      supabase.from('messages').select('id, conversation_id, role, content, media_url, sent_at, external_message_id, delivery_status:tool_calls->>delivery_status, provider_status:tool_calls->>provider_status').in('conversation_id', conversationIds).order('sent_at', { ascending: true }),
       supabase.from('bot_escalations').select('*').in('conversation_id', conversationIds).order('escalated_at', { ascending: false }),
     ])
     if (messagesRes.error) throw messagesRes.error
@@ -349,26 +338,22 @@ export async function getLeadAutomationDetail(
     return { ...raw, unit: firstRelation(raw.unit) }
   })
 
-  const summary = parseLeadSummary(conversations[0]?.summary)
-  const property = parseLeadSummary(summary._property_context)
-  const knownUnits = units.flatMap(item => item.unit ? [item.unit] : [])
-  const mentionedIds = [...new Set([property.selected_ids, property.offered_ids, property.comparison_ids].flatMap(value => Array.isArray(value) ? value : [])
-    .filter((value): value is string => typeof value === 'string'))]
-  const missingIds = mentionedIds.filter(id => !knownUnits.some(unit => unit.id === id))
-  if (missingIds.length) {
-    const extra = await supabase.from('units').select('id,unit_number,category,status,published_commercial_price').in('id', missingIds)
-      .in('tenant_id', tenantIds).eq('project_id', row.project_id)
-    if (extra.error) throw extra.error
-    knownUnits.push(...(extra.data || []))
+  const commercialProfile = commercialRes.ok ? commercialRes.data : undefined
+  if (commercialProfile) {
+    row.pipeline = commercialProfile.pipeline
+    row.stage = commercialProfile.pipeline.stage
+    row.stage_reason = commercialProfile.pipeline.stageReason
   }
   const detailWithoutTimeline = {
-    profileCard: leadProfileCard(profileRes.data || {}, summary, financingRes.data?.[0] || {}, knownUnits),
+    commercialProfile,
+    commercialProfileError: commercialRes.ok ? undefined : commercialRes.error,
     row,
     conversations,
     messages,
     scoreEvents: (scoreRes.data ?? []) as LeadScoreEventRow[],
     temperatureHistory: (tempRes.data ?? []) as LeadTemperatureHistoryRow[],
-    stageHistory: (stageRes.data ?? []) as LeadStageHistoryRow[],
+    stageHistory: (commercialProfile?.pipeline.history || []).map((entry, index) => ({ id: `commercial-${index}`, lead_id: leadId,
+      from_stage: entry.from, to_stage: entry.to, reason: entry.reason, created_at: entry.at || '' })),
     units,
     visits,
     nutritionJobs,

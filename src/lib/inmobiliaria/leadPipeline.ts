@@ -22,6 +22,16 @@ export function leadPipelineStageLabel(stage: LeadPipelineStage): string {
   return LEAD_PIPELINE_STAGE_OPTIONS.find(x => x.value === stage)?.label || 'Nuevo / Por atender'
 }
 
+export function selectedUnitDescription(pipeline: LeadPipelineSnapshot): string {
+  return pipeline.selectedUnitNumber ? `Unidad ${pipeline.selectedUnitNumber}` : pipeline.selectedUnitId
+    ? 'Unidad elegida; detalle por verificar' : pipeline.coverage?.conversations === false ? 'Elección por verificar' : 'Sin unidad elegida'
+}
+
+export function nextActionDescription(pipeline: LeadPipelineSnapshot): string {
+  return pipeline.nextAction || (pipeline.coverage?.metadata === false || pipeline.coverage?.jobs === false
+    ? 'Próxima acción por verificar' : 'Sin acción registrada')
+}
+
 function summaryOf(value: unknown): Row {
   if (typeof value !== 'string') return row(value)
   try { return row(JSON.parse(value)) } catch { return {} }
@@ -151,6 +161,8 @@ export function projectLeadPipeline(input: LeadPipelineInput): LeadPipelineSnaps
     stageChangedAt: history.filter(h => h.to === stage).sort((a, b) => time(b.at) - time(a.at))[0]?.at
       || strongest?.at || (stage === 'nuevo' ? stamp(lead.created_at) : null),
     evidence: evidence.map(({ stage: _stage, ...item }) => { void _stage; return item }),
+    stageProvisional: ['conversations', 'messages', 'events', 'appointments', 'reservations', 'sales'].some(key => coverage[key] === false),
+    nutritionKnown: nutritionActive || coverage.metadata !== false && coverage.conversations !== false,
     nutritionActive, nutritionReason: nutritionActive ? nutritionReason : null, purchaseHorizon: purchaseHorizon || null,
     resumeAt: stamp(nutrition.resume_at), resumeCondition: text(nutrition.resume_condition) || null,
     opportunityStatus: won ? 'won' : lost ? 'lost' : 'open', closureReason: lost && !won ? text(metadata.closure_reason) : null,
@@ -159,7 +171,7 @@ export function projectLeadPipeline(input: LeadPipelineInput): LeadPipelineSnaps
     selectedUnitId: unitId, selectedUnitNumber: text(unit?.unit_number) || null, appointment: appointmentView(appointments),
     nextAction, nextActionAt: manualAction ? stamp(metadata.next_action_at) : stamp(job?.available_at),
     nextActionOwnerId: manualAction ? text(metadata.next_action_owner_id || lead.assigned_to) || null : null,
-    nextActionScheduled: !manualAction && !!job, history, coverage, warnings,
+    nextActionScheduled: !manualAction && !!job, history, coverage, warnings, issues: input.issues || [],
   }
 }
 

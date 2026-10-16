@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Building2, CalendarDays, ClipboardList, History, Landmark, Loader2, RefreshCw, Sprout } from 'lucide-react'
 import { getLeadPipelineDetailAction, updateLeadPipelineMetadataAction } from '@/app/inmobiliaria/leads/pipeline-actions'
 import type { LeadPipelineDetail, LeadPipelineMetadataInput } from '@/types/leadPipelineDetail'
@@ -8,6 +8,9 @@ import { LEAD_PIPELINE_STAGE_OPTIONS } from '@/types/leadPipeline'
 import { useRoleAccess } from '@/hooks/useRoleAccess'
 import { datetimeLocalToIso, formatAgendaDateTime, isoToDatetimeLocal } from '@/lib/inmobiliaria/agendaTime'
 import styles from './LeadCommercialProfilePanel.module.css'
+import { LeadPipelineWarnings } from './LeadPipelineWarnings'
+import { LeadProfileCard } from '@/components/inmobiliaria/automation/LeadProfileCard'
+import { nextActionDescription } from '@/lib/inmobiliaria/leadPipeline'
 
 type PanelProps = {
   leadId: string
@@ -15,6 +18,8 @@ type PanelProps = {
   onOpenAgenda?: () => void
   onOpenShowroom?: () => void
   onOpenTour?: () => void
+  initialData?: LeadPipelineDetail
+  onDataChanged?: (data: LeadPipelineDetail) => void
 }
 
 function Section({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
@@ -59,23 +64,24 @@ function ProcessSections({ data, onOpenAgenda, onOpenShowroom, onOpenTour }: { d
         <div className={styles.recordHeading}><h4 className={styles.recordTitle}>{appointment.label}</h4>
           <span className={styles.recordDate}>{appointment.scheduledAt ? formatAgendaDateTime(appointment.scheduledAt) : 'Horario pendiente'}</span></div>
         <p className={styles.detail}>{[appointment.advisor, appointment.location].filter(Boolean).join(' · ') || 'Responsable o lugar por completar'}</p>
-      </div>) : <p className={styles.empty}>No hay citas registradas en esta ficha. Una invitación del bot no confirma una cita.</p>}
+      </div>) : <p className={styles.empty}>{data.pipeline.coverage.appointments === false ? 'No se pudieron comprobar las citas. Reintente la carga.' : 'No hay citas registradas en esta ficha. Una invitación del bot no confirma una cita.'}</p>}
       {onOpenAgenda && <button type="button" className={`${styles.refresh} mt-3`} onClick={onOpenAgenda}>Abrir agenda del lead</button>}
     </Section>
     <Section title="Financiamiento" icon={<Landmark size={15} />}>
-      <Fields values={[
+      {data.pipeline.coverage.financing === false ? <p className={styles.empty}>No se pudo comprobar el estado financiero. Reintente la carga.</p> : <Fields values={[
         ['Aceptación del lead', data.financing.accepted ? 'Aceptó continuar con la orientación financiera' : 'Sin aceptación registrada'],
         ['Entidad', data.financing.partner],
         ['Estado del expediente', data.financing.status ? financeStatuses[data.financing.status] || data.financing.status : 'Sin expediente registrado'],
-      ]} />
+      ]} />}
       <p className={styles.detail}>Consultar cuotas o completar datos no acredita aprobación de crédito. El resultado de una revisión se presenta únicamente cuando está registrado.</p>
+      {data.financialReview && <LeadProfileCard leadId={data.metadata.leadId} data={data.financialReview} showGroups={false} />}
     </Section>
     <Section title="Solicitudes de reserva" icon={<Building2 size={15} />}>
       {data.reservations.length ? data.reservations.map(reservation => <div key={reservation.id} className={styles.record}>
         <div className={styles.recordHeading}><h4 className={styles.recordTitle}>{reservation.unitNumber ? `Unidad ${reservation.unitNumber}` : 'Unidad de la solicitud'}</h4>
           <span className={styles.recordDate}>{reservation.requestedAt ? formatAgendaDateTime(reservation.requestedAt) : 'Fecha sin registrar'}</span></div>
         <p className={styles.detail}>{reservation.status === 'requested' ? 'Solicitud de gestión recibida por el equipo' : reservation.status}</p>
-      </div>) : <p className={styles.empty}>No hay solicitudes de reserva registradas. Preguntar condiciones no inicia una reserva.</p>}
+      </div>) : <p className={styles.empty}>{data.pipeline.coverage.reservations === false ? 'No se pudieron comprobar las solicitudes de reserva. Reintente la carga.' : 'No hay solicitudes de reserva registradas. Preguntar condiciones no inicia una reserva.'}</p>}
       {!!data.reservations.length && <p className={styles.detail}>Fuente: solicitudes operativas de reserva. Una solicitud no demuestra reserva confirmada, pago ni bloqueo de inventario.</p>}
     </Section>
     <Section title="Showroom y recorrido" icon={<Building2 size={15} />}>
@@ -90,7 +96,7 @@ function ProcessSections({ data, onOpenAgenda, onOpenShowroom, onOpenTour }: { d
         <div className={styles.recordHeading}><h4 className={styles.recordTitle}>{jobNames[job.task] || 'Seguimiento del lead'}</h4>
           <span className={styles.recordDate}>{jobStatuses[job.status] || job.status}</span></div>
         <p className={styles.detail}>{job.scheduledAt ? formatAgendaDateTime(job.scheduledAt) : 'Sin fecha registrada'}</p>
-      </div>) : <p className={styles.empty}>No hay tareas de envío registradas en esta vista. Una próxima acción anotada no programa por sí sola un mensaje.</p>}
+      </div>) : <p className={styles.empty}>{data.pipeline.coverage.jobs === false ? 'No se pudieron comprobar los seguimientos programados. Reintente la carga.' : 'No hay tareas de envío registradas en esta vista. Una próxima acción anotada no programa por sí sola un mensaje.'}</p>}
       {!!data.jobs.length && <p className={styles.detail}>Tareas reales de seguimiento. Su envío depende de que sigan cumpliéndose las condiciones de contacto.</p>}
     </Section>
   </>
@@ -177,25 +183,28 @@ export function LeadCommercialProfilePanel(props: PanelProps) {
   return <LeadCommercialProfileContent key={props.leadId} {...props} />
 }
 
-function LeadCommercialProfileContent({ leadId, onUpdated, onOpenAgenda, onOpenShowroom, onOpenTour }: PanelProps) {
+function LeadCommercialProfileContent({ leadId, onUpdated, onOpenAgenda, onOpenShowroom, onOpenTour, initialData, onDataChanged }: PanelProps) {
   const { canWrite, isLoading: roleLoading } = useRoleAccess()
-  const [data, setData] = useState<LeadPipelineDetail | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<LeadPipelineDetail | null>(initialData || null)
+  const [loading, setLoading] = useState(!initialData)
   const [error, setError] = useState('')
   const [saveNotice, setSaveNotice] = useState('')
   const [revision, setRevision] = useState(0)
+  const initialDataRef = useRef(initialData)
 
   useEffect(() => {
+    if (initialDataRef.current && revision === 0) return
     let current = true
     getLeadPipelineDetailAction(leadId).then(result => {
       if (!current) return
       if (!result.ok) { setError(result.error); return }
       setData(result.data)
+      onDataChanged?.(result.data)
     }).catch(cause => {
       if (current) setError(cause instanceof Error ? cause.message : 'No se pudo cargar la ficha comercial.')
     }).finally(() => { if (current) setLoading(false) })
     return () => { current = false }
-  }, [leadId, revision])
+  }, [leadId, revision, onDataChanged])
 
   const refresh = () => {
     setLoading(true); setError(''); setData(null); setSaveNotice('')
@@ -221,13 +230,14 @@ function LeadCommercialProfileContent({ leadId, onUpdated, onOpenAgenda, onOpenS
     <div className={styles.summary}>
       <section className={`${styles.summaryCard} ${styles.stageCard}`}>
         <h3 className={styles.label}>Etapa comercial</h3><p className={styles.value}>{pipeline.stageLabel}</p>
+        {pipeline.stageProvisional && <p className={styles.detail}>Clasificación provisional: hay fuentes por comprobar.</p>}
         <p className={styles.detail}>{pipeline.stageReason}</p>
         {pipeline.stageChangedAt && <p className={styles.detail}>Desde {formatAgendaDateTime(pipeline.stageChangedAt)}</p>}
       </section>
       <section className={styles.summaryCard}>
         <h3 className={styles.label}>Nutrición</h3>
-        <p><span className={`${styles.badge} ${!pipeline.nutritionActive ? styles.mutedBadge : ''}`}>{pipeline.nutritionActive ? 'SÍ · compra futura' : 'NO'}</span></p>
-        <p className={styles.detail}>{pipeline.nutritionActive ? pipeline.nutritionReason || 'Compra futura con contacto acordado.'
+        <p><span className={`${styles.badge} ${!pipeline.nutritionActive ? styles.mutedBadge : ''}`}>{pipeline.nutritionKnown === false ? 'POR VERIFICAR' : pipeline.nutritionActive ? 'SÍ · compra futura' : 'NO'}</span></p>
+        <p className={styles.detail}>{pipeline.nutritionKnown === false ? 'No se pudo comprobar toda la información de nutrición.' : pipeline.nutritionActive ? pipeline.nutritionReason || 'Compra futura con contacto acordado.'
           : 'Sin pausa activa de compra futura con contacto acordado.'}</p>
         {pipeline.purchaseHorizon && <p className={styles.detail}>Plazo o condición: {pipeline.purchaseHorizon}</p>}
         {pipeline.resumeAt && <p className={styles.detail}>Retoma acordada: {formatAgendaDateTime(pipeline.resumeAt)}</p>}
@@ -239,7 +249,7 @@ function LeadCommercialProfileContent({ leadId, onUpdated, onOpenAgenda, onOpenS
         {pipeline.lastResponseAt && <p className={styles.detail}>Última respuesta: {formatAgendaDateTime(pipeline.lastResponseAt)}</p>}
       </section>
       <section className={styles.summaryCard}>
-        <h3 className={styles.label}>Próxima acción</h3><p className={styles.value}>{pipeline.nextAction || 'Por definir'}</p>
+        <h3 className={styles.label}>Próxima acción</h3><p className={styles.value}>{nextActionDescription(pipeline)}</p>
         {pipeline.nextActionAt && <p className={styles.detail}>{formatAgendaDateTime(pipeline.nextActionAt)}</p>}
         <p className={styles.detail}>{pipeline.nextActionScheduled ? 'Existe una tarea de seguimiento registrada.' : 'Anotación de gestión; no programa un mensaje automático.'}</p>
       </section>
@@ -249,17 +259,17 @@ function LeadCommercialProfileContent({ leadId, onUpdated, onOpenAgenda, onOpenS
       <strong>{pipeline.opportunityStatus === 'won' ? 'Venta cerrada con registro operativo.' : 'Oportunidad cerrada sin venta.'}</strong>
       {pipeline.closureReason && <p className="mt-1">{pipeline.closureReason}</p>}
     </div>}
-    {warnings.length > 0 && <div className={styles.notice}><strong>Información por completar</strong>
-      <ul className="mt-1 list-disc space-y-1 pl-4">{warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>
-    </div>}
+    <LeadPipelineWarnings warnings={warnings} issues={data.issues || pipeline.issues} onRetry={refresh} loading={loading} />
 
-    <MetadataForm key={metadataKey} initial={data.metadata} enabled={canWrite && !roleLoading && data.metadataAvailable && pipeline.opportunityStatus !== 'won'}
-      disabledMessage={roleLoading ? 'Consultando sus permisos de edición.' : !canWrite ? 'Su acceso permite consultar esta ficha, pero no editar la gestión comercial.'
+    <MetadataForm key={metadataKey} initial={data.metadata} enabled={canWrite && data.canEdit !== false && !roleLoading && data.metadataAvailable && pipeline.coverage.conversations !== false && pipeline.opportunityStatus !== 'won'}
+      disabledMessage={roleLoading ? 'Consultando sus permisos de edición.' : !canWrite || data.canEdit === false ? 'Su acceso permite consultar esta ficha, pero no editar la gestión comercial.'
+        : pipeline.coverage.conversations === false ? 'No se pudo comprobar el contexto de la conversación. Reintente antes de actualizar la gestión.'
         : pipeline.opportunityStatus === 'won' ? 'La venta ya está cerrada. Sus cambios se gestionan desde el registro operativo correspondiente.' : undefined}
       onSaved={async () => {
       const refreshed = await getLeadPipelineDetailAction(leadId)
       if (!refreshed.ok) throw new Error('La gestión se guardó, pero no se pudo actualizar la ficha. Pulse Actualizar para comprobarla.')
       setData(refreshed.data)
+      onDataChanged?.(refreshed.data)
       setSaveNotice('Gestión actualizada. No se enviaron mensajes ni se creó una cita o reserva.')
       onUpdated()
     }} />
@@ -283,7 +293,7 @@ function LeadCommercialProfileContent({ leadId, onUpdated, onOpenAgenda, onOpenS
           <span className={styles.recordDate}>{formatAgendaDateTime(entry.at)}</span></div>
         <p className={styles.detail}>{entry.reason}</p>
         {entry.actor && <p className={styles.detail}>Responsable del cambio: {actorName(entry.actor)}</p>}
-      </div>) : <p className={styles.empty}>No hay cambios comerciales documentados en esta vista. El historial de conversación permanece en su pestaña.</p>}
+      </div>) : <p className={styles.empty}>{pipeline.coverage.history === false || pipeline.coverage.profile_history === false ? 'No se pudo comprobar todo el historial comercial. Reintente la carga.' : 'No hay cambios comerciales documentados en esta vista. El historial de conversación permanece en su pestaña.'}</p>}
     </Section>
   </div>
 }

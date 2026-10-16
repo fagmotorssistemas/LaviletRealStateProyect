@@ -5,6 +5,7 @@ import { canAccessPath } from '@/lib/inmobiliaria/roleAccess'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { projectLeadPipeline } from '@/lib/inmobiliaria/leadPipeline'
+import { pipelineIssue } from '@/lib/inmobiliaria/leadPipelineDiagnostics'
 import { leadProfileCard, parseLeadSummary } from '@/lib/inmobiliaria/leadProfileCard'
 import { loadLeadPipelineSources, readPipelineRelated, type PipelineSourceRow as Row } from '@/services/leadPipelineSources.service'
 import { LEAD_PIPELINE_STAGE_OPTIONS } from '@/types/leadPipeline'
@@ -16,32 +17,51 @@ const str = (value: unknown) => typeof value === 'string' ? value : ''
 const obj = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}
 const uid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 const bounded = (value: unknown, fallback: number, max: number) => typeof value === 'number' && Number.isInteger(value) && value > 0 ? Math.min(value, max) : fallback
-type Sources = Awaited<ReturnType<typeof loadLeadPipelineSources>>
+type Sources = Awaited<ReturnType<typeof loadLeadPipelineSources>> & { jobLeadIds?: string[] }
+
+async function commercialAccess() {
+  try { return await assertCanAccessCrmPath('/inmobiliaria/leads') }
+  catch { return await assertCanAccessCrmPath('/inmobiliaria/automatizacion') }
+}
+
+function sourceFailure(sources: Sources, key: string, label: string, error: unknown) {
+  sources.coverage[key] = false
+  const issue = pipelineIssue(key, label, error, crypto.randomUUID())
+  sources.issues ||= []
+  sources.issues.push(issue)
+  sources.warnings.push(`${label}: ${issue.message}`)
+  console.error('lead_pipeline_source_failed', { source: key, code: issue.code, category: issue.category, reference: issue.reference })
+}
 
 function ownSources(sources: Sources, lead: Row, jobs: Row[] = []) {
   const own = (values: Row[]) => values.filter(value => value.lead_id === lead.id)
   const conversations = own(sources.conversations).sort((a, b) => str(b.started_at || b.last_message_at).localeCompare(str(a.started_at || a.last_message_at)))
   const conversationIds = new Set(conversations.map(row => row.id))
+  const jobsHidden = sources.jobLeadIds && !sources.jobLeadIds.includes(str(lead.id))
   return { lead, conversation: conversations[0] || null,
     messages: sources.messages.filter(row => conversationIds.has(row.conversation_id) || !row.conversation_id && row.lead_id === lead.id), scoreEvents: own(sources.events),
     appointments: own(sources.appointments), reservations: own(sources.reservations), sales: own(sources.sales),
     metadata: own(sources.metadata)[0] || null, units: sources.units.filter(unit => unit.project_id === lead.project_id),
     history: own(sources.history),
-    jobs: jobs.filter(row => row.lead_id === lead.id), coverage: sources.coverage, warnings: sources.warnings }
+    jobs: jobs.filter(row => row.lead_id === lead.id), coverage: { ...sources.coverage, ...(jobsHidden ? { jobs: false } : {}) },
+    warnings: jobsHidden ? [...sources.warnings, 'Los seguimientos de este contacto requieren acceso del responsable o de administración.'] : sources.warnings, issues: sources.issues }
 }
 
 async function readJobs(sources: Sources, userId: string, role: string | null): Promise<Row[]> {
   const admin = tryCreateAdminClient()
   const allowed = sources.leads.filter(lead => role === 'admin' || role === 'asesor' && lead.assigned_to === userId).map(lead => str(lead.id))
-  if (!admin || !allowed.length) return []
+  sources.jobLeadIds = allowed
+  if (!allowed.length) return []
+  if (!admin) { sourceFailure(sources, 'jobs', 'Seguimientos programados', { code: 'SERVER_CONFIGURATION_MISSING' }); return [] }
   try {
     const rows = await readPipelineRelated(allowed, (ids, from, to) => admin.from('lv_integration_events')
       .select('id,lead_id:payload->>leadId,task:payload->>task,status,available_at,received_at,completed_at')
       .eq('kind', 'maintenance').in('payload->>leadId', ids)
       .in('payload->>task', ['nutrition_24h', 'nutrition_week_one', 'nutrition_week_two', 'nutrition_week_three'])
       .order('id').range(from, to))
+    sources.coverage.jobs = true
     return rows.map(row => ({ ...row, kind: 'maintenance', payload: { leadId: row.lead_id, task: row.task } }))
-  } catch { sources.warnings.push('No se pudieron consultar los seguimientos programados.'); return [] }
+  } catch (error) { sourceFailure(sources, 'jobs', 'Seguimientos programados', error); return [] }
 }
 
 async function recordStageObservations(sources: Sources, cards: { leadId: string; pipeline: ReturnType<typeof projectLeadPipeline> }[]) {
@@ -54,7 +74,7 @@ async function recordStageObservations(sources: Sources, cards: { leadId: string
     const observations = cards.slice(from, from + 200).map(({ leadId, pipeline }) => ({ lead_id: leadId,
       stage: pipeline.stage, reason: pipeline.stageReason, evidence: pipeline.evidence, source_at: pipeline.evidence[0]?.at || pipeline.stageChangedAt }))
     const { error } = await admin.rpc('record_lead_commercial_stage_observations', { p_observations: observations })
-    if (error) { sources.warnings.push('No se pudo registrar la observación de etapas. Compruebe la migración del embudo.'); return }
+    if (error) { sourceFailure(sources, 'stage_observation', 'Registro del historial de etapas', error); return }
   }
 }
 
@@ -87,6 +107,7 @@ export async function listLeadPipelineAction(input: ListLeadPipelineInput = {}):
     cards = cards.filter(({ lead, pipeline }) => {
       if (search && ![lead.name, lead.phone, lead.kommo_id?.toString()].some(value => value?.toLocaleLowerCase().includes(search))) return false
       if (input.stage && pipeline.stage !== input.stage) return false
+      if (input.nutrition && pipeline.nutritionKnown === false) return false
       if (input.nutrition === 'active' && !pipeline.nutritionActive || input.nutrition === 'inactive' && pipeline.nutritionActive) return false
       if (input.outcome && input.outcome !== 'all' && pipeline.opportunityStatus !== input.outcome) return false
       if (input.assignedTo === UNASSIGNED_ASSIGNEE ? !!lead.assigned_to : input.assignedTo && lead.assigned_to !== input.assignedTo) return false
@@ -110,13 +131,13 @@ export async function listLeadPipelineAction(input: ListLeadPipelineInput = {}):
       columns: LEAD_PIPELINE_STAGE_OPTIONS.map(({ value: stage }) => {
         const rows = cards.filter(card => card.pipeline.stage === stage), slice = paginate(rows, input.pages?.[stage])
         return { stage, total: rows.length, page: slice.page, pageSize, leads: slice.leads }
-      }), warnings: [...new Set(sources.warnings)] } }
+      }), warnings: [...new Set(sources.warnings)], issues: sources.issues || [], coverage: sources.coverage } }
   } catch { return { ok: false, error: 'No se pudo cargar el embudo. Compruebe su sesión y acceso a Leads.' } }
 }
 
 export async function getLeadPipelineDetailAction(leadId: string): Promise<LeadPipelineDetailResult> {
   try {
-    const session = await assertCanAccessCrmPath('/inmobiliaria/leads')
+    const session = await commercialAccess()
     if (!uid(leadId)) throw new Error('Contacto inválido')
     const { supabase } = await getSessionUser()
     const sources = await loadLeadPipelineSources(supabase, [leadId])
@@ -136,7 +157,7 @@ export async function getLeadPipelineDetailAction(leadId: string): Promise<LeadP
         .select('legal_name,legal_name_confirmed,national_id,applicant_type,employment_stability_months,job_title,monthly_income')
         .eq('lead_id', leadId).eq('tenant_id', lead.tenant_id).eq('explicit_consent', true).order('created_at', { ascending: false }).limit(1)
       if (!identity.error) Object.assign(financeRow, identity.data?.[0] || {})
-      else sources.warnings.push('No se pudo consultar el detalle financiero autorizado.')
+      else sourceFailure(sources, 'financial_identity', 'Detalle financiero autorizado', identity.error)
     }
     const card = leadProfileCard(lead, summary, financeRow, own.units)
     // General Leads access never expands to legal identity or household income.
@@ -152,14 +173,19 @@ export async function getLeadPipelineDetailAction(leadId: string): Promise<LeadP
       { label: 'Modalidad de atención', value: interaction.mode === 'information_only' ? 'Información del proyecto y consultas actuales' : 'Orientación según las solicitudes actuales' },
       { label: 'Consultas pendientes', value: pending.map(row => str(row.content || row.request)).filter(Boolean).join('; ') || 'Sin consultas pendientes registradas' },
     ] })
-    if (finance.error) sources.warnings.push('No se pudo consultar la revisión financiera.')
+    sources.coverage.financing = !finance.error
+    if (finance.error) sourceFailure(sources, 'financing', 'Revisión financiera', finance.error)
     const metadata = obj(own.metadata), autoNurture = obj(summary._lead_nurture)
     const historyRead = await supabase.from('lead_commercial_profile_history').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }).limit(100)
     const history = (historyRead.data || []).map(row => ({ id: str(row.id), at: str(row.created_at), actor: str(row.actor_id) || null,
       reason: str(row.reason), fromStage: str(obj(row.old_data).stage) || null, toStage: str(obj(row.new_data).stage) || null }))
-    if (historyRead.error) sources.warnings.push('El historial de la ficha comercial no está disponible.')
+    sources.coverage.profile_history = !historyRead.error
+    if (historyRead.error) sourceFailure(sources, 'profile_history', 'Historial de la ficha comercial', historyRead.error)
     for (const [index, event] of pipeline.history.entries()) history.push({ id: `stage-${index}`, at: event.at || '', actor: event.actor,
       reason: event.reason, fromStage: event.from, toStage: event.to })
+    pipeline.coverage = { ...pipeline.coverage, ...sources.coverage, ...(own.coverage.jobs === false ? { jobs: false } : {}) }
+    pipeline.warnings = [...new Set([...own.warnings, ...sources.warnings])]
+    pipeline.issues = sources.issues || []
     return { ok: true, data: { pipeline, groups,
       appointments: own.appointments.map(row => {
         const view = projectLeadPipeline({ ...own, appointments: [row] }).appointment
@@ -173,12 +199,15 @@ export async function getLeadPipelineDetailAction(leadId: string): Promise<LeadP
       financing: { accepted, partner: str(financeRow.selected_partner_name) || null, status: str(financeRow.status) || null },
       jobs: jobs.map(row => ({ id: str(row.id), task: str(row.task), status: str(row.status), scheduledAt: str(row.available_at) || null })),
       metadataAvailable: sources.coverage.metadata === true, history,
+      canEdit: session.profile.role === 'admin' || session.profile.role === 'asesor' && (!lead.assigned_to || lead.assigned_to === session.user.id),
+      financialReview: financialAccess && session.profile.role === 'admin' && card.financingAccepted && card.selectedUnitId
+        ? { ...card, groups: [] } : undefined,
       metadata: { leadId, nutritionActive: pipeline.nutritionActive, nutritionReason: pipeline.nutritionReason || '',
         purchaseHorizon: pipeline.purchaseHorizon || '', nutritionEvidence: str(metadata.nutrition_evidence || autoNurture.evidence),
         contactConsent: metadata.contact_consent === true || !Object.keys(metadata).length && autoNurture.contact_consent === true,
         resumeAt: pipeline.resumeAt, nextAction: str(metadata.next_action), nextActionAt: str(metadata.next_action_at) || null,
         opportunityStatus: pipeline.opportunityStatus === 'lost' ? 'lost' : 'open', closureReason: pipeline.closureReason || '' },
-      warnings: [...new Set(sources.warnings)] } }
+      warnings: [...new Set(sources.warnings)], issues: sources.issues || [] } }
   } catch { return { ok: false, error: 'No se pudo cargar la ficha comercial. Compruebe su acceso al contacto.' } }
 }
 
@@ -186,13 +215,13 @@ export async function getLeadPipelineDetailAction(leadId: string): Promise<LeadP
  * return the commercial snapshot only, never conversation summaries or PII. */
 export async function readLeadPipelineSnapshotsAction(leadIds: string[]) {
   try {
-    try { await assertCanAccessCrmPath('/inmobiliaria/automatizacion') }
-    catch { await assertCanAccessCrmPath('/inmobiliaria/leads') }
+    const session = await commercialAccess()
     if (!Array.isArray(leadIds) || leadIds.length > 200 || leadIds.some(id => typeof id !== 'string' || !uid(id)))
       throw new Error('Contactos inválidos')
     const { supabase } = await getSessionUser()
     const sources = await loadLeadPipelineSources(supabase, leadIds)
-    const data = sources.leads.map(lead => ({ leadId: str(lead.id), pipeline: projectLeadPipeline(ownSources(sources, lead)) }))
+    const jobs = await readJobs(sources, session.user.id, session.profile.role)
+    const data = sources.leads.map(lead => ({ leadId: str(lead.id), pipeline: projectLeadPipeline(ownSources(sources, lead, jobs)) }))
     await recordStageObservations(sources, data)
     return { ok: true as const, data }
   } catch { return { ok: false as const, error: 'No se pudo consultar la etapa comercial.' } }
@@ -200,7 +229,7 @@ export async function readLeadPipelineSnapshotsAction(leadIds: string[]) {
 
 export async function updateLeadPipelineMetadataAction(input: LeadPipelineMetadataInput): Promise<LeadPipelineMetadataResult> {
   try {
-    const session = await assertCanAccessCrmPath('/inmobiliaria/leads')
+    const session = await commercialAccess()
     await assertCanWriteCrm()
     if (!uid(str(input.leadId))) throw new Error('Contacto inválido')
     if (typeof input.nutritionActive !== 'boolean' || typeof input.contactConsent !== 'boolean'

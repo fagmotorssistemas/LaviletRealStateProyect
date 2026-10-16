@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLeads } from '@/hooks/inmobiliaria/useLeads'
 import { useLeadPipeline } from '@/hooks/inmobiliaria/useLeadPipeline'
 import { LeadPipelineBoard, LeadPipelineTable } from '@/components/inmobiliaria/leads/LeadPipelineBoard'
+import { LeadPipelineWarnings } from '@/components/inmobiliaria/leads/LeadPipelineWarnings'
 import { LeadDetailModal } from '@/components/inmobiliaria/leads/LeadDetailModal'
 import { CreateLeadModal } from '@/components/inmobiliaria/leads/CreateLeadModal'
 import { EmptyState } from '@/components/inmobiliaria/shared/EmptyState'
@@ -155,7 +156,7 @@ export default function LeadsPage() {
         </>}
       </InmobiliariaFiltersToolbar>
 
-      {data?.warnings?.length ? <div role="status" className="rounded-xl border border-[#BDA27E]/40 bg-[#faf5eb] p-4 text-sm text-[#75613f]">{data.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
+      <LeadPipelineWarnings warnings={data?.warnings} issues={data?.issues} onRetry={reload} loading={isLoading} />
 
       {error ? (
         <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">
@@ -165,7 +166,7 @@ export default function LeadsPage() {
       ) : !data && (isLoading || authLoading) ? (
         <div className="flex justify-center py-20" role="status" aria-label="Cargando leads"><Spinner size="lg" /></div>
       ) : view === 'board' ? (
-        <LeadPipelineBoard columns={data?.columns || []} stageFilter={filters.stage || ''} isLoading={isLoading} onPageChange={setColumnPage} onSelect={openLead} />
+        <LeadPipelineBoard columns={data?.columns || []} coverage={data?.coverage} stageFilter={filters.stage || ''} isLoading={isLoading} onPageChange={setColumnPage} onSelect={openLead} />
       ) : total === 0 ? (
         <EmptyState icon={UserPlus} title="No hay leads en esta vista" description={hasFilters ? 'Pruebe con otros filtros para encontrar el contacto.' : 'Los nuevos contactos aparecerán aquí para comenzar su atención.'} />
       ) : (

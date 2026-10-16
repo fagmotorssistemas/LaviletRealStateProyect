@@ -75,7 +75,7 @@ function AutomationDashboard() {
         : total === 0 ? <EmptyState icon={Activity} title="No hay leads para estos filtros" description="Pruebe con otro proyecto, fecha o búsqueda.">{hasFilters && <button type="button" className={styles.action} onClick={resetFilters}>Limpiar filtros</button>}</EmptyState>
         : <><AutomationLeadsTable rows={rows} selectedLeadId={selectedLeadId} onSelect={openLead} /><div className={styles.footer}><Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} /></div></>}
     </section>
-    <AutomationLeadDetailDrawer isOpen={Boolean(selectedLeadId)} loading={detailLoading} error={detailError} detail={detail} onClose={closeLead} />
+    <AutomationLeadDetailDrawer isOpen={Boolean(selectedLeadId)} loading={detailLoading} error={detailError} detail={detail} onClose={closeLead} onReload={dashboard.reloadDetail} />
   </div>
 }
 

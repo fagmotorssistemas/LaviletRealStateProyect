@@ -2,6 +2,8 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { readMessageEvidence } from './marketingEvidence.service'
+import { pipelineIssue } from '@/lib/inmobiliaria/leadPipelineDiagnostics'
+import type { LeadPipelineIssue } from '@/types/leadPipeline'
 
 export type PipelineSourceRow = Record<string, unknown>
 type ReadQuery = PromiseLike<{ data: unknown[] | null; error: { message: string; code?: string } | null }>
@@ -12,7 +14,7 @@ export async function readPipelinePages(build: (from: number, to: number) => Rea
   const result: PipelineSourceRow[] = []
   for (let offset = 0; ; offset += 1000) {
     const response = await build(offset, offset + 999)
-    if (response.error) throw new Error(response.error.message)
+    if (response.error) throw Object.assign(new Error(response.error.message), response.error)
     result.push(...(response.data || []) as PipelineSourceRow[])
     if (!response.data || response.data.length < 1000) return result
   }
@@ -36,11 +38,20 @@ export async function loadLeadPipelineSources(client: SupabaseClient, requestedI
     ? await readPipelineRelated(requestedIds, (ids, from, to) => client.from('leads').select('*').in('id', ids).order('id').range(from, to))
     : await readPipelinePages((from, to) => client.from('leads').select('*').order('id').range(from, to))
   const ids = leads.map(row => String(row.id))
+  const admin = tryCreateAdminClient()
   const warnings: string[] = []
+  const issues: LeadPipelineIssue[] = []
   const coverage: Record<string, boolean> = {}
   async function optional(key: string, label: string, load: () => Promise<PipelineSourceRow[]>) {
     try { const result = await load(); coverage[key] = true; return result }
-    catch { coverage[key] = false; warnings.push(`No se pudo consultar ${label}. Su ausencia no acredita que no exista.`); return [] }
+    catch (error) {
+      coverage[key] = false
+      const issue = pipelineIssue(key, label, error, crypto.randomUUID())
+      issues.push(issue)
+      warnings.push(`${label}: ${issue.message}`)
+      console.error('lead_pipeline_source_failed', { source: key, code: issue.code, category: issue.category, reference: issue.reference })
+      return []
+    }
   }
   const [conversations, events, appointments, reservations, sales, metadata, units, profiles, projects, history] = await Promise.all([
     optional('conversations', 'el contexto de conversación', () => readPipelineRelated(ids, (chunk, from, to) => client.from('conversations')
@@ -49,11 +60,19 @@ export async function loadLeadPipelineSources(client: SupabaseClient, requestedI
       .select('id,lead_id,event_type,reason,source_message_id,created_at').in('lead_id', chunk).order('id').range(from, to))),
     optional('appointments', 'las citas', () => readPipelineRelated(ids, (chunk, from, to) => client.from('appointments')
       .select('*,responsible:profiles!appointments_responsible_id_fkey(full_name)').in('lead_id', chunk).order('id').range(from, to))),
-    optional('reservations', 'las solicitudes de reserva', () => readPipelineRelated(ids, (chunk, from, to) => client.from('lead_reservation_requests')
-      .select('*').in('lead_id', chunk).order('id').range(from, to))),
+    optional('reservations', 'Solicitudes de reserva', async () => {
+      if (!ids.length) return []
+      if (!admin) throw Object.assign(new Error('Server configuration unavailable'), { code: 'SERVER_CONFIGURATION_MISSING' })
+      // IDs come exclusively from the caller's RLS-authorized lead query above.
+      // This table intentionally allows server-only reads. Never enumerate it
+      // with service role before establishing that exact authorized scope.
+      return readPipelineRelated(ids, (chunk, from, to) => admin.from('lead_reservation_requests')
+        .select('id,lead_id,unit_ids,evidence,source_message_id,source_sent_at,request_status,created_at')
+        .in('lead_id', chunk).order('id').range(from, to))
+    }),
     optional('sales', 'los cierres de venta', () => readPipelineRelated(ids, (chunk, from, to) => client.from('unit_sales_closings')
       .select('id,lead_id,tenant_id,unit_id,sale_at,contract_id').in('lead_id', chunk).order('id').range(from, to))),
-    optional('metadata', 'la ficha comercial guardada; puede faltar aplicar la migración del embudo', () => readPipelineRelated(ids, (chunk, from, to) => client.from('lead_commercial_profiles')
+    optional('metadata', 'Ficha comercial guardada', () => readPipelineRelated(ids, (chunk, from, to) => client.from('lead_commercial_profiles')
       .select('*').in('lead_id', chunk).order('lead_id').range(from, to))),
     optional('units', 'las unidades del proyecto', () => readPipelineRelated([...new Set(leads.map(row => row.project_id).filter(Boolean).map(String))],
       (chunk, from, to) => client.from('units').select('id,tenant_id,project_id,unit_number,category,status,published_commercial_price').in('project_id', chunk).order('id').range(from, to))),
@@ -61,13 +80,12 @@ export async function loadLeadPipelineSources(client: SupabaseClient, requestedI
       (chunk, from, to) => client.from('profiles').select('id,full_name,avatar_url').in('id', chunk).order('id').range(from, to))),
     optional('projects', 'los proyectos', () => readPipelineRelated([...new Set(leads.map(row => row.project_id).filter(Boolean).map(String))],
       (chunk, from, to) => client.from('projects').select('id,name').in('id', chunk).order('id').range(from, to))),
-    optional('history', 'el historial de etapas; puede faltar aplicar la migración del embudo', () => readPipelineRelated(ids,
+    optional('history', 'Historial de etapas', () => readPipelineRelated(ids,
       (chunk, from, to) => client.from('lead_commercial_stage_observations').select('*').in('lead_id', chunk).order('id').range(from, to))),
   ])
   const conversationIds = conversations.map(row => String(row.id))
   let messages = await optional('messages', 'la evidencia de atención', () => readPipelineRelated(conversationIds, (chunk, from, to) => client.from('messages')
     .select('id,conversation_id,role,sent_at,tool_calls,model_used,external_message_id').in('conversation_id', chunk).order('id').range(from, to)))
-  const admin = tryCreateAdminClient()
   if (admin) {
     // Human WhatsApp answers can exist in the synchronization journal without
     // being bot messages. Resolve only already-authorized lead IDs and do not
@@ -91,5 +109,5 @@ export async function loadLeadPipelineSources(client: SupabaseClient, requestedI
       }
     }
   }
-  return { leads, conversations, events, appointments, reservations, sales, metadata, units, profiles, projects, messages, history, warnings, coverage }
+  return { leads, conversations, events, appointments, reservations, sales, metadata, units, profiles, projects, messages, history, warnings, issues, coverage }
 }

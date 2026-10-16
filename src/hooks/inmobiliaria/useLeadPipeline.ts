@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { listLeadPipelineAction } from '@/app/inmobiliaria/leads/pipeline-actions'
 import type { Lead } from '@/types/inmobiliaria'
-import type { LeadPipelineSnapshot, LeadPipelineStage } from '@/types/leadPipeline'
+import type { LeadPipelineSnapshot, LeadPipelineStage, LeadPipelineIssue, LeadPipelineCoverage } from '@/types/leadPipeline'
 
 export type LeadPipelineView = 'board' | 'list'
 
@@ -44,6 +44,8 @@ export interface LeadPipelineListData {
   page?: number
   pageSize?: number
   warnings?: string[]
+  issues?: LeadPipelineIssue[]
+  coverage?: LeadPipelineCoverage
 }
 
 export type ListLeadPipelineResult =

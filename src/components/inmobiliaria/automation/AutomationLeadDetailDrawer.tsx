@@ -9,16 +9,17 @@ import { Spinner } from '@/components/ui/Spinner'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import {
   handoffLabel,
-  purposeLabel,
-  sourceLabel,
   stageLabel,
-  timelineTitle,
 } from '@/lib/inmobiliaria/leadAutomation'
-import type { AutomationTimelineKind, LeadAutomationDetail } from '@/types/leadAutomation'
-import { LeadProfileCard } from './LeadProfileCard'
+import type { LeadAutomationDetail } from '@/types/leadAutomation'
+import type { LeadPipelineDetail } from '@/types/leadPipelineDetail'
+import { LeadCommercialProfilePanel } from '@/components/inmobiliaria/leads/LeadCommercialProfilePanel'
+import { LeadPipelineWarnings } from '@/components/inmobiliaria/leads/LeadPipelineWarnings'
+import { AutomationLeadSummary, AutomationTimelineList } from './AutomationLeadSummary'
+import { formatAgendaDateTime } from '@/lib/inmobiliaria/agendaTime'
 
 const TABS = [
-  { id: 'ficha', label: 'Ficha del lead' },
+  { id: 'ficha', label: 'Ficha comercial' },
   { id: 'resumen', label: 'Resumen' },
   { id: 'conversacion', label: 'Conversación' },
   { id: 'puntuacion', label: 'Puntuación' },
@@ -28,7 +29,7 @@ const TABS = [
   { id: 'visitas', label: 'Visitas' },
   { id: 'consentimiento', label: 'Consentimiento' },
   { id: 'traspaso', label: 'Traspaso' },
-  { id: 'nutricion', label: 'Nutrición' },
+  { id: 'nutricion', label: 'Seguimientos automáticos' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -54,6 +55,7 @@ interface AutomationLeadDetailDrawerProps {
   error: string | null
   detail: LeadAutomationDetail | null
   onClose: () => void
+  onReload: () => void
 }
 
 export function AutomationLeadDetailDrawer({
@@ -62,15 +64,34 @@ export function AutomationLeadDetailDrawer({
   error,
   detail,
   onClose,
+  onReload,
 }: AutomationLeadDetailDrawerProps) {
   const leadId = detail?.row.lead_id ?? null
+  const baseCommercial = detail?.commercialProfile
+  const [commercialState, setCommercialState] = useState<{ leadId: string; base?: LeadPipelineDetail; data: LeadPipelineDetail } | null>(null)
+  const commercial = commercialState?.leadId === leadId && commercialState?.base === baseCommercial ? commercialState.data : baseCommercial
+  const onDataChanged = useCallback((data: LeadPipelineDetail) => {
+    if (leadId) setCommercialState({ leadId, base: baseCommercial, data })
+  }, [leadId, baseCommercial])
+  const [messageTarget, setMessageTarget] = useState<{ leadId: string | null; id: string } | null>(null)
   const [tabState, setTabState] = useState<{ leadId: string | null; tab: TabId }>({ leadId: null, tab: 'ficha' })
   const tab = tabState.leadId === leadId ? tabState.tab : 'ficha'
   const selectTab = (next: TabId) => setTabState({ leadId, tab: next })
   const close = useCallback(() => {
+    setCommercialState(null)
     setTabState({ leadId, tab: 'ficha' })
     onClose()
   }, [leadId, onClose])
+
+  useEffect(() => {
+    if (tab !== 'conversacion' || !messageTarget || messageTarget.leadId !== leadId || !isOpen) return
+    const frame = window.requestAnimationFrame(() => {
+      const element = document.getElementById(`lead-message-${messageTarget.id}`)
+      element?.scrollIntoView({ block: 'center' })
+      element?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [tab, messageTarget, leadId, isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -130,11 +151,15 @@ export function AutomationLeadDetailDrawer({
               <Spinner size="lg" />
             </div>
           ) : error ? (
-            <EmptyState title="No se pudo cargar el detalle" description={error} icon={X} />
+            <EmptyState title="No se pudo cargar el detalle" description={error} icon={X}>
+              <button type="button" onClick={onReload} className="mt-3 rounded border px-3 py-2 text-sm">Reintentar carga</button>
+            </EmptyState>
           ) : !detail || !row ? (
             <EmptyState title="Selecciona un lead" description="Abre una fila para ver el historial completo." icon={X} />
           ) : (
-            <TabBody tab={tab} detail={detail} />
+            <TabBody tab={tab} detail={detail} commercial={commercial} onDataChanged={onDataChanged}
+              onReload={() => { setCommercialState(null); onReload() }}
+              onOpenMessage={id => { setMessageTarget({ leadId, id }); selectTab('conversacion') }} />
           )}
         </div>
       </aside>
@@ -143,52 +168,15 @@ export function AutomationLeadDetailDrawer({
   )
 }
 
-function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) {
+function TabBody({ tab, detail, commercial, onDataChanged, onReload, onOpenMessage }: {
+  tab: TabId; detail: LeadAutomationDetail; commercial?: LeadPipelineDetail; onDataChanged: (data: LeadPipelineDetail) => void
+  onReload: () => void; onOpenMessage: (id: string) => void
+}) {
   const { row } = detail
-  if (tab === 'ficha') return detail.profileCard
-    ? <LeadProfileCard key={row.lead_id} data={detail.profileCard} leadId={row.lead_id} />
-    : <p className="text-sm text-[#6e716b]">La ficha todavía no está disponible.</p>
+  if (tab === 'ficha') return <LeadCommercialProfilePanel key={row.lead_id} leadId={row.lead_id}
+    initialData={commercial} onDataChanged={onDataChanged} onUpdated={() => {}} />
 
-  if (tab === 'resumen') {
-    return (
-      <div className="space-y-5">
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Fact label="Proyecto" value={row.project_name} />
-          <Fact label="Origen" value={sourceLabel(row.source)} />
-          <Fact label="Canal" value={row.channel} />
-          <Fact label="Campaña" value={row.campaign} />
-          <Fact label="Etapa" value={stageLabel(row.stage)} />
-          <Fact label="Motivo de etapa" value={row.stage_reason ?? row.last_stage_reason} />
-          <Fact label="Temperatura" value={row.temperature} />
-          <Fact label="Puntos" value={String(row.score)} />
-          <Fact label="Interés" value={row.preferred_category} />
-          <Fact label="Propósito" value={purposeLabel(row.purchase_purpose)} />
-          <Fact label="Responsable" value={row.assignee_name} />
-          <Fact label="Kommo vendedora" value={row.assignee_kommo_id} />
-          <Fact label="Kommo lead" value={row.lead_kommo_id != null ? String(row.lead_kommo_id) : null} />
-          <Fact label="Última interacción" value={formatDateTime(row.last_interaction_at)} />
-        </dl>
-        <section>
-          <h3 className="mb-3 font-display text-lg font-semibold text-[#4a4d48]">Línea de tiempo</h3>
-          {detail.timeline.length === 0 ? (
-            <p className="text-sm text-[#6e716b]">Aún no hay eventos registrados para este lead.</p>
-          ) : (
-            <ol className="space-y-3">
-              {detail.timeline.map((item) => (
-                <li key={item.id} className="border border-[#2B1A18]/8 bg-[#fcfbf9] px-3 py-2.5">
-                  <p className="text-[11px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
-                    {timelineTitle(item.kind as AutomationTimelineKind)}
-                  </p>
-                  <p className="mt-1 text-sm font-medium text-[#555850]">{item.detail ?? item.title}</p>
-                  <p className="mt-1 text-xs text-[#6e716b]">{formatDateTime(item.at)}</p>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      </div>
-    )
-  }
+  if (tab === 'resumen') return <AutomationLeadSummary detail={detail} commercial={commercial} onRetry={onReload} onOpenMessage={onOpenMessage} />
 
   if (tab === 'conversacion') {
     return detail.messages.length === 0 ? (
@@ -196,9 +184,9 @@ function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) 
     ) : (
       <ol className="space-y-3">
         {detail.messages.map((message) => (
-          <li key={message.id} className="border border-[#2B1A18]/8 px-3 py-2.5">
+          <li key={message.id} id={`lead-message-${message.id}`} tabIndex={-1} className="rounded border border-[#2B1A18]/8 px-3 py-2.5 focus:outline-2 focus:outline-[#BDA27E]">
             <p className="text-[11px] font-semibold tracking-[0.14em] text-[#BDA27E] uppercase">
-              {message.role} · {formatDateTime(message.sent_at)}
+              {({ cliente: 'Cliente', bot: 'Bot', asesor: 'Asesor', sistema: 'Sistema' })[message.role]} · {formatAgendaDateTime(message.sent_at)} · Hora de Ecuador
             </p>
             <p className="mt-1 whitespace-pre-wrap text-sm text-[#555850]">{message.content || message.media_url || '—'}</p>
           </li>
@@ -207,27 +195,7 @@ function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) 
     )
   }
 
-  if (tab === 'puntuacion') {
-    return detail.scoreEvents.length === 0 ? (
-      <p className="text-sm text-[#6e716b]">Este lead todavía no tiene eventos de puntuación.</p>
-    ) : (
-      <ol className="space-y-3">
-        {detail.scoreEvents.map((event) => (
-          <li key={event.id} className="border border-[#2B1A18]/8 px-3 py-2.5">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#555850]">{event.event_type}</p>
-              <p className="crm-num text-sm font-bold text-[#555850]">
-                {event.points > 0 ? '+' : ''}
-                {event.points}
-              </p>
-            </div>
-            <p className="mt-1 text-sm text-[#6e716b]">{event.reason}</p>
-            <p className="mt-1 text-xs text-[#8a8d82]">{formatDateTime(event.created_at)}</p>
-          </li>
-        ))}
-      </ol>
-    )
-  }
+  if (tab === 'puntuacion') return <AutomationTimelineList items={detail.timeline.filter(item => item.eventType)} onOpenMessage={onOpenMessage} />
 
   if (tab === 'temperatura') {
     return detail.temperatureHistory.length === 0 ? (
@@ -247,23 +215,16 @@ function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) 
     )
   }
 
-  if (tab === 'etapas') {
-    return detail.stageHistory.length === 0 ? (
-      <p className="text-sm text-[#6e716b]">No hay cambios de etapa registrados.</p>
-    ) : (
-      <ol className="space-y-3">
-        {detail.stageHistory.map((item) => (
-          <li key={item.id} className="border border-[#2B1A18]/8 px-3 py-2.5">
-            <p className="text-sm font-semibold text-[#555850]">
-              {stageLabel(item.from_stage)} → {stageLabel(item.to_stage)}
-            </p>
-            <p className="mt-1 text-sm text-[#6e716b]">{item.reason}</p>
-            <p className="mt-1 text-xs text-[#8a8d82]">{formatDateTime(item.created_at)}</p>
-          </li>
-        ))}
-      </ol>
-    )
-  }
+  if (tab === 'etapas') return <div className="space-y-3">
+    <p className="text-sm text-[#6e716b]">Historial comercial compartido con Leads. La fecha corresponde a la observación registrada; no se reconstruyen cambios anteriores.</p>
+    {!commercial ? <p role="alert">No se pudo comprobar el historial comercial. <button type="button" onClick={onReload} className="underline">Reintentar</button></p>
+      : commercial.pipeline.coverage.history === false || commercial.pipeline.coverage.profile_history === false ? <LeadPipelineWarnings warnings={commercial.warnings} issues={commercial.issues} onRetry={onReload} /> : null}
+    {commercial?.history.map(item => <div key={item.id} className="rounded-lg border border-[#2B1A18]/8 p-3">
+      <p className="text-sm font-semibold text-[#555850]">{item.toStage ? (item.fromStage ? stageLabel(item.fromStage) + ' → ' : '') + stageLabel(item.toStage) : 'Actualización de gestión'}</p>
+      <p className="mt-1 text-sm text-[#6e716b]">{item.reason}</p><p className="mt-1 text-xs text-[#8a8d82]">{formatAgendaDateTime(item.at)}</p>
+    </div>)}
+    {commercial && !commercial.history.length && commercial.pipeline.coverage.history !== false && commercial.pipeline.coverage.profile_history !== false && <p className="text-sm text-[#6e716b]">Sin cambios comerciales registrados.</p>}
+  </div>
 
   if (tab === 'unidades') {
     return detail.units.length === 0 ? (
@@ -283,27 +244,14 @@ function TabBody({ tab, detail }: { tab: TabId; detail: LeadAutomationDetail }) 
     )
   }
 
-  if (tab === 'visitas') {
-    return detail.visits.length === 0 ? (
-      <p className="text-sm text-[#6e716b]">No hay visitas solicitadas.</p>
-    ) : (
-      <ul className="space-y-3">
-        {detail.visits.map((visit) => (
-          <li key={visit.id} className="border border-[#2B1A18]/8 px-3 py-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge status={visit.status} type="appointment" />
-              {visit.confirmed_by_client && <span className="text-[11px] font-semibold text-[#4d5c50]">Confirmada</span>}
-            </div>
-            <p className="mt-2 text-sm text-[#6e716b]">Solicitada {formatDateTime(visit.requested_at)}</p>
-            {visit.preferred_time_text && <p className="text-sm text-[#6e716b]">Horario preferido: {visit.preferred_time_text}</p>}
-            {visit.units?.length ? (
-              <p className="mt-1 text-sm text-[#555850]">Unidades: {visit.units.map((unit) => unit.unit_number).join(', ')}</p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    )
-  }
+  if (tab === 'visitas') return <div className="space-y-3">
+    {!commercial || commercial.pipeline.coverage.appointments === false ? <p role="alert">No se pudieron comprobar las citas. <button type="button" className="underline" onClick={onReload}>Reintentar</button></p>
+      : commercial.appointments.length ? commercial.appointments.map(visit => <div key={visit.id} className="rounded-lg border border-[#2B1A18]/8 p-3">
+        <p className="text-sm font-semibold text-[#555850]">{visit.label}</p>
+        <p className="mt-1 text-sm text-[#6e716b]">{visit.scheduledAt ? formatAgendaDateTime(visit.scheduledAt) : 'Horario pendiente'}</p>
+        <p className="mt-1 text-xs text-[#8a8d82]">{[visit.advisor, visit.location].filter(Boolean).join(' · ') || 'Responsable o lugar por completar'}</p>
+      </div>) : <p className="text-sm text-[#6e716b]">Sin citas registradas. Una invitación del bot no confirma una cita.</p>}
+  </div>
 
   if (tab === 'consentimiento') {
     return (

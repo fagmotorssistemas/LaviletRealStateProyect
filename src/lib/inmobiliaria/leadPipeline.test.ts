@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { projectLeadPipeline } from './leadPipeline'
+import { projectLeadPipeline, nextActionDescription, selectedUnitDescription } from './leadPipeline'
 import type { LeadPipelineInput } from '@/types/leadPipeline'
 
 const at = '2026-10-15T15:00:00Z'
@@ -110,4 +110,18 @@ test('persisted stage observations use observation time and actor without backda
   const result = projectLeadPipeline(input)
   assert.equal(result.stageChangedAt, '2026-10-16T15:00:00Z')
   assert.deepEqual(result.history[0], { from: null, to: 'interes_comercial', reason: 'Evidencia comercial', at: '2026-10-16T15:00:00Z', actor: null })
+})
+
+test('failed sources keep absent nutrition and stage classifications provisional until recovery', () => {
+  const input = base()
+  input.coverage = { messages: true, metadata: false, reservations: false }
+  const partial = projectLeadPipeline(input)
+  assert.equal(partial.nutritionKnown, false)
+  assert.equal(partial.stageProvisional, true)
+  assert.equal(nextActionDescription(partial), 'Próxima acción por verificar')
+  assert.equal(selectedUnitDescription({ ...partial, selectedUnitId: 'u' }), 'Unidad elegida; detalle por verificar')
+  input.coverage = { messages: true, metadata: true, reservations: true }
+  const recovered = projectLeadPipeline(input)
+  assert.equal(recovered.nutritionKnown, true)
+  assert.equal(recovered.stageProvisional, false)
 })

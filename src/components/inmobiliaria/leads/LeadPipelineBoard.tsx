@@ -5,6 +5,8 @@ import { cn, formatDateTime } from '@/lib/utils'
 import { LEAD_SOURCE_LABELS, normalizeSource } from '@/lib/leads/sources'
 import { LEAD_PIPELINE_STAGE_OPTIONS, type LeadPipelineStage } from '@/types/leadPipeline'
 import type { LeadPipelineCard, LeadPipelineColumn } from '@/hooks/inmobiliaria/useLeadPipeline'
+import { coverageIncomplete } from '@/lib/inmobiliaria/leadPipelineDiagnostics'
+import { nextActionDescription, selectedUnitDescription } from '@/lib/inmobiliaria/leadPipeline'
 
 const STAGE_COLORS = ['#BDA27E', '#a3ab93', '#88997d', '#6e876c', '#a78d66', '#55765c']
 
@@ -27,7 +29,7 @@ function validDate(value: string | null) {
 function AppointmentBadge({ item }: { item: LeadPipelineCard }) {
   const appointment = item.pipeline.appointment
   if (!appointment) return null
-  const confirmed = appointment.status === 'confirmed' || appointment.status === 'aceptado'
+  const confirmed = appointment.status === 'confirmed' || appointment.status === 'confirmada'
   return (
     <span className={cn('inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] leading-4', confirmed ? 'border-[#87a082]/30 bg-[#edf3e9] text-[#45613f]' : 'border-[#BDA27E]/30 bg-[#faf5eb] text-[#806746]')}>
       <CalendarDays size={12} className="shrink-0" aria-hidden />
@@ -61,13 +63,15 @@ function PipelineCard({ item, onSelect }: { item: LeadPipelineCard; onSelect: (i
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {pipeline.stageProvisional && <span className="rounded-md bg-[#faf0dc] px-2 py-1 text-[10px] text-[#8b6b30]">Etapa por verificar</span>}
+        {pipeline.nutritionKnown === false && <span className="rounded-md bg-[#faf0dc] px-2 py-1 text-[10px] text-[#8b6b30]">Nutrición por verificar</span>}
         {pipeline.nutritionActive && <span className="inline-flex items-center gap-1 rounded-md bg-[#edf1e7] px-2 py-1 text-[10px] font-medium text-[#65764d]"><Leaf size={11} aria-hidden />Nutrición activa</span>}
         <OutcomeBadge item={item} />
         <span className={cn('rounded-md px-2 py-1 text-[10px] font-medium', pipeline.attentionStatus === 'pendiente_equipo' || pipeline.attentionStatus === 'por_atender' ? 'bg-[#faf0dc] text-[#8b6b30]' : 'bg-[#f4f4ef] text-[#777d6a]')}>{pipeline.attentionLabel}</span>
       </div>
 
       <dl className="mt-3 space-y-2.5 text-xs">
-        <div className="flex items-start gap-2"><dt className="mt-0.5 shrink-0 text-[#a0a391]"><Building2 size={13} aria-hidden /><span className="sr-only">Unidad elegida</span></dt><dd className="text-[#656c5b]">{pipeline.selectedUnitNumber ? `Unidad ${pipeline.selectedUnitNumber}` : 'Sin unidad elegida'}</dd></div>
+        <div className="flex items-start gap-2"><dt className="mt-0.5 shrink-0 text-[#a0a391]"><Building2 size={13} aria-hidden /><span className="sr-only">Unidad elegida</span></dt><dd className="text-[#656c5b]">{selectedUnitDescription(pipeline)}</dd></div>
         <div className="flex items-start gap-2"><dt className="mt-0.5 shrink-0 text-[#a0a391]"><UserRound size={13} aria-hidden /><span className="sr-only">Responsable</span></dt><dd className="text-[#656c5b]">{lead.assigned_profile?.full_name || 'Sin asignar'}</dd></div>
         <div className="flex items-start gap-2" title={validDate(pipeline.lastActivityAt) || undefined}><dt className="mt-0.5 shrink-0 text-[#a0a391]"><Clock3 size={13} aria-hidden /><span className="sr-only">Última actividad</span></dt><dd className="text-[#898c82]">{activityLabel(pipeline.lastActivityAt)}</dd></div>
       </dl>
@@ -75,7 +79,7 @@ function PipelineCard({ item, onSelect }: { item: LeadPipelineCard; onSelect: (i
       {pipeline.appointment && <div className="mt-3"><AppointmentBadge item={item} /></div>}
       <div className="mt-3 border-t border-[#787D62]/10 pt-3">
         <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#989c8b]">Próxima acción</p>
-        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#626b57]">{pipeline.nextAction || 'Sin acción registrada'}</p>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#626b57]">{nextActionDescription(pipeline)}</p>
         {pipeline.nextActionScheduled && validDate(pipeline.nextActionAt) && <p className="mt-1 text-[10px] text-[#9b896b]">{validDate(pipeline.nextActionAt)}</p>}
       </div>
     </button>
@@ -88,9 +92,11 @@ interface LeadPipelineBoardProps {
   isLoading: boolean
   onPageChange: (stage: LeadPipelineStage, page: number) => void
   onSelect: (id: string) => void
+  coverage?: Record<string, boolean>
 }
 
-export function LeadPipelineBoard({ columns, stageFilter, isLoading, onPageChange, onSelect }: LeadPipelineBoardProps) {
+export function LeadPipelineBoard({ columns, stageFilter, isLoading, onPageChange, onSelect, coverage = {} }: LeadPipelineBoardProps) {
+  const incomplete = coverageIncomplete(coverage)
   const stages = LEAD_PIPELINE_STAGE_OPTIONS.filter((stage) => !stageFilter || stage.value === stageFilter)
   return (
     <div aria-busy={isLoading}>
@@ -108,12 +114,12 @@ export function LeadPipelineBoard({ columns, stageFilter, isLoading, onPageChang
               <section key={stage.value} aria-labelledby={`stage-${stage.value}`} className={cn('flex h-[min(760px,calc(100dvh-18rem))] min-h-[420px] w-[280px] min-w-[280px] flex-col rounded-xl border border-[#787D62]/12 bg-[#f3f3ed]/70', stageFilter && 'w-full max-w-[720px]')}>
                 <div className="h-1 rounded-t-xl" style={{ backgroundColor: STAGE_COLORS[stageIndex] }} />
                 <header className="flex min-h-20 shrink-0 items-start justify-between gap-3 px-4 py-4">
-                  <div><h2 id={`stage-${stage.value}`} className="text-sm font-semibold text-[#555e48]">{stage.label}</h2><p className="mt-1 text-[11px] text-[#989d8e]">{total} {total === 1 ? 'lead' : 'leads'}</p></div>
+                  <div><h2 id={`stage-${stage.value}`} className="text-sm font-semibold text-[#555e48]">{stage.label}</h2><p className="mt-1 text-[11px] text-[#989d8e]">{total} {total === 1 ? 'lead' : 'leads'}{incomplete ? ' · Recuento provisional' : ''}</p></div>
                   <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-white px-1.5 text-xs font-semibold tabular-nums text-[#7d856d]">{total}</span>
                 </header>
                 <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-3">
                   {column?.leads.map((item) => <PipelineCard key={item.lead.id} item={item} onSelect={onSelect} />)}
-                  {!column?.leads.length && <div className="rounded-lg border border-dashed border-[#787D62]/20 px-4 py-9 text-center text-xs text-[#9a9e91]">Sin leads en esta etapa</div>}
+                  {!column?.leads.length && <div className="rounded-lg border border-dashed border-[#787D62]/20 px-4 py-9 text-center text-xs text-[#9a9e91]">{incomplete ? 'Sin leads identificados con las fuentes disponibles. Pendiente de verificar.' : 'Sin leads en esta etapa'}</div>}
                 </div>
                 {total > pageSize && (
                   <div className="flex shrink-0 items-center justify-between border-t border-[#787D62]/10 px-3 py-3">
@@ -144,13 +150,13 @@ export function LeadPipelineTable({ items, onSelect }: { items: LeadPipelineCard
           {items.map((item) => (
             <tr key={item.lead.id} className="transition-colors hover:bg-[#f9f8f3]">
               <th scope="row" className="min-w-44 px-4 py-4 font-normal"><button type="button" onClick={() => onSelect(item.lead.id)} className="rounded text-left font-semibold text-[#596a48] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#787D62]">{item.lead.name || 'Sin nombre'}</button><p className="mt-1 text-xs text-[#939789]">{item.lead.phone || LEAD_SOURCE_LABELS[normalizeSource(item.lead.source || '')]}</p></th>
-              <td className="min-w-44 px-4 py-4"><p className="text-xs font-medium text-[#656f57]">{item.pipeline.stageLabel}</p><p className="mt-1 text-[11px] text-[#939789]">{item.pipeline.attentionLabel}</p><div className="mt-1"><OutcomeBadge item={item} /></div></td>
-              <td className="px-4 py-4 text-xs text-[#6e795e]">{item.pipeline.nutritionActive ? <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Leaf size={12} aria-hidden />Activa</span> : <span className="whitespace-nowrap text-[#969b8b]">No activa</span>}</td>
-              <td className="min-w-36 px-4 py-4 text-xs text-[#6e795e]">{item.pipeline.selectedUnitNumber || 'Sin elegir'}</td>
+              <td className="min-w-44 px-4 py-4"><p className="text-xs font-medium text-[#656f57]">{item.pipeline.stageLabel}{item.pipeline.stageProvisional ? ' · Por verificar' : ''}</p><p className="mt-1 text-[11px] text-[#939789]">{item.pipeline.attentionLabel}</p><div className="mt-1"><OutcomeBadge item={item} /></div></td>
+              <td className="px-4 py-4 text-xs text-[#6e795e]">{item.pipeline.nutritionKnown === false ? 'Por verificar' : item.pipeline.nutritionActive ? <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Leaf size={12} aria-hidden />Activa</span> : <span className="whitespace-nowrap text-[#969b8b]">No activa</span>}</td>
+              <td className="min-w-36 px-4 py-4 text-xs text-[#6e795e]">{selectedUnitDescription(item.pipeline)}</td>
               <td className="min-w-36 px-4 py-4 text-xs text-[#6e795e]">{item.lead.assigned_profile?.full_name || 'Sin asignar'}</td>
-              <td className="min-w-44 px-4 py-4"><AppointmentBadge item={item} />{!item.pipeline.appointment && <span className="text-xs text-[#969b8b]">Sin cita registrada</span>}</td>
+              <td className="min-w-44 px-4 py-4"><AppointmentBadge item={item} />{!item.pipeline.appointment && <span className="text-xs text-[#969b8b]">{item.pipeline.coverage?.appointments === false ? 'Citas por verificar' : 'Sin cita registrada'}</span>}</td>
               <td className="min-w-32 px-4 py-4 text-xs text-[#939789]" title={validDate(item.pipeline.lastActivityAt) || undefined}>{activityLabel(item.pipeline.lastActivityAt)}</td>
-              <td className="min-w-56 px-4 py-4 text-xs leading-5 text-[#6e795e]"><p>{item.pipeline.nextAction || 'Sin acción registrada'}</p>{item.pipeline.nextActionScheduled && validDate(item.pipeline.nextActionAt) && <p className="mt-1 text-[10px] text-[#9b896b]">{validDate(item.pipeline.nextActionAt)}</p>}</td>
+              <td className="min-w-56 px-4 py-4 text-xs leading-5 text-[#6e795e]"><p>{nextActionDescription(item.pipeline)}</p>{item.pipeline.nextActionScheduled && validDate(item.pipeline.nextActionAt) && <p className="mt-1 text-[10px] text-[#9b896b]">{validDate(item.pipeline.nextActionAt)}</p>}</td>
             </tr>
           ))}
         </tbody>

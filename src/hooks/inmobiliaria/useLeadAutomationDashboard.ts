@@ -53,6 +53,7 @@ export function useLeadAutomationDashboard() {
   const [detail, setDetail] = useState<LeadAutomationDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [detailRevision, setDetailRevision] = useState(0)
 
   const tenantId = tenantIds[0] ?? ''
 
@@ -178,7 +179,7 @@ export function useLeadAutomationDashboard() {
       window.clearTimeout(timer)
       cancelled = true
     }
-  }, [selectedLeadId, supabase, tenantIds])
+  }, [selectedLeadId, supabase, tenantIds, detailRevision])
 
   const updateFilter = (key: keyof LeadAutomationFilters, value: string) => {
     replaceParams({ ...filters, [key]: value }, 1, selectedLeadId)
@@ -231,5 +232,6 @@ export function useLeadAutomationDashboard() {
     openLead,
     closeLead,
     reload: load,
+    reloadDetail: () => { setDetailLoading(true); setDetailRevision(value => value + 1) },
   }
 }
