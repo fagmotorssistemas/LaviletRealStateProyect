@@ -111,13 +111,13 @@ export function LeadPipelineBoard({ columns, stageFilter, isLoading, onPageChang
             const pageCount = Math.max(1, Math.ceil(total / pageSize))
             const stageIndex = LEAD_PIPELINE_STAGE_OPTIONS.findIndex((entry) => entry.value === stage.value)
             return (
-              <section key={stage.value} aria-labelledby={`stage-${stage.value}`} className={cn('flex h-[min(760px,calc(100dvh-18rem))] min-h-[420px] w-[280px] min-w-[280px] flex-col rounded-xl border border-[#787D62]/12 bg-[#f3f3ed]/70', stageFilter && 'w-full max-w-[720px]')}>
+              <section key={stage.value} aria-labelledby={`stage-${stage.value}`} className={cn('flex min-h-[420px] w-[280px] min-w-[280px] flex-col rounded-xl border border-[#787D62]/12 bg-[#f3f3ed]/70', stageFilter && 'w-full max-w-[720px]')}>
                 <div className="h-1 rounded-t-xl" style={{ backgroundColor: STAGE_COLORS[stageIndex] }} />
                 <header className="flex min-h-20 shrink-0 items-start justify-between gap-3 px-4 py-4">
                   <div><h2 id={`stage-${stage.value}`} className="text-sm font-semibold text-[#555e48]">{stage.label}</h2><p className="mt-1 text-[11px] text-[#989d8e]">{total} {total === 1 ? 'lead' : 'leads'}{incomplete ? ' · Recuento provisional' : ''}</p></div>
                   <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-white px-1.5 text-xs font-semibold tabular-nums text-[#7d856d]">{total}</span>
                 </header>
-                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-3">
+                <div className="flex-1 space-y-3 px-3 pb-3">
                   {column?.leads.map((item) => <PipelineCard key={item.lead.id} item={item} onSelect={onSelect} />)}
                   {!column?.leads.length && <div className="rounded-lg border border-dashed border-[#787D62]/20 px-4 py-9 text-center text-xs text-[#9a9e91]">{incomplete ? 'Sin leads identificados con las fuentes disponibles. Pendiente de verificar.' : 'Sin leads en esta etapa'}</div>}
                 </div>
