@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { launchSalesbot } from './kommo'
 import * as admission from './kommo-admission'
 import * as data from './data'
+import * as reviewSettings from './response-review-settings'
 import { GET } from '@/app/api/integrations/automation/audience/route'
 
 const policy = { version: 1, mode: 'future_messages', activatedAt: '2026-01-01T12:00:00Z' }
@@ -40,6 +41,7 @@ test('deployment preflight requires authentication and reveals no credentials', 
   })
   let reads = 0
   t.mock.method(data, 'autoConfig', async () => { reads++; return { enabled: true, dry_run: false, test_only: false, _audience: policy } })
+  t.mock.method(reviewSettings, 'loadResponseReviewPolicy', async () => ({ enabled: false, observationOnly: false, updatedAt: null }))
   assert.equal((await GET(new Request('https://localhost/api/integrations/automation/audience'))).status, 401)
   assert.equal(reads, 0)
   const response = await GET(new Request('https://localhost/api/integrations/automation/audience', { headers: { Authorization: 'Bearer ' + secret } }))
@@ -48,5 +50,8 @@ test('deployment preflight requires authentication and reveals no credentials', 
   assert.equal(body.includes(secret), false)
   assert.deepEqual(JSON.parse(body).audience, policy)
   assert.equal(JSON.parse(body).conversationAnalysisModel, 'gpt-4.1')
+  assert.equal(JSON.parse(body).responseReviewPolicyVersion, 2)
+  assert.equal(JSON.parse(body).responseReview.enabled, false)
+  assert.equal(JSON.parse(body).responseReview.observationOnly, false)
   assert.equal(reads, 1)
 })

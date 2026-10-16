@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Isolated PostgreSQL fixture. */
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),{PGlite}=require('@electric-sql/pglite')
 const advisor='20000000-0000-4000-8000-000000000001',other='20000000-0000-4000-8000-000000000002',tenant='a1b2c3d4-0001-4000-8000-000000000001',project='b1b2c3d4-0001-4000-8000-000000000001',lead='10000000-0000-4000-8000-000000000001',request='50000000-0000-4000-8000-000000000001'
-async function fixture(t){const db=new PGlite();t.after(()=>db.close());await db.exec(`
+async function fixture(t,{applyConflictFix=true}={}){const db=new PGlite();t.after(()=>db.close());await db.exec(`
 create role anon;create role authenticated;create role service_role;
 create table profiles(id uuid primary key,is_active boolean,role text default 'asesor');
 create table project_salespeople(id uuid default gen_random_uuid(),tenant_id uuid,project_id uuid,salesperson_id uuid,receives_leads boolean default true,rotation_order int default 0,last_lead_assigned_at timestamptz);
@@ -20,6 +20,7 @@ insert into project_automation_config values('${project}',120);
 insert into leads(id,tenant_id,project_id,name,kommo_id) values('${lead}','${tenant}','${project}','Cliente',4454162);`);
 await db.exec(fs.readFileSync('supabase/migrations/20261014180000_urgent_reservation_notifications.sql','utf8'));
 await db.exec(fs.readFileSync('supabase/migrations/20261016090000_reservation_assignment_and_alert.sql','utf8'));
+if(applyConflictFix)await db.exec(fs.readFileSync('supabase/migrations/20261016110000_fix_lead_assignment_notification_conflict.sql','utf8'));
 await db.exec('create trigger notify_lead_assignment after update of assigned_to,handoff_assigned_at on leads for each row execute function lv_notify_lead_assignment()');return db}
 async function insert(db){await db.exec(`insert into lead_reservation_requests(id,lead_id,unit_ids,created_at) values('${request}','${lead}','[]','2026-10-16T05:49:00Z')`)}
 test('reservation immediately assigns an active eligible advisor outside office hours and creates exactly one urgent alert',async t=>{const db=await fixture(t);await insert(db);const r=(await db.query('select * from lead_reservation_requests')).rows[0];assert.equal(r.assigned_to,advisor);assert.equal(r.handoff_status,'assigned');assert.equal(r.notification_status,'created');assert.equal(r.notified_recipient,advisor);assert.equal((await db.query('select * from advisor_notifications')).rows.length,1);await db.query('select lv_retry_reservation_alerts($1)',[project]);assert.equal((await db.query('select * from advisor_notifications')).rows.length,1);assert.equal((await db.query('select status from leads')).rows[0].status,'nuevo')});
@@ -47,4 +48,30 @@ test('the real intake RPC keeps receipt, unresolved escalation and urgent recipi
  const replay=await db.query("select lv_request_reservation_handoff($1,'incoming-1','[]','Quiero reservar el 605') receipt",[lead]);
  assert.equal(replay.rows[0].receipt.replayed,true);assert.equal((await db.query('select * from lead_reservation_requests')).rows.length,1);
  const alerts=(await db.query('select kind,recipient_id from advisor_notifications')).rows;assert.deepEqual(alerts,[{kind:'reservation_requested',recipient_id:advisor}]);
+});
+
+
+test('generic handoff reproduces 42P10 before the patch and creates one assignment alert after it',async t=>{
+ const db=await fixture(t,{applyConflictFix:false});
+ const assignmentAt='2026-10-16T14:48:00Z';
+ const assign=()=>db.query('update leads set assigned_to=$1,handoff_assigned_at=$2 where id=$3',[advisor,assignmentAt,lead]);
+ await assert.rejects(assign(),error=>error.code==='42P10');
+ assert.equal((await db.query('select assigned_to from leads')).rows[0].assigned_to,null);
+ await db.exec(fs.readFileSync('supabase/migrations/20261016110000_fix_lead_assignment_notification_conflict.sql','utf8'));
+ assert.equal((await db.query('select count(*)::int count from advisor_notifications')).rows[0].count,0);
+ await assign();await assign();
+ const alerts=(await db.query('select kind,recipient_id from advisor_notifications')).rows;
+ assert.deepEqual(alerts,[{kind:'lead_assigned',recipient_id:advisor}]);
+ assert.equal((await db.query('select assigned_to from leads')).rows[0].assigned_to,advisor);
+});
+
+test('generic assignment and urgent reservation alerts coexist for the same assignment',async t=>{
+ const db=await fixture(t);
+ await db.query('update leads set assigned_to=$1,handoff_assigned_at=$2 where id=$3',[advisor,'2026-10-16T05:49:00Z',lead]);
+ await insert(db);await db.query('select lv_retry_reservation_alerts($1)',[project]);
+ const alerts=(await db.query('select kind,recipient_id,assignment_at from advisor_notifications order by kind')).rows;
+ assert.deepEqual(alerts.map(({kind,recipient_id})=>({kind,recipient_id})),[
+  {kind:'lead_assigned',recipient_id:advisor},{kind:'reservation_requested',recipient_id:advisor},
+ ]);
+ assert.equal(+alerts[0].assignment_at,+alerts[1].assignment_at);
 });

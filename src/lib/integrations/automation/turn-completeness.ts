@@ -655,7 +655,10 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   }
   // Removing an obsolete denial must not skip the semantic repair itself. The
   // current question may ask about the remaining legitimate alternatives.
-  if (!input.current.trim()) return fallback('skipped_empty')
+  if (!input.current.trim()) {
+    if (!responseReviewEnabled()) throw new InvalidWriterTransportError('EMPTY_CUSTOMER_TURN')
+    return fallback('skipped_empty')
+  }
   const history = (Array.isArray(input.history) ? input.history : []).map(object).slice(-8)
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
   const memory = commercialMemory(input.verified.memoria_comercial, input.history, input.current)
@@ -772,19 +775,11 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       } } : {}) })), activeWriterSchema, undefined, undefined, undefined, 'writing')
     proposedReply = text(candidate.reply)
     if (!responseReviewEnabled()) {
-      // No model repair, reviewer call or extra writer attempt in disabled
-      // mode. The emitted question still owns its locally recognized meaning.
-      const transport = unreviewedWriterReply(proposedReply)
-      const reply = transport.reply
-      const issues = [...mandatoryReplyIssues(input, reply),
-        ...turnCompletenessIssues({ ...input, audit: { ...input.audit, semantic_review_enabled: false } }, reply),
-        ...(() => { const check = validateCatalogReply(reply, { ...input.audit, semantic_review: {} }); return check.valid ? [] : [check.reason || 'unsupported_catalog_rewrite'] })(),
-        ...(input.validateReply?.(reply) || [])]
-      if (issues.length) {
-        finalValidation = { passed: false, issues: [...new Set(issues)], validated_text: reply, policy: 'mandatory_server_guards' }
-        return fallback('rejected_guard', [], [...new Set(issues)])
-      }
-      const unreviewed = unreviewedWriterReply(reply)
+      // Explicit project-wide disablement preserves the writer's draft. Do not
+      // resurrect review through catalogue, coverage or caller prose guards.
+      // Action authorization is performed by its own operational routes.
+      const unreviewed = unreviewedWriterReply(proposedReply)
+      const reply = unreviewed.reply
       const deliveredQuestion = { ...object(candidate.question), ...continuationMetadata(candidate.question), text: replyQuestionText(reply) }
       const recoveredQuestion = reconcileContinuationMetadata(deliveredQuestion, reply, input.verified.siguiente_paso_comercial)
       const questionUsable = !replyQuestionText(reply) || validContinuationMetadata(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial)
@@ -792,7 +787,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
         audit: { ...unreviewed.audit, commercial_journey: input.verified.siguiente_paso_comercial,
           response_content_scope: contentScope, requests: coverageRows(candidate.requests, input.current, [], writerRequestRefs) || [],
           server_continuation_completion: serverContinuationCompletion,
-          final_validation: { passed: true, policy: 'mandatory_server_guards', issues: [], validated_text: reply },
+          final_validation: { passed: true, policy: 'transport_only', issues: [], validated_text: reply },
           question: recoveredQuestion.question, question_metadata_recovery: recoveredQuestion,
           follow_up: { usable: questionUsable, source: 'validated_writer', warnings: continuationMetadataIssues(recoveredQuestion.question, reply, input.verified.siguiente_paso_comercial) },
           writer_contract: writerContract, ...initialPresentationAudit } }
@@ -1249,6 +1244,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     }
     return fallback('unavailable', requests)
   } catch (error) {
+    // With review disabled, a writer/preparation failure remains an operational
+    // error; it must not fabricate a review verdict or review-recovery episode.
+    if (!responseReviewEnabled()) throw error
     if (observationOnly && observedDraft && !unsupportedPolicyClaim && !(error instanceof InvalidWriterTransportError)) {
       semanticReview = { ...semanticReview, status: 'unavailable', error_code: error instanceof Error ? error.message : 'REVIEW_UNAVAILABLE',
         acceptance: { content_approved: false, follow_up_usable: false }, enforcement: false }

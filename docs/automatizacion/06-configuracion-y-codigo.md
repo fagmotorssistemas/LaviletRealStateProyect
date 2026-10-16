@@ -62,6 +62,22 @@ La pantalla `Reglas y SLA > Seguimiento` lee y guarda los pasos reales en `proje
 
 El webhook de la aplicación debe estar suscrito en Kommo a `add_message` y `add_outgoing_message`. El primero alimenta los mensajes del lead; el segundo permite detectar una respuesta manual del asesor. Sin la segunda suscripción, una contestación escrita directamente en Kommo no puede pausar la IA.
 
+### Revisión final de respuestas para todos los leads
+
+La pantalla `Automatización > Modo de pruebas` contiene el **control general de revisión de respuestas**. Aunque esté en esa pantalla, el control se aplica a todos los leads del proyecto que tienen el bot habilitado, incluidos los contactos de prueba. No limita por origen, campaña ni antigüedad y no modifica las bajas, pausas o permisos del contacto.
+
+La configuración acordada para omitir la revisión en todos los leads es `projects.policies_json.response_review.enabled=false` y `observation_only=false`. Cada ejecución toma esta configuración al comenzar; una respuesta ya en curso conserva su estado inicial.
+
+| Configuración | Resultado |
+| --- | --- |
+| Revisión general activada | El revisor evalúa los hechos y las afirmaciones comerciales antes del envío. |
+| Revisión general y demostración desactivadas | El redactor prepara la respuesta sin llamar al revisor ni iniciar reparaciones por su evaluación. Los controles de contenido comercial y catálogo no bloquean su borrador. El registro indica `review_disabled`, no una aprobación del contenido. |
+| Demostración activada expresamente | Solo los contactos de prueba reciben revisión en modo observación, incluso si la revisión general está desactivada. Los demás leads conservan la configuración general. Esta opción debe permanecer desactivada para omitir la revisión sin excepciones. |
+
+Por ejemplo, antes de este ajuste una respuesta sobre una suite podía quedar detenida por `catalog_area_mismatch`, aunque el revisor IA estuviera desactivado: quedaba una validación de catálogo en la rama sin revisión y terminaba en `RESPONSE_REVIEW_EXHAUSTED`. Con la revisión desactivada, ese control ya no sustituye el borrador por una contingencia ni deriva el lead por una revisión pendiente.
+
+La desactivación se limita a la revisión de la respuesta. Se mantienen los límites técnicos del mensaje, las autorizaciones de contacto y las comprobaciones de fecha y origen del envío. La interpretación y las acciones conservan sus propias reglas: el texto de un mensaje no crea una reserva, confirma una cita ni autoriza una evaluación financiera. Un error de interpretación, un permiso denegado o un fallo del proveedor todavía puede impedir el flujo; no debe registrarse como un rechazo de contenido del revisor desactivado.
+
 ### Recuperación de alertas urgentes de reserva
 
 Una solicitud nueva asigna un asesor elegible y crea su alerta mediante los disparadores SQL de reservas. Si queda pendiente o falla el aviso, el mantenimiento periódico lo reintenta. Además, al actualizar las notificaciones de un asesor o administrador se ejecuta `recoverReservationNotifications`: comprueba la sesión, el acceso al proyecto, el perfil activo, la pertenencia del asesor y las restricciones de pruebas antes de llamar a `lv_retry_reservation_alerts`. La función SQL procesa como máximo 50 solicitudes pendientes vigentes del proyecto y conserva la rotación y la protección contra duplicados.
