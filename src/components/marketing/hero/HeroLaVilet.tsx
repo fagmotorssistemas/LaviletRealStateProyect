@@ -38,12 +38,12 @@ export function HeroLaVilet() {
   <section className={styles['hero']} data-part="hero" aria-label="La Vilet">
     <div className={styles['bg-inner']} data-part="bgInner">
       <img data-part="imgBg" src="/hero/fondo-dia.webp" alt="" fetchPriority="high" decoding="async" />
-      <img data-part="imgBgS" src="/hero/fondo-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" />
+      <img data-part="imgBgS" src="/hero/fondo-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" />
       <img data-part="imgBgN" src="/hero/fondo-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
     </div>
     <div className={styles['ground']} data-part="ground">
       <img data-part="imgGround" src="/hero/calle-dia.webp" alt="" fetchPriority="high" decoding="async" />
-      <img data-part="imgGroundS" src="/hero/calle-tarde.webp" alt="" style={{ opacity: 1 }} decoding="async" />
+      <img data-part="imgGroundS" src="/hero/calle-tarde.webp" alt="" style={{ opacity: 0 }} decoding="async" />
       <img data-part="imgGroundN" src="/hero/calle-noche.webp" alt="" style={{ opacity: 0 }} decoding="async" loading="lazy" fetchPriority="low" />
     </div>
     <div className={styles['bld']} data-part="bld">
