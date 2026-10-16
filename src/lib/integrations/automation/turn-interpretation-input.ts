@@ -166,7 +166,8 @@ export function reconcileFinancingReference(raw: Row, input: Row, current: strin
 export function interpretationInput(input: Row, current: string): Row {
   const summary = object(input.resumen)
   const result = pick(input, ['perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
-    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'dialogo_visita', 'financiamiento'])
+    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'dialogo_visita', 'financiamiento',
+    'reservation_context'])
   const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
   const catalog = rows(input.catalogo_unidades)
   const propertyContext = object(input.contexto_propiedades)

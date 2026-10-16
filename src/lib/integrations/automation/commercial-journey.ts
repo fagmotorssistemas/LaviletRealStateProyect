@@ -15,6 +15,7 @@ import { isPassivePurchaseEvidence } from './purchase-evidence'
 import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy } from './budget-evaluation'
 import { selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, prioritizesViews, withoutBedroomConstraint, spaciousOptions } from './selection-preferences'
 import { projectObjectionRequests } from './project-objections'
+import { reconcileReservationOperation, RESERVATION_OPERATION_VERSION } from './reservation-operation-context'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -79,13 +80,17 @@ export function commercialSelectionQuery(info: Row) {
     group: interest.group || assetGroup(category) || 'residential' })
   const quantities = rows(known.housing_quantities).filter(row => row.dimension === 'bedrooms' && row.role === 'requirement'
     && acceptedExtractorConfidence(row.confidence) && text(row.evidence).trim() && Array.isArray(row.values) && row.values.length === 1)
-  const remembered = object(object(context.exploration_state).accepted_filters).bedrooms
+  // Once a unit is chosen, a missing optional filter is not permission to
+  // revive requirements from before that choice. A current search still uses
+  // its own filters and the client's accepted exploration.
+  const selectedScope = query.scope === 'selected' && ids(context.selected_ids).length > 0 && query.operation !== 'search'
+  const remembered = selectedScope ? null : object(object(context.exploration_state).accepted_filters).bedrooms
     ?? object(object(known.property).filters).bedrooms
     ?? (quantities.length === 1 ? (quantities[0].values as number[])[0] : null)
   return catalogQuery({ ...query, category,
     group: interest.group || assetGroup(category) || null,
     filters: { ...object(query.filters), bedrooms: bedroomConditions.length
-      ? sameBedroomCondition ? currentBedrooms : null : currentBedrooms ?? (interest.group === 'commercial' ? null : remembered ?? lead.preferred_bedrooms) } })
+      ? sameBedroomCondition ? currentBedrooms : null : currentBedrooms ?? (interest.group === 'commercial' ? null : remembered ?? (selectedScope ? null : lead.preferred_bedrooms)) } })
 }
 
 function commercialSelectionCategory(info: Row) {
@@ -149,6 +154,42 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const information = informationOnly(info)
   const goal = object(object(info.semantica_turno).interaction_goal)
   const broadInformation = ['all_categories', 'other_categories'].includes(text(goal.catalog_scope))
+  const reservationMessage = text(object(info.contrato_turno).current_message || info.mensaje_actual)
+  const reservationContext = reconcileReservationOperation(object(info.reservation_context), info.reservation_context,
+    info.semantica_turno, reservationMessage)
+  const selectedIds = ids(object(info.property_context).selected_ids)
+  const requestIds = ids(reservationContext.unit_ids)
+  const differentSelection = selectedIds.length > 0 && selectedIds.some(id => !requestIds.includes(id))
+  const newOperation = audit.action && audit.action !== 'information_only' || audit.financing_collection
+    || Object.keys(object(audit.reservation)).length > 0 && object(audit.reservation).existing_request !== true
+      && audit.source !== 'reservation_information'
+    || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
+  if (reservationContext.version === RESERVATION_OPERATION_VERSION && reservationContext.read_status === 'available'
+    && reservationContext.active === true && !differentSelection && !newOperation && !information && !broadInformation) return {
+    version: 'commercial-journey-v1', action: 'current_operation', question: '', question_id: '',
+    selected_unit_id: requestIds.length === 1 ? requestIds[0] : null,
+    reservation_context: reservationContext, continuation_optional: true,
+    financing_offer_allowed: false, visit_offer_allowed: false,
+    instruction: 'Atienda la consulta actual y conserve la solicitud de reserva vigente identificada en reservation_context. '
+      + 'Use su estado y la asignación actual verificados; una solicitud registrada no confirma la reserva del inmueble, el pago ni que el asesor ya se haya comunicado. '
+      + 'Una aclaración, disculpa o consulta de seguimiento no reinicia la búsqueda. No vuelva a pedir presupuesto, dormitorios, categoría o unidad ni repita la invitación a iniciar la reserva que ya se solicitó. '
+      + 'Responda también precios, características u otras dudas actuales con sus fuentes. Puede cerrar sin pregunta; no añada una decisión comercial pendiente por rutina.',
+  }
+  const trackingRequest = rows(info.solicitudes_interpretadas || object(info.semantica_turno).requests)
+    .some(request => request.domain === 'tracking' && request.source !== 'pending'
+      && acceptedExtractorConfidence(request.confidence) && !!text(request.evidence).trim()
+      && reservationMessage.normalize('NFKC').toLocaleLowerCase('es').replace(/\s+/g, ' ')
+        .includes(text(request.evidence).normalize('NFKC').toLocaleLowerCase('es').replace(/\s+/g, ' ').trim()))
+  if (reservationContext.read_status === 'unavailable' && trackingRequest && !newOperation
+    && object(object(info.semantica_turno).property).operation !== 'search'
+    && object(object(info.semantica_turno).property).operation !== 'select') return {
+    version: 'commercial-journey-v1', action: 'answer_current_question', question: '', question_id: '',
+    continuation_optional: true, financing_offer_allowed: false, visit_offer_allowed: false,
+    instruction: 'Atienda la consulta de seguimiento actual. La lectura del registro de reservas no está disponible: '
+      + 'no afirme que no existe solicitud ni invente su estado, asignación o cancelación. Conserve los datos anteriores como antecedentes. '
+      + 'Explique únicamente lo que no puede comprobar y aclare solo una referencia que sea indispensable. '
+      + 'No reinicie la búsqueda ni vuelva a solicitar dormitorios, presupuesto o una nueva reserva por faltar esta comprobación.',
+  }
   const operation = audit.action || audit.reservation || audit.financing_collection
     || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
   if ((information || broadInformation) && !operation) return {

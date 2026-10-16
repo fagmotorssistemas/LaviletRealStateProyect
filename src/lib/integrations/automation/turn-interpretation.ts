@@ -367,6 +367,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
         perfil_inicial: modelInput.perfil_inicial,
         resumen: modelInput.resumen,
         contexto_propiedades: modelInput.contexto_propiedades,
+        reservation_context: modelInput.reservation_context,
         unidades_identificadas: modelInput.unidades_identificadas,
         recuperacion_interpretacion: { issues: recoveryIssues,
           fields: [...blocks.semanticFields, ...blocks.rootFields], preserve_other_fields: true,

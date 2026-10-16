@@ -263,6 +263,16 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     const journey=commercialJourneyPlan(input.verified, input.audit||{})
     if(budgetAssessment) budgetAssessment=budgetForCommercialPlan(budgetAssessment, journey)
     input={ ...input, verified: { ...input.verified, siguiente_paso_comercial: journey }, audit: { ...input.audit, commercial_journey: journey } }
+    if (journey.action === 'current_operation' && object(journey.reservation_context).active === true) {
+      // The same persisted operation backs planning, the writer and review.
+      // It records an earlier request, never a new action or confirmation.
+      const reservation = object(journey.reservation_context)
+      input.audit = { ...input.audit, reservation: { ...reservation, existing_request: true,
+        request_registered: true, inventory_reserved: false, handoff_verified: false }, pending_question: {} }
+      input.preserveOperationalQuestion = false
+      delete input.audit.progressive_selection
+      delete input.audit.post_tour_continuation
+    }
     if(budgetAssessment) input.verified.presupuesto_del_turno=budgetAssessment
     if(journey.question_id||['leave_open', 'information_only', 'answer_current_question', 'answer_project_categories', 'visual_information'].includes(text(journey.action))) {
       input.preserveOperationalQuestion=false

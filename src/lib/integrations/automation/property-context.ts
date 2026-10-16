@@ -1095,7 +1095,15 @@ export function rememberPropertyReply(catalog: Row[], contextRaw: unknown, reply
     && proposalInformation.informational_only === true && proposalInformation.pending_question_id === previousPending.id
     && previousPending.act === 'explore_alternatives'
   if (['business_out_of_scope', 'vehicle_out_of_scope', 'scope_clarification'].includes(text(audit.source))) {
-    return { version: 2, preference_category: context.preference_category || null, offered_ids: [], comparison_ids: [], selected_ids: [], focused_ids: [], pending_question: {}, query: {}, phase: null, last_reply: reply }
+    // Clarifying a message or answering another subject suspends this turn's
+    // catalogue references, not the client's decisions. The inbound resolver
+    // already applies explicit changes/rejections; keep that resolved state so
+    // a later operational follow-up cannot revive an older, superseded need.
+    delete context.information_query
+    delete context.proposal_information
+    return { ...context, offered_ids: [], comparison_ids: [], focused_ids: [], pending_question: {},
+      query: { ...object(context.query), operation: 'none', selector: null }, reference_resolution: {},
+      operation_resolution: { source: text(audit.source), applied: 'none' }, last_reply: reply }
   }
   const explicitOffers = ids(audit.offered_unit_ids)
   const selected = ids(audit.selected_unit_ids)

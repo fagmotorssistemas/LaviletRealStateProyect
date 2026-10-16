@@ -99,6 +99,8 @@ import { deliveredPendingQuestion } from './continuation-question'
 import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-disposition'
 import { MAX_REPLY_CHARACTERS, responsePlan, protectInitialProjectPresentation } from './response-plan'
 import { evaluateInterestDecision, requestReservationHandoff, reservationRequest, verifiedReservationReceipt } from './reservation-action'
+import { loadReservationContext } from './reservation-context-loader'
+import { hydrateReservationSelection, projectReservationOperation, reconcileReservationOperation } from './reservation-operation-context'
 import { commercialTurnTopics } from './multi-topic-turn'
 import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
@@ -431,6 +433,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let interestDecision: Row | null = null
   let summary: Row = {}, audit: Row = {}
   let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
+  let reservationContext: Row = {}
   let greeting = !inbound.mediaFailed && !pendingInputs.length && isGreetingOnly(current)
   const storedSummary = await applyShowroomEntry(lead,object(conversationBefore.summary),current)
   const previousSummary: Row = { ...storedSummary, _lead_profile: confirmedLeadProfile(storedSummary._lead_profile) }
@@ -564,9 +567,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const finance = minimalTurn ? { partners: [], current: {} } : await financingContext(lead)
   turnCatalog = minimalTurn ? [] : await publishedUnitCatalog()
   const catalogSearch = minimalTurn ? { embeddingsEnabled: false } : await catalogSearchConfiguration()
+  if (!minimalTurn) reservationContext = reconcileReservationOperation(
+    await loadReservationContext(lead, turnCatalog, activeLast.sentAt), previousSummary._reservation_operation, {}, originalTurn)
   trace.finish(toolsContextStep, minimalTurn ? 'skipped' : 'succeeded', { catalog_units: turnCatalog.length, financing_partners: finance.partners.length })
   const initialReference = resolveCatalogReference(turnCatalog, current, previousSummary._unit_reference, context.historial)
-  const previousPropertyContext = minimalTurn ? object(previousSummary._property_context) : propertyContext(turnCatalog, previousSummary._property_context, context.historial)
+  const rememberedPropertyContext = minimalTurn ? object(previousSummary._property_context)
+    : propertyContext(turnCatalog, previousSummary._property_context, context.historial)
+  const previousPropertyContext = minimalTurn ? rememberedPropertyContext
+    : hydrateReservationSelection(rememberedPropertyContext, reservationContext, turnCatalog)
+  if (previousPropertyContext !== rememberedPropertyContext) {
+    // Restore only from a verified customer request, before interpreting the
+    // new turn. Its explicit changes can still replace or reject this choice.
+    previousSummary._property_context = previousPropertyContext
+    previousSummary._pending_question = previousPropertyContext.pending_question
+  }
   const semanticStep = trace.start('semantic_extraction', 'Interpretar intención y datos', 'ai', 'ai.ts · conversation-rules.ts · turn-semantics.ts', {
     message: traceText(current), has_previous_summary: Object.keys(previousSummary).length > 0,
     catalog_matches: initialReference.matches.length,
@@ -587,6 +601,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion,
     contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog,
     propuestas: proposals, coordinacion_visita: visitDraft, dialogo_visita: previousSummary._visit_dialogue, financiamiento: finance,
+    reservation_context: reservationContext,
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence && businessScope.confidence !== 'low' ? '' : current,
   }
@@ -637,6 +652,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   interpretation.requests = turnIntent.requests
   extracted.requests = turnIntent.requests
   turnSemantics.requests = turnIntent.requests
+  reservationContext = reconcileReservationOperation(reservationContext, previousSummary._reservation_operation,
+    businessScope.kind === 'out_of_scope' ? {} : turnSemantics, originalTurn)
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor'),
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
   const interaction = interactionMode(previousSummary._interaction_mode || object(previousSummary._sales_memory).interaction_mode, turnSemantics)
@@ -671,6 +688,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _turn_intent: turnIntent,
     _interaction_mode: interaction,
     _lead_nurture: nurtureState,
+    // A minimal greeting does not reload operation facts or erase a durable
+    // decision to leave the earlier request behind.
+    _reservation_operation: minimalTurn ? previousSummary._reservation_operation || {} : reservationContext,
     _lead_pipeline_events: rememberPipelineAvailability(previousSummary._lead_pipeline_events, interpretation.requests, current, activeLast.externalId, activeLast.sentAt),
     _unit_reference: minimalTurn || unresolvedPropertyScope ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn || unresolvedPropertyScope ? previousPropertyContext : reference.context }
@@ -979,6 +999,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           const receipt = result.receipt
           lead = await one('leads', text(lead.id))
           if (!verifiedReservationReceipt(receipt, lead, request)) throw new Error('RESERVATION_HANDOFF_NOT_VERIFIED')
+          reservationContext = projectReservationOperation({ requests: [{ ...receipt, lead_id: lead.id,
+            source_sent_at: activeLast.sentAt }], lead, catalog: turnCatalog })
+          summary._reservation_operation = reservationContext
           const assigned = ['assigned', 'acknowledged'].includes(text(receipt.handoff_status))
           const subject = request.unit_numbers.length ? ` de la unidad ${request.unit_numbers.join(', ')}` : ''
           handoffNotice = assigned
@@ -1453,7 +1476,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     }
   }
   audit.brochure_intent = brochureIntent
-  if (!audit.profile_introduction && !startingReservation) {
+  if (!audit.profile_introduction && !startingReservation && reservationContext.active !== true) {
     if (!introductionProjectInfo && turnIntent.objective === 'project_information' && !finalNotice && !handoffNotice
       && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind))
       introductionProjectInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
@@ -1538,10 +1561,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const info: Row = scopeOnlyReview
       ? { ...scopePolicyContext({ ...commercialInfo, financiamiento: finance, semantica_turno: currentSemantics,
         property_context: propertyTurn.context, referencia_unidad: propertyTurn,
+        reservation_context: reservationContext, recorrido_comercial: summary._commercial_journey || {},
         solicitudes_interpretadas: turnIntent.requests }, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
       : { ...commercialInfo, alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       ...(scopeContract ? { limite_alcance: scopeContract } : {}),
       estado_operativo: audit, coordinacion_visita: visitDraft, visit_dialogue_plan: visitDialoguePlan, referencia_unidad: propertyTurn,
+      reservation_context: reservationContext,
       avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [],
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
       contrato_turno: turnIntent,
