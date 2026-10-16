@@ -18,7 +18,16 @@
 .pin, .pin * { box-sizing: content-box; }
 /* ---------- Pinned hero ---------- */
 .pin { position: relative; height: calc(100vh + var(--travel, 120vh)); height: calc(100svh + var(--travel, 120svh)); }
+/* Fallback inicial: replica layout() de heroAnimation.js, lineas 93-131.
+   Si cambian state.size, state.x, state.y, state.bgY, state.bgZ, state.stY
+   o state.stX, actualizar tambien estas variables o el hero vuelve a saltar
+   al cargar. Se asumen state.bgX = 0 y state.sky = 40 (zoom inicial de render()).
+   Dos fuentes de la misma verdad: mantener CSS, layout() y state sincronizados.
+   Caso de borde: con viewport de menos de 520px de alto, min-height hace que
+   clientHeight difiera de 100svh; ahi el primer layout() corrige la composicion. */
 .hero {
+  --w: 100vw;
+  --h: 100svh;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -27,13 +36,38 @@
   overflow: hidden;
   background: var(--bg);
   isolation: isolate;
-  --sw: max(100vw, 177.68vh);
-  --sh: calc(var(--sw) / 1.7768);
-  --st: calc(100vh - var(--sh));
-  --bw: 78vw;
-  --bl: 11vw;
-  --bt: 20vh;
-  --tint: 0.6;
+  --ar: calc(1672 / 941);
+  --bld-ar: calc(1356 / 585);
+  --ground-ar: calc(1672 / 492);
+  --sw: max(var(--w), calc(var(--h) * var(--ar)));
+  --sh: calc(var(--sw) / var(--ar));
+  --st: calc(var(--h) - var(--sh));
+  --base-y: calc(var(--st) + var(--sh) * 0.86);
+  --bw: calc(min(var(--sw) * 0.95, var(--w) * 1.4, (var(--base-y) - 40px) * var(--bld-ar)) * 1.2);
+  --bh: calc(var(--bw) / var(--bld-ar));
+  --bl: calc((var(--w) - var(--bw)) / 2);
+  --bt: calc(var(--base-y) - var(--bh) + var(--h) * 0.08);
+  --seam-y: calc(var(--st) + var(--sh) * 0.7747);
+  --gw: var(--sw);
+  --gh: calc(var(--gw) / var(--ground-ar));
+  --gl: calc((var(--w) - var(--gw)) / 2);
+  --gt: max(calc(var(--seam-y) + var(--h) * 0.11), calc(var(--h) - var(--gh) + 2px));
+  --horizon: max(calc(var(--seam-y) + var(--h) * 0.03), calc(var(--gt) - var(--sh) * 0.05));
+  /* sw * max(1, horizon / (0.7747 * sh)), usando sw / sh = AR. */
+  --fw: max(var(--sw), calc(var(--horizon) * var(--ar) / 0.7747));
+  --fh: calc(var(--fw) / var(--ar));
+  --fl: calc((var(--w) - var(--fw)) / 2);
+  --ft: calc(var(--horizon) - var(--fh) * 0.7747);
+  --tint: 0;
+}
+@media (min-aspect-ratio: 5/4) {
+  .hero {
+    --bw: calc(min(var(--sw) * 0.95, var(--w) * 1.15, (var(--base-y) - 96px) * var(--bld-ar)) * 1.2);
+  }
+}
+/* Zoom de render(0), state.sky = 40; el transform inline gobierna el scroll. */
+.hero [data-part="bgInner"] {
+  transform: scale(1.4);
 }
 .bg-inner {
   position: absolute;
