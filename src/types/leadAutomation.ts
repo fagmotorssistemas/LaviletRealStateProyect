@@ -1,9 +1,11 @@
 export type LeadSlaStatus = 'no_aplica' | 'pendiente' | 'vencido' | 'respondido'
 export type LeadHandoffStatus = 'none' | 'queued' | 'assigned' | 'acknowledged' | 'resolved'
-export type LeadStage = 'lanzamiento' | 'precalificacion' | 'nutricion' | 'preventa' | 'reserva_venta'
+export type LeadStage = import('./leadPipeline').LeadPipelineStage | 'lanzamiento' | 'precalificacion' | 'nutricion' | 'preventa' | 'reserva_venta'
 export type LeadPurchasePurpose = 'vivir' | 'invertir' | 'segunda_vivienda' | 'negocio'
 
 export interface LeadAutomationRow {
+  /** Same evidence-based projection displayed in Leads; legacy stage columns are not authoritative. */
+  pipeline?: import('./leadPipeline').LeadPipelineSnapshot
   tenant_id: string
   project_id: string | null
   project_name: string | null
@@ -143,6 +145,9 @@ export interface MessageRow {
   content: string | null
   media_url: string | null
   sent_at: string
+  external_message_id?: string | null
+  delivery_status?: string | null
+  provider_status?: string | null
 }
 
 export interface LeadInterestUnitRow {
@@ -203,6 +208,7 @@ export interface BotEscalationRow {
 
 export type AutomationTimelineKind =
   | 'mensaje_recibido'
+  | 'respuesta_bot'
   | 'evento_detectado'
   | 'puntos_asignados'
   | 'cambio_temperatura'
@@ -218,10 +224,18 @@ export interface AutomationTimelineItem {
   at: string
   title: string
   detail: string | null
+  eventType?: string
+  points?: number
+  originalReason?: string
+  sourceMessageId?: string | null
+  messageId?: string
+  conversationId?: string
+  score?: number | null
 }
 
 export interface LeadAutomationDetail {
-  profileCard?: import('@/lib/inmobiliaria/leadProfileCard').LeadProfileCardData
+  commercialProfile?: import('@/types/leadPipelineDetail').LeadPipelineDetail
+  commercialProfileError?: string
   row: LeadAutomationRow
   conversations: ConversationRow[]
   messages: MessageRow[]

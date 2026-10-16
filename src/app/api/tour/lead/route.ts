@@ -9,6 +9,7 @@ import {
   TOUR_TENANT_ID,
 } from '@/lib/tour/trackingIds'
 import { enrichTourLeadAfterIdentify } from '@/lib/tour/enrichTourLead'
+import { scheduleShowroomContact } from '@/lib/tour/scheduleShowroomContact'
 import {
   rpcIdentifyTourLeadWithMetaOutbox,
   rpcRegisterTourInfoRequest,
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
       email?: string
       phone?: string
       consent?: boolean
+      contact_whatsapp?: boolean
       mode?: 'full' | 'phone'
       request_kind?: 'identify' | 'info_request' | 'save_unit'
       client_request_id?: string
@@ -214,10 +216,10 @@ export async function POST(request: Request) {
     const leadId = identified.lead_id
 
     try {
-      await rpcSetTrackingPreference(admin, {
+      if (body.contact_whatsapp === true) await rpcSetTrackingPreference(admin, {
         leadId,
         consent: true,
-        reason: phoneOnly ? 'guardar_unidad' : requestKind === 'info_request' ? 'solicitud_info' : 'gate',
+        reason: 'showroom_explicit_whatsapp_opt_in',
       })
     } catch (error) {
       console.error('set_tracking_preference', error)
@@ -326,6 +328,12 @@ export async function POST(request: Request) {
       }
     }
 
+    const showroomContact = await scheduleShowroomContact(admin, {
+      leadId, sessionId:enrichResult.sessionId,visitorKey,name:realName,
+      contactConsent:body.contact_whatsapp===true,
+      explicitUnit:['info_request','save_unit'].includes(requestKind)?enrichResult.unitId:null,
+    }).catch(()=>({scheduled:false,reason:'schedule_unavailable'}))
+
     after(async () => {
       try {
         await flushLocalMetaOutbox(admin)
@@ -339,6 +347,7 @@ export async function POST(request: Request) {
     const emitMetaLead = requestKind === 'info_request' && Boolean(metaLead?.eventId)
     const response = NextResponse.json({
       lead_id: leadId,
+      showroom_contact: showroomContact,
       emit_meta_lead: emitMetaLead,
       meta_event_id: emitMetaLead ? metaLead?.eventId : null,
       meta_event_time: emitMetaLead ? metaLead?.eventTime : null,

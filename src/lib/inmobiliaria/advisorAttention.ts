@@ -18,14 +18,21 @@ function normalized(value: string | null | undefined) {
 }
 
 export function advisorAttentionPriority(
-  row: Pick<LeadAutomationRow, 'sla_status' | 'handoff_reason' | 'last_visit_status'>,
+  row: Pick<LeadAutomationRow, 'sla_status' | 'handoff_reason' | 'last_visit_status' | 'pipeline'>,
 ): AdvisorAttentionPriority {
   const reason = normalized(row.handoff_reason)
-  if (row.sla_status === 'vencido'
-    || /\b(?:cancel|reagend|agend|cita|visita|reserv|separ|comprar|compra)\b/.test(reason)
+  if (row.sla_status === 'vencido' || row.pipeline?.stage === 'proceso_reserva'
+    || /\b(?:cancel\w*|reagend\w*|agend\w*|cita|visita|reserv\w*|separ\w*|comprar|compra)\b/.test(reason)
     || ['solicitada', 'pendiente'].includes(String(row.last_visit_status ?? ''))) return 'high'
   if (row.sla_status === 'pendiente' || /\b(?:financ|credito|precio|presupuesto)\b/.test(reason)) return 'medium'
   return 'normal'
+}
+
+export function advisorAttentionPriorityReason(row: Pick<LeadAutomationRow, 'sla_status' | 'handoff_reason' | 'last_visit_status' | 'pipeline'>) {
+  if (row.pipeline?.stage === 'proceso_reserva' || /reserv|separ/.test(normalized(row.handoff_reason))) return 'Solicitud de reserva'
+  if (row.sla_status === 'vencido') return 'Plazo de respuesta vencido'
+  if (['solicitada', 'pendiente'].includes(String(row.last_visit_status ?? ''))) return 'Cita pendiente de atención'
+  return advisorAttentionPriority(row) === 'medium' ? 'Revisión comercial pendiente' : 'Consulta pendiente'
 }
 
 export function advisorAttentionTitle(reason: string | null | undefined) {

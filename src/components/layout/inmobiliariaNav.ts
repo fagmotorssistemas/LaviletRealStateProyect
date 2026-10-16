@@ -39,6 +39,7 @@ export const crmModules: {
     label: 'Ventas',
     href: '/inmobiliaria/leads',
     items: [
+      { label: 'Análisis de conversaciones', href: '/inmobiliaria/analisis-conversaciones', icon: BarChart3 },
       { label: 'Inventario', href: '/inmobiliaria/inventario', icon: LayoutGrid },
       { label: 'Proyectos', href: '/inmobiliaria/proyectos', icon: Layers },
       { label: 'Leads', href: '/inmobiliaria/leads', icon: UserPlus },

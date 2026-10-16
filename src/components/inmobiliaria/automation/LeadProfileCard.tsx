@@ -5,14 +5,14 @@ import type { LeadProfileCardData } from '@/lib/inmobiliaria/leadProfileCard'
 import type { FinancingReviewInput } from '@/lib/inmobiliaria/financingReviewResult'
 import { saveFinancingReview } from '@/app/inmobiliaria/automatizacion/financing-review-actions'
 
-export function LeadProfileCard({ data, leadId }: { data: LeadProfileCardData; leadId: string }) {
+export function LeadProfileCard({ data, leadId, showGroups = true }: { data: LeadProfileCardData; leadId: string; showGroups?: boolean }) {
   const formId = useId()
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [updatedAt, setUpdatedAt] = useState(data.leadUpdatedAt)
   return <div className="space-y-5">
-    <p className="text-sm text-[#6e716b]">Datos guardados del lead. «Sin confirmar» indica que todavía falta información, no una respuesta negativa.</p>
-    {data.groups.map(group => <section key={group.title} className="rounded-lg border border-[#dbe2d3] bg-[#fcfdf9] p-4">
+    {showGroups && <p className="text-sm text-[#6e716b]">Datos guardados del lead. «Sin confirmar» indica que todavía falta información, no una respuesta negativa.</p>}
+    {showGroups && data.groups.map(group => <section key={group.title} className="rounded-lg border border-[#dbe2d3] bg-[#fcfdf9] p-4">
       <h3 className="mb-3 text-lg font-semibold text-[#42523d]">{group.title}</h3>
       <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">{group.fields.map(field => <div key={field.label} className="min-w-0">
         <dt className="text-xs text-[#6e716b]">{field.label}</dt>

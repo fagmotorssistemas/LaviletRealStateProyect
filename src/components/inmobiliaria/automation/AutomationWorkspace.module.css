@@ -47,7 +47,8 @@
 .queueItem { display: grid; grid-template-columns: 64px minmax(260px, 1.4fr) minmax(180px, .65fr) minmax(210px, auto); gap: 16px; align-items: center; padding: 15px 20px; border-bottom: 1px solid #eef0eb; }
 .queueItem:last-child { border-bottom: 0; }
 .queueItem:hover { background: #fcfdf9; }
-.queuePriority { display: flex; align-items: center; gap: 6px; color: #7c8578; font-size: 9px; font-weight: 650; text-transform: uppercase; }
+.queuePriority { display: grid; grid-template-columns: 7px 1fr; align-content: center; align-items: center; gap: 6px; color: #7c8578; font-size: 9px; font-weight: 650; text-transform: uppercase; }
+.queuePriority small { grid-column: 1 / -1; overflow-wrap: anywhere; font-size: 9px; font-weight: 400; line-height: 1.4; text-transform: none; }
 .queuePriority i { width: 7px; height: 7px; border-radius: 50%; background: #aab2a5; }
 .queueItem[data-priority='high'] .queuePriority { color: #9a573f; }
 .queueItem[data-priority='high'] .queuePriority i { background: #bc6044; box-shadow: 0 0 0 4px #f7e9e3; }

@@ -22,6 +22,8 @@ import { syncTransportIncidents } from './transport-monitor'
 import { AcceptedReplyRegistrationError, preserveAcceptedReply, recoverAcceptedReplyRegistrations } from './reply-registration'
 import { sendConfirmedDeliveryRetry } from './delivery-retry'
 import { recheckMaintenanceReads } from './maintenance-recovery'
+import { processShowroomContacts } from './showroom-contact'
+import { analyzeIdleConversation } from './conversation-analysis'
 
 async function scheduleTasks() {
   const now = new Date()
@@ -32,6 +34,18 @@ async function scheduleTasks() {
   }
   const { error } = await db().from('lv_integration_events').upsert(tasks, { onConflict: 'project_id,event_key', ignoreDuplicates: true })
   if (error) throw new Error('TASK_SCHEDULE_FAILED')
+}
+
+async function retryReservationAlerts(config: Row) {
+  const settings = automationSettings()
+  const leadIds = settings.testLeadId ? [settings.testLeadId] : config.test_only === true
+    ? (Array.isArray(config.test_lead_ids) ? config.test_lead_ids : []) : null
+  try { return await rpc('lv_retry_reservation_alerts', { p_project_id: scope.project_id, p_lead_ids: leadIds }) }
+  catch (error) {
+    // Old installations can keep running while the new migration is applied.
+    if (error instanceof Error && /RPC_LV_RETRY_RESERVATION_ALERTS_(PGRST202|42883)/.test(error.message)) return 'migration_pending'
+    throw error
+  }
 }
 
 /** An explicit test reset retires the whole batch, including accepted-reply
@@ -70,6 +84,8 @@ async function runMaintenance(config: Row) {
           result = { action: allowed ? 'daily_decay' : 'daily_decay_skipped' }
         } else {
           const replyRegistrations = await recoverAcceptedReplyRegistrations(guard)
+          await guard(); await retryReservationAlerts(config)
+          await analyzeIdleConversation(config,guard)
           const enqueued = await planVisits(guard)
           if (settings.globalMaintenance && !settings.testLeadId && config.test_only === false) {
             for (const name of ['lv_release_expired_holds', 'lv_escalate_overdue_requests', 'process_handoff_queue']) { await guard(); await rpc(name) }
@@ -134,7 +150,15 @@ export async function runAutomation(contactKey?: string) {
       const batch = contactKey
         ? await rpc<Row[]>('lv_app_claim_contact', { p_token: token, p_contact: contactKey })
         : await rpc<Row[]>('lv_app_claim', { p_token: token })
-      if (!batch.length) break
+      if (!batch.length) {
+        if(!contactKey){
+          // Proactive messages use the existing send lease, never the database
+          // maintenance lease. Pending inbound conversations retain priority.
+          const outreach=await processShowroomContacts(config,guard)
+          if(Array.isArray(outreach.contacts)&&outreach.contacts.length)results.push({kind:'showroom_contact',...outreach})
+        }
+        break
+      }
       const first = object(batch[0]), ids = batch.map(row => text(row.id))
       let acceptedReply: Row | undefined
       try {
@@ -173,6 +197,8 @@ export async function runAutomation(contactKey?: string) {
             for (const name of ['lv_release_expired_holds', 'lv_escalate_overdue_requests', 'process_handoff_queue']) { await guard(); await rpc(name) }
           }
           await guard()
+          await guard(); await retryReservationAlerts(config)
+          await analyzeIdleConversation(config,guard)
           result = { enqueued, transport: await syncTransportIncidents() }
         } else if (first.kind === 'decay') {
           await guard()

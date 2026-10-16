@@ -15,7 +15,7 @@ export function confirmedLeadProfile(profileInput: unknown): Row {
   const profile = object(profileInput), sources = { ...object(profile.sources) }
   const name = label(profile.full_name), source = object(sources.full_name)
   const evidence = text(source.evidence || object(profile.evidence).full_name).trim()
-  const declared = ['lead_declaration', 'lead_confirmation'].includes(text(source.source))
+  const declared = ['lead_declaration', 'lead_confirmation', 'showroom_form'].includes(text(source.source))
     || !Object.keys(source).length && !!text(object(profile.evidence).full_name)
   const confirmed = !!name && declared && !!evidence && contains(evidence, name)
   if (!confirmed) delete sources.full_name

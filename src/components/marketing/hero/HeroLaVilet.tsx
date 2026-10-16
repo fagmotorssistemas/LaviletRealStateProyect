@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- Pixel-aligned layers from referencia.html. */
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Archivo, Italiana } from 'next/font/google'
+import localFont from 'next/font/local'
 import { createHeroAnimation } from './heroAnimation'
 import styles from './HeroLaVilet.module.css'
 
@@ -20,8 +20,20 @@ import styles from './HeroLaVilet.module.css'
      walkSize / walkSpan        tamaño y tramo de scroll del peatón                                              */
   const state = Object.freeze({ travel: 240, rise: 0, sky: 40, logo: 85, logoX: 0, logoY: 0, txtX: 0, txtY: 0, bgY: 3, bgX: 0, bgZ: 100, stY: 11, stX: 0, size: 120, x: 0, y: -8, tint: 0, sunsetAt: 50, nightAt: 95, carSize: 100, carY: 0, carSpan: 20, walkSpan: 25, walkSize: 120 });
 
-const italiana = Italiana({ weight: '400', subsets: ['latin'], variable: '--font-display', display: 'swap' })
-const archivo = Archivo({ weight: ['100', '200', '300', '400', '500'], subsets: ['latin'], variable: '--font-body', display: 'swap' })
+// Keep the hero on the same local families as the app layout: Google Fonts
+// responses can otherwise make Turbopack builds fail intermittently.
+const italiana = localFont({
+  src: '../../../../public/fonts/Italiana/Italiana-Regular.ttf',
+  weight: '400',
+  variable: '--font-display',
+  display: 'swap',
+})
+const archivo = localFont({
+  src: '../../../../public/fonts/Archivo/Archivo-Variable.woff2',
+  weight: '100 500',
+  variable: '--font-body',
+  display: 'swap',
+})
 
 export function HeroLaVilet() {
   const pinRef = useRef<HTMLDivElement>(null)

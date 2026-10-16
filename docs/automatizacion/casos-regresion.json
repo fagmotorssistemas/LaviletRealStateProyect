@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15",
+  "updated_at": "2026-10-16",
   "purpose": "Conservar incidentes de la automatización como escenarios reproducibles para futuras pruebas de conversación.",
-  "execution_status": "Las simulaciones de este corpus todavía no se han ejecutado. Una prueba existente o una corrección histórica no acredita que el caso esté resuelto en producción.",
+  "execution_status": "Las simulaciones completas del corpus con modelos y la comprobación productiva siguen pendientes. Hay regresiones locales aisladas con datos controlados; no acreditan todas las respuestas reales del bot.",
   "privacy": "Sin teléfonos, nombres de clientes, documentos de identidad, credenciales ni volcados de prompts. Los UUID de eventos sirven únicamente para localizar evidencia interna.",
   "evaluation_rules": [
     "Evaluar significado, conservación del estado, fuentes y acciones; no exigir frases literales ni variar sinónimos por obligación.",
@@ -16,6 +16,13 @@
     "derived_boundary_case identifica un control derivado, no un fallo acreditado en un chat. historical_local_reproduction_requires_recheck identifica mecanismos reproducidos localmente en el análisis histórico, sin atribuirlos a una ejecución real no comprobada."
   ],
   "sources": {
+    "oct16_selection_runtime": {
+      "kind": "execution_trace_user_screenshots_and_code",
+      "date": "2026-10-16",
+      "event_id": "9ea41d9c-4289-4650-ae5c-2406b36a90fe",
+      "version": "5f23b2f6f1bf45ff5b1ad193b4d2d7da4e67b18b",
+      "path": "docs/automatizacion/diagnostico-continuidad-showroom-2026-10-16.md"
+    },
     "oct15_runtime": {
       "kind": "execution_trace_and_user_screenshots",
       "date": "2026-10-15",
@@ -79,6 +86,12 @@
       "versions": [
         "8ddb377e991caa4b64da2cded06bed2df9e4987b"
       ]
+    },
+    "oct16_attention": {
+      "kind": "persisted_reservation_user_screenshots_and_code",
+      "date": "2026-10-16",
+      "event_id": "2288e724-5d1f-483b-9ac3-61a76b95d4ae",
+      "path": "docs/automatizacion/diagnostico-continuidad-showroom-2026-10-16.md"
     }
   },
   "fixtures": {
@@ -2994,6 +3007,502 @@
           "src/lib/integrations/automation/project-objection-pipeline.test.ts"
         ],
         "limits": "Las comprobaciones locales usan salidas controladas, no conversaciones generadas por modelos. Pendientes despliegue y validación real; no se enviaron mensajes a leads."
+      }
+    },
+    {
+      "id": "AUT-107",
+      "group": "natural_catalog_absence",
+      "title": "Ausencia comprobada de cinco dormitorios se explica con lenguaje interno",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "catalog_complete": true,
+        "no_five_bedroom_match": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "me gustaría tener unas 5 habitaciones",
+            "¿qué precio tiene?"
+          ]
+        }
+      ],
+      "observed": "Responde no encontrar opciones residenciales verificadas ni tener un precio autorizado para esa distribución.",
+      "diagnosis": "El redactor traslada términos de validación a una explicación comercial de falta de distribución disponible.",
+      "expected": [
+        "Explicar directamente que no se dispone de esa distribución cuando la consulta completa lo respalda.",
+        "Relacionar la falta de precio con la inexistencia de esa distribución, sin insinuar un problema de autorización.",
+        "Ofrecer alternativas verificadas solo si no fueron rechazadas ni contradicen un requisito indispensable."
+      ],
+      "variants": [
+        "Lectura incompleta: no afirmar ausencia en todo el proyecto.",
+        "Cinco dormitorios indispensables: respetar y no insistir en tres.",
+        "Catálogo actualizado con cinco dormitorios: informar sobre la ficha vigente."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-108",
+      "group": "unit_presentation",
+      "title": "Elegir penthouses y pedir precio suprime las características para comparar",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "accepted_bedrooms": 3,
+        "available_options": [
+          "602",
+          "605"
+        ]
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "me quedo con los penthouses porque son más espaciosos",
+            "¿y qué precio tienen?"
+          ]
+        }
+      ],
+      "observed": "Presenta solo planta, códigos y precios; el cliente debe pedir después las diferencias físicas.",
+      "diagnosis": "La supresión de capturas repetidas también desactiva la presentación de unidades al atender una pregunta informativa.",
+      "expected": [
+        "Responder precios y aportar diferencias físicas útiles de las dos opciones con fuentes vigentes.",
+        "Atender la prioridad de amplitud sin inventar mejores vistas ni cabida familiar.",
+        "No volver a pedir categoría, dormitorios ni planta ya resueltos."
+      ],
+      "variants": [
+        "Precio de una unidad ya presentada: no repetir todas las fichas.",
+        "Diferencias físicas pendientes: no sustituirlas por una advertencia de precio.",
+        "Muchas opciones: no trasladar este ejemplo de dos unidades a una enumeración exhaustiva de locales."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-109",
+      "group": "compound_unit_choice",
+      "title": "Elección del 605 acompañada de precio queda reducida a una consulta de detalles",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "offered_units": [
+          "602",
+          "605"
+        ],
+        "selected_units": [],
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "entonces el 605 me gusta más",
+            "¿y qué precio tenía disculpe?"
+          ]
+        }
+      ],
+      "observed": "Resuelve el código 605 y ask_price/details, pero conserva selected_ids vacío.",
+      "diagnosis": "Una sola operación no representa simultáneamente la elección explícita y la solicitud informativa.",
+      "expected": [
+        "Conservar la decisión de preferencia concreta y responder el precio en el mismo turno.",
+        "Separar la referencia consultada de la decisión comercial y de cualquier consentimiento operativo.",
+        "Mantener la selección ante la pregunta posterior de precio."
+      ],
+      "variants": [
+        "Elección y precio dentro de un solo mensaje.",
+        "Elección y precio repartidos en mensajes agrupados.",
+        "Solo pregunta precio del 605: no convertir en elección.",
+        "El 605 me gusta, pero necesito cinco dormitorios: conservar la condición.",
+        "No elijo el 605: respetar la negación."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-110",
+      "group": "empty_selection_scope",
+      "title": "Alcance selected vacío se interpreta como requisitos incompatibles",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "query_scope": "selected",
+        "selected_units": [],
+        "resolved_subject": "605",
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿qué precio tiene el 605?"
+          ]
+        }
+      ],
+      "observed": "El plan obtiene cero candidatos y decide clarify_requirements aunque la referencia explícita fue resuelta.",
+      "diagnosis": "Un conjunto comercial vacío se trata como prueba de inexistencia física de alternativas.",
+      "expected": [
+        "Usar la referencia actual validada para atender detalles aunque no exista elección comercial.",
+        "Si la referencia no se resuelve, aclararla sin declarar incompatibilidad de inventario.",
+        "No convertir una consulta de precio en reapertura de requisitos."
+      ],
+      "variants": [
+        "Código inexistente: no recuperar la selección antigua.",
+        "Dos referencias posibles: aclarar la unidad.",
+        "Unidad retirada: informar con la fuente actual sin inventar disponibilidad."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-111",
+      "group": "accepted_alternative_continuity",
+      "title": "Reaparece la pregunta de cinco frente a tres dormitorios tras aceptación guardada",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "original_bedrooms": 5,
+        "exploration_authorized": true,
+        "accepted_bedrooms": 3
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "sí, está bien, exploremos esas opciones"
+          ]
+        },
+        {
+          "lead_messages": [
+            "me quedo con los penthouses"
+          ]
+        },
+        {
+          "lead_messages": [
+            "entonces el 605 me gusta más",
+            "¿qué precio tenía?"
+          ]
+        }
+      ],
+      "observed": "Después de guardar exploración autorizada con tres dormitorios, vuelve a preguntar si mantiene cinco o considera tres.",
+      "diagnosis": "El plan incorrecto de aclaración permite reactivar el antecedente original como obligación pendiente.",
+      "expected": [
+        "Mantener tres dormitorios como exploración activa aceptada.",
+        "Conservar cinco como antecedente sin volver a exigir aceptación.",
+        "Reabrir el requisito solo ante un cambio actual del cliente o incompatibilidad nueva real."
+      ],
+      "variants": [
+        "Nueva declaración explícita de cinco indispensables: actualizar la búsqueda.",
+        "Cortesía y consulta de precio: no cambian la aceptación.",
+        "Acepta ver alternativas: no implica que tres dormitorios se conviertan en necesidad permanente ni autoriza crédito."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-112",
+      "group": "selected_unit_tour_delivery",
+      "title": "El recorrido del 605 existe pero queda opcional al perderse la elección",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "tour_available": true,
+        "tour_sent": false,
+        "tour_declined": false,
+        "explicit_preference": "605"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "entonces el 605 me gusta más",
+            "¿qué precio tenía?"
+          ]
+        }
+      ],
+      "observed": "unit_model tiene enlace autorizado al 605; required_links queda vacío y la respuesta no incluye el recorrido.",
+      "diagnosis": "El contrato de enlaces depende de la selección que el turno compuesto no conservó.",
+      "expected": [
+        "Derivar el material requerido de la elección válida y del historial de entrega.",
+        "Entregar precio y recorrido autorizado sin sustituir la respuesta por el enlace.",
+        "Describir el 360 como representación del proyecto."
+      ],
+      "variants": [
+        "Recorrido ya entregado: no reenviar por rutina.",
+        "Solicitud expresa de reenvío: permitirlo.",
+        "Rechazo de recorrido: respetarlo.",
+        "Sin modelo autorizado: no inventar enlace.",
+        "Modelo compartido por tipología: explicar su alcance."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-113",
+      "group": "review_source_projection",
+      "title": "Revisor recibe listas vacías tras resolver precio y referencia del 605",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "resolved_subject": "605",
+        "review_observation_only": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "¿qué precio tenía el 605?"
+          ]
+        }
+      ],
+      "observed": "El revisor recibe unidades y grupos vacíos, rechaza el respaldo del precio y de los dormitorios, y el mensaje se entrega en modo observación.",
+      "diagnosis": "Las fuentes factuales no conservan la misma referencia entre resolución de precio y revisión.",
+      "expected": [
+        "Compartir ficha, precio y alcance verificables con el revisor aunque no exista selección comercial.",
+        "Distinguir rechazo por fuentes omitidas de dato falso y de fallo técnico de generación.",
+        "No cambiar el modo global del revisor como sustituto de corregir las fuentes."
+      ],
+      "variants": [
+        "Consulta de precio sin elección.",
+        "Selección con precio.",
+        "Precio no publicado: no trasladar el del historial como vigente.",
+        "Fuentes realmente incompletas: conservar el diagnóstico sin inventar respaldo."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-114",
+      "group": "contact_display_name",
+      "title": "Historial muestra Lead Kommo en vez del alias disponible de WhatsApp",
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_selection_runtime",
+      "initial_state": {
+        "declared_name_available": false,
+        "whatsapp_alias_available": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Hola, quiero información"
+          ]
+        }
+      ],
+      "observed": "El selector muestra Lead Kommo y un ID técnico; el webhook conserva un nombre de autor que no usa como alternativa de presentación.",
+      "diagnosis": "La etiqueta de Workflow solo toma leads.name antes de generar el nombre técnico.",
+      "expected": [
+        "Mostrar nombre declarado o del formulario; si falta, alias de WhatsApp o nombre del contacto con procedencia válida.",
+        "Mantener el ID técnico en el detalle y agrupar por identificadores estables.",
+        "No considerar alias como identidad legal ni tomar nombres del bot o del asesor."
+      ],
+      "variants": [
+        "Nombre declarado posterior: reemplaza el alias en presentación.",
+        "Dos contactos con el mismo alias: no mezclar historiales.",
+        "Solo teléfono: mostrarlo enmascarado.",
+        "Nombre técnico de Kommo: no desplazar un nombre legible disponible."
+      ],
+      "local_implementation": {
+        "date": "2026-10-16",
+        "detail": "Correcciones de decisiones simultáneas, alcance de referencias, presentación, fuentes compartidas, redacción y nombre visible según el diagnóstico y su cierre.",
+        "checks": [
+          "src/lib/integrations/automation/oct16-continuity.test.ts"
+        ],
+        "limits": "Pruebas con fuentes y salidas controladas; pendiente comprobar redacción de modelos y despliegue."
+      }
+    },
+    {
+      "id": "AUT-115",
+      "group": "reservation_assignment_notification",
+      "title": "Solicitud de reserva fuera de horario queda sin asesor ni notificación urgente",
+      "initial_state": {
+        "assigned_to": null,
+        "handoff_status": "none",
+        "outside_office_hours": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "sí quiero iniciar la reserva del 605"
+          ]
+        }
+      ],
+      "observed": "La solicitud quedó registrada y en cola a las 00:49, sin destinatario y sin notificación creada.",
+      "diagnosis": "El reparto general espera horario; el aviso privado exige un asesor asignado.",
+      "expected": [
+        "Asignar automáticamente a un asesor activo habilitado en el proyecto, conservando al propietario válido o usando rotación.",
+        "Asignar también fuera del horario general para esta solicitud explícita.",
+        "Crear aviso urgente deduplicado y separar solicitud guardada de alerta creada.",
+        "Si no hay asesor elegible o falla el aviso, mantener la solicitud, mostrar estado real y permitir recuperación automática acotada."
+      ],
+      "variants": [
+        "Asesor inactivo o de otro proyecto.",
+        "Rotación deshabilitada para el propietario anterior.",
+        "Sin asesores elegibles y habilitación posterior.",
+        "Reintento de la misma solicitud.",
+        "Reserva confirmada distinta de reserva solicitada."
+      ],
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_attention",
+      "local_implementation": {
+        "date": "2026-10-16",
+        "checks": [
+          "scripts/reservation-assignment.pglite.test.cjs"
+        ],
+        "limits": "Comprobaciones aisladas; sin envíos a leads ni certificación de funcionamiento productivo."
+      }
+    },
+    {
+      "id": "AUT-116",
+      "group": "attention_priority",
+      "title": "Un fragmento de texto con límite de palabra no reconoce reserva",
+      "incident_kind": "derived_boundary_case",
+      "initial_state": {
+        "pipeline_unavailable": true,
+        "sla_status": "no_aplica",
+        "handoff_reason": "Solicitó iniciar una reserva"
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "quiero iniciar una reserva"
+          ]
+        }
+      ],
+      "observed": "La regla basada en el fragmento reserv con límite de palabra no coincide con reserva; sin proyección comercial puede devolver prioridad normal.",
+      "diagnosis": "La prioridad depende de un fragmento textual en lugar del tipo de solicitud respaldado.",
+      "expected": [
+        "Usar el proceso de reserva respaldado en la ficha comercial como señal de prioridad alta.",
+        "Conservar compatibilidad con motivos históricos y explicar por qué una consulta tiene prioridad alta.",
+        "Distinguir plazo vencido de interés, puntuación y reserva."
+      ],
+      "variants": [
+        "Consulta ordinaria con plazo vencido.",
+        "Palabra reserva en un motivo histórico sin proyección disponible.",
+        "Consulta de precio que no solicita reserva."
+      ],
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_attention",
+      "local_implementation": {
+        "date": "2026-10-16",
+        "checks": [
+          "src/lib/inmobiliaria/advisorAttention.test.ts"
+        ],
+        "limits": "Comprobaciones aisladas; sin envíos a leads ni certificación de funcionamiento productivo."
+      }
+    },
+    {
+      "id": "AUT-117",
+      "group": "background_refresh",
+      "title": "Actualización periódica sustituye la ficha abierta por un spinner",
+      "initial_state": {
+        "lead_detail_open": true,
+        "unsaved_draft": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "abro la ficha y continúo revisando el resumen"
+          ]
+        }
+      ],
+      "observed": "La recarga general vuelve a asignar los IDs de tenants y dispara la carga del detalle abierto cada treinta segundos.",
+      "diagnosis": "Se comparte carga bloqueante entre bandeja y ficha y se usa un arreglo nuevo como dependencia de consulta.",
+      "expected": [
+        "Actualizar en segundo plano sin desmontar la ficha ni borrar un borrador.",
+        "Conservar datos previos ante errores transitorios.",
+        "Mostrar las novedades sin sobrescribir una edición activa."
+      ],
+      "variants": [
+        "Tres actualizaciones consecutivas.",
+        "Cambio de asignación mientras se escribe una nota.",
+        "Desconexión temporal del canal de cambios."
+      ],
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_attention",
+      "local_implementation": {
+        "date": "2026-10-16",
+        "checks": [
+          "scripts/oct16-ui.test.cjs"
+        ],
+        "limits": "Comprobaciones aisladas; sin envíos a leads ni certificación de funcionamiento productivo."
+      }
+    },
+    {
+      "id": "AUT-118",
+      "group": "showroom_invitation_context",
+      "title": "Eco tardío del Salesbot puede confundirse con una respuesta posterior que cierra la invitación",
+      "incident_kind": "derived_boundary_case",
+      "initial_state": {
+        "showroom_salesbot_accepted": true,
+        "unit_observed": "605",
+        "form_name_known": true
+      },
+      "turns": [
+        {
+          "lead_messages": [
+            "Sí, quiero información"
+          ]
+        }
+      ],
+      "observed": "Caso preventivo detectado durante la integración: la marca de aceptación del Salesbot puede preceder al mensaje real y a su eco en el historial.",
+      "diagnosis": "Usar cualquier salida posterior como cambio de tema invalida la propia invitación.",
+      "expected": [
+        "Reconocer el cuerpo autorizado de la invitación y mantener su referente informativo.",
+        "Con otro mensaje posterior diferente, no atribuir un sí a la invitación antigua.",
+        "Recuperar el nombre del formulario aunque falle la generación, sin aceptar dos veces.",
+        "La aceptación de información no elige unidad ni autoriza trámites."
+      ],
+      "variants": [
+        "Nombre y residencia ya conocidos.",
+        "Solo teléfono.",
+        "Más adelante sin plazo.",
+        "No recibir mensajes.",
+        "Consulta específica en lugar de pulsar el botón."
+      ],
+      "status": "implemented_locally_pending_validation",
+      "source": "oct16_attention",
+      "local_implementation": {
+        "date": "2026-10-16",
+        "checks": [
+          "scripts/showroom-entry.test.cjs"
+        ],
+        "limits": "Comprobaciones aisladas; sin envíos a leads ni certificación de funcionamiento productivo."
       }
     }
   ],

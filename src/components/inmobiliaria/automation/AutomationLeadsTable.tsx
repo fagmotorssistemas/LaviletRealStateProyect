@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { ArrowUpRight, TriangleAlert } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, Leaf, TriangleAlert } from 'lucide-react'
 import { purposeLabel, sourceLabel, stageLabel, handoffLabel, slaLabel } from '@/lib/inmobiliaria/leadAutomation'
 import { formatAgendaDateTime } from '@/lib/inmobiliaria/agendaTime'
 import type { LeadAutomationRow } from '@/types/leadAutomation'
@@ -31,11 +31,20 @@ export function AutomationLeadsTable({ rows, selectedLeadId, onSelect }: {
           <p className={styles.secondary}>{row.phone || 'Sin teléfono'}<br />{sourceLabel(row.source)}</p>
           {row.project_name && <p className={styles.secondary}>{row.project_name}</p>}
         </div></div></td>
-        <td data-label="Interés"><p>{categories[row.preferred_category ?? ''] || row.preferred_category || 'Por definir'}</p><p className={styles.secondary}>Unidad: {row.interest_unit_number || 'Por definir'}</p><p className={styles.secondary}>{purposeLabel(row.purchase_purpose)}</p>
-          {row.last_visit_status && <span className={`${styles.miniBadge} mt-2`}>{({ solicitada: 'Visita solicitada', pendiente: 'Visita pendiente', aceptado: 'Cita confirmada', reprogramado: 'Cita reprogramada', atendido: 'Visita realizada', cancelado: 'Cita cancelada' } as Record<string, string>)[row.last_visit_status] || 'Con solicitud de visita'}</span>}
+        <td data-label="Interés"><p>{categories[row.preferred_category ?? ''] || row.preferred_category || 'Por definir'}</p>
+          <p className={styles.secondary}>{row.pipeline?.selectedUnitNumber ? `Unidad elegida: ${row.pipeline.selectedUnitNumber}` : 'Sin unidad elegida'}</p>
+          {row.interest_unit_number && row.interest_unit_number !== row.pipeline?.selectedUnitNumber && <p className={styles.secondary}>Unidad consultada: {row.interest_unit_number}</p>}
+          <p className={styles.secondary}>{purposeLabel(row.purchase_purpose)}</p>
+          {row.pipeline?.appointment && <span className={`${styles.miniBadge} mt-2`}><CalendarDays size={11} />{row.pipeline.appointment.label}{row.pipeline.appointment.scheduledAt ? ` · ${formatAgendaDateTime(row.pipeline.appointment.scheduledAt)}` : ''}</span>}
         </td>
         <td data-label="Calificación"><div className={styles.score}>{temperatures[row.temperature] || 'Por calificar'}<span>{row.score} pts</span></div><div className={styles.heat} data-temperature={row.temperature} aria-hidden="true">{[1, 2, 3].map(level => <i key={level} data-filled={level <= heat} />)}</div></td>
-        <td data-label="Etapa y bot"><p>{stageLabel(row.stage)}</p><span className={styles.bot} data-active={row.bot_enabled}><i aria-hidden="true" />{row.bot_enabled ? 'Bot activo' : 'Bot detenido'}</span><p className={styles.secondary}>Última interacción<br />{row.last_interaction_at ? formatAgendaDateTime(row.last_interaction_at) : 'Sin interacción'}</p></td>
+        <td data-label="Etapa y bot"><p title={row.pipeline?.stageReason}>{row.pipeline ? stageLabel(row.pipeline.stage) : 'Etapa sin verificar'}</p>
+          {row.pipeline?.nutritionActive && <span className={`${styles.miniBadge} mt-2`} title={row.pipeline.nutritionReason || undefined}><Leaf size={11} />Nutrición activa</span>}
+          {row.pipeline && <p className={styles.secondary}>{row.pipeline.attentionLabel}</p>}
+          {row.pipeline?.opportunityStatus === 'lost' && <p className={styles.secondary}>Cerrado sin venta</p>}
+          <span className={styles.bot} data-active={row.bot_enabled}><i aria-hidden="true" />{row.bot_enabled ? 'Bot activo' : 'Bot detenido'}</span><p className={styles.secondary}>Última interacción<br />{row.last_interaction_at ? formatAgendaDateTime(row.last_interaction_at) : 'Sin interacción'}</p>
+          {row.pipeline?.nextAction && <p className={styles.secondary}>Próxima acción: {row.pipeline.nextAction}</p>}
+        </td>
         <td data-label="Responsable"><p className="font-medium">{row.assignee_name || <span className={styles.miniBadge}><TriangleAlert size={11} />Sin asignar</span>}</p>
           {row.handoff_status !== 'none' && <p className={styles.secondary}>{handoffLabel(row.handoff_status)}</p>}
           {row.sla_status !== 'no_aplica' && <p className={`mt-2 text-[10px] ${row.sla_status === 'vencido' ? 'font-semibold text-amber-800' : 'text-stone-500'}`}>{row.sla_status === 'vencido' ? 'Respuesta vencida' : `Respuesta: ${slaLabel(row.sla_status)}`}</p>}

@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner'
 import {
   advisorAttentionPriority,
+  advisorAttentionPriorityReason,
   advisorAttentionTitle,
   advisorAttentionView,
   advisorAttentionWaitLabel,
@@ -115,7 +116,7 @@ export function AdvisorAttentionQueue({ rows, currentUserId, loading, onOpenLead
             const requestedAt = row.handoff_requested_at ?? row.last_interaction_at
             const currentAction = updating?.startsWith(`${row.lead_id}:`) === true
             return <article key={row.lead_id} className={styles.queueItem} data-priority={priority}>
-              <div className={styles.queuePriority}><i /><span>{PRIORITY_LABEL[priority]}</span></div>
+              <div className={styles.queuePriority} title={advisorAttentionPriorityReason(row)}><i /><span>{PRIORITY_LABEL[priority]}</span><small>{advisorAttentionPriorityReason(row)}</small></div>
               <div className={styles.queueLead}>
                 <div className={styles.queueLeadTitle}>
                   <button type="button" onClick={() => onOpenLead(row.lead_id)}>{row.name || 'Lead sin nombre'} <ArrowUpRight size={12} /></button>
@@ -139,6 +140,6 @@ export function AdvisorAttentionQueue({ rows, currentUserId, loading, onOpenLead
             </article>
           })}
     </div>
-    <footer className={styles.queueNote}>La bandeja se actualiza cada 30 segundos. La automatización reparte los leads entre los asesores habilitados del proyecto. Asignar un lead no desactiva la IA.</footer>
+    <footer className={styles.queueNote}>La información se actualiza en segundo plano sin interrumpir la ficha abierta. Las reservas se asignan automáticamente a un asesor habilitado para recibir leads. Asignar un lead no desactiva la IA.</footer>
   </section>
 }

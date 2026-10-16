@@ -53,6 +53,7 @@ export function useLeadAutomationDashboard() {
   const [detail, setDetail] = useState<LeadAutomationDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [detailRevision, setDetailRevision] = useState(0)
 
   const tenantId = tenantIds[0] ?? ''
 
@@ -65,7 +66,7 @@ export function useLeadAutomationDashboard() {
     [pathname, router],
   )
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: { background?: boolean } = {}) => {
     const sequence = ++loadSequence.current
     if (authLoading) return
     if (!user) {
@@ -76,12 +77,11 @@ export function useLeadAutomationDashboard() {
       return
     }
 
-    setIsLoading(true)
-    setError(null)
+    if (!options.background) setIsLoading(true)
     try {
       const ids = await getAccessibleTenantIds(supabase)
       if (sequence !== loadSequence.current) return
-      setTenantIds(ids)
+      setTenantIds(previous => previous.join(',') === ids.join(',') ? previous : ids)
       if (!ids.length) {
         setRows([])
         setAttentionRows([])
@@ -104,6 +104,7 @@ export function useLeadAutomationDashboard() {
         }),
         getLeadAutomationKpis(supabase, {
           tenantId: ids[0],
+          tenantIds: ids,
           projectId: filters.projectId || undefined,
           from: range.from,
           to: range.to,
@@ -121,37 +122,57 @@ export function useLeadAutomationDashboard() {
       setTotal(list.total)
       setKpis(kpiRows)
       setUpdatedAt(new Date().toISOString())
+      setError(null)
     } catch (err) {
       if (sequence !== loadSequence.current) return
       const message = err instanceof Error ? err.message : 'No se pudo cargar el monitoreo'
       setError(message)
-      setRows([])
-      setAttentionRows([])
-      setKpis(EMPTY_AUTOMATION_KPIS)
-      toast.error(message)
+      if (!options.background) toast.error(message)
     } finally {
       if (sequence === loadSequence.current) setIsLoading(false)
     }
   }, [authLoading, filters, page, supabase, user])
 
+  const reloadBackground = useCallback(() => load({ background: true }), [load])
+
   useEffect(() => {
-    void load()
-    const activeSequence = loadSequence.current
+    if (!tenantIds.length) return
+    const channel = supabase.channel(`automation-dashboard:${tenantIds.join(':')}`)
+    let debounce: ReturnType<typeof setTimeout> | undefined
+    for (const id of tenantIds) channel.on('postgres_changes', {
+      event: '*', schema: 'public', table: 'leads', filter: `tenant_id=eq.${id}`,
+    }, () => {
+      clearTimeout(debounce)
+      debounce = setTimeout(() => { void reloadBackground() }, 400)
+    })
+    channel.subscribe()
+    return () => { clearTimeout(debounce); void supabase.removeChannel(channel) }
+  }, [tenantIds, supabase, reloadBackground])
+
+  useEffect(() => {
+    let activeSequence = -1
+    const timer = window.setTimeout(() => {
+      void load()
+      activeSequence = loadSequence.current
+    }, 0)
     return () => {
+      window.clearTimeout(timer)
       if (loadSequence.current === activeSequence) loadSequence.current = activeSequence + 1
     }
   }, [load])
 
   useEffect(() => {
-    if (!selectedLeadId || !tenantIds.length) {
-      setDetail(null)
-      setDetailError(null)
-      return
-    }
     let cancelled = false
-    setDetailLoading(true)
-    setDetailError(null)
-    getLeadAutomationDetail(supabase, selectedLeadId, tenantIds)
+    const timer = window.setTimeout(() => {
+      if (!selectedLeadId || !tenantIds.length) {
+        setDetail(null)
+        setDetailError(null)
+        setDetailLoading(false)
+        return
+      }
+      setDetailLoading(true)
+      setDetailError(null)
+      void getLeadAutomationDetail(supabase, selectedLeadId, tenantIds)
       .then((data) => {
         if (!cancelled) setDetail(data)
       })
@@ -166,10 +187,12 @@ export function useLeadAutomationDashboard() {
       .finally(() => {
         if (!cancelled) setDetailLoading(false)
       })
+    }, 0)
     return () => {
+      window.clearTimeout(timer)
       cancelled = true
     }
-  }, [selectedLeadId, supabase, tenantIds])
+  }, [selectedLeadId, supabase, tenantIds, detailRevision])
 
   const updateFilter = (key: keyof LeadAutomationFilters, value: string) => {
     replaceParams({ ...filters, [key]: value }, 1, selectedLeadId)
@@ -212,9 +235,11 @@ export function useLeadAutomationDashboard() {
     filters,
     hasFilters: hasActiveAutomationFilters(filters),
     selectedLeadId,
-    detail,
+    detail: detail?.row.lead_id === selectedLeadId ? detail : null,
     detailLoading,
     detailError,
+    detailHasUpdates: Boolean(detail && rows.some(row => row.lead_id === selectedLeadId
+      && (row.last_message_at !== detail.row.last_message_at || row.handoff_status !== detail.row.handoff_status || row.assigned_to !== detail.row.assigned_to))),
     updateFilter,
     updateFilters,
     resetFilters,
@@ -222,5 +247,7 @@ export function useLeadAutomationDashboard() {
     openLead,
     closeLead,
     reload: load,
+    reloadBackground,
+    reloadDetail: () => { setDetailLoading(true); setDetailRevision(value => value + 1) },
   }
 }

@@ -111,13 +111,17 @@ export async function commercialContext(lead: Row, history: unknown, profileInpu
       year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) })
   const catalog = discounts.units
   const profile = confirmedLeadProfile(profileInput)
+  const commercialProfile = await db().from('lead_commercial_profiles')
+    .select('nutrition_active,nutrition_reason,purchase_horizon,nutrition_evidence,contact_consent,resume_at,updated_at')
+    .eq('lead_id', lead.id).eq('tenant_id', scope.tenant_id).abortSignal(AbortSignal.timeout(5000)).maybeSingle()
   const policies = publishedBusinessPolicies(projectData.policies_json, mode)
   const result = { lead: { name: conversationalFirstName(text(profile.full_name)) || null,
     name_confirmed: profile.name_status === 'confirmed', name_source: object(profile.sources).full_name || null,
     preferred_category: lead.preferred_category, purchase_purpose: lead.purchase_purpose,
     preferred_bedrooms: lead.preferred_bedrooms, stage: lead.stage, unit_id: lead.unit_id, budget: lead.budget,
     budget_max: lead.budget_max, behavior_signals: lead.behavior_signals }, historial: history,
-    perfil_lead: profile, conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
+    perfil_lead: profile, ficha_comercial: commercialProfile.error ? null : commercialProfile.data,
+    conversacion: sdrState(lead, history), siguiente_pregunta: nextDiscoveryQuestion(lead),
     proyecto: { name: projectPublicName(projectData, projectData.policies_json),
       public_name: projectPublicName(projectData, projectData.policies_json),
       address: projectData.address, description: projectData.description }, modo_comercial: mode,

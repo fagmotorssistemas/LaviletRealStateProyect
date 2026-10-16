@@ -160,10 +160,15 @@ export function addTaskQueryEvidence<T extends { units: Row[]; groups: Row[] }>(
 export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evidence: T, verified: Row): T {
   const selection = object(verified.prompt_context_selection)
   if (selection.version !== 'task-context-v1') return evidence
+  const property = object(verified.property_context)
+  const resolvedIds = object(property.reference_resolution).status === 'resolved'
+    ? rows(evidence.units).filter(unit => Array.isArray(object(property.reference_resolution).resolved_ids)
+      && (object(property.reference_resolution).resolved_ids as unknown[]).includes(unit.id)).map(unit => text(unit.id)) : []
   let units = evidence.units
   const surfaceCalculation = ['interior', 'combined', 'compare'].includes(text(object(object(verified.semantica_turno).catalog_request).surface_basis))
-  const priceSummary = !surfaceCalculation && ['price_summary', 'catalog_overview'].includes(text(selection.task))
-  if (selection.task === 'clarify_choice') return { ...evidence, units: [],
+  const presentsUnits=object(verified.siguiente_paso_comercial).requires_unit_presentation===true
+  const priceSummary = !presentsUnits && !resolvedIds.length && !surfaceCalculation && ['price_summary', 'catalog_overview'].includes(text(selection.task))
+  if (selection.task === 'clarify_choice' && !resolvedIds.length && !presentsUnits) return { ...evidence, units: [],
     groups: evidence.groups.filter(group => group.aggregation === 'range'
       && (group.bedrooms_filter === null || group.source_scope === 'context')),
     model_scope: { task: 'clarify_choice', note: 'Solo se aclara la alternativa, sin volver a describirla. Se conservan los rangos por categoría como referencia de verificación; no es necesario comunicarlos.' } }
@@ -174,12 +179,14 @@ export function taskModelEvidence<T extends { units: Row[]; groups: Row[] }>(evi
   const proposalMissingIds = Array.isArray(proposalInformation.missing_ids) ? proposalInformation.missing_ids.map(text) : []
   const query = object(proposalInformationalTurn ? proposalInformation.query : object(verified.property_context).query)
   const filtered = filterCatalog(units, catalogQuery(query), proposalInformationalTurn
-    ? (Array.isArray(proposalInformation.resolved_ids) ? proposalInformation.resolved_ids.map(text) : []) : undefined)
+    ? (Array.isArray(proposalInformation.resolved_ids) ? proposalInformation.resolved_ids.map(text) : [])
+    : query.scope === 'selected' && resolvedIds.length ? resolvedIds : undefined)
   const budgetPresentation = selection.task !== 'multiple_requests' && !proposalInformationalTurn
     ? budgetRecommendationPresentation(verified) : null
   const recommendationIds = new Set(Array.isArray(budgetPresentation?.unit_ids) ? budgetPresentation.unit_ids.map(text) : [])
-  const property = object(verified.property_context)
   const relatedIds = new Set([
+    ...[object(property.reference_resolution).status === 'resolved' ? object(property.reference_resolution).resolved_ids : []]
+      .flatMap(value => Array.isArray(value) ? value.map(text) : []),
     ...(object(verified.siguiente_paso_comercial).presentation === 'recommended_unit'
       ? [object(verified.siguiente_paso_comercial).selection_scope].flatMap(value => Array.isArray(object(value).unit_ids) ? object(value).unit_ids as string[] : []) : []),
     ...rows(object(verified.presupuesto_del_turno).alternatives).map(unit => text(unit.id)),

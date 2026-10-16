@@ -6,6 +6,8 @@ import type {
   LeadSlaStatus,
   MessageRow,
 } from '@/types/leadAutomation'
+import { LEAD_PIPELINE_STAGE_OPTIONS } from '@/types/leadPipeline'
+import { CONVERSATION_EVENT_DETAILS, type ConversationEvent } from '@/lib/integrations/automation/event-contract'
 
 export { computeSlaStatus, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/slaStatus'
 
@@ -39,13 +41,7 @@ export const EMPTY_AUTOMATION_FILTERS: LeadAutomationFilters = {
   sla: '',
 }
 
-export const LEAD_STAGE_OPTIONS = [
-  { value: 'lanzamiento', label: 'Lanzamiento' },
-  { value: 'precalificacion', label: 'Precalificación' },
-  { value: 'nutricion', label: 'Nutrición' },
-  { value: 'preventa', label: 'Preventa' },
-  { value: 'reserva_venta', label: 'Reserva / venta' },
-]
+export const LEAD_STAGE_OPTIONS = [...LEAD_PIPELINE_STAGE_OPTIONS]
 
 export const HANDOFF_STATUS_OPTIONS = [
   { value: 'none', label: 'Sin traspaso' },
@@ -86,7 +82,9 @@ export function sourceLabel(source: string | null | undefined): string {
 }
 
 export function stageLabel(stage: string | null | undefined): string {
-  return LEAD_STAGE_OPTIONS.find((option) => option.value === stage)?.label ?? stage?.replace(/_/g, ' ') ?? '—'
+  const historical: Record<string, string> = { lanzamiento: 'Lanzamiento (histórico)', precalificacion: 'Precalificación (histórico)',
+    nutricion: 'Nutrición (etiqueta histórica)', preventa: 'Preventa (histórico)', reserva_venta: 'Reserva / venta (histórico)' }
+  return LEAD_STAGE_OPTIONS.find((option) => option.value === stage)?.label ?? historical[stage || ''] ?? stage?.replace(/_/g, ' ') ?? '—'
 }
 
 export function handoffLabel(status: string | null | undefined): string {
@@ -160,6 +158,7 @@ export function hasActiveAutomationFilters(filters: LeadAutomationFilters): bool
 
 const TIMELINE_TITLES: Record<AutomationTimelineItem['kind'], string> = {
   mensaje_recibido: 'Mensaje recibido',
+  respuesta_bot: 'Respuesta del bot',
   evento_detectado: 'Evento detectado',
   puntos_asignados: 'Puntos asignados',
   cambio_temperatura: 'Cambio de temperatura',
@@ -174,15 +173,26 @@ export function timelineTitle(kind: AutomationTimelineItem['kind']): string {
   return TIMELINE_TITLES[kind]
 }
 
+export function automationEventDetails(eventType: string) {
+  if (Object.hasOwn(CONVERSATION_EVENT_DETAILS, eventType)) return CONVERSATION_EVENT_DETAILS[eventType as ConversationEvent]
+  if (eventType === 'asked_availability') return { title: 'Consulta de disponibilidad', description: 'El lead consultó la disponibilidad; no acredita elección ni reserva.' }
+  return { title: 'Señal comercial registrada', description: 'Consulte el motivo original en el detalle de este registro.' }
+}
+
+export function temperatureLabel(value: string | null | undefined): string {
+  return ({ frio: 'Frío', tibio: 'Tibio', caliente: 'Caliente' } as Record<string, string>)[value || ''] || 'Sin clasificación'
+}
+
 function pushItem(
   items: AutomationTimelineItem[],
   kind: AutomationTimelineItem['kind'],
   at: string | null | undefined,
   id: string,
   detail: string | null,
+  extra: Partial<AutomationTimelineItem> = {},
 ) {
   if (!at) return
-  items.push({ id, kind, at, title: TIMELINE_TITLES[kind], detail })
+  items.push({ ...extra, id, kind, at, title: extra.title || TIMELINE_TITLES[kind], detail })
 }
 
 export function buildAutomationTimeline(detail: Omit<LeadAutomationDetail, 'timeline'>): AutomationTimelineItem[] {
@@ -191,21 +201,31 @@ export function buildAutomationTimeline(detail: Omit<LeadAutomationDetail, 'time
 
   for (const message of detail.messages) {
     if (message.role === 'cliente') {
-      pushItem(items, 'mensaje_recibido', message.sent_at, `msg-${message.id}`, clip(message.content))
+      pushItem(items, 'mensaje_recibido', message.sent_at, `msg-${message.id}`, clip(message.content), { messageId: message.id, conversationId: message.conversation_id })
     }
     if (message.role === 'asesor') {
-      pushItem(items, 'respuesta_vendedora', message.sent_at, `seller-${message.id}`, clip(message.content))
+      pushItem(items, 'respuesta_vendedora', message.sent_at, `seller-${message.id}`, clip(message.content), { messageId: message.id, conversationId: message.conversation_id })
+    }
+    if (message.role === 'bot' && !['failed', 'error', 'rejected', 'unknown', 'not_sent', 'not_attempted', 'pending', 'prepared'].includes(message.delivery_status || message.provider_status || '')) {
+      pushItem(items, 'respuesta_bot', message.sent_at, `bot-${message.id}`, clip(message.content), { messageId: message.id, conversationId: message.conversation_id })
     }
   }
 
+  const seenEvents = new Set<string>()
   for (const event of detail.scoreEvents) {
-    pushItem(items, 'evento_detectado', event.created_at, `evt-${event.id}`, event.event_type)
+    if (seenEvents.has(event.id)) continue
+    seenEvents.add(event.id)
+    const meaning = automationEventDetails(event.event_type)
+    const message = event.source_message_id ? detail.messages.find(message => message.id === event.source_message_id || message.external_message_id === event.source_message_id) : undefined
     pushItem(
       items,
       'puntos_asignados',
       event.created_at,
       `pts-${event.id}`,
-      `${event.points > 0 ? '+' : ''}${event.points} · ${event.reason}`,
+      meaning.description,
+      { title: meaning.title, points: Number.isFinite(event.points) ? event.points : undefined,
+        eventType: event.event_type, originalReason: event.reason, sourceMessageId: event.source_message_id,
+        messageId: message?.id, conversationId: message?.conversation_id },
     )
   }
 
@@ -215,7 +235,8 @@ export function buildAutomationTimeline(detail: Omit<LeadAutomationDetail, 'time
       'cambio_temperatura',
       change.created_at,
       `temp-${change.id}`,
-      `${change.from_temperature ?? '—'} → ${change.to_temperature} · ${change.reason}`,
+      `${temperatureLabel(change.from_temperature)} → ${temperatureLabel(change.to_temperature)} · ${change.reason}`,
+      { score: change.score },
     )
   }
 

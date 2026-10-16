@@ -8,6 +8,11 @@ export function conversationObjective(raw: unknown): Row {
   const profileIds: Record<string, string> = { collect_profile: 'lead_profile', collect_name: 'lead_profile_name',
     collect_residence: 'lead_profile_residence', confirm_residence: 'lead_residence_confirmation' }
   const id = text(plan.question_id || plan.id || profileIds[text(plan.question_purpose)])
+  if(plan.capture_context==='showroom_later')return {action:'defer_showroom',question_id:null,
+    objective:'Reconocer amablemente que prefiere recibir información más adelante. No pedir nombre, residencia, presupuesto ni otros datos ahora; no fijar una fecha ni programar seguimiento sin acuerdo.'}
+  if(plan.capture_context==='showroom') return {action:'showroom_continuation',question_id:id||null,
+    objective:'Atender la información aceptada en el showroom y preguntar únicamente los datos de presentación pendientes, sin volver a pedir el nombre registrado ni vincular residencia con enviar el brochure.',
+    instruction:'Conserve el espacio observado como referente, no como unidad elegida. No reinicie la bienvenida. Una residencia inferida por geolocalización no está declarada por el cliente.'}
   const goals: Record<string, string> = {
     lead_profile: 'Responder primero la consulta y, si la captura está autorizada, conocer nombre de presentación y residencia actual con una pregunta natural. Cuando el brochure está pendiente de esos datos, ofrecer compartirlo y conectar la solicitud como paso previo de ese intercambio, con redacción libre y sin convertirlo en requisito absoluto fuera de esa secuencia.',
     lead_profile_name: 'Conocer únicamente el nombre de presentación pendiente con naturalidad. Si el brochure sigue diferido por este dato, conectar el ofrecimiento de compartirlo con la solicitud, sin repetir residencia ni una frase fija.',

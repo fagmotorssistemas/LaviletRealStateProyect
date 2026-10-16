@@ -5,6 +5,7 @@ import { reconcileInformationalEvidence, CURRENT_EVIDENCE_FRAGMENTS_RULES, EVIDE
 import { RECOMMENDATION_REQUEST_SCHEMA, RECOMMENDATION_REQUEST_RULES, recommendationRequest } from './property-recommendation-request'
 import { SELECTION_PREFERENCES_RULES, VIEWS_PREFERENCE_RULES } from './selection-preferences'
 import { REQUEST_TOPICS_SCHEMA, REQUEST_TOPICS_RULES, FINANCING_REQUEST_TOPICS_RULES, normalizedRequestTopics, COMMON_AREA_REQUEST_RULES } from './request-topics'
+import { LEAD_NURTURE_EXTRACTION_RULES } from './lead-nurture-state'
 import { PROPERTY_CATEGORIES } from './property-category-contract'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
 import { EXTRACTION_REQUEST_RULES } from './extraction-request-rules'
@@ -296,6 +297,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Idioma, recomendaciones y fuentes actuales', CONVERSATION_LANGUAGE_RULES + '\n' + RECOMMENDATION_REQUEST_RULES + '\n' + CURRENT_EVIDENCE_FRAGMENTS_RULES],
       ['Consultas y negociación de descuentos', DISCOUNT_REQUEST_EXTRACTION_RULES],
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
+      ['Nutrición y compra aplazada', LEAD_NURTURE_EXTRACTION_RULES],
       ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Interpretación del perfil pendiente', nameAssessmentRequired && LEAD_PROFILE_EXTRACTION_RULES],

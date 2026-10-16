@@ -11,13 +11,13 @@ import type {
   LeadInterestUnitRow,
   LeadNutritionJob,
   LeadScoreEventRow,
-  LeadStageHistoryRow,
   LeadTemperatureHistoryRow,
   LeadVisitRow,
   MessageRow,
 } from '@/types/leadAutomation'
 import { buildAutomationTimeline, EMPTY_AUTOMATION_KPIS, sanitizeSearch, toInclusiveRange } from '@/lib/inmobiliaria/leadAutomation'
-import { leadProfileCard, parseLeadSummary } from '@/lib/inmobiliaria/leadProfileCard'
+import { getLeadPipelineDetailAction, readLeadPipelineSnapshotsAction } from '@/app/inmobiliaria/leads/pipeline-actions'
+import { LEAD_PIPELINE_STAGE_OPTIONS } from '@/types/leadPipeline'
 
 const VIEW = 'vw_lead_automation_dashboard'
 
@@ -28,13 +28,14 @@ function applyDashboardFilters(
   tenantIds: string[],
   filters: LeadAutomationFilters,
 ) {
-  const range = toInclusiveRange(filters.from, filters.to)
+  const range = toInclusiveRange(filters.from.includes('T') ? '' : filters.from, filters.to.includes('T') ? '' : filters.to)
+  if (filters.from.includes('T')) range.from = filters.from
+  if (filters.to.includes('T')) range.to = filters.to
   let next = query.in('tenant_id', tenantIds)
   if (filters.projectId) next = next.eq('project_id', filters.projectId)
   if (range.from) next = next.gte('created_at', range.from)
   if (range.to) next = next.lte('created_at', range.to)
   if (filters.source) next = next.eq('source', filters.source)
-  if (filters.stage) next = next.eq('stage', filters.stage)
   if (filters.temperature === 'tibio_caliente') next = next.in('temperature', ['tibio', 'caliente'])
   else if (filters.temperature) next = next.eq('temperature', filters.temperature)
   if (filters.assignedTo === UNASSIGNED_ASSIGNEE) next = next.is('assigned_to', null)
@@ -60,6 +61,41 @@ function applyDashboardFilters(
   return next
 }
 
+async function withCommercialPipeline(rows: LeadAutomationRow[]): Promise<LeadAutomationRow[]> {
+  if (!rows.length) return []
+  const ids = [...new Set(rows.map(row => row.lead_id))]
+  const snapshots = new Map<string, NonNullable<LeadAutomationRow['pipeline']>>()
+  for (let from = 0; from < ids.length; from += 200) {
+    const response = await readLeadPipelineSnapshotsAction(ids.slice(from, from + 200))
+    if (!response.ok) throw new Error(response.error)
+    for (const item of response.data) snapshots.set(item.leadId, item.pipeline)
+  }
+  return rows.map(row => {
+    const pipeline = snapshots.get(row.lead_id)
+    if (!pipeline) throw new Error('No se pudo verificar la etapa comercial de uno de los leads. Actualice el monitoreo.')
+    return { ...row, pipeline, stage: pipeline.stage, stage_reason: pipeline.stageReason,
+      stage_changed_at: pipeline.stageChangedAt, last_stage_reason: pipeline.stageReason,
+      last_interaction_at: pipeline.lastActivityAt || row.last_interaction_at }
+  })
+}
+
+/** Read every authorized result before applying a projected commercial-stage filter. */
+async function readDashboardRows(supabase: SupabaseClient, tenantIds: string[], filters: LeadAutomationFilters) {
+  const rows: LeadAutomationRow[] = []
+  const batchSize = 500
+  for (let from = 0; ; from += batchSize) {
+    const query = supabase.from(VIEW).select('*')
+      .order('last_interaction_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false }).order('lead_id', { ascending: true })
+    const result = await applyDashboardFilters(query, tenantIds, filters).range(from, from + batchSize - 1)
+    if (result.error) throw result.error
+    const batch = (result.data ?? []) as LeadAutomationRow[]
+    rows.push(...batch)
+    if (batch.length < batchSize) break
+  }
+  return withCommercialPipeline(rows)
+}
+
 export async function listLeadAutomationDashboard(
   supabase: SupabaseClient,
   params: {
@@ -70,23 +106,14 @@ export async function listLeadAutomationDashboard(
     pageSize?: number
   },
 ) {
-  const page = params.page ?? 1
-  const pageSize = params.pageSize ?? 25
+  const page = Math.max(1, params.page ?? 1)
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25))
   const from = (page - 1) * pageSize
-  const to = from + pageSize - 1
   const tenantIds = params.tenantIds?.length ? params.tenantIds : [params.tenantId]
 
-  let query = supabase
-    .from(VIEW)
-    .select('*', { count: 'exact' })
-    .order('last_interaction_at', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-
-  query = applyDashboardFilters(query, tenantIds, params.filters)
-
-  const { data, error, count } = await query.range(from, to)
-  if (error) throw error
-  const dashboardRows = (data ?? []) as Omit<LeadAutomationRow, 'interest_unit_number'>[]
+  const projectedRows = await readDashboardRows(supabase, tenantIds, params.filters)
+  const filteredRows = params.filters.stage ? projectedRows.filter(row => row.stage === params.filters.stage) : projectedRows
+  const dashboardRows = filteredRows.slice(from, from + pageSize)
   const leadIds = dashboardRows.map(row => row.lead_id)
   const interestNumbers = new Map<string, string>()
   if (leadIds.length) {
@@ -109,7 +136,7 @@ export async function listLeadAutomationDashboard(
   }
   return {
     data: dashboardRows.map(row => ({ ...row, interest_unit_number: interestNumbers.get(row.lead_id) ?? null })),
-    total: count ?? 0,
+    total: filteredRows.length,
   }
 }
 
@@ -127,7 +154,7 @@ export async function listLeadAttentionQueue(
     .limit(150)
   if (error) throw error
 
-  const rows = (data ?? []) as LeadAutomationRow[]
+  const rows = await withCommercialPipeline((data ?? []) as LeadAutomationRow[])
   const conversationIds = [...new Set(rows.map((row) => row.latest_conversation_id).filter((id): id is string => Boolean(id)))]
   if (!conversationIds.length) return rows.map((row) => ({ ...row, last_customer_message: null, last_customer_message_at: null }))
 
@@ -161,7 +188,7 @@ export async function listLeadAttentionQueue(
 
 export async function getLeadAutomationKpis(
   supabase: SupabaseClient,
-  params: { tenantId: string; projectId?: string; from?: string; to?: string },
+  params: { tenantId: string; tenantIds?: string[]; projectId?: string; from?: string; to?: string },
 ): Promise<LeadAutomationKpis> {
   const { data, error } = await supabase.rpc('get_lead_automation_kpis', {
     p_tenant_id: params.tenantId,
@@ -170,12 +197,16 @@ export async function getLeadAutomationKpis(
     p_to: params.to ?? null,
   })
   if (error) throw error
+  const stageRows = await readDashboardRows(supabase, params.tenantIds?.length ? params.tenantIds : [params.tenantId], {
+    search: '', from: params.from || '', to: params.to || '', projectId: params.projectId || '',
+    source: '', stage: '', temperature: '', assignedTo: '', handoff: '', bot: '', sla: '',
+  })
   const payload = (data ?? {}) as Partial<LeadAutomationKpis>
   return {
     ...EMPTY_AUTOMATION_KPIS,
     ...payload,
     leads_by_source: payload.leads_by_source ?? [],
-    leads_by_stage: payload.leads_by_stage ?? [],
+    leads_by_stage: LEAD_PIPELINE_STAGE_OPTIONS.map(stage => ({ stage: stage.value, count: stageRows.filter(row => row.stage === stage.value).length })),
   }
 }
 
@@ -192,7 +223,7 @@ export async function getLeadAutomationRow(
     .maybeSingle()
   if (error) throw error
   if (!data) throw new Error('Lead no encontrado')
-  return data as LeadAutomationRow
+  return (await withCommercialPipeline([data as LeadAutomationRow]))[0]
 }
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -223,17 +254,14 @@ export async function getLeadAutomationDetail(
     conversationsRes,
     scoreRes,
     tempRes,
-    stageRes,
     unitsRes,
     visitsRes,
     nutritionJobsRes,
-    profileRes,
-    financingRes,
+    commercialRes,
   ] = await Promise.all([
-    supabase.from('conversations').select('*').eq('lead_id', leadId).order('started_at', { ascending: false }),
+    supabase.from('conversations').select('id,lead_id,channel,status,started_at,last_message_at,closed_at').eq('lead_id', leadId).order('started_at', { ascending: false }),
     supabase.from('lead_score_events').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
     supabase.from('lead_temperature_history').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
-    supabase.from('lead_stage_history').select('*').eq('lead_id', leadId).order('created_at', { ascending: false }),
     supabase
       .from('lead_units')
       .select('lead_id, unit_id, interest_level, source, rejected, rejection_reason, notes, created_at, unit:units(id, unit_number, category, status, published_commercial_price)')
@@ -246,21 +274,15 @@ export async function getLeadAutomationDetail(
       .in('tenant_id', tenantIds)
       .order('requested_at', { ascending: false }),
     getLeadNutritionJobs(leadId),
-    supabase.from('leads').select('name,phone,email,budget,budget_max,preferred_bedrooms,preferred_category,purchase_purpose,behavior_signals,updated_at')
-      .eq('id', leadId).in('tenant_id', tenantIds).single(),
-    supabase.from('financing_prequalifications').select('explicit_consent,selected_partner_name,status,legal_name,legal_name_confirmed,national_id,applicant_type,employment_stability_months,job_title,monthly_income')
-      .eq('lead_id', leadId).in('tenant_id', tenantIds).order('created_at', { ascending: false }).limit(1),
+    getLeadPipelineDetailAction(leadId),
   ])
 
   const firstError = [
     conversationsRes.error,
     scoreRes.error,
     tempRes.error,
-    stageRes.error,
     unitsRes.error,
     visitsRes.error,
-    profileRes.error,
-    financingRes.error,
   ].find(Boolean)
   if (firstError) throw firstError
 
@@ -273,7 +295,7 @@ export async function getLeadAutomationDetail(
   let escalations: BotEscalationRow[] = []
   if (conversationIds.length) {
     const [messagesRes, escalationsRes] = await Promise.all([
-      supabase.from('messages').select('id, conversation_id, role, content, media_url, sent_at').in('conversation_id', conversationIds).order('sent_at', { ascending: true }),
+      supabase.from('messages').select('id, conversation_id, role, content, media_url, sent_at, external_message_id, delivery_status:tool_calls->>delivery_status, provider_status:tool_calls->>provider_status').in('conversation_id', conversationIds).order('sent_at', { ascending: true }),
       supabase.from('bot_escalations').select('*').in('conversation_id', conversationIds).order('escalated_at', { ascending: false }),
     ])
     if (messagesRes.error) throw messagesRes.error
@@ -316,26 +338,22 @@ export async function getLeadAutomationDetail(
     return { ...raw, unit: firstRelation(raw.unit) }
   })
 
-  const summary = parseLeadSummary(conversations[0]?.summary)
-  const property = parseLeadSummary(summary._property_context)
-  const knownUnits = units.flatMap(item => item.unit ? [item.unit] : [])
-  const mentionedIds = [...new Set([property.selected_ids, property.offered_ids, property.comparison_ids].flatMap(value => Array.isArray(value) ? value : [])
-    .filter((value): value is string => typeof value === 'string'))]
-  const missingIds = mentionedIds.filter(id => !knownUnits.some(unit => unit.id === id))
-  if (missingIds.length) {
-    const extra = await supabase.from('units').select('id,unit_number,category,status,published_commercial_price').in('id', missingIds)
-      .in('tenant_id', tenantIds).eq('project_id', row.project_id)
-    if (extra.error) throw extra.error
-    knownUnits.push(...(extra.data || []))
+  const commercialProfile = commercialRes.ok ? commercialRes.data : undefined
+  if (commercialProfile) {
+    row.pipeline = commercialProfile.pipeline
+    row.stage = commercialProfile.pipeline.stage
+    row.stage_reason = commercialProfile.pipeline.stageReason
   }
   const detailWithoutTimeline = {
-    profileCard: leadProfileCard(profileRes.data || {}, summary, financingRes.data?.[0] || {}, knownUnits),
+    commercialProfile,
+    commercialProfileError: commercialRes.ok ? undefined : commercialRes.error,
     row,
     conversations,
     messages,
     scoreEvents: (scoreRes.data ?? []) as LeadScoreEventRow[],
     temperatureHistory: (tempRes.data ?? []) as LeadTemperatureHistoryRow[],
-    stageHistory: (stageRes.data ?? []) as LeadStageHistoryRow[],
+    stageHistory: (commercialProfile?.pipeline.history || []).map((entry, index) => ({ id: `commercial-${index}`, lead_id: leadId,
+      from_stage: entry.from, to_stage: entry.to, reason: entry.reason, created_at: entry.at || '' })),
     units,
     visits,
     nutritionJobs,

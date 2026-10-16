@@ -88,6 +88,7 @@ import {
   type TourCatalog,
 } from '@/services/tour.service'
 import { useTourSceneTracking } from '@/hooks/useTourSceneTracking'
+import { useShowroomUnitInterest } from '@/hooks/useShowroomUnitInterest'
 import { TourLeadGate } from '@/components/tour/TourLeadGate'
 import { logTourEvent } from '@/lib/tour/visitorTracking'
 import {
@@ -3699,6 +3700,9 @@ function TourViewerContent({ embedded = false }: { embedded?: boolean }) {
     },
     { pauseGateClock: gateOpen },
   )
+
+  useShowroomUnitInterest(showUnitChrome && !isCommonAreaCode(areaCode) ? selectedUnit?.id : null,
+    gateOpen || infoRequestOpen || phoneUnlock.open || favoritesOpen || navChooserOpen || compareOpen)
 
   useEffect(() => {
     if (tracking.identified) return

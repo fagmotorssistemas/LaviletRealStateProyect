@@ -7,18 +7,18 @@ import { createPortal } from 'react-dom'
 import {
   X, Phone, DollarSign, CreditCard, MessageSquare,
   Edit3, Loader2, CheckCircle2, Building2, Send, Plus,
-  Trash2, ChevronDown, Calendar, MapPin, ChevronLeft, ChevronRight, User,
+  Trash2, ChevronDown, Calendar, MapPin, ChevronLeft, ChevronRight, User, ClipboardList,
 } from 'lucide-react'
 import { StatusBadge } from '@/components/inmobiliaria/shared/StatusBadge'
 import { PersonCell } from '@/components/inmobiliaria/shared/PersonCell'
 import { Select } from '@/components/ui/Select'
 import { Spinner } from '@/components/ui/Spinner'
-import { LEAD_STATUS_OPTIONS, INTERACTION_TYPE_OPTIONS, LEAD_TEMPERATURE_OPTIONS } from '@/types/inmobiliaria'
-import type { Lead, LeadStatus, LeadTemperature, LeadTimelineItem, InteractionType, Unit, Project, TeamProfile } from '@/types/inmobiliaria'
+import { INTERACTION_TYPE_OPTIONS, LEAD_TEMPERATURE_OPTIONS } from '@/types/inmobiliaria'
+import type { Lead, LeadTemperature, LeadTimelineItem, InteractionType, Unit, Project, TeamProfile } from '@/types/inmobiliaria'
 import { useAuth } from '@/contexts/AuthContext'
 import { getDataAccessScope } from '@/lib/inmobiliaria/dataScope'
 import {
-  getLead, updateLead, updateLeadStatus, updateLeadTemperature, updateLeadAssignee,
+  getLead, updateLead, updateLeadTemperature, updateLeadAssignee,
   listLeadTimeline, addLeadInteraction,
   addLeadUnit, removeLeadUnit,
   listProjects,
@@ -26,6 +26,7 @@ import {
 import { LeadDetailAgendaTab } from '@/components/inmobiliaria/leads/LeadDetailAgendaTab'
 import { LeadDetailShowroomTab } from '@/components/inmobiliaria/leads/LeadDetailShowroomTab'
 import { LeadDetailTourTab } from '@/components/inmobiliaria/leads/LeadDetailTourTab'
+import { LeadCommercialProfilePanel } from '@/components/inmobiliaria/leads/LeadCommercialProfilePanel'
 import { UnitNumberSearchInput } from '@/components/inmobiliaria/shared/UnitNumberSearchInput'
 import { formatDateTime, formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -39,12 +40,17 @@ interface LeadDetailModalProps {
   advisors: TeamProfile[]
 }
 
-export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, advisors }: LeadDetailModalProps) {
+export function LeadDetailModal(props: LeadDetailModalProps) {
+  if (!props.isOpen || !props.leadId) return null
+  return <LeadDetailModalContent key={props.leadId} {...props} />
+}
+
+function LeadDetailModalContent({ leadId, isOpen, onClose, onUpdated, tenantId, advisors }: LeadDetailModalProps) {
   const { supabase, user, profile } = useAuth()
   const scope = useMemo(() => getDataAccessScope(user?.id, profile?.role), [user?.id, profile?.role])
   const [lead, setLead] = useState<Lead | null>(null)
   const [timeline, setTimeline] = useState<LeadTimelineItem[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   // Sidebar editable state
   const [resume, setResume] = useState('')
@@ -53,9 +59,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
   const [wantsFinancing, setWantsFinancing] = useState(false)
   const [isSavingFinance, setIsSavingFinance] = useState(false)
 
-  // Status dropdown
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
-  const statusRef = useRef<HTMLDivElement>(null)
+  // La etapa comercial se deriva de hechos; la temperatura conserva su edición.
   const [temperatureDropdownOpen, setTemperatureDropdownOpen] = useState(false)
   const temperatureRef = useRef<HTMLDivElement>(null)
 
@@ -67,14 +71,13 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
   const [interactionContent, setInteractionContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  /** Pestaña derecha: bitácora, agenda o showroom */
-  const [rightTab, setRightTab] = useState<'historial' | 'agenda' | 'showroom' | 'recorrido'>('historial')
+  /** Ficha comercial y herramientas existentes de atención. */
+  const [rightTab, setRightTab] = useState<'ficha' | 'historial' | 'agenda' | 'showroom' | 'recorrido'>('ficha')
   const [projects, setProjects] = useState<Project[]>([])
   const tabsScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!leadId || !isOpen) return
-    setLoading(true)
     getLead(supabase, leadId, scope)
       .then((leadData) => {
         const advisor = advisors.find((a) => a.id === leadData.assigned_to)
@@ -99,14 +102,6 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
       })
       .finally(() => setLoading(false))
   }, [supabase, leadId, isOpen, scope, onClose, advisors, tenantId])
-
-  useEffect(() => {
-    if (!isOpen) setRightTab('historial')
-  }, [isOpen])
-
-  useEffect(() => {
-    setRightTab('historial')
-  }, [leadId])
 
   useEffect(() => {
     if (!tenantId || !isOpen || !leadId) return
@@ -137,17 +132,6 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
     return () => window.removeEventListener('keydown', handleEsc)
   }, [isOpen, onClose])
 
-  // Close status dropdown on outside click
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false)
-      }
-    }
-    if (statusDropdownOpen) document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [statusDropdownOpen])
-
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (temperatureRef.current && !temperatureRef.current.contains(e.target as Node)) {
@@ -165,7 +149,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
     setIsSavingResume(true)
     try {
       await updateLead(supabase, lead.id, { resume })
-      lead.resume = resume
+      setLead(current => current?.id === lead.id ? { ...current, resume } : current)
     } catch { /* silent */ }
     setIsSavingResume(false)
   }
@@ -177,24 +161,9 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
     const financingVal = newFinancing ?? wantsFinancing
     try {
       await updateLead(supabase, lead.id, { budget: budgetVal, financing: financingVal })
-      lead.budget = budgetVal
-      lead.financing = financingVal
+      setLead(current => current?.id === lead.id ? { ...current, budget: budgetVal, financing: financingVal } : current)
     } catch { /* silent */ }
     setIsSavingFinance(false)
-  }
-
-  const handleStatusChange = async (status: LeadStatus) => {
-    if (!lead || status === lead.status) return
-    setStatusDropdownOpen(false)
-    try {
-      await updateLeadStatus(supabase, lead.id, status)
-      toast.success('Estado actualizado')
-      onUpdated()
-      const updated = await getLead(supabase, lead.id, scope)
-      setLead(updated)
-    } catch {
-      toast.error('Error al actualizar')
-    }
   }
 
   const handleTemperatureChange = async (temperature: LeadTemperature) => {
@@ -283,7 +252,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4">
-      <div className="crm-sheet flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-slate-900/5 sm:h-[90vh] sm:rounded-xl animate-in zoom-in-95 duration-200">
+      <div role="dialog" aria-modal="true" aria-label="Ficha del lead" className="crm-sheet flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-slate-900/5 sm:h-[90vh] sm:rounded-xl animate-in zoom-in-95 duration-200">
 
         {/* ── HEADER ── */}
         <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4">
@@ -354,42 +323,14 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                   )}
                 </div>
 
-                <div className="relative" ref={statusRef}>
-                  <button
-                    onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                    className="flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-80"
-                  >
-                    <StatusBadge status={lead.status} type="lead" />
-                    <ChevronDown size={14} className={`text-slate-400 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {statusDropdownOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl border border-slate-200 shadow-xl z-50 py-1 overflow-hidden">
-                      {LEAD_STATUS_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() => handleStatusChange(opt.value)}
-                          className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors cursor-pointer ${
-                            lead.status === opt.value
-                              ? 'bg-slate-50 font-semibold text-[#3a3d36]'
-                              : 'text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                            lead.status === opt.value ? 'bg-[#3a3d36]' : 'bg-slate-300'
-                          }`} />
-                          {opt.label}
-                          {lead.status === opt.value && (
-                            <span className="ml-auto text-[10px] text-slate-400 uppercase tracking-wider">Actual</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                <div className="flex flex-col items-end gap-1" title="Registro anterior del CRM; consulte la etapa comercial en la ficha">
+                  <span className="text-[10px] text-slate-500">Estado CRM histórico</span>
+                  <StatusBadge status={lead.status} type="lead" />
                 </div>
 
                 <button
                   onClick={onClose}
+                  aria-label="Cerrar ficha del lead"
                   className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
                 >
                   <X size={20} />
@@ -435,7 +376,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                     value={resume}
                     onChange={(e) => setResume(e.target.value)}
                     onBlur={handleSaveResume}
-                    placeholder="Estatus actual del prospecto..."
+                    placeholder="Notas comerciales del equipo..."
                     className="crm-field min-h-[120px] p-4"
                   />
                 </div>
@@ -444,7 +385,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                      Unidades de Interés
+                      Unidades vinculadas
                     </label>
                     <button
                       onClick={() => setUnitSearchOpen(!unitSearchOpen)}
@@ -500,7 +441,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                     </div>
                   ) : (
                     <p className="border border-dashed border-[#2B1A18]/12 bg-white p-3 text-center text-sm italic text-[#8a8d87]">
-                      Sin unidades seleccionadas.
+                      Sin unidades vinculadas.
                     </p>
                   )}
                 </div>
@@ -530,7 +471,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                      <DollarSign className="h-3 w-3" /> Detalles Financieros
+                      <DollarSign className="h-3 w-3" /> Datos del CRM
                     </label>
                     {isSavingFinance && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
                   </div>
@@ -538,7 +479,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                   <div className="space-y-4 border border-[#2B1A18]/12 bg-white p-5">
                     <div>
                       <label className="text-[10px] text-slate-400 uppercase font-bold mb-1 block">
-                        Presupuesto ($)
+                        Presupuesto registrado ($)
                       </label>
                       <div className="relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -556,9 +497,13 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                     <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-2">
                         <CreditCard className="h-4 w-4 text-blue-500" />
-                        <span className="text-sm font-medium text-slate-700">Solicita Financiamiento</span>
+                        <span className="text-sm font-medium text-slate-700">Interés financiero anotado</span>
                       </div>
                       <button
+                        type="button"
+                        role="switch"
+                        aria-label="Interés financiero anotado en CRM"
+                        aria-checked={wantsFinancing}
                         onClick={() => {
                           const newVal = !wantsFinancing
                           setWantsFinancing(newVal)
@@ -569,6 +514,7 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                         <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${wantsFinancing ? 'translate-x-4' : 'translate-x-0'}`} />
                       </button>
                     </div>
+                    <p className="text-xs leading-relaxed text-slate-500">Esta anotación no acredita aceptación ni aprobación de una revisión financiera. Consulte el estado comprobado en la ficha comercial.</p>
                   </div>
                 </div>
 
@@ -592,6 +538,18 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                   ref={tabsScrollRef}
                   className="flex-1 min-w-0 flex items-stretch gap-1 overflow-x-auto scrollbar-thin py-0 [scrollbar-width:thin]"
                 >
+                  <button
+                    type="button"
+                    onClick={() => setRightTab('ficha')}
+                    className={`shrink-0 flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'ficha'
+                        ? 'border-[#3a3d36] text-[#3a3d36]'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <ClipboardList className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    Ficha comercial
+                  </button>
                   <button
                     type="button"
                     onClick={() => setRightTab('historial')}
@@ -653,6 +611,12 @@ export function LeadDetailModal({ leadId, isOpen, onClose, onUpdated, tenantId, 
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
+
+              {rightTab === 'ficha' && <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                <LeadCommercialProfilePanel key={lead.id} leadId={lead.id} onUpdated={onUpdated}
+                  onOpenAgenda={() => setRightTab('agenda')} onOpenShowroom={() => setRightTab('showroom')}
+                  onOpenTour={() => setRightTab('recorrido')} />
+              </div>}
 
               {rightTab === 'historial' && (
                 <>

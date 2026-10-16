@@ -4,6 +4,7 @@ import { extractAdReferral, extractCtwaFromKommoFlat, type AdReferral, type Ctwa
 
 export type Inbound = {
   externalId: string
+  whatsappMessageId?: string
   kommoId: number
   contactId: number
   chatId: string
@@ -201,6 +202,7 @@ export function normalizeKommoWebhook(raw: string, contentType: string, now = Da
     const ctwa = extractCtwaFromKommoFlat(flat, index)
     inbound.push({
       externalId,
+      whatsappMessageId: [get('id'),get('message_id'),get('external_id')].find(value=>/^wamid\./.test(value)) || undefined,
       kommoId,
       contactId,
       chatId: get('chat_id'),

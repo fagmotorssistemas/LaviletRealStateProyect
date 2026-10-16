@@ -1,4 +1,5 @@
 import { interactionMode } from './interaction-mode'
+import { showroomButtonReply } from '@/lib/tour/showroomInterest'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { normalizedSelectionPreferences, selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, withoutBedroomConstraint } from './selection-preferences'
 import { object, text, type Row } from './data'
@@ -129,7 +130,16 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
 }
 
 function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryRaw: unknown, history: unknown, semantics: unknown) {
-  const catalog = available(catalogRaw), summary = object(summaryRaw), semantic = object(object(semantics).property)
+  const catalog = available(catalogRaw), summary = object(summaryRaw)
+  const categoryDecision=object(object(semantics).category_choice),categoryDecisionEvidence=normalized(text(categoryDecision.evidence))
+  const explicitCategoryChoice=categoryDecision.kind==='selected'&&acceptedExtractorConfidence(categoryDecision.confidence)
+    && ['suite','departamento','penthouse','local'].includes(text(categoryDecision.category))
+    && !!categoryDecisionEvidence&&normalized(current).includes(categoryDecisionEvidence)
+    && !/\b(?:no|nunca|tampoco)\s+(?:quiero|prefiero|elijo|me gusta)|\b(?:solo si|siempre que)\b/.test(categoryDecisionEvidence)
+    && !/\b(?:no|nunca|tampoco)\s*$/.test(normalized(current).slice(0,normalized(current).indexOf(categoryDecisionEvidence)))
+  const semantic=explicitCategoryChoice?{...object(object(semantics).property),category:categoryDecision.category,
+    group:categoryDecision.category==='local'?'commercial':'residential',operation:'search',unit_numbers:[],reference_kind:'explicit',
+    evidence:categoryDecision.evidence,confidence:categoryDecision.confidence}:object(object(semantics).property)
   const context = propertyContext(catalog, summary._property_context, history)
   context.reference_resolution = {}
   // A proposal's informational query belongs to one turn. It never replaces
@@ -152,7 +162,13 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
   const positive = acceptsDetails || /^(?:si(?: claro| por favor| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|revisemos|veamos|si (?:prefiero|quiero|me interesa) (?:esa|esta) opcion|(?:prefiero|quiero|me interesa) (?:esa|esta) opcion)(?: gracias)?$/.test(m.replace(/[.!¡,]/g, '').trim())
   const confirmsSet = positive && ['choose_category', 'explore_alternatives'].includes(text(pending.act))
   const semanticValid = acceptedExtractorConfidence(semantic.confidence)
-  const semanticOperation = semanticValid && ['search', 'rank', 'compare', 'select', 'details'].includes(text(semantic.operation)) ? text(semantic.operation) : ''
+  const declaredUnitChoice = object(object(semantics).unit_choice)
+  const explicitUnitChoiceEvidence = normalized(text(declaredUnitChoice.evidence))
+  const explicitChoice = declaredUnitChoice.kind === 'selected' && acceptedExtractorConfidence(declaredUnitChoice.confidence)
+    && !!explicitUnitChoiceEvidence && normalized(current).includes(explicitUnitChoiceEvidence)
+    && !/\b(?:no|nunca|tampoco)\s+(?:me gusta|quiero|elijo|prefiero|acepto)|\b(?:solo si|siempre que|a condicion de)\b/.test(explicitUnitChoiceEvidence)
+    && !/\b(?:no|nunca|tampoco)\s*$/.test(normalized(current).slice(0,normalized(current).indexOf(explicitUnitChoiceEvidence)))
+  const semanticOperation = explicitChoice ? 'select' : semanticValid && ['search', 'rank', 'compare', 'select', 'details'].includes(text(semantic.operation)) ? text(semantic.operation) : ''
   const category = semanticValid && !confirmsSet ? text(semantic.category) : ''
   const excluded = semanticValid && !confirmsSet ? groundedCurrentCategoryExclusions(semantic, current, pending) : []
   const eligible = (units: Row[]) => units.filter(unit => (!category || unit.category === category) && !excluded.includes(text(unit.category)))
@@ -322,7 +338,7 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
     && typeof currentBedroomRequirements[0].value === 'number' ? Number(currentBedroomRequirements[0].value) : null
   const categoryNoun = category === 'departamento' ? '(?:departamentos?|apartamentos?)'
     : category === 'local' ? 'locales?(?: comerciales?)?' : `${category}s?`
-  const categoryPreference = semanticValid && category && (
+  const categoryPreference = explicitCategoryChoice || semanticValid && category && (
     new RegExp(`\\b(?:prefiero|elijo|escojo|me (?:interesan?|gustan?)|quiero (?:revisar|conocer)|quisiera (?:revisar|conocer))\\s+(?:mas\\s+)?(?:(?:los?|las?|un|una|esos?|esas?)\\s+)?${categoryNoun}\\b`).test(m)
     || pending.act === 'choose_category' && (
       /^(?:(?:los?|las?|un|una|de|mejor|entonces)\s+)*(?:departamentos?|penthouses?|suites?|locales?)(?:\s+comerciales?)?[.!\s]*$/.test(m)
@@ -430,6 +446,16 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
       ? `Entre las opciones que revisamos hay varias que encajan: ${matches.map(unit => `${text(unit.category)} ${text(unit.unit_number)}`).join(', ')}. ¿Cuál de estas opciones le gustaría conocer?`
       : 'Para orientarle con la opción correcta, ¿puede indicarme el número de la unidad que le interesa?') : '',
     }
+  }
+  if (pending.id === 'showroom_information' && showroomButtonReply(current) === 'information') {
+    const expected = ids(pending.target_ids), observed = fromIds(expected)
+    query.operation = 'details'; query.scope = 'offered'; query.filters = emptyPropertyFilters(); query.selector = null
+    delete query.requirements
+    query.category = observed.length === 1 ? observed[0].category : null
+    query.group = observed.length === 1 ? observed[0].category === 'local' ? 'commercial' : 'residential' : null
+    context.selected_ids = previousSelectedIds; context.focused_ids = unitIds(observed); context.pending_question = {}
+    context.reference_resolution = { source: 'showroom_information_invitation', requested_ids: expected, resolved_ids: unitIds(observed), status: observed.length === expected.length ? 'resolved' : 'clarification' }
+    return result(observed, 'accepted_showroom_information', false, !observed.length || observed.length !== expected.length)
   }
   if (pending.id === 'property_comparison' && pending.act === 'compare_properties'
     && answersPendingQuestion(semantics, 'property_comparison', 'affirmative')) {
@@ -565,7 +591,7 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
         ...(text(object(pending.proposed_query).category) ? { pending_question: pending } : {}) }])) }
   }
   // Semantic explicit codes must actually occur in this message; history cannot fabricate them.
-  const semanticNumbers = semanticValid ? ids(semantic.unit_numbers) : []
+  const semanticNumbers = explicitChoice && ids(declaredUnitChoice.unit_numbers).length ? ids(declaredUnitChoice.unit_numbers) : semanticValid ? ids(semantic.unit_numbers) : []
   const semanticExplicit = semanticValid && ['explicit', 'comparison'].includes(text(semantic.reference_kind))
   // The extractor resolves natural references against the actually offered
   // choice. Validate identity and availability, not a literal unit code that
@@ -897,7 +923,7 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
   const rejectedChoice = previousAnswer.kind === 'negative'
     && normalized(text(previousAnswer.evidence)).includes(choiceEvidence)
   const currentChoice = semanticOperation === 'select' && semantic.reference_kind === 'followup'
-    && acceptedExtractorConfidence(object(semantics).primary_intent === 'select_property' && object(semantics).confidence)
+    && (explicitChoice || acceptedExtractorConfidence(object(semantics).primary_intent === 'select_property' && object(semantics).confidence))
     && [semantic.evidence, object(semantics).primary_evidence].every(value => {
       const evidence = normalized(text(value))
       return !!evidence && m.includes(evidence)
@@ -1039,11 +1065,18 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
   const followup = continuesInformation || (semanticValid && ['comparison', 'followup'].includes(text(semantic.reference_kind)))
     || !semanticOperation && /^(?:y\s+)?(?:en\s+)?(?:el\s+)?(?:precio|valor)\b|\b(?:y (?:el|en) precio|que (?:precio|valor)|cuanto (?:cuesta|vale|cuestan|valen)|diferencia|ambos|ambas|entre ellos)\b/.test(m)
   if (followup && (semanticOperation || !/\b(?:edificio|proyecto|sector|alimentos|papas|vehiculos?|motos?)\b/.test(m))) {
-    const requested = ids(context.comparison_ids).length ? ids(context.comparison_ids) : ids(context.selected_ids)
+    const focused=ids(context.focused_ids),offered=ids(context.offered_ids)
+    const currentFocus=focused.length===1&&offered.includes(focused[0])?focused:[]
+    const requested = ids(context.comparison_ids).length ? ids(context.comparison_ids) : ids(context.selected_ids).length?ids(context.selected_ids):currentFocus
     const matches = fromIds(requested)
     if (matches.length !== requested.length) return { ...result(matches, 'ambiguous', false, true),
       clarification: 'Una de las unidades que estábamos revisando ya no aparece en el catálogo disponible. ¿Le gustaría revisar las opciones que siguen disponibles?' }
-    if (matches.length) return result(matches, matches.length > 1 ? 'comparison_followup' : 'remembered')
+    if (matches.length) {
+      if(!ids(context.comparison_ids).length&&!ids(context.selected_ids).length&&currentFocus.length){
+        query.operation='details';query.scope='offered';context.reference_resolution={source:'focused_information',status:'resolved',resolved_ids:unitIds(matches)}
+      }
+      return result(matches, matches.length > 1 ? 'comparison_followup' : 'remembered')
+    }
     // Multiple offered options are not a comparison or an accepted selection.
     if (ids(context.offered_ids).length) return result(fromIds(context.offered_ids), 'ambiguous', false, true)
   }

@@ -1,7 +1,8 @@
 ﻿'use client'
 
 import { Suspense } from 'react'
-import { Activity, ArrowRight, BellRing, Inbox, RefreshCw } from 'lucide-react'
+import Link from 'next/link'
+import { Activity, ArrowRight, BellRing, Columns3, Inbox, RefreshCw } from 'lucide-react'
 import { useLeadAutomationDashboard } from '@/hooks/inmobiliaria/useLeadAutomationDashboard'
 import { useVisitInboxContext } from '@/contexts/VisitInboxContext'
 import { AutomationKpiCards } from '@/components/inmobiliaria/automation/AutomationKpiCards'
@@ -38,6 +39,7 @@ function AutomationDashboard() {
       <div className={styles.headerActions}>
         <AutomationSectionTabs active="monitoreo" attentionCount={attentionRows.filter(row => row.handoff_status !== 'resolved').length} />
         <div className={styles.actions}>
+          <Link href="/inmobiliaria/leads" className={styles.action}><Columns3 size={14} />Embudo de leads</Link>
           <button type="button" className={styles.action} disabled={isLoading || inbox.loading} onClick={refresh}><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />Actualizar</button>
           <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => inbox.openInbox()}><Inbox size={14} />Bandeja de citas{inbox.ready ? ` (${inbox.pending.length})` : ''}</button>
         </div>
@@ -58,7 +60,7 @@ function AutomationDashboard() {
       </div>
     </section>}
 
-    <AdvisorAttentionQueue rows={attentionRows} currentUserId={currentUserId} loading={isLoading} onOpenLead={openLead} onOpenVisitInbox={() => inbox.openInbox('pending')} onChanged={reload} />
+    <AdvisorAttentionQueue rows={attentionRows} currentUserId={currentUserId} loading={isLoading} onOpenLead={openLead} onOpenVisitInbox={() => inbox.openInbox('pending')} onChanged={dashboard.reloadBackground} />
 
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-stone-400"><span>Indicadores del proyecto y período seleccionados</span>{updatedAt && !isLoading && !error && <span>Actualizado: {formatAgendaDateTime(updatedAt)}</span>}</div>
@@ -73,7 +75,7 @@ function AutomationDashboard() {
         : total === 0 ? <EmptyState icon={Activity} title="No hay leads para estos filtros" description="Pruebe con otro proyecto, fecha o búsqueda.">{hasFilters && <button type="button" className={styles.action} onClick={resetFilters}>Limpiar filtros</button>}</EmptyState>
         : <><AutomationLeadsTable rows={rows} selectedLeadId={selectedLeadId} onSelect={openLead} /><div className={styles.footer}><Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} /></div></>}
     </section>
-    <AutomationLeadDetailDrawer isOpen={Boolean(selectedLeadId)} loading={detailLoading} error={detailError} detail={detail} onClose={closeLead} />
+    <AutomationLeadDetailDrawer isOpen={Boolean(selectedLeadId)} loading={detailLoading} error={detailError} detail={detail} hasUpdates={dashboard.detailHasUpdates} onClose={closeLead} onReload={dashboard.reloadDetail} />
   </div>
 }
 

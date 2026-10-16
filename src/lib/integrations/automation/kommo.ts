@@ -8,6 +8,7 @@ import { object, text, type Row } from './data'
 import { accountBlockedStatus, recordKommoBlock, rejectedWriteStatus } from './delivery-state'
 import { reserveKommoCall } from './kommo-admission'
 import { kommoConnectionFailure, type KommoFailureDetails } from './kommo-failure'
+import { showroomInvitationBody } from '@/lib/tour/showroomInterest'
 
 export class ProviderError extends Error {
   constructor(public status: number, public uncertain: boolean, public operation = 'unknown', public diagnostic: KommoFailureDetails = {}) { super(`KOMMO_${status || 'UNAVAILABLE'}`) }
@@ -88,6 +89,30 @@ export async function launchSalesbot(leadId: number, botId: number) {
   if (![leadId, botId].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error('INVALID_KOMMO_IDS')
   // An ambiguous POST is never replayed; an explicit 429 can be retried.
   await request('/api/v4/bots/run', 'POST', [{ bot_id: botId, entity_id: leadId, entity_type: 'leads' }])
+}
+
+export function approvedShowroomTemplate(template:Row,kind:'unit'|'general') {
+  const reviews=object(template._embedded).reviews
+  const buttons=Array.isArray(template.buttons)?template.buttons.map(object):[]
+  const expected=['Sí, quiero información','Más adelante','No recibir mensajes']
+  return template.type==='waba' && Array.isArray(reviews) && reviews.length>0
+    && reviews.map(object).every(review=>review.status==='approved')
+    && buttons.length===expected.length && buttons.every((button,index)=>button.type==='inline'&&button.text===expected[index])
+    && text(template.content).replace(/\r\n/g,'\n').trim()===showroomInvitationBody(kind==='unit'?'{{lead.cf.538638}}':undefined)
+}
+
+export async function verifyShowroomTemplates() {
+  const found: Row[]=[]
+  for(let page=1;page<=10;page++){
+    const data=object(await request(`/api/v4/chats/templates?with=reviews&limit=50&page=${page}`))
+    const templates=object(data._embedded).chat_templates
+    if(!Array.isArray(templates))break
+    found.push(...templates.map(object));if(templates.length<50)break
+  }
+  return {
+    unit:found.some(template=>approvedShowroomTemplate(template,'unit')),
+    general:found.some(template=>approvedShowroomTemplate(template,'general')),
+  }
 }
 
 export function approvedNutritionTemplate(template: Row, fieldId: number) {
