@@ -18,6 +18,26 @@ Las pantallas administrativas requieren rol `admin`. El middleware también pued
 
 ## Controles de ejecución
 
+### Autoridad del redactor y del revisor IA
+
+Cambio del 16/10/2026: se retira del camino de envío la evaluación semántica programada sobre el texto del redactor, tanto antes como después de la revisión IA. El arreglo puntual del plural de superficies queda como diagnóstico histórico; la entrega ya no depende de ese parser ni de otra lista de palabras o números.
+
+| Responsable | Facultad vigente |
+| --- | --- |
+| Redactor | Escribir el mensaje completo y declarar metadatos de la pregunta y de los materiales o información realmente comunicados. |
+| Revisor IA, si está activado | Contrastar hechos afirmados y promesas comerciales con las fuentes autorizadas; aceptar o señalar hallazgos. No decide tono, preguntas, capturas, omisiones ni gestiones. |
+| Código | Validar el sobre técnico del mensaje y del JSON, permisos de contacto, referencias estructuradas y resultados reales de operaciones. No emitir otro veredicto sobre la prosa. |
+
+`turn-completeness.ts` usa un único contrato `content-review-v1` de `writer-content-review.ts`. Se retiran los inventarios obligatorios de cifras y oraciones, la comparación de fragmentos, los vetos de catálogo y las reparaciones por sustitución de frases. Los callbacks heredados `validateReply` y `normalizeReply` no se ejecutan. Los comparadores conservados para pruebas y diagnóstico no participan en el envío.
+
+- **Desactivado:** una llamada de escritura, sin revisor ni reparación semántica. Solo se comprueba que haya texto y que quepa en el canal.
+- **Activado:** el revisor IA recibe el borrador completo y las fuentes. Un rechazo puede solicitar una única nueva respuesta completa al redactor, seguida de otra revisión IA. Si no se obtiene aprobación, se registra la recuperación operativa; no se arma una respuesta comercial con fragmentos de código.
+- **Observación:** se registra el resultado IA y se conserva el borrador, incluido un rechazo por política sin respaldo. El código no añade excepciones de contenido que lo conviertan en bloqueo.
+
+La pregunta pendiente, la presentación, el brochure, el aviso de precios y las ofertas comunicadas se registran desde `question` y `writer_receipts`, sin deducirlos de sinónimos o puntuación. Si faltan metadatos válidos no se inventa una pregunta ni un consentimiento y no se retiene el mensaje por ese motivo. Los datos estructurados no autorizan por sí solos reserva, cita, pago ni revisión financiera: esas acciones conservan sus comprobaciones independientes.
+
+Regresiones: paráfrasis del caso de suites, callbacks de prosa que nunca se invocan, aceptación/rechazo/observación por IA, reparación acotada, metadatos defectuosos, continuidad financiera y entrega íntegra en `processConversation` con servicios aislados. Las pruebas que exigían vetos de código se actualizan al contrato nuevo. No se cambia la configuración de producción para activar la revisión ni se envían mensajes reales durante estas pruebas.
+
 ### Variables de entorno
 
 | Variable | Uso |

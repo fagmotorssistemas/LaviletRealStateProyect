@@ -4,12 +4,12 @@ import { deliveredPendingQuestion } from './continuation-question'
 import { journeyPendingQuestion } from './commercial-journey'
 import { normalizeTurnSemantics } from './turn-semantics'
 import { financingInputs } from './financing'
-import { leadProfilePendingQuestion } from './lead-introduction'
 
 test('an emitted unit question is not remembered as the purpose the journey planned to ask', () => {
   const reply = 'Tenemos los departamentos 202 y 302. ¿Cuál de estas unidades le gustaría revisar?'
   const plan = { question_id: 'property_purpose', question: '¿Lo busca para vivir o invertir?' }
-  for (const metadata of [undefined, { purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'choose_unit' }]) {
+  assert.deepEqual(journeyPendingQuestion(reply, plan, true), {})
+  for (const metadata of [{ text: '¿Cuál de estas unidades le gustaría revisar?', purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'choose_unit' }]) {
     const saved = journeyPendingQuestion(reply, plan, true, metadata)
     assert.equal(saved.id, 'unit_choice')
     const semantics = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'answer_previous', primary_evidence: 'sí', confidence: 'high',
@@ -28,7 +28,7 @@ test('semantic receipts allow free wording and preserve only matching proposal s
   assert.deepEqual(saved.candidate_ids, ['a', 'b'])
   assert.equal((saved.proposed_query as { filters: { bedrooms: number } }).filters.bedrooms, 3)
   const changed = deliveredPendingQuestion('¿Qué presupuesto tiene?', { plan,
-    metadata: { purpose: 'clarify_request', continuation_id: 'budget_amount', continuation_act: 'budget' } })
+    metadata: { text: '¿Qué presupuesto tiene?', purpose: 'clarify_request', continuation_id: 'budget_amount', continuation_act: 'budget' } })
   assert.equal(changed.id, 'budget_amount')
   assert.equal(changed.proposed_query, undefined)
   assert.deepEqual(changed.candidate_ids, [])
@@ -37,7 +37,7 @@ test('semantic receipts allow free wording and preserve only matching proposal s
 test('an invitation to explore property cannot grant financing consent or reserve a planned unit', () => {
   const plan = { question_id: 'financing_invitation', question: '¿Desea iniciar la revisión financiera?', selected_unit_id: 'a' }
   const reply = 'Podemos revisar financiamiento después. ¿Le gustaría conocer el departamento 502?'
-  const saved = deliveredPendingQuestion(reply, { plan, metadata: { purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'show_unit_details' } })
+  const saved = deliveredPendingQuestion(reply, { plan, metadata: { text: '¿Le gustaría conocer el departamento 502?', purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'show_unit_details' } })
   assert.equal(saved.id, 'unit_choice')
   assert.deepEqual(saved.target_ids, [])
   const input = financingInputs({ turn_semantics: { answer_to_previous: { question_id: saved.id, kind: 'affirmative', confidence: 'high' } } },
@@ -55,9 +55,10 @@ test('unknown meaning, several questions, omitted questions and rejected drafts 
 })
 
 test('same actual planned reservation retains that unit, but never a unit absent from the current catalog', () => {
-  const plan = { question_id: 'reservation_invitation', selected_unit_id: 'a', question: '¿Desea reservar esta unidad?' }
-  assert.deepEqual(deliveredPendingQuestion(plan.question, { plan }, [{ id: 'a' }]).target_ids, ['a'])
-  assert.deepEqual(deliveredPendingQuestion(plan.question, { plan }, [{ id: 'b' }]).target_ids, [])
+  const plan = { question_id: 'reservation_invitation', question_act: 'reservation', selected_unit_id: 'a', question: '¿Desea reservar esta unidad?' }
+  const metadata = { text: plan.question, purpose: 'permission_to_continue', continuation_id: plan.question_id, continuation_act: plan.question_act }
+  assert.deepEqual(deliveredPendingQuestion(plan.question, { plan, metadata }, [{ id: 'a' }]).target_ids, ['a'])
+  assert.deepEqual(deliveredPendingQuestion(plan.question, { plan, metadata }, [{ id: 'b' }]).target_ids, [])
 })
 
 test('empty semantic receipts cannot hide the verified scope of the same emitted question', () => {
@@ -82,17 +83,17 @@ test('empty semantic receipts cannot hide the verified scope of the same emitted
   }
 })
 
-test('scope is accepted only from receipts for the same question, ID and act', () => {
+test('scope follows the structured ID and act without comparing a paraphrased question', () => {
   const question = '¿Le gustaría ver los detalles del departamento 502?'
   const metadata = { text: question, purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'show_unit_details' }
   const actual = { id: 'unit_choice', act: 'show_unit_details', question, target_ids: ['a'], candidate_ids: ['a', 'b'] }
   const unrelated = [
-    { ...actual, question: '¿Le gustaría ver los detalles del penthouse 602?', target_ids: ['c'] },
     { ...actual, id: 'property_category', target_ids: ['c'] },
     { ...actual, act: 'choose_unit', target_ids: ['c'] },
   ]
   const catalog = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
-  const saved = deliveredPendingQuestion(question, { metadata, candidates: [...unrelated, actual],
+  const saved = deliveredPendingQuestion(question, { metadata, candidates: [...unrelated,
+    { ...actual, question: 'Puede conocer esta distribución con más detalle' }],
     plan: { question_id: 'financing_invitation', selected_unit_id: 'c', question: '¿Desea iniciar la revisión financiera?' } }, catalog)
   assert.deepEqual(saved.target_ids, ['a'])
   assert.deepEqual(saved.candidate_ids, ['a', 'b'])
@@ -119,7 +120,7 @@ test('a residence confirmation retains the profile referent of the actual questi
   const candidate = { city: 'Cuenca', country: null, evidence: 'soy de cuenca' }
   for (const question of ['¿Es también su lugar de residencia actual?', '¿Actualmente reside allí?']) {
     const reply = `Entiendo que es de Cuenca. ${question}`
-    const profileReceipt = leadProfilePendingQuestion(reply, { profile_introduction: { question_purpose: 'confirm_residence', candidate } })
+    const profileReceipt = { id: 'lead_residence_confirmation', act: 'profile', question, residence_candidate: candidate }
     const empty = { id: 'lead_residence_confirmation', act: 'profile', question }
     const metadata = { text: question, purpose: 'collect_lead_profile', continuation_id: empty.id, continuation_act: empty.act }
     for (const receipts of [[empty, profileReceipt], [profileReceipt, empty]]) {
@@ -132,12 +133,14 @@ test('a residence confirmation retains the profile referent of the actual questi
   }
 })
 
-test('residence confirmation never borrows a city from another question, profile ID or conflicting receipt', () => {
+test('residence confirmation never borrows a city from another profile ID or conflicting receipt', () => {
   const question = '¿Actualmente reside allí?'
   const metadata = { text: question, purpose: 'collect_lead_profile', continuation_id: 'lead_residence_confirmation', continuation_act: 'profile' }
   const cuenca = { id: metadata.continuation_id, act: 'profile', question, residence_candidate: { city: 'Cuenca', country: null, evidence: 'soy de cuenca' } }
   const loja = { ...cuenca, residence_candidate: { city: 'Loja', country: null, evidence: 'soy de loja' } }
-  for (const receipts of [[{ ...cuenca, question: '¿Cuenca es su residencia actual?' }], [{ ...cuenca, id: 'lead_profile_residence' }], [cuenca, loja], [loja, cuenca]]) {
+  assert.deepEqual(deliveredPendingQuestion(question, { metadata,
+    candidates: [{ ...cuenca, question: '¿Cuenca es su residencia actual?' }] }).residence_candidate, cuenca.residence_candidate)
+  for (const receipts of [[{ ...cuenca, id: 'lead_profile_residence' }], [cuenca, loja], [loja, cuenca]]) {
     const saved = deliveredPendingQuestion(question, { metadata, candidates: receipts })
     assert.equal(saved.id, metadata.continuation_id)
     assert.equal(saved.residence_candidate, undefined)
@@ -151,7 +154,8 @@ test('residence confirmation never borrows a city from another question, profile
 test('several fields in the same required collection remain data requests and never grant consent', () => {
   const reply = '¿Me indica su nombre legal? ¿Trabaja como empleado o independiente?'
   const candidate = { id: 'financing_data', act: 'financing', question: '¿Trabaja como empleado o independiente?' }
-  for (const metadata of [undefined, { purpose: 'collect_financing_required', continuation_id: 'financing_data', continuation_act: 'financing' }]) {
+  assert.deepEqual(deliveredPendingQuestion(reply, { candidates: [candidate] }), {})
+  for (const metadata of [{ text: reply, purpose: 'collect_financing_required', continuation_id: 'financing_data', continuation_act: 'financing' }]) {
     const saved = deliveredPendingQuestion(reply, { metadata, candidates: [candidate] })
     assert.equal(saved.id, 'financing_data')
     assert.equal(saved.question, reply)
@@ -186,7 +190,7 @@ test('a direct imperative CTA retains its verified question and scope without re
   assert.deepEqual(saved.candidate_ids, ['a', 'b'])
 })
 
-test('negated instructions and future subordinate explanations cannot become a current CTA', () => {
+test('a plan cannot supply omitted writer question metadata, regardless of the explanation wording', () => {
   const plan = { question_id: 'property_floor', question_act: 'choose_floor', question: 'Indíqueme qué planta prefiere' }
   const metadata = { purpose: 'choose_property', continuation_id: plan.question_id, continuation_act: plan.question_act }
   for (const reply of [

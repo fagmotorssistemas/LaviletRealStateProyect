@@ -18,6 +18,7 @@ const numbers = (value: string) => value.replace(/https?:\/\/[^\s<>]+/g, '').mat
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const same = (left: string[], right: string[]) => JSON.stringify(left) === JSON.stringify(right)
 
+/** Offline diagnostic helper; never used to approve, observe or alter a writer reply. */
 export function operationalCopyIssues(base: string, draft: string, context: Row = {}) {
   const issues: string[] = [], value = normalized(draft), source = normalized(base)
   if(financingCollectionIssues(draft,context,text(context.current_message))) issues.push('financing_collection_padding')
@@ -58,15 +59,14 @@ Devuelva las cuatro decisiones booleanas del esquema.`
 export async function operationalReply(baseReply: string, current: string, history: unknown, context: Row, generate: typeof aiJson = aiJson): Promise<{ reply: string; generated: boolean; review_control?: ReturnType<typeof responseReviewControl>; audit?: Row }> {
   const fallback = { reply: baseReply, generated: false }
   let observedDraft = ''
-  let observedIssues: string[] = []
   const observed = (review: Row, failure = '') => {
     const approved = !failure && review.fiel_a_los_hechos === true && review.conserva_estado_y_objetivo === true && review.no_pide_datos_conocidos === true
     return { reply: writerTransportReply(observedDraft), generated: observedDraft !== baseReply, review_control: responseReviewControl(), audit: {
-      status: 'review_observed', observation: { status: failure ? 'unavailable' : !approved ? 'rejected_review' : observedIssues.length ? 'rejected_guard' : 'checked', enforcement: false },
+      status: 'review_observed', observation: { status: failure ? 'unavailable' : !approved ? 'rejected_review' : 'checked', enforcement: false },
       review_control: responseReviewControl(), review_enforcement: { blocking: false, mode: 'observation_only' },
       independent_review: true, semantic_review: { status: failure ? 'unavailable' : approved ? 'checked' : 'rejected',
         review, ...(failure ? { error_code: failure } : {}), acceptance: { content_approved: approved } },
-      final_validation: { passed: approved && observedIssues.length === 0, issues: observedIssues, policy: 'observation_only', enforcement: false },
+      final_validation: { passed: approved, issues: [], policy: 'observation_only', enforcement: false },
       transport_validation: { passed: true, policy: 'nonempty_and_length' },
       follow_up: { usable: false, source: 'operational_writer_without_question_metadata' }, repair_attempts: [],
       recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
@@ -82,17 +82,15 @@ export async function operationalReply(baseReply: string, current: string, histo
     const draft = text(result.mensaje).trim()
     if (responseReviewObservationOnly()) {
       observedDraft = writerTransportReply(draft)
-      observedIssues = operationalCopyIssues(baseReply, observedDraft, { ...context, current_message: current })
       const reviewed = await generate(REVIEW_RULES + visitRules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, redaccion_propuesta: observedDraft }, reviewSchema, undefined, undefined, undefined, 'review')
       return observed(reviewed)
     }
     if (!responseReviewEnabled()) {
       const reply = unreviewedWriterReply(draft).reply
-      if (operationalCopyIssues(baseReply, reply, { ...context, current_message: current }).length) return fallback
       return { reply, generated: reply !== baseReply, review_control: responseReviewControl() }
     }
-    // Meaning is checked by the reviewer below; retain transport and link integrity.
-    if (operationalCopyIssues(baseReply, draft, { ...context, current_message: current, evidence_review: true }).length) return fallback
+    // Only the AI reviewer assesses wording, facts and links. Code checks transport.
+    writerTransportReply(draft)
     const reviewed = await generate(REVIEW_RULES + visitRules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, redaccion_propuesta: draft }, reviewSchema, undefined, undefined, undefined, 'review')
     if (reviewed.fiel_a_los_hechos !== true || reviewed.conserva_estado_y_objetivo !== true || reviewed.no_pide_datos_conocidos !== true) return fallback
     return { reply: draft, generated: draft !== baseReply }

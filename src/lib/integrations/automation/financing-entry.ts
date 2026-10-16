@@ -98,18 +98,34 @@ export function confirmedFinancingEntryReference(raw: Row, current: string, pend
   // their identities, evidence or amounts (including invalid reference IDs).
   if (budget.amount_reference_id != null || (Array.isArray(raw.financing_amounts)
     && raw.financing_amounts.some(item => object(item).amount_reference_id != null))) return null
-  const source = text(reference.question_source)
-  const delivered = deliveredFinancingEntryReference(source, reference)
-  const actualQuestion = actualFinancingEntryQuestion(source)
-  const questions = replyQuestions(source)
+  const structured = reference.resolution === 'writer_structured_total_budget_entry_proposal'
+  let delivered: Row | null
+  if (structured) {
+    // The delivered writer receipt owns the proposition's meaning. These are
+    // identity, amount, currency and source checks, not a second reading of
+    // its freely worded question. The customer's answer is checked below.
+    if (pending.act !== 'financing' || reference.kind !== 'proposed_down_payment'
+      || reference.original_role !== 'total_budget' || typeof reference.amount !== 'number'
+      || !Number.isFinite(reference.amount) || reference.amount <= 0 || !text(reference.evidence).trim()
+      || reference.currency != null && reference.currency !== 'USD'
+      || !text(reference.question_source).trim() || !text(reference.delivered_question).trim()
+      || text(pending.question) !== text(reference.delivered_question).trim().slice(0, 500)) return null
+    delivered = reference
+  } else {
+    // Compatibility for imported historical receipts that predate writer
+    // metadata. New writer receipts never enter this prose classifier.
+    const source = text(reference.question_source)
+    delivered = deliveredFinancingEntryReference(source, reference)
+    const actualQuestion = actualFinancingEntryQuestion(source)
+    const questions = replyQuestions(source)
+    const receiptWordings = [source, text(actualQuestion?.question), ...questions]
+    if (!receiptWordings.flatMap(question => [normalizedQuestion(question), normalizedQuestion(question.trim().slice(0, 500))])
+      .includes(normalizedQuestion(pending.question))) return null
+  }
   const currentQuantities = focusedNumericMentions(current)
   const interpretedEntry = budget.status === 'initial_capital' && budget.amount === reference.amount
     && acceptedExtractorConfidence(budget.confidence) && literal(budget.evidence, current)
-  const receiptWordings = [source, text(actualQuestion?.question), ...questions]
   if (pending.id !== 'financing_down_payment' || !delivered
-    // normalizedPendingQuestion bounds the receipt wording to 500 characters;
-    // the complete delivered source and numeric proposal remain in the reference.
-    || !receiptWordings.flatMap(question => [normalizedQuestion(question), normalizedQuestion(question.trim().slice(0, 500))]).includes(normalizedQuestion(pending.question))
     || answer.question_id !== pending.id || answer.kind !== 'affirmative' || !acceptedExtractorConfidence(answer.confidence)
     || !literal(answer.evidence, current) || !unqualified(current)
     || !(simpleReservationAcceptance(current) || entryRole(current) || monetaryReference(current) || interpretedEntry)

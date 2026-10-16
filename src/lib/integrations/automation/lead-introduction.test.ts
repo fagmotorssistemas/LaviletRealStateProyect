@@ -20,6 +20,22 @@ const input = (overrides: Partial<LeadIntroductionInput> = {}): LeadIntroduction
   audit: { source: 'project_overview' }, ...overrides,
 })
 
+// These fixtures simulate the writer's delivered metadata explicitly. Production
+// never infers the question, brochure or presentation from the response wording.
+function deliveredAudit(turn: { audit: unknown }, options: {
+  question?: string | null; reviewStatus?: string; brochureShared?: boolean;
+} = {}): Row {
+  const audit = object(turn.audit), plan = object(audit.profile_introduction)
+  const ids: Record<string, string> = { collect_profile: 'lead_profile', collect_name: 'lead_profile_name',
+    collect_residence: 'lead_profile_residence', confirm_residence: 'lead_residence_confirmation' }
+  const id = ids[String(plan.question_purpose)]
+  const question = Object.hasOwn(options, 'question') ? options.question : String(plan.question || '')
+  return { ...audit, turn_completeness: { status: options.reviewStatus || 'checked',
+    question: id && question ? { continuation_id: id, continuation_act: 'profile', text: question } : null,
+    writer_receipts: { brochure_shared: options.brochureShared ?? plan.brochure_required === true,
+      project_presented: object(plan.presentation).required === true } } }
+}
+
 describe('one semantic general opening with an approved editable summary', () => {
   const summary = 'El proyecto reúne 49 viviendas entre suites y departamentos, junto a espacios comerciales, en Puertas del Sol, Cuenca.'
   function generalInput(): LeadIntroductionInput {
@@ -64,7 +80,7 @@ describe('one semantic general opening with an approved editable summary', () =>
   it('commits the presentation receipt only on an accepted, usable reviewed reply, and does not repeat it', () => {
     const fixture = generalInput(), turn = leadIntroductionTurn(fixture)
     const receipt = (extra: Row = {}) => rememberLeadIntroduction({ previous: {}, planned: turn.state, profile: {},
-      reply: turn.reply, audit: { ...turn.audit, turn_completeness: { status: 'checked' } }, accepted: true, followUpUsable: true, ...extra })
+      reply: turn.reply, audit: deliveredAudit(turn), accepted: true, followUpUsable: true, ...extra })
     assert.equal(receipt().presentation_sent, true)
     for (const extra of [{ accepted: false }, { recovery: true }, { followUpUsable: false },
       { audit: { ...turn.audit, turn_completeness: { status: 'rejected_review' } } }]) assert.equal(receipt(extra).presentation_sent, undefined)
@@ -482,8 +498,9 @@ describe('semantic opening stage review', () => {
 })
 const begin = () => {
   const turn = leadIntroductionTurn(input())
-  return { ...turn, state: rememberLeadIntroduction({ previous: {}, planned: turn.state, profile: {}, reply: turn.reply,
-    audit: { ...turn.audit, turn_completeness: { status: 'checked' } }, accepted: true, followUpUsable: true }) }
+  const audit = deliveredAudit(turn)
+  return { ...turn, audit, state: rememberLeadIntroduction({ previous: {}, planned: turn.state, profile: {}, reply: turn.reply,
+    audit, accepted: true, followUpUsable: true }) }
 }
 const pending = (overrides: Partial<LeadIntroductionInput> = {}) => input({
   current: 'Me llamo Juan', summary: { _lead_introduction: begin().state },
@@ -622,7 +639,7 @@ describe('progressive lead introduction', () => {
     assert.ok(leadIntroductionIssues(turn.reply + BROCHURE_URL, turn.audit).includes('lead_profile_brochure_premature'))
     const deliveredState = rememberLeadIntroduction({ previous: object(begin().state), profile: name, planned: turn.state,
       reply: turn.reply, accepted: true, followUpUsable: true,
-      audit: { ...turn.audit, semantic_review_enabled: true, turn_completeness: { status: 'checked' } } })
+      audit: deliveredAudit(turn) })
     const next = leadIntroductionTurn(pending({ current: 'ahora mismo vivo en Cuenca',
       summary: { _lead_introduction: deliveredState, _lead_profile: name },
       extracted: { lead_profile: { residence_city: 'Cuenca' } }, reply: 'Gracias por confirmar.' }))
@@ -693,7 +710,7 @@ describe('progressive lead introduction', () => {
       assert.ok(turn.reply.includes(`Entiendo que es de ${city}. ¿Es también su lugar de residencia actual?`))
       assert.doesNotMatch(turn.reply, /en qué ciudad|su nombre|Qué planta/)
       assert.deepEqual(leadIntroductionIssues(turn.reply, turn.audit), [])
-      const question = leadProfilePendingQuestion(turn.reply, turn.audit)
+      const question = leadProfilePendingQuestion(turn.reply, deliveredAudit(turn))
       assert.equal(question.id, 'lead_residence_confirmation')
       assert.equal((question.residence_candidate as { city: string }).city, city)
     }
@@ -726,7 +743,7 @@ describe('progressive lead introduction', () => {
     const turn = leadIntroductionTurn(pending({ current: 'Carlos, soy de Cuenca', extracted: { lead_profile: originProfile() } }))
     const reply = 'Mucho gusto, Carlos. Entiendo que es de Cuenca. ¿Actualmente vive allí?'
     assert.deepEqual(leadIntroductionIssues(reply, turn.audit), [])
-    assert.equal(leadProfilePendingQuestion(reply, turn.audit).question, '¿Actualmente vive allí?')
+    assert.equal(leadProfilePendingQuestion(reply, deliveredAudit(turn, { question: '¿Actualmente vive allí?' })).question, '¿Actualmente vive allí?')
     assert.ok(leadIntroductionIssues(reply.replace('Entiendo que es de', 'Como vive en'), turn.audit).includes('lead_profile_unconfirmed_residence'))
     assert.deepEqual(leadIntroductionIssues(reply.replace('¿Actualmente vive allí?', '¿En qué ciudad reside actualmente?'), turn.audit), [])
     assert.deepEqual(leadIntroductionIssues(reply.replace('Mucho gusto, Carlos.', ''), turn.audit), [])
@@ -770,10 +787,10 @@ describe('progressive lead introduction', () => {
         .includes('lead_profile_brochure_premature'))
     }
     const remembered = rememberLeadIntroduction({ previous: begin().state, planned: turn.state, profile,
-      reply: turn.reply, audit: { ...turn.audit, turn_completeness: { status: 'checked' } }, accepted: true, followUpUsable: true })
+      reply: turn.reply, audit: deliveredAudit(turn), accepted: true, followUpUsable: true })
     assert.equal(remembered.brochure_sent, false)
     assert.equal(remembered.confirmation_asked, true)
-    assert.equal(leadProfilePendingQuestion(turn.reply, turn.audit).id, 'lead_residence_confirmation')
+    assert.equal(leadProfilePendingQuestion(turn.reply, deliveredAudit(turn)).id, 'lead_residence_confirmation')
     const accepted = leadIntroductionTurn(pending({ current: 'Sí',
       summary: { _lead_introduction: remembered, _lead_profile: profile },
       extracted: { lead_profile: { residence_city: 'Cuenca', residence_status: 'confirmed',
@@ -810,10 +827,10 @@ describe('profile collection across delivered conversation turns', () => {
     { role: 'bot', content: 'Solo puedo ofrecer información sobre el proyecto inmobiliario La Vilet.' },
   ]
   const commit = (turn: ReturnType<typeof leadIntroductionTurn>, previous = {}, profile = {}, reply = turn.reply,
-    options: { accepted?: boolean; followUpUsable?: boolean; recovery?: boolean; reviewStatus?: string } = {}) => rememberLeadIntroduction({
+    options: { accepted?: boolean; followUpUsable?: boolean; recovery?: boolean; reviewStatus?: string; question?: string | null } = {}) => rememberLeadIntroduction({
     previous, planned: turn.state, profile, reply, accepted: options.accepted ?? true,
     followUpUsable: options.followUpUsable ?? true, recovery: options.recovery,
-    audit: { ...turn.audit, semantic_review_enabled: true, turn_completeness: { status: options.reviewStatus || 'checked' } },
+    audit: deliveredAudit(turn, options),
   })
 
   it('requests profile after the recorded outside exchange, answers price without repeating, then asks only missing residence', () => {
@@ -871,12 +888,13 @@ describe('profile collection across delivered conversation turns', () => {
     for (const options of [{ accepted: false }, { followUpUsable: false }, { recovery: true }, { reviewStatus: 'rejected_review' }]) {
       assert.deepEqual(commit(turn, {}, {}, turn.reply, options), {})
     }
-    const omitted = commit(turn, {}, {}, 'La Vilet está en Cuenca.')
+    const omitted = commit(turn, {}, {}, 'La Vilet está en Cuenca.', { question: null })
     assert.deepEqual(omitted.requested_fields, [])
     assert.equal(omitted.collection_status, 'not_requested')
     assert.notEqual(omitted.status, 'pending')
     assert.equal(leadIntroductionTurn(input({ history, summary: { _lead_introduction: omitted } })).applied, true)
-    const natural = commit(turn, {}, {}, 'Para compartirle el brochure y orientarle, ¿cómo se llama y dónde vive actualmente?')
+    const natural = commit(turn, {}, {}, 'Para compartirle el brochure y orientarle, ¿cómo se llama y dónde vive actualmente?',
+      { question: '¿Cómo se llama y dónde vive actualmente?' })
     assert.equal(natural.collection_status, 'awaiting')
   })
 

@@ -417,6 +417,7 @@ function quotedGroupIssues(reply: string, units: Row[]) {
   return issues
 }
 
+/** Offline diagnostic helper; outgoing prose is assessed only by the AI reviewer. */
 export function verifiedPriceReplyIssues(reply: string, info: Row, current: string, quote: PriceQuote): string[] {
   const issues = priceReplyIssues(reply, info, current, quote.prices).filter(issue => issue !== 'style')
   issues.push(...quotedGroupIssues(reply, quote.units || []))
@@ -460,6 +461,7 @@ No repita ofertas de financiamiento ya mencionadas. No añada por rutina «la ap
 Si le preguntan expresamente si el crédito está aprobado o garantizado, explique que la entidad debe evaluar el caso; nunca asegure una aprobación.
 ${LAUNCH_PRICE_COMPARISON_RULE}`
 
+/** Offline diagnostic helper; not an approval or observation gate for writer output. */
 export function priceReplyIssues(reply: string, info: Row, current = '', expectedPrices?: number[]) {
   const policy = object(info.politica_comercial), m = normalized(reply)
   const styleIssues = /precios?[^.!?\n]{0,35}(?:registrad|autorizad)|(?:registrad|autorizad)[^.!?\n]{0,25}precios?/.test(m)

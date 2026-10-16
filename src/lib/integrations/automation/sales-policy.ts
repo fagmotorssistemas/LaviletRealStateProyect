@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { normalized } from './sdr-rules'
 import { isUnitVisualRequest } from './unit-visual-request'
@@ -66,7 +67,33 @@ export function mentionsFinancing(value: string) {
   return /\b(?:financ\w*|credito\w*|hipotec\w*|pichincha|jep|jardin\s*(?:azuayo|zauayo))\b/.test(normalized(value))
 }
 
-export function rememberSalesReply(previous: unknown, history: unknown, current: string, reply: string, turn?: CommercialEngagementTurn) {
+export function rememberSalesReply(previous: unknown, history: unknown, current: string, reply: string, turn?: CommercialEngagementTurn,
+  delivered?: { writerReceipts?: Row; pendingQuestion?: Row }) {
+  if (delivered) {
+    // Only customer messages may be interpreted. The writer supplies typed
+    // receipts for its delivered response; absent receipts never imply an offer.
+    const customerHistory = rows(history).filter(row => row.role === 'cliente')
+    const remembered = salesMemory(previous, [...customerHistory, { role: 'cliente', content: current }])
+    const receipt = object(delivered.writerReceipts), pending = object(delivered.pendingQuestion)
+    const questionId = text(pending.id || pending.continuation_id), act = text(pending.act || pending.continuation_act)
+    const lastPending = object(turn?.pendingQuestion || object(turn?.intent).pending_question)
+    const answer = object(object(turn?.semantics).answer_to_previous)
+    const answerEvidence = normalized(text(answer.evidence)).trim()
+    const declined = lastPending.id === 'visit_invitation' && answer.question_id === lastPending.id
+      && answer.kind === 'negative' && acceptedExtractorConfidence(answer.confidence)
+      && !!answerEvidence && normalized(current).includes(answerEvidence)
+    const engagement = commercialEngagement(current, customerHistory, previous, turn)
+    return { ...remembered,
+      visit_invited: remembered.visit_invited || receipt.visit_invited === true || questionId === 'visit_invitation' && act === 'visit',
+      visit_declined: remembered.visit_declined || declined,
+      financing_mentioned: remembered.financing_mentioned || receipt.financing_mentioned === true
+        || receipt.offered_action === 'financing_review' || questionId.startsWith('financing_') && act === 'financing',
+      unit_options_offered: remembered.unit_options_offered || receipt.unit_options_offered === true
+        || questionId === 'unit_choice' || questionId === 'property_requirements' && act === 'explore_alternatives',
+      passive_sales: engagement.passive, property_interest: engagement.interested,
+      ...(turn ? { engagement_version: COMMERCIAL_ENGAGEMENT_VERSION, interaction_mode: engagement.interaction_mode } : {}),
+    }
+  }
   const remembered = salesMemory(previous, [...rows(history), { role: 'cliente', content: current }, { role: 'bot', content: reply }])
   if (!turn) return remembered
   const engagement = commercialEngagement(current, history, previous, turn)
