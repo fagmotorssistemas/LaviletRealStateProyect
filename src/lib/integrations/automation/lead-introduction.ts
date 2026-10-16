@@ -9,6 +9,7 @@ import { replyQuestions } from './reply-question'
 import { continuationMetadata } from './continuation-question'
 import { configuredProjectIntroduction, generalProjectIntroductionTurn, projectIntroductionForTurn } from './project-introduction-context'
 import { isPassivePurchaseEvidence } from './purchase-evidence'
+import { showroomButtonReply } from '@/lib/tour/showroomInterest'
 
 export const PROFILE_INVITATION = 'Nos gustaría compartirle el brochure con la información del proyecto. ¿Podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
 const BROCHURE_PURPOSE = 'Nos gustaría compartirle el brochure con la información del proyecto. '
@@ -313,7 +314,7 @@ function commercialContinuation(input: LeadIntroductionInput, category: string, 
 }
 
 /** Plans the opening exchange without performing writes or changing the user's message. */
-export function leadIntroductionTurn(input: LeadIntroductionInput) {
+function leadIntroductionTurnCore(input: LeadIntroductionInput) {
   const summary = object(input.summary), prior = object(summary._lead_introduction)
   const material = brochureDeliveryIntent(input.current, input.history, object(input.extracted), object(summary._pending_question))
   const audit: Row = { ...object(input.audit), brochure_intent: material }
@@ -444,6 +445,22 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
       profile_state: profile, question_purpose: purpose, candidate: needsConfirmation ? { ...candidate } : null,
       name_recognition: recognition ? { name: recognition, optional: true } : null,
       reason: needsConfirmation ? 'declared_place_requires_current_residence_confirmation' : pending ? 'continue_opening_profile_exchange' : 'first_substantive_project_contact' } } }
+}
+
+export function leadIntroductionTurn(input: LeadIntroductionInput) {
+  const result=leadIntroductionTurnCore(input)
+  const profile=knownProfile(input)
+  if(profile.entry_origin!=='showroom')return result
+  const plan=object(result.audit.profile_introduction)
+  if(!Object.keys(plan).length)return result
+  if(object(object(input.summary)._showroom_entry).response_kind==='later'
+    && showroomButtonReply(input.current)==='later')return {...result,brochureDeferred:false,
+      audit:{...result.audit,profile_collection_decision:{action:'defer',requires_question:false,allowed_fields:[],allowed_question_ids:[]},
+        profile_introduction:{...plan,capture_context:'showroom_later',question_purpose:'none',brochure_deferred:false,brochure_required:false,presentation:{required:false}}}}
+  return {...result,brochureDeferred:false,audit:{...result.audit,profile_introduction:{...plan,
+    capture_context:'showroom',brochure_deferred:false,
+    brochure_required:object(result.audit.brochure_intent).requested===true,
+    presentation:{...object(plan.presentation),required:false}}}}
 }
 
 export const LEAD_INTRODUCTION_RULES = `

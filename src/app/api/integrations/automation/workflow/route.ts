@@ -6,6 +6,7 @@ import { executionOutcome, executionRoute } from '@/lib/integrations/automation/
 import { sanitizeTraceSummary, traceText } from '@/lib/integrations/automation/trace-summary'
 import { readWorkflowCursor, writeWorkflowCursor, WORKFLOW_PAGE_SIZE } from './pagination'
 import { reviewReferenceSnapshot } from '@/lib/integrations/automation/semantic-review'
+import { contactDisplayName } from '@/lib/inmobiliaria/contactDisplayName'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -148,7 +149,7 @@ export async function GET(request: Request) {
         action,
         outcome: executionOutcome(row.status, action, result),
         occurredAt: row.completed_at || row.received_at,
-        leadName: traceText(lead?.name, 90) || (payload.kommoId ? `Lead Kommo #${payload.kommoId}` : 'Tarea automática'),
+        leadName: payload.kommoId ? contactDisplayName(lead?.name, payload.name, payload.phone) : 'Tarea automática',
         message: traceText(content, 600),
         traceAvailable: steps.length > 0,
         traceSource: trace.traceSource,

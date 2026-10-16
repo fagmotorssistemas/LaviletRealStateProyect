@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { Building2, CalendarDays, ClipboardList, History, Landmark, Loader2, RefreshCw, Sprout } from 'lucide-react'
 import { getLeadPipelineDetailAction, updateLeadPipelineMetadataAction } from '@/app/inmobiliaria/leads/pipeline-actions'
 import type { LeadPipelineDetail, LeadPipelineMetadataInput } from '@/types/leadPipelineDetail'
@@ -59,6 +60,7 @@ const actorName = (value: string) => /^[\p{L}][\p{L}\p{M}\s.'’-]{1,100}$/u.tes
 
 function ProcessSections({ data, onOpenAgenda, onOpenShowroom, onOpenTour }: { data: LeadPipelineDetail } & Pick<PanelProps, 'onOpenAgenda' | 'onOpenShowroom' | 'onOpenTour'>) {
   return <>
+    <Link href={`/inmobiliaria/analisis-conversaciones?lead=${data.metadata.leadId}`} className={styles.refresh}>Ver análisis de la conversación</Link>
     <Section title="Citas" icon={<CalendarDays size={15} />}>
       {data.appointments.length ? data.appointments.map(appointment => <div key={appointment.id} className={styles.record}>
         <div className={styles.recordHeading}><h4 className={styles.recordTitle}>{appointment.label}</h4>
@@ -78,6 +80,7 @@ function ProcessSections({ data, onOpenAgenda, onOpenShowroom, onOpenTour }: { d
     </Section>
     <Section title="Solicitudes de reserva" icon={<Building2 size={15} />}>
       {data.reservations.length ? data.reservations.map(reservation => <div key={reservation.id} className={styles.record}>
+        <p className={styles.detail}>{({ pending: 'Aviso urgente pendiente de creación', pending_assignment: 'Urgente: sin asesor habilitado para recibir la reserva', created: 'Aviso urgente creado para el asesor asignado', failed: 'La solicitud está guardada; el aviso falló y se reintentará' } as Record<string, string>)[reservation.notificationStatus || ''] || 'Estado del aviso por comprobar'}{reservation.notificationError ? ` · Referencia: ${reservation.notificationError}` : ''}</p>
         <div className={styles.recordHeading}><h4 className={styles.recordTitle}>{reservation.unitNumber ? `Unidad ${reservation.unitNumber}` : 'Unidad de la solicitud'}</h4>
           <span className={styles.recordDate}>{reservation.requestedAt ? formatAgendaDateTime(reservation.requestedAt) : 'Fecha sin registrar'}</span></div>
         <p className={styles.detail}>{reservation.status === 'requested' ? 'Solicitud de gestión recibida por el equipo' : reservation.status}</p>

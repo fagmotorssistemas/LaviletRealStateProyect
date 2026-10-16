@@ -98,6 +98,7 @@ function commercialSelectionCategory(info: Row) {
 }
 
 export const COMMERCIAL_JOURNEY_RULES = `${BUDGET_ORIENTATION_RULES}
+EXPLICACIÓN DE DISPONIBILIDAD: cuando el catálogo completo acredita que no hay viviendas con la distribución solicitada, explíquelo directamente con lenguaje comercial amable. Vincule la ausencia de precio a esa distribución inexistente; no diga «no encontré opciones residenciales verificadas» ni «no tengo precio autorizado». Si la consulta es incompleta o falló, no afirme inexistencia. Ofrezca alternativas con atributos útiles cuando corresponda, sin convertir esta intención en una frase obligatoria. Una alternativa aceptada guía la exploración activa; la necesidad original queda como antecedente hasta un cambio actual del cliente, no como pregunta que repetir.
 RECORRIDO COMERCIAL: siga siguiente_paso_comercial después de atender la consulta actual. La presentación pide nombre y residencia actual y ofrece el brochure según su etapa; no repita datos confirmados ni material ya enviado. El presupuesto se pregunta después de conocer qué busca y antes de dormitorios, tipo, planta y unidades. Si declara no tenerlo definido o prefiere no compartirlo, continúe por las características sin ofrecer financiamiento automáticamente. Si un requisito físico no está disponible, recomiende alternativas verificadas y pregunte si desea revisarlas antes de tratar el presupuesto como solución: el crédito no crea dormitorios, medidas o plantas inexistentes. Aceptar ese ajuste no elige tipo ni unidad. Presente las categorías pertinentes, luego las plantas reales y pregunte planta solo si hay varias. Con la planta definida, muestre números y características antes de elegir unidad; conserve el presupuesto ya conocido. Cuando existe una sola compatible, preséntela con su recorrido autorizado sin darla por elegida. La falta de medidas específicas restringe garantías de cabida, pero no obliga a añadir advertencias familiares en una selección ordinaria.
 FINANCIAMIENTO Y RESERVA: una aceptación de financiamiento conserva el interés y primero resuelve la selección pendiente. Ofrezca analizar financiamiento ante presupuesto total insuficiente comprobado, entrada declarada o solicitud del lead, con entidades autorizadas y respetando negativas. No confunda ausencia de presupuesto o presupuesto sin definir con insuficiencia. No prometa aprobación ni viabilidad o inviabilidad del crédito sin evaluación. Para ofrecer reserva hace falta unidad elegida, ficha comercial y cobertura suficiente; datos financieros completos no son aprobación. La aceptación de reserva inicia una solicitud al equipo, no reserva inventario ni cobra.
 VISITAS: la visita espontánea va después de declinar la reserva y puede ayudar ante dificultad explícita para elegir opciones compatibles identificadas o una solicitud del cliente. Una consulta de precio, distribución o capacidad no demuestra indecisión ni permiso para agendar. Invite a recibir orientación en el lugar habilitado y pregunte aceptación. No prometa planos sin documentos oficiales ni acceso a unidades terminadas; una oficina en el sitio no habilita recorrer la obra. Respete invitaciones declinadas, solicitudes actuales y límites del proyecto. No describa estados internos como «hemos registrado/confirmado su interés».`
@@ -216,13 +217,13 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const alreadyAsked = pending.id === plan.question_id || previousJourney.last_discovery_question_id === plan.question_id
   if (cashInquiry || capture && hasInquiry && alreadyAsked && !firstAcceptance && plan.presentation !== 'recommended_unit') {
     return { ...plan, action: 'answer_current_question', question: '', question_id: '', question_act: 'other',
-      requires_unit_presentation: false,
+      requires_unit_presentation: plan.requires_unit_presentation === true,
       deferred_question: { id: plan.question_id, act: plan.question_act || (pending.id === plan.question_id ? pending.act : '') || (plan.question_id === 'financing_down_payment' ? 'financing' : 'other'),
         question: pending.id === plan.question_id && pending.question ? pending.question : previousJourney.last_discovery_question || plan.question, candidate_ids: ids(object(plan.selection_scope).unit_ids),
         ...(plan.question_amount_reference ? { amount_reference: plan.question_amount_reference } : {}) },
       instruction: topics.includes('cash_payment')
         ? 'Atienda primero las condiciones verificadas del pago al contado y la comparación con financiamiento. Si faltan condiciones, explique únicamente lo pendiente. Puede ofrecer comparar ambas modalidades sin exigir elegir una ni volver a solicitar ahora la entrada. Esta consulta no cambia la modalidad ni revoca la aceptación de financiamiento. Conserve internamente el siguiente dato pendiente.'
-        : 'Responda directamente la duda actual con amabilidad y los hechos verificados. Conserve las decisiones conocidas y deje internamente pendiente el dato solicitado; no repita la misma captura después de cada consulta. Retómela cuando ayude a continuar, sin una frase fija.'
+        : 'Responda directamente la duda actual con amabilidad y los hechos verificados. Si se presentan unidades por primera vez, incluya también sus diferencias útiles de distribución, superficie o baños; una pregunta de precio no elimina esa presentación. Conserve las decisiones conocidas y deje internamente pendiente el dato solicitado; no repita la misma captura después de cada consulta. Retómela cuando ayude a continuar, sin una frase fija.'
           + (object(plan.readiness).financing_accepted === true ? ' La aceptación de financiamiento ya existente se conserva.' : '')
           + (topics.includes('credit_approval') ? ' Explique la evaluación de la entidad sin introducir cuotas no solicitadas.' : '') }
   }
@@ -297,9 +298,14 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const pendingSelection = object(context.pending_question)
   const progressionIds = object(context.exploration_state).authorized === true && ['choose_category', 'choose_floor'].includes(text(pendingSelection.act))
     ? ids(pendingSelection.candidate_ids) : []
+  const resolvedReferenceIds = object(context.reference_resolution).status === 'resolved'
+    ? ids(object(context.reference_resolution).resolved_ids) : []
   const scopedIds = selectionQuery.scope === 'offered' ? ids(context.offered_ids).length ? ids(context.offered_ids) : progressionIds
     : selectionQuery.scope === 'comparison' ? ids(context.comparison_ids)
-      : selectionQuery.scope === 'selected' ? ids(context.selected_ids) : undefined
+      : selectionQuery.scope === 'selected' ? ids(context.selected_ids).length ? ids(context.selected_ids) : resolvedReferenceIds : undefined
+  if (selectionQuery.scope === 'selected' && !scopedIds?.length) return {
+    ...plan('clarify_reference', 'La referencia de la consulta no está resuelta. Aclare únicamente qué unidad desea revisar, sin afirmar que no hay viviendas compatibles ni reabrir requisitos ya aceptados.',
+      '¿Qué unidad le gustaría revisar?', 'unit_choice'), question_act: 'show_unit_details' }
   const excluded = new Set(ids(context.excluded_categories))
   // Retrieval may legitimately project an empty result. Planning still uses
   // the complete verification snapshot, never a top-k sample as inventory.
@@ -538,10 +544,12 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const bedroomCondition = rows(selectionQuery.requirements).some(requirement => requirement.field === 'bedrooms')
   const preferences = selectionPreferences(object(info.hechos_confirmados).selection_preferences || context.selection_preferences,
     object(info.semantica_turno).selection_preferences)
-  const spacePriority = prioritizesInteriorSpace(preferences)
+  const categoryPricePresentation = object(object(info.semantica_turno).category_choice).kind === 'selected'
+    && object(info.semantica_turno).primary_intent === 'ask_price' && object(object(info.semantica_turno).property).operation !== 'rank'
+  const spacePriority = prioritizesInteriorSpace(preferences) && !categoryPricePresentation
   const viewPriority = prioritizesViews(preferences)
   const recommend = object(object(info.semantica_turno).recommendation_request).requested === true
-  if ((recommend || prioritizesViews(object(info.semantica_turno).selection_preferences)) && candidates.length) {
+  if ((recommend || !categoryPricePresentation && prioritizesViews(object(info.semantica_turno).selection_preferences)) && candidates.length) {
     // A recommendation is a starting point, never an automatic selection.
     const inBudget = priceLimit === null ? candidates : candidates.filter(unit =>
       typeof unit.published_commercial_price === 'number' && unit.published_commercial_price <= priceLimit)

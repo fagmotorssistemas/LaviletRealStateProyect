@@ -71,11 +71,16 @@ export function TourPhoneUnlockModal({
   const [phone, setPhone] = useState('')
   const copy = COPY[intent]
   const Icon = copy.Icon
+  const [contactConsent, setContactConsent] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setPending(false)
-    setPhone(getShowroomPhone())
+    const frame = requestAnimationFrame(() => {
+      setPending(false)
+      setPhone(getShowroomPhone())
+      setContactConsent(false)
+    })
+    return () => cancelAnimationFrame(frame)
   }, [open])
 
   if (!open) return null
@@ -94,6 +99,7 @@ export function TourPhoneUnlockModal({
         mode: 'phone',
         phone: normalized,
         consent: true,
+        contact_whatsapp: contactConsent,
         request_kind: 'identify',
         typology_code: typologyCode || null,
         unit_type_id: unitTypeId || null,
@@ -166,6 +172,7 @@ export function TourPhoneUnlockModal({
         <p className="mt-2 text-[11px] leading-snug text-[#f7f3ee]/55">
           {t(" Solo para enviarle esta cotización y seguir su visita en el showroom. ")}</p>
 
+        <label className="mt-3 flex items-start gap-2 text-xs text-[#f7f3ee]/80"><input type="checkbox" checked={contactConsent} onChange={event => setContactConsent(event.target.checked)} />{t('Quiero recibir información del proyecto por WhatsApp.')}</label>
         <button
           type="submit"
           disabled={pending}

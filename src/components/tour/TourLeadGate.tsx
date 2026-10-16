@@ -44,7 +44,7 @@ export function TourLeadGate({
       onClose()
       return
     }
-    setConsented(false)
+    const frame = requestAnimationFrame(() => setConsented(false))
     logTourEvent({
       event_type: 'gate_mostrado',
       typology_code: typology,
@@ -54,6 +54,7 @@ export function TourLeadGate({
       light,
       metadata: { interest_room: roomLabel ?? null },
     })
+    return () => cancelAnimationFrame(frame)
   }, [open, typology, unitTypeId, roomLabel, finish, light, onClose, onIdentified])
 
   if (!open || isShowroomIdentified()) return null
@@ -72,6 +73,7 @@ export function TourLeadGate({
         email: String(data.get('email') ?? ''),
         phone: String(data.get('phone') ?? ''),
         consent: true,
+        contact_whatsapp: true,
         request_kind: 'identify',
         typology_code: typology || null,
         unit_type_id: unitTypeId || null,
@@ -176,7 +178,7 @@ export function TourLeadGate({
             className="mt-0.5 h-3 w-3 shrink-0 accent-[#BDA27E]"
           />
           <span>
-            {t(" Autorizo que La Vilet me contacte.")}{t(' ')}
+            {t(" Autorizo que La Vilet me contacte por WhatsApp sobre el proyecto.")}{t(' ')}
             <a href="/privacidad" className="underline decoration-[#2B1A18]/25 underline-offset-2 hover:text-[#2B1A18]">
               {t(" Privacidad ")}</a>
           </span>

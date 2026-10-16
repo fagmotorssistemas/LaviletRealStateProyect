@@ -56,6 +56,7 @@ interface AutomationLeadDetailDrawerProps {
   detail: LeadAutomationDetail | null
   onClose: () => void
   onReload: () => void
+  hasUpdates?: boolean
 }
 
 export function AutomationLeadDetailDrawer({
@@ -65,6 +66,7 @@ export function AutomationLeadDetailDrawer({
   detail,
   onClose,
   onReload,
+  hasUpdates,
 }: AutomationLeadDetailDrawerProps) {
   const leadId = detail?.row.lead_id ?? null
   const baseCommercial = detail?.commercialProfile
@@ -146,6 +148,7 @@ export function AutomationLeadDetailDrawer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {hasUpdates && <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">Hay información nueva. La ficha se conserva mientras la revisa o edita. <button type="button" className="underline" onClick={onReload}>Actualizar ficha</button></div>}
           {loading ? (
             <div className="flex justify-center py-16">
               <Spinner size="lg" />

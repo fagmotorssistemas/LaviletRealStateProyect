@@ -146,6 +146,7 @@ export function TourInfoRequestModal({
         phone: knownPhone || input.phone,
         mode: knownPhone ? 'phone' : 'full',
         consent: true,
+        contact_whatsapp: true,
         request_kind: 'info_request',
         client_request_id: requestIdRef.current,
         motivo: input.motivo,
@@ -342,7 +343,7 @@ export function TourInfoRequestModal({
                 rel="noopener noreferrer"
                 className="underline decoration-[#BDA27E]/60 underline-offset-2 hover:text-[#2B1A18]"
               >
-                {t(" Política de privacidad ")}</a>
+                {t(" Política de privacidad ")}</a>{t(' y autorizo recibir información de La Vilet por WhatsApp.')}
             </span>
           </label>
           </>}

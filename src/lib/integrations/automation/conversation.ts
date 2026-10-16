@@ -1,4 +1,6 @@
 import { interactionMode } from './interaction-mode'
+import { applyShowroomEntry } from './showroom-contact'
+import { showWhatsAppTyping } from './whatsapp-typing'
 import { rememberLeadNurture, nurtureWithCommercialProfile } from './lead-nurture-state'
 import { rememberPipelineAvailability } from './lead-pipeline-receipts'
 import { acceptedExtractorConfidence } from './extractor-confidence'
@@ -392,7 +394,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     }
     return { action: 'human_attention' }
   }
-  trace.finish(permissionStep, 'succeeded', { reason: 'BOT_CAN_RESPOND' })
+  await guard()
+  const typingIndicator = await showWhatsAppTyping(last.whatsappMessageId || last.externalId)
+  trace.finish(permissionStep, 'succeeded', { reason: 'BOT_CAN_RESPOND', typing_indicator: typingIndicator })
   const contextStep = trace.start('commercial_context', 'Cargar contexto comercial', 'context', 'context-read.ts · lv_app_conversation_context', {
     lead_id: text(lead.id),
   })
@@ -423,7 +427,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let summary: Row = {}, audit: Row = {}
   let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
   let greeting = !inbound.mediaFailed && !pendingInputs.length && isGreetingOnly(current)
-  const storedSummary = object(conversationBefore.summary)
+  const storedSummary = await applyShowroomEntry(lead,object(conversationBefore.summary),current)
   const previousSummary: Row = { ...storedSummary, _lead_profile: confirmedLeadProfile(storedSummary._lead_profile) }
   setConversationLanguage(previousSummary._conversation_language)
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
@@ -656,6 +660,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   const catalogStep = trace.start('catalog_resolution', 'Resolver consulta y referencias del catálogo', 'decision', 'property-context.ts', {
     operation: object(turnSemantics.property).operation, filters: object(object(turnSemantics.property).filters),
+    unit_choice: turnSemantics.unit_choice, category_choice: turnSemantics.category_choice,
     previous_query: object(previousPropertyContext.query), pending_question: pendingQuestion,
   })
   const reference = resolvePropertyTurn(turnCatalog, current, previousSummary, context.historial, turnSemantics)
@@ -1606,6 +1611,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     info.avisos_operativos_confirmados = handoffNotice ? [handoffNotice] : []
     if (handoffNotice) audit.handoff_result = { verified: true, status: lead.handoff_status, advisor_assigned: Boolean(lead.assigned_to) }
     info.material_request = extracted.material_request
+    await guard()
+    await showWhatsAppTyping(last.whatsappMessageId || last.externalId)
     const reviewed = await completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: reply,
       costBaseline,
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },

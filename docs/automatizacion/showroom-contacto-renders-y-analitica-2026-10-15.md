@@ -4,6 +4,8 @@
 
 Esta definición reúne el primer contacto por WhatsApp después de un registro en el showroom, la relación con el recorrido 360, el envío de renders y la evaluación de conversaciones. Las reglas y plantillas siguientes son propuestas para implementar; no activan contactos ni crean plantillas en Kommo. El ajuste de altura del embudo sí está aplicado localmente.
 
+**Cierre posterior del 16/10/2026:** la [implementación local de contacto y análisis](diagnostico-continuidad-showroom-2026-10-16.md#cierre-de-implementación-local) concreta la entrada del showroom, autorización de WhatsApp, tiempo de unidad, dos Salesbots, respuestas y panel lateral. Requiere migraciones, despliegue y comprobar la configuración de las plantillas/botones. El envío de renders permanece aplazado; el texto histórico siguiente conserva la definición previa.
+
 ## Funcionamiento del showroom revisado
 
 | Acción | Resultado actual en el código |
@@ -120,9 +122,11 @@ Campos adicionales sugeridos en Kommo:
 
 Los tiempos detallados, IDs de sesiones, evidencia de permiso y claves de deduplicación se guardan en la aplicación y se muestran en la ficha común. No es necesario crear otra ficha independiente con todos esos campos en Kommo.
 
-Los IDs numéricos de campos y plantillas se obtienen después de crearlos; no están definidos aquí. En el editor se selecciona la variable del campo correspondiente y se agrega su ejemplo. Las [instrucciones de Kommo](https://support.kommo.com/docs/es/gestiona-plantillas-de-mensajes-de-whatsapp-business) explican creación, variables y revisión por Meta. Crear las plantillas no conecta por sí solo el disparador del showroom.
+El 16 de octubre se proporcionaron el campo «Unidad Observada Showroom» `538638` y los Salesbots `26428` (con unidad) y `26430` (genérico). Falta comprobar su configuración y habilitación; los IDs de Salesbot no acreditan aprobación de una plantilla por Meta. Véase el [tratamiento de variables y botones](diagnostico-continuidad-showroom-2026-10-16.md#entrada-del-showroom). En el editor se selecciona la variable del campo correspondiente y se agrega su ejemplo. Las [instrucciones de Kommo](https://support.kommo.com/docs/es/gestiona-plantillas-de-mensajes-de-whatsapp-business) explican creación, variables y revisión por Meta. Crear las plantillas no conecta por sí solo el disparador del showroom.
 
 ## Envío de renders como imágenes
+
+**Aplazado expresamente el 16/10/2026.** Esta sección conserva la propuesta para retomarla después.
 
 Los recursos revisados se preparan como WebP para la web. Las imágenes normales de WhatsApp admiten JPEG o PNG hasta 5 MB; WebP aparece como formato de sticker, no como sustituto de una fotografía adjunta. El límite y formatos constan en la [referencia de medios de Meta](https://www.postman.com/meta/whatsapp-business-platform/folder/13382743-ecb27be5-4d27-4763-bbee-6a8002c04bf3).
 
@@ -225,7 +229,7 @@ El evaluador debe fundamentar cada hallazgo en mensajes o registros identificabl
 
 ## Panel de análisis y gráficas
 
-Ubicación propuesta: **Automatización → Análisis de conversaciones**, con acceso desde la ficha común. La sección de Marketing conserva adquisición, anuncios y gasto; ambas pueden compartir filtros y fuentes sin duplicar el expediente del lead.
+Ubicación acordada el 16 de octubre: **Análisis de conversaciones**, como entrada propia en la barra lateral cerca de Inicio, con acceso desde la ficha común. La sección de Marketing conserva adquisición, anuncios y gasto; ambas pueden compartir filtros y fuentes sin duplicar el expediente del lead. No se incorpora dentro del módulo de Automatización.
 
 La lista de evaluaciones muestra lead, etapa, última interacción, estado observado, motivo declarado, hipótesis separada y próxima acción sugerida. Abrir un resultado permite ver sus citas y mensajes de origen. Una corrección del asesor conserva la evaluación original y la autoría de la revisión.
 

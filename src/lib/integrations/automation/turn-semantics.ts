@@ -44,6 +44,7 @@ export const questionIds = [
   'lead_profile_residence',
   'lead_residence_confirmation',
   'brochure_offer',
+  'showroom_information',
 ] as const
 
 export type PendingQuestionId = typeof questionIds[number]
@@ -84,6 +85,10 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
   nurture_request: LEAD_NURTURE_SCHEMA,
   discount_request: DISCOUNT_REQUEST_SCHEMA,
   selection_preferences: SELECTION_PREFERENCES_SCHEMA,
+  unit_choice: strictObject({ kind: { ...enumSchema(['selected', 'conditional', 'none']), description: 'Decisión independiente de primary_intent. «El 605 me gusta más, ¿qué precio tenía?» elige 605 y también consulta precio. Solo preguntar su precio o cómo verlo no elige. Una condición pendiente o negación no es selected. No use historial como aceptación actual.' },
+    unit_numbers: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string' }, confidence: confidenceSchema }),
+  category_choice: strictObject({kind:{...enumSchema(['selected','conditional','none']),description:'Preferencia actual por un tipo de espacio, independiente de la consulta principal. «Me quedo con los penthouses; ¿qué precio tienen?» elige categoría y consulta precio. Consultar precios de una categoría sin preferirla no la elige. No selecciona una unidad ni autoriza trámites.'},
+    category:nullableEnumSchema(propertyCategories),evidence:{type:'string'},confidence:confidenceSchema}),
   housing_quantities: { type: 'array', description: 'Solo cantidades declaradas o evaluadas en mensaje_actual; [] si no hay. Nunca copie cantidades del catálogo, de una pregunta previa ni del historial. No cree elementos vacíos.', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
     values: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 1000 } },
     role: { ...enumSchema(housingQuantityRoles), description: 'requirement busca/restringe; evaluation consulta si las opciones sirven; context describe la familia; unknown es ambiguo. Evaluar capacidad no impone otra búsqueda.' }, count_basis: enumSchema(housingQuantityBases), evidence: { type: 'string' }, confidence: confidenceSchema }) },
@@ -395,6 +400,12 @@ export function pendingQuestionFromReply(reply: string): Row {
 
 export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw: unknown, monetaryReferences: Row[] = []): Row {
   const data = object(object(raw).turn_semantics)
+  const choice = object(data.unit_choice), choiceEvidence = literalEvidence(choice.evidence, current)
+  const choiceValid = acceptedExtractorConfidence(choice.confidence) && !!choiceEvidence
+    && ['selected', 'conditional'].includes(text(choice.kind))
+  const categoryChoice=object(data.category_choice),categoryChoiceEvidence=literalEvidence(categoryChoice.evidence,current)
+  const categoryChoiceValid=acceptedExtractorConfidence(categoryChoice.confidence)&&!!categoryChoiceEvidence
+    && ['selected','conditional'].includes(text(categoryChoice.kind))&&propertyCategories.has(text(categoryChoice.category))
   const pending = normalizedPendingQuestion(pendingRaw)
   const pendingId = questionIds.includes(text(pending.id) as PendingQuestionId) ? text(pending.id) : ''
   const primaryEvidence = literalEvidence(data.primary_evidence, current)
@@ -644,6 +655,11 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     interaction_goal: normalizedInteractionGoal(data.interaction_goal, current),
     ...(data.nurture_request !== undefined ? { nurture_request: normalizedNurtureRequest(data.nurture_request, current) } : {}),
     selection_preferences: normalizedSelectionPreferences(data.selection_preferences, current),
+    unit_choice: choiceValid ? { kind: choice.kind, evidence: choiceEvidence, confidence: choice.confidence,
+      unit_numbers: Array.isArray(choice.unit_numbers) ? choice.unit_numbers.map(text).filter(number => /^(?:LC-?)?\d{1,4}$/i.test(number)) : [] }
+      : { kind: 'none', evidence: null, confidence: 'low', unit_numbers: [] },
+    category_choice:categoryChoiceValid?{kind:categoryChoice.kind,category:categoryChoice.category,evidence:categoryChoiceEvidence,confidence:categoryChoice.confidence}
+      :{kind:'none',category:null,evidence:null,confidence:'low'},
     ...(data.discount_request !== undefined ? { discount_request: normalizedDiscountRequest(data.discount_request, current) } : {}),
     ...(hasQuantityContract ? { housing_quantities: housingQuantities, household: householdFromQuantities(housingQuantities) } : {}),
     interpretation: { extractor_primary_intent: extractedPrimaryIntent, canonical_primary_intent: primaryIntent, decisions },

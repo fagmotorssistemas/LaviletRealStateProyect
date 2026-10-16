@@ -178,6 +178,7 @@ export async function identifyTourLead(input: {
   email?: string
   phone: string
   consent: boolean
+  contact_whatsapp?: boolean
   mode?: 'full' | 'phone'
   request_kind?: 'identify' | 'info_request' | 'save_unit'
   client_request_id?: string | null

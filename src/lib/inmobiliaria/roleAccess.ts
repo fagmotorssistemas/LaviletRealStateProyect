@@ -17,6 +17,7 @@ export const CRM_VIEW_OPTIONS: {
   { href: '/inmobiliaria/inventario', label: 'Inventario', group: 'ventas' },
   { href: '/inmobiliaria/proyectos', label: 'Proyectos', group: 'ventas' },
   { href: '/inmobiliaria/leads', label: 'Leads', group: 'ventas' },
+  { href: '/inmobiliaria/analisis-conversaciones', label: 'Análisis de conversaciones', group: 'ventas' },
   { href: '/inmobiliaria/showroom', label: 'Showroom', group: 'ventas' },
   { href: '/inmobiliaria/recorrido', label: 'Recorrido 360┬░', group: 'ventas' },
   { href: '/inmobiliaria/agenda', label: 'Agenda', group: 'ventas' },
@@ -78,6 +79,7 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
     '/inmobiliaria/proyectos',
     '/inmobiliaria/leads',
     '/inmobiliaria/automatizacion',
+    '/inmobiliaria/analisis-conversaciones',
     '/inmobiliaria/showroom',
     '/inmobiliaria/recorrido',
     '/inmobiliaria/agenda',
@@ -93,6 +95,7 @@ const ROLE_PATHS: Record<UserRole, readonly string[]> = {
     '/inmobiliaria/proyectos',
     '/inmobiliaria/leads',
     '/inmobiliaria/automatizacion',
+    '/inmobiliaria/analisis-conversaciones',
     '/inmobiliaria/showroom',
     '/inmobiliaria/recorrido',
     '/inmobiliaria/agenda',
@@ -171,6 +174,10 @@ export function canAccessPath(
   if (!pathname.startsWith('/inmobiliaria')) return true
   const paths = effectiveCrmPaths(role, customPaths)
   if (paths.length === 0) return false
+  if (pathname === '/inmobiliaria/analisis-conversaciones'
+    || pathname.startsWith('/inmobiliaria/analisis-conversaciones/')) {
+    return paths.some(href => ['/inmobiliaria/analisis-conversaciones','/inmobiliaria/leads','/inmobiliaria/automatizacion'].includes(href))
+  }
   // Entrada del módulo Marketing (sin page hija): permitir si hay alguna vista marketing.
   if (pathname === '/inmobiliaria/marketing' || pathname === '/inmobiliaria/marketing/') {
     return paths.some(

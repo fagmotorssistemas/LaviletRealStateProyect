@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:reservation-showroom": "node --require ./scripts/test-typescript.cjs --test --test-concurrency=4 src/lib/integrations/automation/oct16-continuity.test.ts scripts/showroom-entry.test.cjs scripts/reservation-assignment.pglite.test.cjs scripts/showroom-analysis-schema.pglite.test.cjs",
+    "test:reservation-showroom-ui": "node --test scripts/oct16-ui.test.cjs",
     "test:language-guidance": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/language-guidance-corrections.test.ts",
     "test:writer-ownership": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/writer-ownership-and-space.test.ts src/components/inmobiliaria/automation/workflow/reviewDiagnostics.test.ts",
     "test:conversation-continuity": "node --require ./scripts/test-typescript.cjs --test src/lib/integrations/automation/conversation-continuity-corrections.test.ts src/lib/integrations/automation/requirement-consent.test.ts src/lib/integrations/automation/selected-property-operation-continuity.test.ts src/lib/integrations/automation/financing-consent-evidence.test.ts src/lib/integrations/automation/continuation-question.test.ts src/lib/integrations/automation/reviewer-authority.test.ts src/lib/integrations/automation/demo-conversation-integration.test.cjs src/lib/integrations/automation/extractor-source-continuity.test.ts",

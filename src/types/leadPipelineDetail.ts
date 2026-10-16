@@ -19,6 +19,8 @@ export interface LeadPipelineDetail {
     status: string
     unitNumber: string | null
     requestedAt: string | null
+    notificationStatus?: string | null
+    notificationError?: string | null
   }[]
   financing: { accepted: boolean; partner: string | null; status: string | null }
   jobs: { id: string; task: string; status: string; scheduledAt: string | null }[]

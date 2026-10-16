@@ -67,7 +67,7 @@ export async function loadLeadPipelineSources(client: SupabaseClient, requestedI
       // This table intentionally allows server-only reads. Never enumerate it
       // with service role before establishing that exact authorized scope.
       return readPipelineRelated(ids, (chunk, from, to) => admin.from('lead_reservation_requests')
-        .select('id,lead_id,unit_ids,evidence,source_message_id,source_sent_at,request_status,created_at')
+        .select('*')
         .in('lead_id', chunk).order('id').range(from, to))
     }),
     optional('sales', 'los cierres de venta', () => readPipelineRelated(ids, (chunk, from, to) => client.from('unit_sales_closings')
