@@ -19,20 +19,19 @@ import { financingPolicyContext } from './financing-quote'
 import { priceNoticeForConversation } from './price-conditions'
 import { recordDraftDecision } from './ai-execution-trace'
 import { db, object, scope, text, type Row } from './data'
-import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState, styleIssues } from './sdr-rules'
+import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState } from './sdr-rules'
 import type { Guard } from './visits'
 import { NATURAL_CONVERSATION_RULES, conversationalFirstName } from './conversation-style'
-import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, experienceIssues, PROJECT_POSITIONING, turnWritingRules, unresolvedCommercialReply, projectInformationChoiceReply, projectInformationReply, RESIDENTIAL_CONTINUITY_RULES } from './commercial-experience'
+import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, PROJECT_POSITIONING, turnWritingRules, unresolvedCommercialReply, projectInformationChoiceReply, projectInformationReply, RESIDENTIAL_CONTINUITY_RULES } from './commercial-experience'
 import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
 import { unitModelRequestReply } from './unit-model'
-import { salesPlan, salesIssues, salesTopicReply, mentionsFinancing } from './sales-policy'
-import { passiveSalesCopy } from './commercial-engagement'
+import { salesPlan, salesTopicReply, mentionsFinancing } from './sales-policy'
 import { openingWritingRules } from './response-openings'
 import { MAX_REPLY_CHARACTERS } from './response-plan'
 import { responseContentScope, projectContentForWriter, RESPONSE_CONTENT_SCOPE_RULES } from './response-content-scope'
 import { botPricingPolicy, launchPricesVisible, referentialPriceNoticeEnabled } from '@/lib/inmobiliaria/unitPrices'
-import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, priceReplyIssues, statedBudget, unitPriceQuote } from './price-reply'
+import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, statedBudget, unitPriceQuote } from './price-reply'
 import { TURN_INTENT_RULES } from './turn-intent'
 import { priceFinancingReply } from './financing'
 import { FINANCING_PROCESS_RULES, ASSISTANCE_CONTINUATION_RULES } from './financing-guidance'
@@ -45,7 +44,6 @@ import { recommendationClarification } from './commercial-accuracy'
 import { withVisitLocation } from './visit-location'
 import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
 import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
-import { commercialCoverageIssues } from './multi-topic-turn'
 import { houseProductReply, PRODUCT_FIT_RULES } from './product-fit'
 import { acceptedUnitAlternative, continueUnitAlternative, unitAlternative } from './unit-alternatives'
 import { readCommercialContext } from './context-read'
@@ -288,6 +286,10 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
   const turnAnswers = turnAnswerFacts(info, current, summary)
   const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true, unidades_cotizadas: quote?.units }, current, summary)
   const finish = (reply: string, audit: Row) => {
+    // Writer output is delivered as authored. Coverage, facts, questions and links
+    // belong to the AI review; deterministic completion applies only to base copy.
+    if (audit.ai_draft_preserved) return { reply: writerTransportReply(reply), audit: { ...audit,
+      sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
     if (quote?.needsAdvisor) return { reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'precio por verificar' } }
     // Safe fallbacks must obey the same stopping rule as generated drafts.
     const completed = completeTurnAnswer(reply, turnAnswers)
@@ -350,14 +352,14 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     + (info.objeciones_proyecto ? '\n' + PROJECT_OBJECTION_WRITER_RULES : '')
     + '\n' + FINANCING_PROCESS_RULES + '\n' + ASSISTANCE_CONTINUATION_RULES
     + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
-    + (attachBrochure ? '\nEl sistema adjuntará el brochure solicitado. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.' : '')
+    + (attachBrochure ? `\nIncluya el brochure solicitado en esta respuesta: ${BROCHURE_URL}. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.` : '')
     + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
     + '\n' + PROJECT_DELIVERY_RULES
     + '\n' + PROJECT_NAME_WRITING_RULES
     + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
     + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
     + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'
-    + '\nEl campo modelo_3d indica que el sistema añadirá el enlace al tour en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Procure brevedad sin omitir solicitudes. No ofrezca enviarlo después ni invente otro enlace: el sistema añade texto_de_entrega. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
+    + '\nEl campo modelo_3d indica el tour que corresponde incluir en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Integre texto_de_entrega y su enlace autorizado con naturalidad. Procure brevedad sin omitir solicitudes. No ofrezca enviarlo después ni invente otro enlace. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
     + `\nLas indicaciones de tono, longitud sugerida, saludo, cantidad de preguntas y continuación comercial son recomendaciones editoriales: no rechace una respuesta por variar esas formas. El límite técnico de entrega es ${MAX_REPLY_CHARACTERS} caracteres. Compruebe los hechos, las acciones autorizadas, la selección y la cobertura de la solicitud actual. Una pregunta tiene que ser pertinente y útil; no depende de copiar la propuesta del guion.`
   const writingInput = projectContentForWriter(input, object(info.alcance_contenido_turno))
   // Conversation always runs completeTurnReply after this draft. Its one
@@ -376,16 +378,14 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     try {
       review = await aiJson(reviewer + rules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, respuesta: reply }, reviewSchema, undefined, undefined, undefined, 'review')
     } catch (error) { reviewFailure = error instanceof Error ? error.message : 'REVIEW_UNAVAILABLE' }
-    const observations = [...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan),
-      ...priceReplyIssues(reply, info, current, quote?.prices), ...commercialCoverageIssues(reply, turnAnswers.topics)]
     const approved = !reviewFailure && review.aprobada === true && review.requiere_asesor !== true
-    recordDraftDecision(reply, 0, approved, review, observations)
+    recordDraftDecision(reply, 0, approved, review, [])
     return { reply, audit: { source: 'commercial', status: 'review_observed',
-      observation: { status: reviewFailure ? 'unavailable' : !approved ? 'rejected_review' : observations.length ? 'rejected_guard' : 'checked', enforcement: false }, review_control: responseReviewControl(),
+      observation: { status: reviewFailure ? 'unavailable' : !approved ? 'rejected_review' : 'checked', enforcement: false }, review_control: responseReviewControl(),
       review_enforcement: { blocking: false, mode: 'observation_only' }, independent_review: true,
       semantic_review: { status: reviewFailure ? 'unavailable' : approved ? 'checked' : 'rejected',
         review, ...(reviewFailure ? { error_code: reviewFailure } : {}), acceptance: { content_approved: approved } },
-      final_validation: { passed: approved && observations.length === 0, policy: 'observation_only', issues: observations, enforcement: false },
+      final_validation: { passed: approved, policy: 'observation_only', issues: [], enforcement: false },
       transport_validation: { passed: true, policy: 'nonempty_and_length' },
       follow_up: { usable: false, source: 'legacy_writer_without_question_metadata' }, repair_attempts: [],
       recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
@@ -401,20 +401,15 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
     await guard()
     const review = await aiJson(reviewer + rules + SEMANTIC_POLICY_REVIEW_RULES + '\nDevuelva además requiere_asesor=true SOLO si una pregunta inmobiliaria concreta no puede resolverse con los hechos del contexto y debe verificarla el equipo. No lo active por estilo, una preferencia aún sin elegir, preguntas sobre otros negocios, ni enlaces o agenda que el sistema adjunta/procesa. Tampoco por falta de una fecha de entrega: puede explicar que aún no se ha definido. Si hay datos suficientes, corrija el borrador en vez de derivar.', { ...input, respuesta: reply }, reviewSchema, undefined, undefined, undefined, 'review')
     if (review.requiere_asesor === true) return { reply: '', audit: { source: 'verified_information_gap', requires_advisor: true, handoff_reason: 'consulta inmobiliaria que requiere información del equipo', fallback: false } }
-    const observations = [...styleIssues(reply, object(info.conversacion).ya_saludamos === true), ...experienceIssues(reply, current, info, memory), ...salesIssues(reply, plan), ...priceReplyIssues(reply, info, current, quote?.prices), ...commercialCoverageIssues(reply, turnAnswers.topics)]
     const issues: string[] = [] // Final structured review validates business facts.
     if (!reply.trim()) issues.push('empty_reply')
     if (reply.length > MAX_REPLY_CHARACTERS) issues.push('transport_length')
-    if (quote?.quoted && !quote.financingOffer && !mentionsFinancing(current) && mentionsFinancing(reply)) observations.push('repeated_question')
-    if (reply.trim() === text(object(info.conversacion).ultima_respuesta).trim() && !/rep[ií]t|repita|otra vez|no entend[ií]/i.test(current)) observations.push('repeated_question')
     const reviewIssues = Array.isArray(review.motivos) ? review.motivos.map(text) : []
     const onlyStyle = reviewIssues.length > 0 && reviewIssues.every(reason => editorialCodes.has(reason))
-    const unsolicitedOffer = passiveSalesCopy(reply, current, plan.engagement) !== reply
-    if (unsolicitedOffer) observations.push('unsolicited_sales_offer')
     const approved = !issues.length && (review.aprobada === true || onlyStyle)
     recordDraftDecision(reply, attempt, approved, review, issues)
     if (approved) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ai_draft_preserved: true,
-      editorial_observations: [...new Set([...observations, ...reviewIssues].filter(issue => editorialCodes.has(issue)))], ...(onlyStyle ? { style_review_only: true } : {}) })
+      editorial_observations: [...new Set(reviewIssues.filter(issue => editorialCodes.has(issue)))], ...(onlyStyle ? { style_review_only: true } : {}) })
     reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number]) && !editorialCodes.has(text(v))) as string[] : []))
     if (!attempt) {
       await guard()

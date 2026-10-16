@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Isolated CommonJS test harness. */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs'), path = require('node:path'), Module = require('node:module'), ts = require('typescript')
@@ -30,24 +31,29 @@ test('operational wording can vary without changing a pending appointment', asyn
   assert.equal(h.calls[1][1].base_verificada, pending)
 })
 
-test('a pending request cannot become a confirmed reservation even if the reviewer approves', async () => {
-  const h = harness('Su cita está confirmada para el martes 15 de septiembre a las 8 a. m.')
-  assert.deepEqual(await h.operationalReply(pending, 'Mañana a las ocho', [], {}), { reply: pending, generated: false })
-  assert.equal(h.calls.length, 1)
+test('the AI reviewer owns the pending versus confirmed decision without a phrase gate', async () => {
+  const draft = 'Su cita está confirmada para el martes 15 de septiembre a las 8 a. m.'
+  const h = harness(draft)
+  assert.deepEqual(await h.operationalReply(pending, 'Mañana a las ocho', [], {}), { reply: draft, generated: true })
+  assert.equal(h.calls.length, 2)
+  assert.equal(h.calls[1][1].redaccion_propuesta, draft)
+  const rejected = harness(draft, { ...approved, conserva_estado_y_objetivo: false })
+  assert.deepEqual(await rejected.operationalReply(pending, 'Mañana a las ocho', [], {}), { reply: pending, generated: false })
+  assert.equal(rejected.calls.length, 2)
 })
 
-test('operational dates and explicitly required links and names cannot disappear or change', () => {
-  const base = 'Banco Pichincha: revisaremos su solicitud el 15/09 a las 08:00. Oficina La Vilet: https://www.google.com/maps/search/?api=1&query=-2.89,-79.03'
-  assert.equal(operationalCopyIssues(base, base).length, 0)
+test('offline diagnostics can compare dates, required links and names without controlling delivery', () => {
+  const base = 'Banco Pichincha: revisaremos su solicitud el 15/09 a las 08:00. Oficina La Vilet: https://example.com/oficina'
+  assert.equal(operationalCopyIssues(base, base).includes('numbers_changed'), false)
   assert.ok(operationalCopyIssues(base, base.replace('08:00', '09:00')).includes('numbers_changed'))
   assert.ok(operationalCopyIssues(base, base.replace('15/09', 'quince de septiembre')).includes('numbers_changed'))
-  const url = 'https://www.google.com/maps/search/?api=1&query=-2.89,-79.03'
+  const url = 'https://example.com/oficina'
   assert.ok(operationalCopyIssues(base, base.replace(url, ''), { link_contract: { required_links: [url] } }).includes('required_link_omitted'))
   assert.ok(!operationalCopyIssues(base, base.replace(url, '')).includes('required_link_omitted'))
   assert.ok(operationalCopyIssues(base, base.replace('Banco Pichincha', 'nuestro banco'), { protected_terms: ['Banco Pichincha'] }).includes('name_omitted'))
 })
 
-test('financing guarantees and invented direct credit are not permitted', () => {
+test('offline diagnostics describe financing guarantees without controlling delivery', () => {
   assert.ok(operationalCopyIssues('Le acompañamos en el proceso.', 'Le garantizamos el crédito aprobado.').includes('financing_guarantee'))
   assert.ok(operationalCopyIssues('Le acompañamos en el proceso.', 'Puede solicitar crédito directo.').includes('direct_credit_added'))
 })

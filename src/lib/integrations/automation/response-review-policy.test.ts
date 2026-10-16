@@ -9,6 +9,7 @@ import { requireReviewedResponse } from './response-review-recovery'
 import { MAX_REPLY_CHARACTERS } from './response-plan'
 import { leadIntroductionTurn, leadProfilePendingQuestion, rememberLeadIntroduction } from './lead-introduction'
 import { object, type Row } from './data'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 
 const off = responseReviewSettings({ response_review: { enabled: false } })
 const on = responseReviewSettings(null)
@@ -18,13 +19,13 @@ const input: TurnCompletenessInput = {
     is_published: true, status: 'disponible', published_commercial_price: 250000 }] },
   audit: { semantic_review_enabled: true, business_risk_review_enabled: true },
 }
-function writer(reply: string, requests: unknown = null) {
+function writer(reply: string, requests: unknown = null, metadata: Row = {}) {
   const calls: string[] = []
   const generate: NonNullable<Parameters<typeof completeTurnReply>[1]> = async (_instructions, context, _schema, _image, _file, _tone, task = 'data') => {
     calls.push(task)
     if (task !== 'writing') throw Error('Reviewer must not run')
     assert.ok(object(context).mensaje_actual)
-    return { reply, requests, question: null }
+    return { reply, requests, question: null, ...metadata }
   }
   return { calls, generate }
 }
@@ -151,7 +152,7 @@ test('a lead or model audit cannot disable the server review policy', async () =
   const calls: string[] = []
   const generate: NonNullable<Parameters<typeof completeTurnReply>[1]> = async (_rules, context, _schema, _image, _file, _tone, task = 'data') => {
     calls.push(task)
-    if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+    if (task === 'review') return { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
     const ref = object((object(context).referencias_solicitud as Row[])[0])
     return { reply: 'Con gusto le ayudo.', requests: [{ fragment: ref.id, intent: 'informacion',
       request_type: 'general_information', status: 'answered', evidence: 'Respuesta', fact_key: null }],
@@ -168,7 +169,11 @@ test('questions actually delivered without review retain profile continuity with
   const opening = leadIntroductionTurn({ current, history: [], summary: {}, extracted: {},
     reply: 'La Vilet está en Cuenca.', audit: { source: 'project_overview' } })
   const reply = 'Con mucho gusto. Para compartirle el brochure y orientarle, ¿cómo se llama y dónde vive actualmente?'
-  const mock = writer(reply)
+  const mock = writer(reply, [], {
+    question: { text: '¿cómo se llama y dónde vive actualmente?', purpose: 'collect_lead_profile', role: 'required_collection',
+      missing_datum: 'Nombre y residencia', next_decision: 'Compartir información', continuation_id: 'lead_profile', continuation_act: 'profile' },
+    writer_receipts: { presented_unit_ids: [], brochure_shared: false, price_notice_included: false, brand_introduced: false, offered_action: 'none' },
+  })
   const result = await withResponseReviewPolicy(off, () => completeTurnReply({ current, baseReply: opening.reply,
     verified: {}, audit: { ...opening.audit, semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate))
   const audit = { ...opening.audit, turn_completeness: result.audit }
@@ -183,7 +188,7 @@ test('questions actually delivered without review retain profile continuity with
   assert.equal(responseSupportsContinuity({ ...result.audit, final_validation: { passed: false } }), false)
 })
 
-test('operational writer skips the paid reviewer but preserves link and transport integrity', async () => {
+test('operational writer with review disabled leaves link judgment to the writer and checks transport only', async () => {
   const calls: string[] = []
   let proposed = 'Puede revisar su información en https://example.com/nuevo'
   const generate: NonNullable<Parameters<typeof operationalReply>[4]> = async (_rules, _input, _schema, _image, _file, _tone, task = 'data') => {
@@ -193,8 +198,8 @@ test('operational writer skips the paid reviewer but preserves link and transpor
   }
   const run = () => withResponseReviewPolicy(off, () => operationalReply('Propuesta pendiente.', 'Gracias', [], {}, generate))
   const result = await run()
-  assert.equal(result.reply, 'Propuesta pendiente.')
-  assert.equal(result.generated, false)
+  assert.equal(result.reply, proposed)
+  assert.equal(result.generated, true)
   assert.deepEqual(calls, ['writing'])
   proposed = 'a'.repeat(MAX_REPLY_CHARACTERS + 1)
   assert.equal((await run()).reply, 'Propuesta pendiente.')

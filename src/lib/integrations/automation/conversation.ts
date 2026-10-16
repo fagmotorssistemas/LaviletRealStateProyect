@@ -6,7 +6,7 @@ import { rememberLeadNurture, nurtureWithCommercialProfile } from './lead-nurtur
 import { rememberPipelineAvailability } from './lead-pipeline-receipts'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
-import { interpretCommercialJourney, journeyPendingQuestion, rememberCommercialJourney, purchaseReadiness, commercialJourneyPlan } from './commercial-journey'
+import { interpretCommercialJourney, rememberCommercialJourney, purchaseReadiness, commercialJourneyPlan } from './commercial-journey'
 import { leadBudget } from './budget-state'
 import { currentTopicReply } from './current-topic'
 import { discountNegotiationForTurn } from './discount-request'
@@ -42,17 +42,17 @@ import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from '.
 import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
 import { visitRoutePermission } from './route-consistency'
 import { visitDialogueTurn, visitDialogueBaseReply, visitDialoguePendingQuestion, visitDialogueIntakeSnapshot, reconcileVisitDialogueScope, rememberVisitDialogue } from './visit-dialogue'
-import { isProfileOnlyTurn, leadIntroductionTurn, leadProfileCollectionDecision, leadProfilePendingQuestion, leadProfileQuestionIssues, rememberLeadIntroduction } from './lead-introduction'
+import { isProfileOnlyTurn, leadIntroductionTurn, leadProfileCollectionDecision, leadProfileQuestionIssues, rememberLeadIntroduction } from './lead-introduction'
 import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
-import { progressivePendingQuestion } from './progressive-options'
+
 import { tourContinuation } from './tour-continuation'
 import { resolveTurnIntent, rememberTurnIntentAfterReply } from './turn-intent'
 import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
 import { localVisualMaterialContext } from './visual-materials'
-import { priceNoticeForConversation, priceNoticeReceipt } from './price-conditions'
+import { priceNoticeForConversation } from './price-conditions'
 import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, naturalConversationReply } from './conversation-style'
 
-import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer, financingPendingQuestion } from './financing'
+import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer } from './financing'
 import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
 import { financingCollection, financingReadyForHandoff, personalDataFragments } from './financing-intake'
 import { financingIdentity } from './financing-identity'
@@ -60,9 +60,9 @@ import { financingAmounts, financingBalance } from './financing-amounts'
 import { rememberFinancingEntry } from './financing-entry'
 import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
 import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
-import { commercialMemory, isProjectInformationRequest, rememberCommercialReply, projectInformationChoiceReply, projectInformationReply, projectOverviewReply } from './commercial-experience'
+import { commercialMemory, isProjectInformationRequest, projectInformationChoiceReply, projectInformationReply, projectOverviewReply } from './commercial-experience'
 import { resolveCatalogReference } from './catalog-reference'
-import { propertyContext, resolvePropertyTurn, rememberPropertyReply, unitsInPropertyReply } from './property-context'
+import { propertyContext, resolvePropertyTurn, rememberPropertyReply } from './property-context'
 import { commercialEngagement } from './commercial-engagement'
 import { preferredPropertyCategory } from './property-selection'
 import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
@@ -89,12 +89,12 @@ import { asksForHouse, houseProductReply } from './product-fit'
 import { declinesAllVisitAlternatives } from './visit-escalation'
 import { completeTurnReply } from './turn-completeness'
 import { scopeFallbackReply, scopeWritingContract, scopePolicyContext } from './scope-response'
-import { catalogQuery, filterCatalog, validateCatalogReply, catalogDialogueReply } from './catalog-dialogue'
+import { catalogQuery, filterCatalog, catalogDialogueReply } from './catalog-dialogue'
 import { advisorOwnsConversation } from './human-attention'
 import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
 import { financingPrerequisiteReply } from './property-selection'
 import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing, rememberedFinancingPartner } from './financing-stage'
-import { answersPendingQuestion, normalizedPendingQuestion, pendingQuestionFromReply } from './turn-semantics'
+import { answersPendingQuestion, normalizedPendingQuestion } from './turn-semantics'
 import { deliveredPendingQuestion } from './continuation-question'
 import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-disposition'
 import { MAX_REPLY_CHARACTERS, responsePlan, protectInitialProjectPresentation } from './response-plan'
@@ -106,7 +106,7 @@ import { withAIExecutionTrace } from './ai-execution-trace'
 import { PreReplySendError } from './delivery-phase'
 import { prepareReplyRegistration, markReplyDispatchStarted, registerAcceptedReply, markReplyMemorySaved, AcceptedReplyRegistrationError, type ReplyCheckpoint } from './reply-registration'
 import { requireReviewedResponse } from './response-review-recovery'
-import { assessMissingFacts, catalogCoversFragment } from './coverage-evidence'
+import { assessMissingFacts } from './coverage-evidence'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out","visit_preference":null}.
@@ -573,14 +573,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   })
   const lastResponse = text(state.ultima_respuesta)
   const rememberedQuestion = normalizedPendingQuestion(previousSummary._pending_question || previousPropertyContext.pending_question, minimalTurn ? undefined : turnCatalog)
-  const deferredReceipt = object(previousSummary._deferred_question)
-  const deferredQuestionStillCurrent = deferredReceipt.last_reply === lastResponse
-    && deferredReceipt.question_id === rememberedQuestion.id && deferredReceipt.question === rememberedQuestion.question
   const pendingQuestion = pendingFollowUpNeedsInterpretation(previousSummary, lastResponse) ? {}
-    : replyQuestionText(text(rememberedQuestion.question)) && (lastResponse.includes(text(rememberedQuestion.question))
-      || previousSummary._interpretation_pending === true || deferredQuestionStillCurrent)
-    ? rememberedQuestion
-    : pendingQuestionFromReply(lastResponse)
+    : rememberedQuestion
   const interpretationInputForTurn = {
     catalog_search: catalogSearch,
     consultas_pendientes: pendingInputs,
@@ -1503,7 +1497,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let finalVerifiedContext: Row = context
   let reviewFinalContent: ((candidate: string) => ReturnType<typeof completeTurnReply>) | null = null
   let operationalRedraftRequired = false
-  const catalogBaseReply = audit.verified_catalog === true ? reply : ''
   const recoveringTurn = () => object(object(audit.turn_completeness).recovery).pending === true
   const recoveryReply = (coverage: Row) => {
     const body = unverifiedReply({ ...audit, turn_completeness: coverage })
@@ -1608,7 +1601,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       info.referencia_unidad = { ...object(info.referencia_unidad), matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).filter(unit => ids.has(object(unit).id)) }
     }
     const quote = unitPriceQuote(info, current, Object.keys(summary).length ? summary : previousSummary)
-    const coverageStep = trace.start('response_coverage', 'Redactar y validar la respuesta final', 'decision', 'turn-completeness.ts', {
+    const coverageStep = trace.start('response_coverage', 'Redactar y revisar con IA según configuración', 'decision', 'turn-completeness.ts', {
       base_preview: traceText(reply, MAX_REPLY_CHARACTERS), source: text(audit.source) || 'commercial',
       catalog_coverage: audit.catalog_coverage,
     })
@@ -1623,52 +1616,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       verified: { ...info, _sales_memory: previousSummary._sales_memory, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [] }, audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
       preserveOperationalQuestion: plannedResponse.locked || ['financing', 'visit_intake', 'visit_status', 'visit_option_choice', 'unit_alternative', 'unit_alternative_journey', 'project_overview', 'project_information_choice'].includes(text(audit.source)) })
     audit.commercial_journey = reviewed.audit.commercial_journey
-    // Boundary integrity check: normal candidates already passed these checks inside the repair loop.
-    const semanticEvidence = reviewed.audit.status === 'checked' ? reviewed.audit.semantic_review : null
-    const catalogValidation = reviewing && !observing ? validateCatalogReply(reviewed.reply, { ...audit, semantic_review: semanticEvidence }) : { valid: true, reason: '', details: [] }
-    if (!observing && object(reviewed.audit.fallback_validation).passed === false) {
-      // The fallback already failed coverage or factual validation. Presentation
-      // obligations cannot restore that rejected base at this boundary.
-      reply = recoveryReply(reviewed.audit)
-      reviewed.audit = { ...reviewed.audit, retained_verified_reply: false, final_preview: traceText(reply, MAX_REPLY_CHARACTERS) }
-    } else if (catalogValidation.valid) {
-      reply = reviewed.reply
-      if (!reviewing || observing) reviewedText = reply
-      audit.semantic_review = semanticEvidence
-      if (reviewed.audit.status === 'checked' && reply === reviewed.reply) {
-        reviewedText = reply
-        reviewFinalContent = candidate => completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: candidate,
-          costBaseline,
-          verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [], avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
-          audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
-        })
-      }
+    // The AI reviewer is the only authority over the writer's prose.
+    reply = reviewed.reply
+    if (!object(reviewed.audit.recovery).pending) {
+      reviewedText = reply
+      reviewFinalContent = candidate => completeTurnReply({ current: writingCurrent, history: context.historial, baseReply: candidate,
+        costBaseline,
+        verified: { ...info, respuesta_precio_verificada: quote?.reply || null, precios_del_turno: quote?.prices || [], avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [] },
+        audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true },
+      })
     }
-    else {
-      // Reject the rewrite, not the conversation. A valid catalogue quote does
-      // not become an information gap because an AI draft changed its prices.
-      // Keep genuine missing facts flagged by the review (e.g. an unknown fee).
-      const baseCheck = validateCatalogReply(reply, audit)
-      const unansweredBase = (Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests : []).map(object)
-        .some(request => request.base_status === 'unanswered' && !catalogCoversFragment(text(request.fragment), text(request.fact_key), audit))
-      const rejectedBase = reply
-      reviewed.audit = { ...reviewed.audit, status: 'rejected_catalog_guard',
-        final_validation: { passed: false, boundary_integrity_failure: true, issues: [catalogValidation.reason], details: catalogValidation.details || [] },
-        candidate_requests: reviewed.audit.requests, requests: [],
-        issues: [catalogValidation.reason || 'unsupported_catalog_rewrite'], retained_verified_reply: false,
-        recovery: { version: 'turn-recovery-v1', pending: true, base_used: false, reason: 'boundary_integrity_failure' },
-        fallback_validation: { passed: false, issues: [baseCheck.reason, unansweredBase ? 'fallback_unanswered_request' : null, 'response_requires_validation'].filter(Boolean),
-          recovery: 'pending_validation', rejected_preview: traceText(rejectedBase, MAX_REPLY_CHARACTERS) } }
-      reply = recoveryReply(reviewed.audit)
-      reviewed.audit.final_preview = traceText(reply, MAX_REPLY_CHARACTERS)
-      const originalGaps = (Array.isArray(reviewed.audit.candidate_requests) ? reviewed.audit.candidate_requests : []).map(object)
-        .filter(request => request.status === 'missing_fact' || !request.status && request.base_status === 'missing_fact')
-        .map(request => text(request.fragment)).filter(Boolean)
-      originalGaps.push(...(Array.isArray(reviewed.audit.missing_fact_fragments) ? reviewed.audit.missing_fact_fragments : [])
-        .filter((fragment): fragment is string => typeof fragment === 'string' && current.includes(fragment)))
-      reviewed.unresolved = assessMissingFacts(originalGaps, audit).unresolved
-      reviewed.needsAdvisor = reviewed.unresolved.length > 0
-    }
+    audit.semantic_review = reviewed.audit.semantic_review
     // Scope clarification is never a factual property gap or consent to handoff.
     if (scopeOnlyReview) { reviewed.unresolved = []; reviewed.needsAdvisor = false }
     const grounded = assessMissingFacts(reviewed.unresolved, audit, (Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests : []).map(object))
@@ -1677,7 +1635,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reviewed.audit = { ...reviewed.audit, needs_advisor: reviewed.needsAdvisor, unresolved: reviewed.unresolved,
       handoff_assessments: [...(Array.isArray(reviewed.audit.handoff_assessments) ? reviewed.audit.handoff_assessments : []), ...grounded.assessments] }
     const requests = Array.isArray(reviewed.audit.requests) ? reviewed.audit.requests.map(object) : []
-    const resolvedFromContext = catalogValidation.valid && !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
+    const resolvedFromContext = !reviewed.needsAdvisor && reviewed.audit.status === 'checked'
       && requests.length > 0 && requests.every(request => ['answered', 'clarification', 'outside_scope'].includes(text(request.status))
         || Array.isArray(audit.financing_orientation_fragments) && audit.financing_orientation_fragments.includes(text(request.fragment)))
     const needsCommercialHandoff = reviewing && !observing && !!pendingCommercialHandoff && !resolvedFromContext
@@ -1758,7 +1716,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     action: text(audit.action) || null,
     advisor_handoff: Boolean(handoffNotice),
   })
-  const validationStep = trace.start('response_validation', 'Validar respuesta', 'decision', 'direct-reply.ts · turn-completeness.ts', {
+  const validationStep = trace.start('response_validation', 'Comprobar transporte de la respuesta', 'decision', 'response-review-policy.ts', {
     source: text(audit.source) || 'commercial',
   })
   const beforeFinalFormatting = reply
@@ -1778,24 +1736,13 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   // The last prose transformation is checked too, before any external send.
   const observedWriterResponse = observing && object(audit.turn_completeness).status === 'review_observed'
     && object(object(audit.turn_completeness).review_enforcement).blocking === false
-  const finalCatalogValidation = reviewing && !observedWriterResponse ? validateCatalogReply(reply, audit) : { valid: true, reason: '' }
-  if (!finalCatalogValidation.valid && catalogBaseReply) {
-    const approvedAllowed = !!reviewedText && !recoveringTurn() && validateCatalogReply(reviewedText, audit).valid
-    if (!approvedAllowed && !recoveringTurn()) audit.turn_completeness = { ...object(audit.turn_completeness),
-      recovery: { version: 'turn-recovery-v1', pending: true, base_used: false, reason: 'final_catalog_guard' },
-      fallback_validation: { passed: false, issues: ['response_requires_validation', finalCatalogValidation.reason].filter(Boolean) } }
-    reply = approvedAllowed ? reviewedText : naturalConversationReply(withOpening(recoveryReply(object(audit.turn_completeness))), confirmedLeadName(summary._lead_profile || previousSummary._lead_profile), turnGreeting, activeLast.sentAt)
-    if (!approvedAllowed) reply = applyTurnGreeting(reply, turnGreeting)
-    audit.final_catalog_guard = finalCatalogValidation.reason || 'unsupported_catalog_rewrite'
-    if (!approvedAllowed) audit.fallback_recovery = { status: 'invalid_base_not_restored', issue: finalCatalogValidation.reason }
-  }
   if (!observedWriterResponse && reviewedText && reviewFinalContent && operationalRedraftRequired) {
     const step = trace.start('final_content_review', 'Revisar contenido modificado antes del envío', 'decision', 'delivery-integrity.ts', {
       approved_preview: reviewedText, candidate_preview: reply,
     })
     const checked = await reviewFinalContent(reply)
     const beforeReview = reply
-    const accepted = checked.audit.status === 'checked' && checked.audit.operational_action_verified === true
+    const accepted = ['checked', 'review_disabled', 'review_observed'].includes(text(checked.audit.status)) && checked.audit.operational_action_verified === true
     // A failed second review never licenses the altered body or starts another handoff.
     reply = accepted ? checked.reply : recoveryReply(checked.audit)
     audit.turn_completeness = checked.audit
@@ -1817,18 +1764,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   requireReviewedResponse(object(audit.turn_completeness))
   const canTrackFollowUp = followUpUsable(audit)
-  const profilePending = canTrackFollowUp ? leadProfilePendingQuestion(reply, audit) : {}
-  const financePending = canTrackFollowUp ? financingPendingQuestion(reply, audit) : {}
-  const progressivePending = canTrackFollowUp ? progressivePendingQuestion(reply, audit) : {}
-  const journeyPending = journeyPendingQuestion(reply, object(audit.commercial_journey), canTrackFollowUp && responseSupportsContinuity(audit.turn_completeness), object(audit.turn_completeness).question)
-  const declaredPending = normalizedPendingQuestion(audit.pending_question, turnCatalog)
-  // A protected catalog question retains its referent; other routes migrate via the legacy classifier.
-  const replyPending = text(declaredPending.question) && reply.includes(text(declaredPending.question))
-    ? declaredPending : pendingQuestionFromReply(reply)
-  audit.pending_question = canTrackFollowUp ? deliveredPendingQuestion(reply, {
+  const journeyPending = canTrackFollowUp ? deliveredPendingQuestion(reply, {
     metadata: object(audit.turn_completeness).question, plan: audit.commercial_journey,
-    candidates: [profilePending, financePending, journeyPending, progressivePending, replyPending],
   }, turnCatalog) : {}
+  audit.pending_question = journeyPending
   const deferred = object(object(audit.commercial_journey).deferred_question)
   if (canTrackFollowUp && !object(audit.pending_question).id && deferred.id && pendingQuestion.id === deferred.id) {
     // Preserve the last actually delivered question while answering doubts.
@@ -1857,7 +1796,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     coverage_status: text(object(audit.turn_completeness).status) || (plannedResponse.locked ? 'protected_operational_reply' : 'deterministic_reply'),
     follow_up_usable: canTrackFollowUp,
     profile_question_receipt_rejected: audit.profile_question_receipt_rejected || [],
-    catalog_guard: text(audit.final_catalog_guard) || (audit.verified_catalog === true ? 'passed' : 'not_applicable'),
+    catalog_guard: 'not_performed_ai_authority',
   })
   const conversationId = text(inbound.registration.conversation_id)
   let sendAudience = initialConfig._audience
@@ -1884,9 +1823,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   audit.conversation_tone = conversationToneAudit()
   const sentModels = Array.isArray(previousSummary._unit_models_sent) ? previousSummary._unit_models_sent : []
   const sentModel = object(audit.unit_model)
-  const sentModelId = text(sentModel.url) && reply.includes(text(sentModel.url)) ? text(sentModel.unit_id) : ''
+  const sentModelId = object(object(audit.turn_completeness).writer_receipts).unit_model_shared === true ? text(sentModel.unit_id) : ''
   const pendingRecovery = recoveringTurn()
-  const reviewedOffer = text(object(object(audit.turn_completeness).semantic_review).offered_action)
+  const writerReceipts = object(object(audit.turn_completeness).writer_receipts)
+  const reviewedOffer = text(writerReceipts.offered_action)
   const interpretedPropertyContext = object(summary._property_context)
   const previousOfferedIds = Array.isArray(previousPropertyContext.offered_ids) ? previousPropertyContext.offered_ids : []
   const stillRelevantOffers = new Set(filterCatalog(turnCatalog, catalogQuery(interpretedPropertyContext.query)).map(unit => unit.id))
@@ -1905,12 +1845,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     accepted: true, followUpUsable: canTrackFollowUp, recovery: pendingRecovery })
   summary._commercial_journey = rememberCommercialJourney(object(summary._commercial_journey), object(audit.commercial_journey), object(audit.pending_question),
     canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness),
-    unitsInPropertyReply(turnCatalog, reply).map(unit => text(unit.id)))
+    writerReceipts.presented_unit_ids || [])
   summary._visit_dialogue = rememberVisitDialogue(previousSummary._visit_dialogue, visitDialoguePlan, audit,
     canTrackFollowUp && !pendingRecovery && responseSupportsContinuity(audit.turn_completeness))
-  const noticeReceipt = priceNoticeReceipt(reply, finalVerifiedContext, activeLast.externalId, audit)
+  const noticeReceipt = writerReceipts.price_notice_included === true ? { version: 'price-notice-v1', shared: true, source: 'accepted_bot_reply', source_message_id: activeLast.externalId } : null
   if (noticeReceipt) audit.price_notice = noticeReceipt
-  const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: pendingRecovery ? memory : rememberCommercialReply(memory, reply),
+  const savedSummary = { ...(Object.keys(summary).length ? summary : previousSummary), _commercial_memory: { ...memory, mentioned_benefits: [...new Set([...memory.mentioned_benefits, ...(Array.isArray(writerReceipts.mentioned_benefits) ? writerReceipts.mentioned_benefits.filter((value): value is string => typeof value === 'string') : [])])] },
     _price_notice: noticeReceipt || summary._price_notice || previousSummary._price_notice || {},
     _turn_intent: rememberTurnIntentAfterReply(turnIntent, audit.turn_completeness, { accepted: true, recovery: pendingRecovery }),
     _follow_up_review: canTrackFollowUp ? {} : { usable: false, reply },
@@ -1924,8 +1864,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       : reviewedOffer === 'information' ? { kind: 'information_offer', reply }
       : reviewedOffer === 'internal_advisor' ? { kind: 'internal_advisor_offer', reply }
       : reviewedOffer === 'financing_review' ? { kind: 'financing_consent', reply }
-      : ((audit.source === 'financing' && audit.state === 'continuacion_pendiente') || audit.source === 'financing_question' || audit.source === 'budget_financing_guidance') && /(?:iniciar|iniciemos|revisión|revisemos)/i.test(reply) && /\?/.test(reply)
-      ? { kind: 'financing_consent', reply } : {},
+      : {},
     ...(pendingRecovery ? { _unit_reference: propertyTurn.explicit === true && !propertyTurn.needsClarification
       ? propertyTurn.memory : previousSummary._unit_reference || {} } : audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),
     _property_context: pendingRecovery ? recoveryPropertyContext
@@ -1938,8 +1877,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         last_reply: reply, source_message_id: activeLast.externalId } : {},
     _interpretation_pending: !meaningfulText && Boolean(text(rememberedQuestion.id)),
     _sales_memory: rememberSalesReply(previousSummary._sales_memory, context.historial, current, pendingRecovery ? '' : reply,
-      { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion }),
-    _brand_introduced: previousSummary._brand_introduced === true || /la\s*vilet/i.test(reply) || (Array.isArray(context.historial) ? context.historial.map(object) : []).some(row => ['bot', 'asesor'].includes(text(row.role)) && /la\s*vilet/i.test(text(row.content))),
+      { semantics: currentSemantics, intent: turnIntent, scope: turnIntent.scope, pendingQuestion },
+      { writerReceipts, pendingQuestion: object(audit.pending_question) }),
+    _brand_introduced: previousSummary._brand_introduced === true || writerReceipts.brand_introduced === true,
     _unit_models_sent: [...new Set([...sentModels, ...(sentModelId ? [sentModelId] : [])])] }
   const checkpointConversation = await one('conversations', conversationId)
   const replyCheckpoint = await prepareReplyRegistration({

@@ -217,18 +217,22 @@ export function leadProfileQuestionIssues(questionRaw: unknown, auditRaw: unknow
 
 /** Persist the referent of the question actually sent, including paraphrases. */
 export function leadProfilePendingQuestion(reply: string, auditRaw: unknown): Row {
+  void reply
   const audit = object(auditRaw), plan = object(audit.profile_introduction)
   const purpose = text(plan.question_purpose)
   const review = object(audit.turn_completeness)
   if (Object.keys(review).length && !responseSupportsContinuity(review)) return {}
-  if (leadProfileQuestionIssues(review.question, audit).length) return {}
-  const semanticQuestion = continuationMetadata(review.question)
-  if (Object.keys(semanticQuestion).length && !text(semanticQuestion.continuation_id).startsWith('lead_')) return {}
-  if (!purpose || purpose === 'none' || leadIntroductionIssues(reply, auditRaw).some(issue => /question|confirmation/.test(issue))) return {}
-  const question = replyQuestions(reply).join(' ')
-  if (!question) return {}
+  // The writer identifies its emitted question. Plans only authorize the data
+  // collection; neither wording nor punctuation is reconstructed from prose.
+  const metadata = Object.hasOwn(review, 'question') ? object(review.question) : object(audit.pending_question)
+  const emitted = Object.hasOwn(metadata, 'continuation_id') ? metadata : {
+    ...metadata, continuation_id: metadata.id, continuation_act: metadata.act,
+  }
+  if (leadProfileQuestionIssues(emitted, audit).length) return {}
+  const semanticQuestion = continuationMetadata(emitted)
   const id = profileQuestionId(purpose)
-  if (Object.keys(semanticQuestion).length && semanticQuestion.continuation_id !== id) return {}
+  const question = text(metadata.text || metadata.question).trim()
+  if (!id || !question || semanticQuestion.continuation_id !== id || semanticQuestion.continuation_act !== 'profile') return {}
   return { id, act: 'profile', question, ...(purpose === 'confirm_residence' ? { residence_candidate: object(plan.candidate) } : {}) }
 }
 
@@ -240,7 +244,9 @@ export function rememberLeadIntroduction(input: {
 }): Row {
   const previous = object(input.previous), audit = object(input.audit), plan = object(audit.profile_introduction)
   if (!input.accepted || input.recovery || !responseSupportsContinuity(audit.turn_completeness)) return previous
-  const brochureDelivered = input.reply.includes(text(plan.brochure_url) || text(audit.brochure_url) || BROCHURE_URL)
+  const review = object(audit.turn_completeness)
+  const receipts = object(review.writer_receipts || audit.writer_receipts)
+  const brochureDelivered = receipts.brochure_shared === true
   if (!input.followUpUsable) return brochureDelivered ? { ...previous, brochure_sent: true } : previous
   const profile = confirmedLeadProfile(input.profile), planned = object(input.planned)
   if (!Object.keys(plan).length) return Object.keys(previous).length || brochureDelivered
@@ -262,10 +268,7 @@ export function rememberLeadIntroduction(input: {
   state.brochure_sent = previous.brochure_sent === true || brochureDelivered
   // A rejected/observed finding does not certify that the summary was written.
   // Only a reviewed pass (or the explicitly disabled review) commits this receipt.
-  const review = object(audit.turn_completeness), semanticReview = object(review.semantic_review)
-  if (object(plan.presentation).required === true
-    && (review.status === 'review_disabled' || review.status === 'checked'
-      || semanticReview.status === 'checked')) state.presentation_sent = true
+  if (receipts.project_presented === true) state.presentation_sent = true
   state.reminder_count = delivered ? planned.reminder_count || 0 : previous.reminder_count || 0
   state.confirmation_asked = question.id === 'lead_residence_confirmation' || previous.confirmation_asked === true
   state.confirmation_candidate = question.id === 'lead_residence_confirmation'

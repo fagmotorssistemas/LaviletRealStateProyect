@@ -2,7 +2,7 @@
 // One run per test file, even when it belongs to several regression suites.
 const { spawnSync } = require('node:child_process')
 const { scripts } = require('../package.json')
-const suites = ['selection-intake', 'catalog-overview', 'commercial-journey', 'financing-identity',
+const suites = ['writer-authority', 'selection-intake', 'catalog-overview', 'commercial-journey', 'financing-identity',
   'conversation-continuation', 'financing-flow', 'catalog-retrieval', 'budget-financing-recovery',
   'prompts', 'turn-recovery', 'review-contracts', 'progressive-options', 'lead-introduction',
   'automation', 'conversation', 'test-contacts', 'cost-latency', 'message-trace', 'visit-inbox',

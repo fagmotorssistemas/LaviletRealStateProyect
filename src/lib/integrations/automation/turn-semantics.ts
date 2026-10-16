@@ -9,7 +9,6 @@ import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
 import { normalizeCatalogRequest } from './catalog-request'
 import { replyQuestions } from './reply-question'
 import { budgetAmountForCurrentTurn } from './turn-interpretation-input'
-import { deliveredFinancingEntryReference } from './financing-entry'
 import { groundedCurrentCategoryExclusions, isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
 import { floorEvidence, floorInvitationTarget } from './floor-evidence'
 import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction } from './reservation-invitation'
@@ -203,8 +202,15 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   const comparisonBedrooms = typeof row.comparison_bedrooms === 'number' && Number.isInteger(row.comparison_bedrooms) && row.comparison_bedrooms > 0 && row.comparison_bedrooms <= 30 ? row.comparison_bedrooms : null
   const comparisonCandidates = comparisonCategories.length > 1 && catalog ? catalog.filter(unit => comparisonCategories.includes(text(unit.category))
     && (comparisonBedrooms === null || unit.bedrooms === comparisonBedrooms) && unit.is_published !== false && (!unit.status || unit.status === 'disponible')).map(unit => text(unit.id)) : null
-  const entryReference = id === 'financing_down_payment'
-    ? deliveredFinancingEntryReference(text(object(row.amount_reference).question_source), object(row.amount_reference)) : null
+  const proposedEntry = object(row.amount_reference)
+  // The writer owns the meaning of its delivered question. Validate this
+  // persisted monetary receipt as data; never reparse the writer's wording.
+  const entryReference = id === 'financing_down_payment' && proposedEntry.kind === 'proposed_down_payment'
+    && proposedEntry.original_role === 'total_budget' && typeof proposedEntry.amount === 'number'
+    && Number.isFinite(proposedEntry.amount) && proposedEntry.amount > 0 && !!text(proposedEntry.evidence).trim()
+    && !!text(proposedEntry.question_source).trim() && !!text(proposedEntry.delivered_question).trim()
+    && ['delivered_total_budget_entry_proposal', 'writer_structured_total_budget_entry_proposal'].includes(text(proposedEntry.resolution))
+    ? proposedEntry : null
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id === 'reservation_invitation' ? 'reservation' : id === 'brochure_offer' ? 'material'
     : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',

@@ -1,9 +1,5 @@
 import { object, text, type Row } from './data'
-import { replyQuestions } from './reply-question'
-import { normalizedPendingQuestion, pendingQuestionFromReply, questionActs, questionIds } from './turn-semantics'
-import { categoryInvitationTarget } from './category-offer'
-import { actualFinancingEntryQuestion, deliveredFinancingEntryReference } from './financing-entry'
-import { operationalReservationInvitation, reservationInvitationUnitNumbers } from './reservation-invitation'
+import { normalizedPendingQuestion, questionActs, questionIds } from './turn-semantics'
 
 /** Shared by writer and reviewer. Meaning belongs to the emitted CTA, not the plan. */
 export const continuationQuestionProperties = {
@@ -14,7 +10,7 @@ export const continuationQuestionProperties = {
   continuation_act: { type: 'string', enum: [...questionActs],
     description: 'Acto de esa pregunta: elegir, confirmar, explorar alternativas, recopilar, ofrecer material u otro. No autoriza una operación.' },
 }
-export const CONTINUATION_QUESTION_RULE = 'question.continuation_id y continuation_act describen la última pregunta real de reply, no la prevista ni el tema anterior. Al ofrecer comparar dos tipos de inmueble use property_comparison y compare_properties, indique comparison_categories y comparison_bedrooms de esas opciones. No registre esa invitación como elegir categoría o dormitorios. Si el cliente ya aceptó, realice la comparación completa sin volver a solicitar permiso. Una invitación a ver opciones no acepta financiamiento, reserva ni selecciona una unidad. Conserve el objetivo obligatorio; el revisor corrige estos metadatos según el texto.'
+export const CONTINUATION_QUESTION_RULE = 'El redactor es responsable de que question.text, continuation_id y continuation_act describan fielmente la última pregunta o invitación que efectivamente escribió en reply, no la prevista ni el tema anterior. Copie esa pregunta en question.text; si no escribió ninguna, use text vacío y continuation_id=none. El código guarda estos metadatos estructurados y no interpreta ni corrige la redacción. Al ofrecer comparar dos tipos de inmueble use property_comparison y compare_properties, indique comparison_categories y comparison_bedrooms de esas opciones. No registre esa invitación como elegir categoría o dormitorios. Si el cliente ya aceptó, realice la comparación completa sin volver a solicitar permiso. Una invitación a ver opciones no acepta financiamiento, reserva ni selecciona una unidad. Conserve el objetivo obligatorio.'
 
 export function continuationMetadata(raw: unknown): Row {
   const row = object(raw)
@@ -27,9 +23,7 @@ export function continuationMetadata(raw: unknown): Row {
   return { continuation_id: requiredAct && act !== requiredAct ? 'none' : id, continuation_act: act }
 }
 
-const same = (a: unknown, b: unknown) => text(a).replace(/\s+/g, ' ').trim().toLocaleLowerCase() === text(b).replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 const ids = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
-const collectionIds = new Set(['lead_profile', 'lead_profile_name', 'lead_profile_residence', 'lead_residence_confirmation', 'financing_data', 'financing_down_payment'])
 /** Semantic metadata can identify a question without carrying its referent.
  * Combine only receipts for that same emitted question and meaning; an empty
  * semantic receipt must not hide the catalogue receipt's verified scope. */
@@ -61,94 +55,48 @@ function purposeSupports(id: unknown, purpose: unknown) {
   return ['choose_property', 'clarify_request', 'permission_to_continue'].includes(text(purpose))
 }
 
-/** Resolve once, after final formatting; only a successfully sent receipt is persisted. */
+/** Persist the writer's typed continuation. Customer-facing prose is opaque:
+ * only the writer identifies its question, meaning and act. This receipt does
+ * not execute an action or turn a future affirmation into authorization. */
 export function deliveredPendingQuestion(reply: string, input: { metadata?: unknown; plan?: unknown; candidates?: Row[] } = {}, catalog?: Row[]): Row {
-  const questions = replyQuestions(reply)
-  if (!questions.length) return {}
-  const question = questions.join(' '), observedMetadata = object(input.metadata), plan = object(input.plan)
-  // Collection is a fact of the sent text. Incorrect editorial purpose/act
-  // cannot erase this receipt and its single verified monetary referent.
-  const actualEntry = actualFinancingEntryQuestion(reply)
-  const metadata = actualEntry ? { ...observedMetadata, text: actualEntry.question,
-    purpose: 'collect_financing_required', continuation_id: actualEntry.id, continuation_act: actualEntry.act } : observedMetadata
+  void reply
+  const metadata = object(input.metadata), plan = object(input.plan)
   const semantic = continuationMetadata(metadata)
-  if (Object.keys(semantic).length && metadata.text && !same(metadata.text, question)) return {}
-  const matchingQuestions = (input.candidates || []).filter(candidate =>
-    (same(candidate.question, question) || questions.length > 1 && same(candidate.question, questions.at(-1)))
-    && purposeSupports(candidate.id, metadata.purpose))
-    .map(candidate => normalizedPendingQuestion({ ...candidate, question }, catalog))
-    .filter(candidate => candidate.id)
-  const matchingQuestion = matchingQuestions.find(candidate => !Object.keys(semantic).length
-    || candidate.id === semantic.continuation_id && candidate.act === semantic.continuation_act) || {}
-  // Several fields may share one required collection (legal name, document,
-  // employment). Keep that collection, never infer consent to several actions.
-  if (questions.length > 1 && !collectionIds.has(text(Object.keys(semantic).length
-    ? semantic.continuation_id : matchingQuestion.id))) return {}
-  let pending: Row
-  if (Object.keys(semantic).length && (!metadata.text || same(metadata.text, question))) {
-    if (semantic.continuation_id === 'none') return {}
-    pending = normalizedPendingQuestion({ id: semantic.continuation_id, act: semantic.continuation_act, question,
-      comparison_categories: metadata.comparison_categories, comparison_bedrooms: metadata.comparison_bedrooms }, catalog)
-  } else {
-    // Compatibility for historical/transport-only drafts: never label arbitrary
-    // prose with the planned ID. Exact planned wording or actual-text meaning is required.
-    const inferred = pendingQuestionFromReply(reply)
-    const planned = same(plan.question, question) ? { id: plan.question_id, act: plan.question_act, question } : {}
-    pending = normalizedPendingQuestion(Object.keys(planned).length ? planned : Object.keys(matchingQuestion).length
-      ? { ...matchingQuestion, question } : inferred)
-  }
-  if (!pending.id || !purposeSupports(pending.id, metadata.purpose)) return {}
-  // Confirmation selects a known target: vague feedback cannot obtain this
-  // effect solely from a label or a planned scope.
-  if (!Object.keys(semantic).length && pending.id === 'unit_choice' && pending.act === 'confirm_unit'
-    && pendingQuestionFromReply(reply).act !== 'confirm_unit') return {}
-  const matching = matchingReceiptScope(matchingQuestions.filter(candidate => candidate.id === pending.id && candidate.act === pending.act))
-  const planMatches = plan.question_id === pending.id && (!plan.question_act || plan.question_act === pending.act)
+  const question = text(metadata.text).trim(), id = text(semantic.continuation_id), act = text(semantic.continuation_act)
+  if (!question || !id || id === 'none' || id !== metadata.continuation_id || act !== metadata.continuation_act
+    || !questionActs.has(act) || !purposeSupports(id, metadata.purpose)) return {}
+  const matching = matchingReceiptScope([metadata, ...(input.candidates || []).filter(candidate =>
+    candidate.id === id && candidate.act === act)])
+  const planMatches = plan.question_id === id && plan.question_act === act
   const scope = object(plan.selection_scope)
-  const priorityContinuation = pending.id === 'property_priority' && pending.act === 'confirm_priority'
-  const offeredCategories = ids(scope.categories)
-  const categoryProposal = pending.id === 'property_category' && pending.act === 'choose_category'
-    && categoryInvitationTarget(question) === object(plan.proposed_query).category
-    && offeredCategories.length === 1 && offeredCategories[0] === object(plan.proposed_query).category
-  const scoped: Row = planMatches || priorityContinuation ? {
-    ...(planMatches && pending.id === 'budget_amount' ? { budget_basis: 'total_budget' } : {}),
-    target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : pending.act === 'confirm_unit' ? ids(scope.unit_ids) : [],
-    candidate_ids: ids(pending.act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
-    ...((pending.act === 'explore_alternatives' || categoryProposal) && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),
+  const scoped: Row = planMatches ? {
+    ...(id === 'budget_amount' ? { budget_basis: 'total_budget' } : {}),
+    target_ids: plan.selected_unit_id ? [plan.selected_unit_id] : act === 'confirm_unit' ? ids(scope.unit_ids) : [],
+    candidate_ids: ids(act === 'explore_alternatives' ? plan.alternative_unit_ids : scope.unit_ids),
+    ...(['explore_alternatives', 'confirm_bedrooms', 'choose_category', 'choose_floor'].includes(act)
+      && plan.proposed_query ? { proposed_query: plan.proposed_query } : {}),
   } : {}
-  const result = normalizedPendingQuestion({ ...scoped, ...pending, ...matching,
-    target_ids: matching.target_ids ?? scoped.target_ids ?? pending.target_ids,
-    candidate_ids: matching.candidate_ids ?? scoped.candidate_ids ?? pending.candidate_ids }, catalog)
-  if (result.act === 'confirm_bedrooms' && !Object.keys(object(result.proposed_query)).length && catalog) {
-    // Bind a confirmation to a verified subject, including a freely worded
-    // writer question. Never infer a number from a bare yes next turn.
-    const subjectIds = ids(result.target_ids).length ? ids(result.target_ids) : ids(result.candidate_ids)
+  const validIds = new Set((catalog || []).map(unit => text(unit.id)))
+  const verifiedIds = (value: unknown) => ids(value).filter(value => validIds.has(value))
+  const reference = object(matching.amount_reference || (planMatches ? plan.question_amount_reference : undefined))
+  const amountReference = id === 'financing_down_payment' && reference.kind === 'proposed_down_payment'
+    && reference.original_role === 'total_budget' && typeof reference.amount === 'number'
+    && Number.isFinite(reference.amount) && reference.amount > 0 && text(reference.evidence).trim() ? {
+      ...reference, question_source: question, delivered_question: question,
+      resolution: 'writer_structured_total_budget_entry_proposal',
+    } : undefined
+  const pending = normalizedPendingQuestion({ ...scoped, ...matching,
+    id, act, question, comparison_categories: metadata.comparison_categories, comparison_bedrooms: metadata.comparison_bedrooms,
+    target_ids: verifiedIds(matching.target_ids ?? scoped.target_ids),
+    candidate_ids: verifiedIds(matching.candidate_ids ?? scoped.candidate_ids), amount_reference: amountReference }, catalog)
+  if (pending.act === 'confirm_bedrooms' && !Object.keys(object(pending.proposed_query)).length && catalog) {
+    const subjectIds = ids(pending.target_ids).length ? ids(pending.target_ids) : ids(pending.candidate_ids)
     const subjects = catalog.filter(unit => subjectIds.includes(text(unit.id)))
     const bedrooms = [...new Set(subjects.map(unit => unit.bedrooms))]
     if (subjectIds.length && subjects.length === subjectIds.length && bedrooms.length === 1
-      && typeof bedrooms[0] === 'number' && bedrooms[0] > 0) {
-      result.proposed_query = { group: 'residential', operation: 'search', scope: 'offered', selector: null,
-        filters: { bedrooms: bedrooms[0] } }
+      && typeof bedrooms[0] === 'number' && bedrooms[0] > 0) pending.proposed_query = {
+      group: 'residential', operation: 'search', scope: 'offered', selector: null, filters: { bedrooms: bedrooms[0] },
     }
   }
-  if (result.id === 'reservation_invitation') {
-    if (!operationalReservationInvitation(reply)) return {}
-    const mentioned = reservationInvitationUnitNumbers(reply)
-    const targets = ids(result.target_ids)
-    const numberKey = (value: unknown) => text(value).toLowerCase().replace(/^lc[- ]*/, 'lc-').replace(/^(lc-)?0+(?=\d)/, '$1')
-    const expected = text(object(plan.readiness).selected_unit_number)
-    if (mentioned.length && expected && (mentioned.length !== 1 || mentioned[0] !== numberKey(expected))) return {}
-    if (mentioned.length && catalog) {
-      const actualTargets = catalog.filter(unit => mentioned.includes(numberKey(unit.unit_number))).map(unit => text(unit.id))
-      if (actualTargets.length !== mentioned.length || targets.length !== actualTargets.length
-        || targets.some(id => !actualTargets.includes(id))) return {}
-    }
-  }
-  if (result.id === 'financing_down_payment') {
-    const reference = deliveredFinancingEntryReference(reply, object(plan.question_amount_reference || matching.amount_reference || pending.amount_reference))
-    if (reference) result.amount_reference = reference
-  }
-  if (result.id === 'unit_choice' && !ids(result.target_ids).length && !ids(result.candidate_ids).length
-    && pendingQuestionFromReply(reply).id !== 'unit_choice') return {}
-  return result
+  return pending
 }
