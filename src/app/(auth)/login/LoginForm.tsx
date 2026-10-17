@@ -1,15 +1,23 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { AuthBrandPanel } from '@/components/auth/AuthBrandPanel'
+import { submitLogin } from '@/lib/auth/submit-login'
 import { login } from './actions'
 
 export function LoginForm({ registered, next }: { registered: boolean; next?: string }) {
-  const [state, formAction, pending] = useActionState(login, null)
+  const [entering, setEntering] = useState(false)
+  const [state, formAction, pending] = useActionState(
+    (previous: Awaited<ReturnType<typeof login>>, data: FormData) => submitLogin(login, previous, data, destination => {
+      window.location.assign(destination)
+      setEntering(true)
+    }, () => window.location.reload()), null,
+  )
+  const busy = pending || entering
 
   return (
     <div className="flex min-h-screen">
@@ -41,7 +49,7 @@ export function LoginForm({ registered, next }: { registered: boolean; next?: st
             </p>
           )}
 
-          <form action={formAction} className="space-y-5">
+          <form action={formAction} className="space-y-5" aria-busy={busy}>
             {next ? <input type="hidden" name="next" value={next} /> : null}
             <Input
               id="email"
@@ -62,12 +70,12 @@ export function LoginForm({ registered, next }: { registered: boolean; next?: st
               required
             />
             {state?.error && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 {state.error}
               </p>
             )}
-            <Button type="submit" className="w-full h-11" disabled={pending}>
-              {pending ? 'Ingresando...' : 'Iniciar sesión'}
+            <Button type="submit" className="w-full h-11" disabled={busy}>
+              {entering ? 'Abriendo tu cuenta...' : pending ? 'Ingresando...' : 'Iniciar sesión'}
             </Button>
           </form>
 

@@ -1,36 +1,12 @@
 'use server'
 
-import { redirect } from 'next/navigation'
-import { ACCESS_PENDING_PATH, isAccessPending } from '@/lib/auth/accessPending'
-import { canAccessPath, homePathForRole, knownRole, normalizeCrmPaths } from '@/lib/inmobiliaria/roleAccess'
+import { isAccessPending } from '@/lib/auth/accessPending'
+import { loginDestination, loginErrorMessage, LOGIN_RETRY_MESSAGE, type LoginState } from '@/lib/auth/login-result'
+import { normalizeCrmPaths } from '@/lib/inmobiliaria/roleAccess'
 import { tryCreateAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 
-function safeNextPath(
-  raw: FormDataEntryValue | null,
-  role: string | null,
-  crmPaths?: string[] | null,
-  accessPending?: boolean,
-) {
-  if (accessPending) return ACCESS_PENDING_PATH
-  const value = String(raw ?? '').trim()
-  if (!value.startsWith('/') || value.startsWith('//')) return null
-  if (value.startsWith('/inmobiliaria') && !canAccessPath(role, value, crmPaths)) return null
-  if (value === ACCESS_PENDING_PATH) return null
-  return value
-}
-
-export type AuthFormState = { error: string } | null
-
-function loginErrorMessage(message: string) {
-  const lower = message.toLowerCase()
-  if (lower.includes('invalid login')) return 'Correo o contraseña incorrectos'
-  if (lower.includes('email not confirmed')) return 'Confirma tu correo antes de ingresar'
-  if (lower.includes('too many requests')) {
-    return 'Demasiados intentos. Espera un momento e inténtalo de nuevo'
-  }
-  return message
-}
+export type AuthFormState = LoginState
 
 export async function login(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
   const email = String(formData.get('email') ?? '').trim()
@@ -40,49 +16,45 @@ export async function login(_prev: AuthFormState, formData: FormData): Promise<A
     return { error: 'Ingresa tu correo y contraseña' }
   }
 
-  const supabase = await createClient()
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  let supabase: Awaited<ReturnType<typeof createClient>> | null = null
+  let authenticated = false
+  let stage = 'authenticate'
+  try {
+    supabase = await createClient({ requestTimeoutMs: 12_000 })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return { error: loginErrorMessage(error) }
 
-  if (error) {
-    return { error: loginErrorMessage(error.message) }
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  let role: string | null = null
-  let crmPaths: string[] | null = null
-  let accessPending = false
-  if (user) {
-    accessPending = isAccessPending(user)
+    // This user was verified by the password endpoint; another getUser adds a round trip.
+    authenticated = true
+    const user = data.user
+    if (!user || !data.session) throw new Error('Login session unavailable')
+    stage = 'profile'
+    const accessPending = isAccessPending(user)
     const paths = normalizeCrmPaths(user.app_metadata?.crm_paths)
-    crmPaths = paths.length > 0 ? paths : null
-    const admin = tryCreateAdminClient()
+    const crmPaths = paths.length > 0 ? paths : null
+    const admin = tryCreateAdminClient({ requestTimeoutMs: 8_000 })
     const reader = admin ?? supabase
-    const { data: profile } = await reader
+    const { data: profile, error: profileError } = await reader
       .from('profiles')
       .select('role, is_active')
       .eq('id', user.id)
+      .abortSignal(AbortSignal.timeout(8_000))
       .maybeSingle()
 
+    if (profileError) throw new Error('Login profile unavailable')
     if (profile && profile.is_active === false) {
-      await supabase.auth.signOut()
+      await supabase.auth.signOut({ scope: 'local' })
       return { error: 'Tu cuenta está desactivada. Contactá al administrador.' }
     }
 
-    role = profile?.role ?? null
-    if (!knownRole(role) && admin) {
-      const { data: adminProfile } = await admin
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .maybeSingle()
-      role = adminProfile?.role ?? null
+    return { destination: loginDestination(formData.get('next'), profile?.role ?? null, crmPaths, accessPending) }
+  } catch {
+    // Do not log credentials, tokens or provider error bodies.
+    console.error('login_failed', { stage })
+    if (authenticated && supabase) {
+      try { await supabase.auth.signOut({ scope: 'local' }) }
+      catch { console.error('login_session_cleanup_failed') }
     }
+    return { error: LOGIN_RETRY_MESSAGE }
   }
-
-  redirect(
-    safeNextPath(formData.get('next'), role, crmPaths, accessPending) ??
-      (accessPending ? ACCESS_PENDING_PATH : homePathForRole(role, crmPaths)),
-  )
 }
