@@ -3,6 +3,7 @@ import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 import { CURRENT_TONE } from './conversation-tone'
 import { object,text,type Row } from './data'
 import { turnCommunicationKind } from './turn-communication'
+import { CLIENT_FACING_WRITING_RULES } from './client-facing-writing'
 
 export function conversationalFirstName(name: string) {
   return name.trim().split(/\s+/)[0] || ''
@@ -45,6 +46,7 @@ export function visitCoordinationReply(slot: Row, counterproposal = false) {
 }
 
 export const CONVERSATION_WRITING_STYLE_RULES = [
+  CLIENT_FACING_WRITING_RULES,
   'Use solo el primer nombre del cliente de forma ocasional; no lo repita al inicio de respuestas consecutivas.',
   CURRENT_TONE.address,
   CURRENT_TONE.vocabulary,

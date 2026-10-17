@@ -180,13 +180,14 @@
     },
     "interaction_goal": {
       "mode": "unchanged",
+      "qualification_decision": "unchanged",
       "mode_evidence": "",
       "catalog_scope": "current",
       "scope_evidence": "",
       "excluded_categories": [],
       "specific_topic": false,
       "topic_evidence": "",
-      "confidence": "high"
+      "confidence": "low"
     },
     "nurture_request": {
       "decision": "unchanged",

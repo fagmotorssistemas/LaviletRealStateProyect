@@ -1,4 +1,5 @@
 import { CURRENT_TONE, resolveToneReferences } from './conversation-tone'
+import { CLIENT_FACING_WRITING_RULES } from './client-facing-writing'
 import { conversationLanguageInstructions } from './conversation-language'
 import { configuredToneInstructions, type ToneTask } from './tone-settings'
 import type { ToneSettings } from '@/lib/inmobiliaria/conversationTone'
@@ -41,6 +42,7 @@ export async function aiJson(instructions: string, input: unknown, schema?: Row,
   // templates or stylistic limits, even when those settings are customized.
   if (!focusedReview) instructions = await configuredToneInstructions(instructions, toneOverride, task)
   if (task === 'writing') {
+    if (!instructions.includes(CLIENT_FACING_WRITING_RULES)) instructions += '\n' + CLIENT_FACING_WRITING_RULES
     input = projectFinancialContextForWriter(object(input))
     instructions += '\n' + FINANCIAL_WRITER_SCOPE_RULE
     instructions += conversationLanguageInstructions() + '\n' + CURRENT_TONE.neutralGreeting + '\n' + CURRENT_TONE.completeGreeting

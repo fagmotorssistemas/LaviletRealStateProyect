@@ -1,4 +1,5 @@
 import { writerFixture } from './fixtures/writer-response.fixture'
+import { typedTurnFixture } from './fixtures/typed-turn.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -32,7 +33,7 @@ test('extractor instructions describe one input and use the current schema inclu
       assert.match(instructions, /## Contrato de salida/)
       assert.ok((object(object(schema).properties).preferred_category as Row).enum)
       assert.ok((object(object(object(schema).properties).preferred_category).enum as unknown[]).includes('penthouse'))
-      return { requests: [{ request: message, domain: 'property', evidence: message, confidence: 'high' }] }
+      return typedTurnFixture(message, { requests: [{ request: message, domain: 'property', evidence: message, confidence: 'high' }] })
     },
   })
 })

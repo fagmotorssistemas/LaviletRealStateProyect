@@ -6,6 +6,7 @@ import { object, text, type Row } from './data'
 import { openingWritingRules } from './response-openings'
 import { MAX_REPLY_CHARACTERS, replyLinkContract, replyLinkIssues } from './response-plan'
 import { isVisitCopy, VISIT_COPY_RULES, VISIT_NATURAL_RULES, visitCopyIssues } from './visit-copy'
+import { CLIENT_FACING_WRITING_RULES } from './client-facing-writing'
 import { reviewWriterContent } from './writer-content-review'
 import { reviewerFactData } from './reviewer-authority'
 
@@ -68,7 +69,7 @@ export async function operationalReply(baseReply: string, current: string, histo
     const input = { base_verificada: baseReply, mensaje_actual: current.slice(0, 4000), historial_reciente: recent, contexto_verificado: context,
       contrato_enlaces: replyLinkContract(baseReply, context, { current, verified: object(context.verified) }) }
     const visitRules = (isVisitCopy(context) ? VISIT_COPY_RULES + VISIT_NATURAL_RULES : '') + FINANCING_COLLECTION_RULE
-    const result = await generate(WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
+    const result = await generate(WRITING_RULES + '\n' + CLIENT_FACING_WRITING_RULES + openingWritingRules(recent) + visitRules, input, replySchema, undefined, undefined, undefined, 'writing')
     const draft = text(result.mensaje).trim()
     if (!responseReviewEnabled()) {
       const reply = unreviewedWriterReply(draft).reply

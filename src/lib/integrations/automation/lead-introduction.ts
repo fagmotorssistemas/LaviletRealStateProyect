@@ -347,7 +347,13 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
   const approvedPresentation = semanticOverview ? projectIntroductionForTurn(introductionInfo)
     : overview && !hasSemanticRequests ? configuredProjectIntroduction(introductionInfo) : null
   const presentationText = text(object(approvedPresentation).summary) || PROJECT_INTRODUCTION
-  if (!pending && !overview && !category && !commercialRequest && !material.requested) return acknowledgeOnly()
+  // A completed, volunteered profile after the delivered project presentation
+  // can finish the brochure exchange even if the writer's earlier question
+  // metadata was unusable. This does not invent a delivered question or ask for
+  // the data again; the current declarations independently prove completion.
+  const completesPresentedProfile = suppliedProfile && missing.length === 0
+    && prior.presentation_sent === true && prior.brochure_sent !== true
+  if (!pending && !overview && !category && !commercialRequest && !material.requested && !completesPresentedProfile) return acknowledgeOnly()
   const base = input.reply
   const materialRequested = material.requested
   const deliver = pending || suppliedProfile || materialRequested || missing.length === 0 || declined

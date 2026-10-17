@@ -1,0 +1,2854 @@
+{
+  "capturedAt": "2026-10-17T04:28:37.017Z",
+  "baseCommit": "230b81763c5b42485f1140d35e09fc4812d5a482",
+  "status": "general_validation_incomplete",
+  "allFailuresProvenObsolete": false,
+  "note": "Every failed leaf test is recorded. File grouping is coverage, not a proven cause. Individual reconciliation remains open.",
+  "failed": 432,
+  "byFile": [
+    {
+      "file": "scripts/business-scope.test.cjs",
+      "failed": 17,
+      "status": "open"
+    },
+    {
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "failed": 8,
+      "status": "open"
+    },
+    {
+      "file": "scripts/financing-context.test.cjs",
+      "failed": 9,
+      "status": "open"
+    },
+    {
+      "file": "scripts/financing-continuation.test.cjs",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "scripts/integrations.test.cjs",
+      "failed": 159,
+      "status": "open"
+    },
+    {
+      "file": "scripts/property-context.test.cjs",
+      "failed": 33,
+      "status": "open"
+    },
+    {
+      "file": "scripts/reservation-action.test.cjs",
+      "failed": 10,
+      "status": "open"
+    },
+    {
+      "file": "scripts/residential-continuity.test.cjs",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "scripts/turn-completeness.test.cjs",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "scripts/turn-intent.test.cjs",
+      "failed": 8,
+      "status": "open"
+    },
+    {
+      "file": "scripts/turn-semantics.test.cjs",
+      "failed": 18,
+      "status": "open"
+    },
+    {
+      "file": "scripts/unit-alternatives.test.cjs",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "scripts/visit-date-context.test.cjs",
+      "failed": 2,
+      "status": "open"
+    },
+    {
+      "file": "scripts/visit-delivery.test.cjs",
+      "failed": 5,
+      "status": "open"
+    },
+    {
+      "file": "scripts/visit-location.test.cjs",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "failed": 7,
+      "status": "open"
+    },
+    {
+      "file": "scripts/writer-authority-conversation.test.cjs",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "scripts/writer-context-contract.test.cjs",
+      "failed": 5,
+      "status": "open"
+    },
+    {
+      "file": "scripts/writer-sidepaths.test.cjs",
+      "failed": 4,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/catalog-turn-regression.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "failed": 11,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "failed": 10,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/commercial-engagement.interest.test.ts",
+      "failed": 4,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/commercial-journey.test.ts",
+      "failed": 2,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/commercial-location-recommendation.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/continuation-metadata-authority.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/conversation-budget-regression.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/conversation-continuity-corrections.test.ts",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/conversation-next-step.test.ts",
+      "failed": 2,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "failed": 7,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/emitted-question-continuity.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/financing-entry.test.ts",
+      "failed": 4,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/financing-identity.test.ts",
+      "failed": 4,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/financing-intake.test.ts",
+      "failed": 2,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/financing-quote.test.ts",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/financing-reference-continuity.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/financing-stage-regression.test.ts",
+      "failed": 6,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "failed": 20,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/low-floor-proposal.test.ts",
+      "failed": 4,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/material-and-financing-orientation.test.ts",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/price-notice-policy.test.ts",
+      "failed": 4,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "failed": 8,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/property-recommendation-pipeline.test.ts",
+      "failed": 6,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/property-selection.test.ts",
+      "failed": 4,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/reservation-action-evidence.test.ts",
+      "failed": 2,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+      "failed": 5,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/tour-continuation.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/turn-continuation.test.ts",
+      "failed": 1,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/turn-recovery.test.ts",
+      "failed": 3,
+      "status": "open"
+    },
+    {
+      "file": "src/lib/integrations/automation/unit-tour-link.test.ts",
+      "failed": 6,
+      "status": "open"
+    }
+  ],
+  "cases": [
+    {
+      "test": "classifier receives recent conversation as data and preserves a property follow-up verbatim",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "understanding an unrelated-service correction ends stale vehicle context for prices",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "negated property nouns do not override an explicit vehicle request",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "singular valor identifies a property price question after a scope correction",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "bare price after an unrelated request is clarified instead of opening the property catalogue",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "ambiguous price fails safe even if the model tries to open the property catalogue",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an unresolved outside price cannot fall through neutral or mixed classifier labels",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "scope boundary survives consecutive client messages and repeated price questions",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "explicit acknowledgement or a real property reference releases the scope boundary",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "contextual clarification carries the verified subject to the writer without classifier prose",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "explicit property price remains a property question after an unrelated request",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "owned vehicles stay a housing requirement but buying vehicles remains out of scope",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "incomplete sales requests are not evidence of a foreign business even with a wrong classifier label",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an invented foreign subject cannot justify exclusion, and malformed real foreign requests do not authorize actions",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a bot rejection cannot bootstrap an outside topic from an earlier generic price request",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "historical foreign evidence must come from the customer and remain the current subject",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "legacy exclusions are re-evaluated semantically and cannot override the current classification",
+      "file": "scripts/business-scope.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "bedroom alternatives query every requested count, including word forms, without inventing a denial",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "semantic alternatives survive normalization and lookup even without the lexical spelling pattern",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "Carlos broad largest query relaxes unavailable preference but preserves hard and explicit filters",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the extracted 502 selection resolves the offered choice and protects its showroom",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "send details accepts the focused unit while an explicit brochure remains a brochure",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a fresh conversation carries housing, catalogue ranking, three-bedroom comparison, fifth floor and 502 acceptance through real memory",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "five bedrooms, accepting available alternatives and refining the category preserves the accepted three-bedroom search",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "accepting alternatives to a five-bedroom apartment does not silently restore the old category on another yes",
+      "file": "scripts/catalog-dialogue.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the reported natural acceptance grants review consent and preserves the chosen lender",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a contextual GEP typo resolves only to the publicly available JEP option already discussed",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a verified natural finance step accepts yes while a later visit question does not inherit that consent",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "budget worries are recognized without being confused with price ranges or sufficient savings",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "direct credit and eligibility in one turn both receive an answer without approval claims",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "questions explain internal requirements without requesting identifiers or consent by default",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an approval guarantee question and unrelated commercial questions keep their separate meaning",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "explicit financial help remains consent when another current question follows",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "lender references need a financial subject or a bounded contextual reference",
+      "file": "scripts/financing-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "occupation answer with emoji or typo continues the pending financial field",
+      "file": "scripts/financing-continuation.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "short answers match the requested field and do not infer identifiers or unrelated numbers",
+      "file": "scripts/financing-continuation.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "padding is rejected while legitimate explanations remain available",
+      "file": "scripts/financing-continuation.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "visit acceptance and a following time enter intake despite an empty AI extraction",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "visit preference survives an office question and submits the proposed Saturday to an advisor",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "unverified visit receipt creates a handoff instead of reporting a successful registration",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "confirmation deadline reads pending visit state without inventing a promise or a new intake",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "Carlos price curiosity stays passive after refusal even when recent history is truncated",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "renewed purchase interest reopens guidance while questions alone do not",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "operational AI cannot reintroduce finance or visit after a passive price answer",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "Pablo bare Buenas becomes a complete Ecuador greeting without changing other words",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "financing consent follows the verified step after a natural AI rewrite",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "financing for an unrelated service does not suppress property financing guidance",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "mixed bookings reach an advisor without feeding the flight date to the SQL appointment parser",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "details plus permission to visit answers both even when the extractor misses the event",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "current commercial category ignores stale housing bedroom and unit preferences when quoting locals",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "semantic property scope survives vehicle words for a commercial business",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a brochure request plus visit still coordinates and includes the actual brochure",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "missing price plus visit transfers the whole question instead of discarding the price request",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an unrelated question mixed with known price does not pause the bot because of an old appointment",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the reported low budget and price turn defers financing until a unit is identified",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "stated budgets preserve currency amounts, explicit thousands and non-financial numbers",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "price responses vary naturally without leaking registration vocabulary or losing bedroom filters",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "disabled visit suggestions are enforced on generated replies and price closings",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a lead may explicitly request a visit when proactive invitations are disabled",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "brochure is sent on direct request and acceptance of an offer, without requiring a specific unit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "brochure requests do not override price questions, and consent/refusal is contextual",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "vehicle requests and recommendation followups stay out of real estate workflows",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "repeated vehicle requests stay cordial and vary without inventing a service or pressuring a visit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "acknowledging a redirect changes the topic; explicit insistence and unanswered recommendations remain vehicles",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "acknowledging the property scope allows a passive price answer, not unsolicited finance or a visit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "prices recognize vale/valen after scope confusion without treating curiosity as buying interest",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "price next steps offer units once, respect price-only requests and do not interfere with existing appointments",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "accepting the price next step delivers the offered unit and verified model instead of repeating the invitation",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "local prices use only local inventory, while residential ranges exclude local prices",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "yes to viewing a unit after a financing mention never starts qualification, a visit or a handoff",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an accepted unit that has left the catalog sends available material instead of triggering financing",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "courtesy openings vary across a conversation instead of rotating equivalent filler",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "project explanations keep a natural generated opening without forcing Claro",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a supported overview survives style feedback while an unanswered overview uses verified facts",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the reported two-message turn answers options, affordability and singular valor together",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "a financial shortcut answers map clarification, owned cars and eligibility as well as direct credit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "JEP natural acceptance advances the actual chosen lender and technical failure reaches an advisor",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a new financing request selects a property before opening a financial form",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "requested map explanation stands alone and does not trigger a sales form",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "rejected drafts still cover options and budget worries without requiring an exact amount",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "greeting-only variants never swallow an actual question, decision or opt-out",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "Saludos uses the minimal greeting through the real conversation flow, even with a commercial greeting prompt",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "launch prices hydrate the exact unit from the authorized catalog and retain exact factual scope without prematurely inviting a visit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "presale states the price without launch wording; financing already mentioned and visits already pending stay respected",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "hidden prices and missing/new units never reuse a price from summary, media or an older unit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "a price question with financing is answered once without opening a qualification or notifying an advisor",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "financing copy offers accompaniment while questions about guaranteed approval receive an honest answer",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "price review rejects hidden, invented or incorrectly qualified prices from generated mixed answers",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "mixed questions keep a verified price and reject a generated fixed launch quote before sending",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "combined price turns respect financing refusal, a chosen bank and an unsupported bank",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a visual correction uses the general showroom without changing message batching",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "construction status keeps the factual answer and offers a virtual alternative",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "general continuity keeps an early lender through consent and selection in the actual conversation handler",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "entry and monthly-payment orientation does not restart intake or automatically hand off an accepted lead",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "lender choice in an accepted review persists JEP instead of answering it as a financing question",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an absent reservation RPC preserves informational delivery without claiming a reservation or a substitute handoff",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a conditional reservation in a grouped turn does not hand off and retains all informational questions for writing",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "room synonyms and common apartment spelling select the requested catalogue prices",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "visit extraction preserves a high-confidence spelling interpretation with literal evidence",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "semantic visit intent requires accepted confidence and literal evidence from the current message",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a future weekday is not mistaken for a question about team attendance",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "semantic visit evidence cannot manufacture a visit or hijack an unrelated flow",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a semantic visit interpretation is passed durably to intake instead of being discarded",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a transcribed apartment request selects its own model and does not notify an advisor",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "model interest invites once; invitation acceptance starts collecting, not confirming",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "positive reactions and dates without scheduling context cannot become appointments",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "sales memory is isolated per conversation and respects rejected or existing visits",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "all three reported questions have a grounded answer without a premature visit or generic handoff",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "unknown budget returns to property selection and does not start financing",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "isolated greeting offers help without inventing commercial interest",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "punctuation alone is an invitation to talk, never a product pitch",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "financing interprets consent using the real last question and explains unsupported lenders",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "Ecuador 17:45 is afternoon, not night, and names remain conversational",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "courtesy after confirmation welcomes the visitor without restating the schedule",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "ambiguous input during a change asks the missing detail without offering the old proposal again",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "thanks after a recorded preference closes briefly without scoring, repeating or asking again",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a second courtesy cannot generate an endless acknowledgement loop",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "thanks with a pending decision is classified rather than swallowed as a closing",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a new-day greeting with visit intent is returned before the coordination question",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "a counterproposal uses the resolved day and time instead of a generic registered-preference reply",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "cancel followed by reschedule in the same turn is classified using both messages and only asks the missing hour",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "style preserves decisions, answers and only the first name",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "discovery uses known facts and never asks bedroom count for commercial property",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a repeated greeting is an editorial observation without discarding the reviewed commercial wording",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "disabled review cannot persist a residence question after its authorized reminder was already delivered",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "two rejected drafts offer clarification without copying claims or an unrelated form question",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "confirmed appointment thanks and status questions cannot restart intake, even with a wrong extractor",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "No after cancellation closes the visit and never resumes saved financing",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "JEP choice is acknowledged and next consent advances the saved form",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "asking whether only those banks are offered answers the question without repeating consent",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "complaints and question marks recover the selected bank without reopening the form or greeting",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a stale extracted lender is not accepted as a new choice",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a size question requires verified examples and cannot be replaced by discovery already declined",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "memory distinguishes explaining a requested benefit from repeating a sales pitch",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the writer answers a repeated pool question directly without a reviewer rewrite for repetition",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "investment guarantee questions do not fall through to unrelated discovery",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "clarification fallback explains access, parking and size without making up visitor parking",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "sales style rejects long prose, jargon and guarantees",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "commercial context keeps complete facts and gives presentation focus without removing measurements or facilities",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "known area references identify all matching units without inventing a selection",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "floor-plan labels link only a uniquely identified published catalog unit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "credit direct questions neither start an application nor accept conditional consent",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "choosing JEP then consenting advances instead of repeating the financing introduction",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "text and readable plan titles select the same real unit; an ambiguous area does not",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an unavailable code never reuses the previous tour, and every known floor links its own unit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "model delivery remembers accepted links, respects refusal, and supports requested re-sends",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the model goes through the existing single-message send and is remembered only after success",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "asking for a 3D model neither schedules a visit nor accepts an existing proposal",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a residential number matches the real unit even when the client calls a suite a departamento",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a photo request uses the latest unit from the client, recovers a lost summary, and does not claim a real photograph",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "visual followups never resurrect an older unit after a new unknown or ambiguous choice",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the reported 210 conversation saves and sends the same unit in the next visual turn",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a quoted comparison keeps the AI draft through delivery despite repeated contextual filters",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "pending review recovery preserves contextual acknowledgment and does not mark planned material or topics as delivered",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "pending prose validation preserves a verified visit submission without claiming the appointment is confirmed",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "progressive dialogue prices and compares only the requested penthouses before a concrete selection and one tour",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "progressive dialogue changes the bedroom requirement only on request then asks category floor and unit in order",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "progressive dialogue clarifies an unspecified cheaper request and preserves three bedrooms when accepted",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "project overview takes priority over a broad catalogue interpretation throughout the conversation",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a bare first price request reaches the writer with verified prices and the introductory profile question",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an uncertain scope does not discard a grounded apartment price question before review",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a category clarification preserves the preceding price objective and does not return a catalogue of measurements",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "introductory profile is persisted and an explicit brochure request preserves delivery with a partial profile",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a declared origin is confirmed through the shared profile and actual sent question before becoming residence",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "commercial overview precedes even a remembered catalogue selection, but specific requests retain their route",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 replays the reported housing conversation with durable filters, ties and focused acceptance",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 accepts the focused 502 after mentioning 502 and 504, including legacy conversations",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 retains the original five-bedroom preference while opening requested verified alternatives",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 replays five bedrooms, two affirmatives, apartment choice and differences without losing the accepted alternative",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 traces literal greetings without depending on catalog or financing services",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "dialogue v2 records contract and extractor revision even when inference fails",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 answers the catalog question after confirming a visit and persists the action without replaying it",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 retains a focused question when a requested map follows it",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "dialogue v2 preserves the focused unit through unreadable audio and understands the repeated answer",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "dialogue v2 executes an explicit advisor request after confirming the selected visit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a confirmed visit continues a remaining property question through the deferred final writer",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "an empty visit followup without a deferred drafting receipt is rejected after applying the visit exactly once",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "dialogue v2 reuses the financial action handler after the visit has already been confirmed",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "confirming a visit and choosing JEP without a selected unit preserves finance consent while continuing property selection",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the delivered pipeline prioritizes evidenced apartment preference over a rejected penthouse extraction in every configured tone",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the delivered pipeline selects the largest actually displayed penthouse despite older apartment interest",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the real conversation pipeline persists a two-unit comparison and quotes both on the next price follow-up",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "asking for other times overrides an erroneous AI acceptance and notifies the advisor for alternatives",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a generic yes cannot accept one of several times, while an explicit second choice selects exactly it",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the reported Ya pero donde followup returns the exact address and map without starting appointment intake",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a house budget, floors and direct credit are clarified together before any application",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "asking again about a house floors answers that premise without replaying previous direct credit",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a mistaken team attendance question checks actual appointments without starting a visit or stating AI identity",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a real upcoming appointment cannot become a false no-appointment denial on a team attendance question",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "unit price plus requested interior model survives in one reply without an unsolicited map",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "an initial when-can-I-visit question returns business hours and keeps intake collecting until the client gives a slot",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "rejecting an offered slot requests new options and keeps the bot active",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "first scheduling uncertainty shows business hours without notifying or pausing",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "repeated uncertainty after business hours creates an advisor request without pausing",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "a new date after rejecting options and a full cancellation keep their own routing instead of urgent handoff",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "name plus a price question receives one residence reminder while keeping prices, brochure and the later needs step",
+      "file": "scripts/integrations.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "typed household and suitability quantities survive every downstream lexical parser without changing known bedroom preferences",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "contextual comparisons resolve arbitrary offered units even when the extractor repeats their attributes",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "new current constraints refine a comparison without expanding or silently dropping missing referents",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "new searches do not inherit a previous reference failure and semantic refinements override old bedroom sets",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "fewer bedrooms releases the prior requirement across residential categories without choosing a replacement",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "fewer bedroom interpretation works for other prior counts and exact requests exclude one bedroom suites",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a simultaneous lower price and fewer bedroom request retains both constraints",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "cheaper without a new bedroom count asks to preserve it and yes applies only the verified proposed candidates",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "category then floor refine the offered alternative set and selecting one replaces the prior unit",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "accepting quoted details preserves the full set and asking its differences compares without selecting",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "accepted alternatives survive a price interruption and a category choice",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "legacy alternative choice recovers the active search without erasing the original need",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "accepting an alternative query advances from five to exploring three without changing the original need",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an affirmative to an ambiguous set never picks its first unit or invents a relaxed query",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the exact legacy no-match offer can be accepted using its verified alternative IDs",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "choosing apartments clears old penthouse references without treating an objection as budget",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "relative largest follows the actually shown penthouse list despite old apartment preference",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "ties and missing areas require clarification; no arbitrary UUID is selected",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "relative order uses displayed order rather than inventory ordering",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a complete comparison survives the delivered answer and quotes both verified prices in every commercial mode",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "negations and incidental comparisons cannot override an explicit category or choose a rejected unit",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "new suggestions replace a comparison but cannot revoke the client selection",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "unavailable comparison member is reported instead of silently quoting the remaining unit",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "generic question after an offer does not silently select it, including a singleton",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "affirmative confirms only one offered option and never selects among several",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "semantic explicit selection must be grounded in this turn and available catalog",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "switch to another subject suspends active references without erasing selection and stores offers separately",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "ties answer a ranking query while an ambiguous selection still needs a choice",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "normalized floor search outranks an incorrectly inferred historical unit number",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an affirmative follows the structured focus even after two alternatives were shown",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a retired focused option is never replaced by another available candidate",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a selected target uses catalogue category rather than filters from an older search",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the normalized current filter is not replaced a second time by a stale number mentioned in the same message",
+      "file": "scripts/property-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "partial refusal does not erase a newly evidenced request and the actual unit is resolved from the catalogue",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "split batch evidence is proved by the actual ordered messages and the final proof message anchors the request",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "duplicated batch entries do not duplicate proof or unit IDs and the latest literal occurrence wins",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "a model code needs current literal support or the single confirmed selection, never only existence in the catalogue",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "unknown, unpublished and sold units never silently restore the old selection",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "commercial code separators, zero padding and common joined residential spelling are equivalent references",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "medium explicit reservation proof selects only the currently requested available unit",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "current local negation cannot be cut away from permission, while refusal of a different proposal still permits a new request",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "a handoff receipt must identify the actual request, exact units and persisted current owner",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "reservation permission examines prerequisites across the complete turn, not only the extracted wish",
+      "file": "scripts/reservation-action.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a spontaneous request for an apartment does not mean the lead already knows about suites",
+      "file": "scripts/residential-continuity.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "choosing apartments over suites does not reopen suites after the purpose answer",
+      "file": "scripts/residential-continuity.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "purpose and unavailable bedrooms continue without promotional filler",
+      "file": "scripts/residential-continuity.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "tour-link planning separates optional material from a requested or explicitly required delivery",
+      "file": "scripts/turn-completeness.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "legacy continuation requires current interpretation and recent lead evidence",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "multiple requests keep price as required content without replacing a separate primary action",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "price omissions are checked against available verified values, never invented when absent",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a grounded reservation is canonical over a negative previous answer and preserves simultaneous price and financing requests",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "reservation information, refusal, stale evidence and unapproved scope do not request a handoff",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a reservation wish with an unresolved purchase prerequisite preserves price questions without authorizing an advisor action",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the current high confidence extractor objective wins over independent price keywords across intents",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a legacy neutral turn with an explicit property price question still retains that required fact alongside a visit",
+      "file": "scripts/turn-intent.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "unclear quantities and ungrounded claims stay unknown instead of generating room filters",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "per-field evidence separates current constraints from repeated historical characteristics",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "preference changes distinguish explicit fewer bedrooms from unqualified cheaper requests and rankings",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "generic fewer bedrooms never adopts an invented exact count or an unmentioned category",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "five bedrooms are not mandatory merely because the model asserts they are",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "general housing interest cannot silently become an apartment category",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "ranking uses the extractor operation and does not turn into selecting a unit",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "spelled, ordinal and compact floor restrictions share a normalized field",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a new room requirement is not swallowed as a negative budget answer",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a comparison preserves its normalized constraints and indispensable room requirements",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "durable pending metadata preserves the question action and validates target IDs",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "legacy reply parsing recognizes generic profile questions without inventing a confirmation place",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "actual requests distinguish alternatives, categories, floors and concrete units",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "choosing a category searches within it while choosing a concrete unit still selects it",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "incidental ranking keywords cannot overwrite a current model details operation",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a current reservation request takes priority without losing a negative answer to the previous proposal",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "reservation evidence is action scoped and model references remain catalogue candidates, not confirmed units",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "grounded extractor filters prevail over the first number found by a lexical fallback",
+      "file": "scripts/turn-semantics.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "commercial and price paths use the same alternative without requiring a fixed unit",
+      "file": "scripts/unit-alternatives.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the assembled writer receives alternative restrictions without loading them into the global style",
+      "file": "scripts/unit-alternatives.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a category declaration cannot suppress bedroom requirements or physical constraints",
+      "file": "scripts/unit-alternatives.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "appointment alternatives and expressive date/hour fragments route to coordination",
+      "file": "scripts/visit-date-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "next-week corrections route as a new client preference and name relative days explicitly",
+      "file": "scripts/visit-date-context.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a unique ordinal selects only its corresponding option",
+      "file": "scripts/visit-delivery.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a clock with minutes never becomes a different whole-hour option",
+      "file": "scripts/visit-delivery.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an ordinal contradicted by a day or time never confirms the wrong appointment",
+      "file": "scripts/visit-delivery.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a unique clock can select a slot but the same clock on two days is ambiguous",
+      "file": "scripts/visit-delivery.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "morning and afternoon alternatives need an unambiguous period",
+      "file": "scripts/visit-delivery.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "direct location requests accept conversational phrasing and batched questions",
+      "file": "scripts/visit-location.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "sector and city questions use coarse facts without requesting exact directions or a map",
+      "file": "scripts/visit-location.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "location clarification remains detectable among parking and financing questions",
+      "file": "scripts/visit-location.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "coordination acceptance recognizes conversational conjugations without historical or negative bookings",
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "final visit guard protects commercial paths from physical-tour and unrecorded-request claims",
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "reservation registration remains a reservation and cannot prove an unregistered visit",
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "conversational visit requests respect context, refusals and verified receipts",
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "permission to visit remains actionable alongside a project information request",
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "bookings from other businesses never initiate a property appointment",
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an explicit change to a property visit is not blocked by a different earlier sentence",
+      "file": "scripts/visit-turn-routing.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "processConversation delivers and records the exact writer output in disabled review mode",
+      "file": "scripts/writer-authority-conversation.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "processConversation delivers and records the exact writer output in enabled review mode",
+      "file": "scripts/writer-authority-conversation.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "processConversation delivers and records the exact writer output in observation review mode",
+      "file": "scripts/writer-authority-conversation.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "contextual bedroom sharing guidance is allowed while invented unit attributes and prices are rejected",
+      "file": "scripts/writer-context-contract.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a request can reference existing units without authorizing a reservation or a category switch",
+      "file": "scripts/writer-context-contract.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "fallback links cannot authorize destinations; requested approved material remains required",
+      "file": "scripts/writer-context-contract.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "topic changes preserve declared identity and brochure history; an explicit resend is a current action",
+      "file": "scripts/writer-context-contract.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "profile clarification does not impose a guide justification or condition an authorized brochure delivery",
+      "file": "scripts/writer-context-contract.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "commercial on preserves writer prose and bypasses completion gates",
+      "file": "scripts/writer-sidepaths.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "commercial off preserves writer prose and bypasses completion gates",
+      "file": "scripts/writer-sidepaths.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "commercial observation preserves writer prose and bypasses completion gates",
+      "file": "scripts/writer-sidepaths.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "commercial deferred preserves writer prose and bypasses completion gates",
+      "file": "scripts/writer-sidepaths.test.cjs",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "bedroom follow-up replaces commercial context and respects minimum plus floor preference on both routes",
+      "file": "src/lib/integrations/automation/catalog-turn-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "explicit property interest uses the same refusal word boundaries: bueno me interesa comprar una vivienda",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "explicit property interest uses the same refusal word boundaries: bueno estoy interesado en comprar un departamento",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "explicit property interest uses the same refusal word boundaries: Bueno quiero comprar una vivienda",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "explicit property interest uses the same refusal word boundaries: BUENO ME INTERESA COMPRAR UNA VIVIENDA",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real sales refusals still take precedence over a positive answer label: No me interesa comprar una vivienda",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real sales refusals still take precedence over a positive answer label: Bueno, no me interesa el proyecto",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real sales refusals still take precedence over a positive answer label: No estoy interesado en una vivienda",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real sales refusals still take precedence over a positive answer label: Bueno, no quiero comprar una vivienda",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real sales refusals still take precedence over a positive answer label: No no me interesa comprar una vivienda",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real sales refusals still take precedence over a positive answer label: Solo por curiosidad, ¿tienen viviendas?",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real sales refusals still take precedence over a positive answer label: Número equivocado",
+      "file": "src/lib/integrations/automation/commercial-engagement-boundary.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a current explicit refusal takes precedence over a conflicting search label",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a global refusal cannot be relabeled as a scoped refusal: No me interesa comprar; prefiero departamentos de tres dormitorios",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a global refusal cannot be relabeled as a scoped refusal: No me interesa; prefiero departamentos de tres dormitorios",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a global refusal cannot be relabeled as a scoped refusal: No me interesa el financiamiento; no quiero comprar; prefiero departamentos de tres dormitorios",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a global refusal cannot be relabeled as a scoped refusal: No me interesa el financiamiento; no me interesa el proyecto; prefiero departamentos de tres dormitorios",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a global refusal cannot be relabeled as a scoped refusal: No me interesa; prefiero departamentos de tres dormitorios",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "declining the actual financing question alone preserves previous property engagement without renewing it",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a versioned global refusal stays passive despite old historical interest, while legacy reconciliation is preserved",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "declining an alternative does not repeat a qualification invitation",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the shared rules and text fallback retain a pertinent property question and remove unrelated finance and budget offers",
+      "file": "src/lib/integrations/automation/commercial-engagement.continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "reconoce disponibilidad de un bien identificado",
+      "file": "src/lib/integrations/automation/commercial-engagement.interest.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "reconoce precio/visita con tipología",
+      "file": "src/lib/integrations/automation/commercial-engagement.interest.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "las consultas de precio y disponibilidad respetan un rechazo previo guardado o en el historial",
+      "file": "src/lib/integrations/automation/commercial-engagement.interest.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "una petición explícita de compra, visita o financiamiento permite retomar la orientación",
+      "file": "src/lib/integrations/automation/commercial-engagement.interest.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a yes to the actual reservation question requests that unit, not a visit or an inventory reservation",
+      "file": "src/lib/integrations/automation/commercial-journey.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "50k family case asks entry after acceptance then resumes property selection without another rejection",
+      "file": "src/lib/integrations/automation/commercial-journey.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "answers sector and building location, preserves literal capital and offers the closest local",
+      "file": "src/lib/integrations/automation/commercial-location-recommendation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a structured down payment receipt preserves checks on the current customer answer",
+      "file": "src/lib/integrations/automation/continuation-metadata-authority.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "minimum, maximum, interval and exact bedroom requirements survive extraction, search and a later preference change",
+      "file": "src/lib/integrations/automation/conversation-budget-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "five bedrooms -> accept three -> grouped penthouse choice -> more bathrooms and price -> acknowledgement preserves 605 and financing",
+      "file": "src/lib/integrations/automation/conversation-continuity-corrections.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a new floor filter retrieves the accepted bedroom count even after the transient query lost it",
+      "file": "src/lib/integrations/automation/conversation-continuity-corrections.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "acceptance plus a process question persists consent, while a conditional approval request does not",
+      "file": "src/lib/integrations/automation/conversation-continuity-corrections.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "quoting the overall price range does not turn the entire catalogue into a comparison",
+      "file": "src/lib/integrations/automation/conversation-next-step.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a bare yes to alternative actions asks which one without selecting a unit or expanding the catalogue",
+      "file": "src/lib/integrations/automation/conversation-next-step.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a bot message is not monetary evidence for a new budget: wrong_amount_in_quote",
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a bot message is not monetary evidence for a new budget: nonnumeric_quote",
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a bot message is not monetary evidence for a new budget: current_withdrawal",
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an old amount cannot hide a genuine or unresolved monetary change: current_amount",
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an old amount cannot hide a genuine or unresolved monetary change: unclassified_new_amount",
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an old amount cannot hide a genuine or unresolved monetary change: current_entry_reference",
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an old amount cannot hide a genuine or unresolved monetary change: unknown_budget",
+      "file": "src/lib/integrations/automation/current-budget-echo-and-required-question.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an indirect current confirmation keeps the emitted question and its unit target",
+      "file": "src/lib/integrations/automation/emitted-question-continuity.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a delivered process invitation with a writer receipt stays actionable without a reviewer decision",
+      "file": "src/lib/integrations/automation/financing-entry.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "delivered entry proposals retain the same verified amount across equivalent monetary formats",
+      "file": "src/lib/integrations/automation/financing-entry.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "affirmation confirms the amount in the actual delivered proposal and preserves the original total",
+      "file": "src/lib/integrations/automation/financing-entry.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "real interpretation validates an affirmative amount reference with current evidence and remembers both monetary roles",
+      "file": "src/lib/integrations/automation/financing-entry.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "presentation alone is incomplete; legal names can arrive across messages and be confirmed",
+      "file": "src/lib/integrations/automation/financing-identity.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "document validation preserves leading zeros and rejects truncation, companies and invalid lengths",
+      "file": "src/lib/integrations/automation/financing-identity.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "reported financing correction does not require re-declaring a selected unit from history",
+      "file": "src/lib/integrations/automation/financing-identity.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "TURN_INTERPRETATION_INVALID"
+    },
+    {
+      "test": "loan self-correction does not overwrite budget, while explicit total or initial capital stays available",
+      "file": "src/lib/integrations/automation/financing-identity.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "TURN_INTERPRETATION_INVALID"
+    },
+    {
+      "test": "choosing Banco Pichincha before consent preserves its invitation instead of requesting legal data",
+      "file": "src/lib/integrations/automation/financing-intake.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "choosing Cooperativa JEP before consent preserves its invitation instead of requesting legal data",
+      "file": "src/lib/integrations/automation/financing-intake.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the reported informational yes cannot become credit consent or a new lender choice",
+      "file": "src/lib/integrations/automation/financing-quote.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "semantic quote interpretation supports different wording, but stale evidence and inconsistent month conversion are rejected",
+      "file": "src/lib/integrations/automation/financing-quote.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "the reported simple acceptance is not turned into quotation orientation by a spurious quote flag",
+      "file": "src/lib/integrations/automation/financing-quote.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "affirmative labels cannot override a negation, condition, partial amount or competing numeric referent",
+      "file": "src/lib/integrations/automation/financing-reference-continuity.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "entity preferences survive incomplete prerequisites and later selection without granting consent",
+      "file": "src/lib/integrations/automation/financing-stage-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "entity changes and rejection are separate from withdrawing financing consent",
+      "file": "src/lib/integrations/automation/financing-stage-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a grounded lender answer is intake data; asking about a lender is not selecting it",
+      "file": "src/lib/integrations/automation/financing-stage-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "recorded acceptance with a follow-up question stays in financing instead of requesting a human",
+      "file": "src/lib/integrations/automation/financing-stage-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "TURN_INTERPRETATION_INVALID"
+    },
+    {
+      "test": "brochure is sent once, omitted after delivery and allowed when explicitly requested again",
+      "file": "src/lib/integrations/automation/financing-stage-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "context reduction keeps authorized alternatives, comparisons and all current request domains",
+      "file": "src/lib/integrations/automation/financing-stage-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "continues respecting actual profile refusals, including after a courtesy",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "keeps the concrete answer when current search has dimensions or identified units",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "answers a current price question before asking profile instead of replacing it with the broad opening",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "keeps a bare greeting short even when the model proposes current property interest",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "plans the first invitation from the interpreted request across catalogue operations and future routes",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "preserves a concrete detail or comparison answer before the missing-data question",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "keeps bare greetings short and asks name and residence on the following project inquiry",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a greeting does not consume the pending profile reminder or mark the brochure sent",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "answers category interest briefly using the entire verified category catalog",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "does not substitute an unrelated category summary for an actual price answer",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "gives the brochure and resumes category-specific continuity when both facts arrive",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "asks only the missing residence after receiving a name, with one reminder maximum",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "answers the mixed name and price request, asks only residence, then delivers the brochure after residence arrives",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "never holds an explicitly requested brochure",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "confirms a supplied place on the first substantive message and when it arrives later",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "does not repeat a name acknowledgement or question a confirmed residence despite retained origin",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "retains a parallel budget answer and first-name acknowledgement on specialized routes",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "does not condition an already delivered or explicitly requested brochure on residence clarification",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "existing chat and delivered material do not stand in for a profile request",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "respects refusal across later requests and accepts spontaneous partial data",
+      "file": "src/lib/integrations/automation/lead-introduction.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "relative low-floor preferences do not invent ground floor or an exact floor",
+      "file": "src/lib/integrations/automation/low-floor-proposal.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "normal: lower floor with fewer bedrooms survives writer, review, receipt and the next yes",
+      "file": "src/lib/integrations/automation/low-floor-proposal.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "demonstration: lower floor with fewer bedrooms survives writer, review, receipt and the next yes",
+      "file": "src/lib/integrations/automation/low-floor-proposal.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "disabled: lower floor with fewer bedrooms survives writer, review, receipt and the next yes",
+      "file": "src/lib/integrations/automation/low-floor-proposal.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "missing bank conditions permit a labelled server example without manufacturing bank terms or lead choices",
+      "file": "src/lib/integrations/automation/material-and-financing-orientation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a declared contribution and a requested term are used; a purchase budget is never converted to entry",
+      "file": "src/lib/integrations/automation/material-and-financing-orientation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a selected lender keeps its coverage reference without claiming its hypothetical rate or term",
+      "file": "src/lib/integrations/automation/material-and-financing-orientation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "quotes and review obligations share the notice setting (false, ¿Qué precio tiene el penthouse 602?)",
+      "file": "src/lib/integrations/automation/price-notice-policy.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "quotes and review obligations share the notice setting (false, ¿Qué precios tienen los penthouses de tres dormitorios?)",
+      "file": "src/lib/integrations/automation/price-notice-policy.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "quotes and review obligations share the notice setting (true, ¿Qué precio tiene el penthouse 602?)",
+      "file": "src/lib/integrations/automation/price-notice-policy.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "quotes and review obligations share the notice setting (true, ¿Qué precios tienen los penthouses de tres dormitorios?)",
+      "file": "src/lib/integrations/automation/price-notice-policy.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "greets the first substantive turn equally for AI and fallback without repeating it later",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "uses interpreted project intent for a typo after a greeting",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "does not restart the project presentation with an active property, but allows an explicit topic change",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "greets a first substantive message, explains the project and includes the brochure",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "uses the lead greeting once on a first message",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "does not greet again after the bot already welcomed the lead",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "answers the reported generic request after an earlier greeting with the full overview and brochure",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "asks which property family the lead wants after a generic acceptance",
+      "file": "src/lib/integrations/automation/project-information.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "normal: category proposal survives writer, review, sent receipt and the next yes",
+      "file": "src/lib/integrations/automation/property-recommendation-pipeline.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "normal: floor proposal survives writer, review, sent receipt and the next yes",
+      "file": "src/lib/integrations/automation/property-recommendation-pipeline.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "demonstration: category proposal survives writer, review, sent receipt and the next yes",
+      "file": "src/lib/integrations/automation/property-recommendation-pipeline.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "demonstration: floor proposal survives writer, review, sent receipt and the next yes",
+      "file": "src/lib/integrations/automation/property-recommendation-pipeline.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "disabled: category proposal survives writer, review, sent receipt and the next yes",
+      "file": "src/lib/integrations/automation/property-recommendation-pipeline.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "disabled: floor proposal survives writer, review, sent receipt and the next yes",
+      "file": "src/lib/integrations/automation/property-recommendation-pipeline.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "shows the chosen unit, its tour and financing information when its price exceeds the declared total",
+      "file": "src/lib/integrations/automation/property-selection.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "recognizes a combined affirmative answer to a visit invitation",
+      "file": "src/lib/integrations/automation/property-selection.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "parses a natural approximate budget and recommends before financing",
+      "file": "src/lib/integrations/automation/property-selection.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "treats an unsolicited authorized price as editorial, not a false catalogue fact",
+      "file": "src/lib/integrations/automation/property-selection.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a direct request, imperative or process initiation keeps its literal action and current unit",
+      "file": "src/lib/integrations/automation/reservation-action-evidence.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "recognizing a requested action preserves the existing prerequisite and local-negation controls",
+      "file": "src/lib/integrations/automation/reservation-action-evidence.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "bedroom evidence keeps all compatible types and inherits only a previously chosen category",
+      "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "a floor with a single compatible unit shows its features and protected 360 link without selecting it",
+      "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "several units on a chosen floor show their own dimensions and numbers, without sending several tours",
+      "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "JEP is intake data when answering the actual lender question even if primary intent says ask_financing",
+      "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "invalid identity remains a clarification with all basic pending fields, never a business-gap handoff",
+      "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "an earlier general tour does not consume a later selected-unit tour or reopen the early budget",
+      "file": "src/lib/integrations/automation/tour-continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_TEST_FAILURE"
+    },
+    {
+      "test": "a material link after the question cannot erase the pending decision",
+      "file": "src/lib/integrations/automation/turn-continuation.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "extractor input keeps current text and durable references without duplicating commercial inventory or history",
+      "file": "src/lib/integrations/automation/turn-recovery.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "old request is recovered once; current family and exact low budget survive and repair provisional scope",
+      "file": "src/lib/integrations/automation/turn-recovery.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "TURN_INTERPRETATION_INVALID"
+    },
+    {
+      "test": "valid extraction costs one call and repeated invalid extraction is a distinct failure, never not_discussed",
+      "file": "src/lib/integrations/automation/turn-recovery.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "TURN_INTERPRETATION_INVALID"
+    },
+    {
+      "test": "respects declined tours and previous delivery while allowing an explicit resend",
+      "file": "src/lib/integrations/automation/unit-tour-link.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "interprets a correction without merging messages or inventing a new catalogue request",
+      "file": "src/lib/integrations/automation/unit-tour-link.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "offers a general representation for broad choices without choosing a unit",
+      "file": "src/lib/integrations/automation/unit-tour-link.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "uses the general tour when no unit is being discussed",
+      "file": "src/lib/integrations/automation/unit-tour-link.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "names penthouse, department, suite and commercial units accurately",
+      "file": "src/lib/integrations/automation/unit-tour-link.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    },
+    {
+      "test": "does not invent a category, selection or choice from an ambiguous or compound request",
+      "file": "src/lib/integrations/automation/unit-tour-link.test.ts",
+      "status": "requires_individual_contract_reconciliation",
+      "diagnostic": "ERR_ASSERTION"
+    }
+  ]
+}

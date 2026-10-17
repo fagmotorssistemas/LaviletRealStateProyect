@@ -387,6 +387,14 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     }
   }
   Object.assign(filters, normalizedPropertyFilters(filters))
+  // Preserve the interpreter's numeric role. A people/context or suitability
+  // count cannot become a new bedroom requirement in a downstream consumer.
+  const quantityFilters = propertyFiltersWithQuantityMeaning(filters, { housing_quantities: housingQuantities })
+  if ((filters.bedrooms !== quantityFilters.bedrooms)
+    || JSON.stringify(filters.bedrooms_any) !== JSON.stringify(quantityFilters.bedrooms_any))
+    normalizationIssues.push('bedroom_filter_without_bedroom_requirement')
+  Object.assign(filters, quantityFilters)
+  if (!quantityFilters.bedrooms_any?.length) delete filters.bedrooms_any
   const selector = propertyConfident && unitSelectors.has(text(property.selector)) ? text(property.selector) : null
   let operation = propertyConfident && operations.has(text(property.operation)) ? text(property.operation) : 'none'
   const hasUnit = Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0

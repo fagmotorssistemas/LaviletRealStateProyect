@@ -88,7 +88,8 @@ export function rememberSalesReply(previous: unknown, history: unknown, current:
     visit_invited: remembered.visit_invited || receipt.visit_invited === true || questionId === 'visit_invitation' && act === 'visit',
     visit_declined: remembered.visit_declined || declined,
     financing_mentioned: remembered.financing_mentioned || receipt.financing_mentioned === true
-      || receipt.offered_action === 'financing_review' || questionId.startsWith('financing_') && act === 'financing',
+      || receipt.offered_action === 'financing_review' || questionId.startsWith('financing_') && act === 'financing'
+      || mentionsFinancing(current, { semantica_turno: object(turn?.semantics), contrato_turno: object(turn?.intent) }),
     unit_options_offered: remembered.unit_options_offered || receipt.unit_options_offered === true
       || questionId === 'unit_choice' || questionId === 'property_requirements' && act === 'explore_alternatives',
     passive_sales: engagement.passive, property_interest: engagement.interested,

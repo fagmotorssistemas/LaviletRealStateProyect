@@ -60,16 +60,17 @@ test('supplementary evidence retains applicable facts, restrictions and unknown 
     politicas_negocio: [...rows(input().politicas_negocio), { topic: 'otros', policy_content: 'No permitir usos industriales.' }] }
   const audit = { catalog_retrieval: { applied: true } }
   const slim = semanticCatalogContext(verified, audit, fixture.message)
-  assert.deepEqual(slim.instalaciones, [])
+  assert.deepEqual(slim.instalaciones, verified.instalaciones)
   assert.deepEqual(slim.lugares_cercanos, [])
   assert.deepEqual(slim.contexto_sector, [])
-  assert.equal(rows(slim.politicas_negocio).length, 1)
-  assert.equal(rows(slim.politicas_negocio)[0].topic, 'otros')
+  assert.deepEqual(slim.politicas_negocio, verified.politicas_negocio)
   assert.deepEqual(slim.politica_comercial, verified.politica_comercial)
   assert.deepEqual(slim.politica_financiera, verified.politica_financiera)
-  const pool = semanticCatalogContext(verified, audit, 'Busco una suite con piscina')
+  const topics = (requested: string[]) => ({ ...verified, solicitudes_interpretadas: [{ domain: 'property', topics: requested,
+    confidence: 'high', request: 'Consulta interpretada', evidence: 'Consulta interpretada' }] })
+  const pool = semanticCatalogContext(topics(['property_features']), audit, 'Busco una suite con piscina')
   assert.deepEqual(pool.instalaciones, verified.instalaciones) // includes resident-only restriction
-  const park = semanticCatalogContext({ ...verified, lugares_cercanos: [{ poi_name: 'Parques', poi_category: 'Zona verde' }] }, audit, 'Busco una suite junto a un parque')
+  const park = semanticCatalogContext({ ...topics(['location']), lugares_cercanos: [{ poi_name: 'Parques', poi_category: 'Zona verde' }] }, audit, 'Busco una suite junto a un parque')
   assert.equal(rows(park.lugares_cercanos).length, 1)
   const payment = semanticCatalogContext(verified, audit, 'Busco local para pagar al contado')
   assert.ok(rows(payment.politicas_negocio).some(p => p.topic === 'pagos'))
@@ -133,9 +134,9 @@ test('exact contexts are compact with the switch on or off; optional ranking fai
   assert.equal(rows(object(reviewer.fuentes_autorizadas).unidades).length, 16)
   assert.equal(rows(object(off.calls[0].context.evidencia_turno).units).length, 16)
   assert.equal(rows(object(failure.calls[0].context.evidencia_turno).units).length, 16)
-  assert.equal(rows(object(writer.contexto_verificado).politicas_negocio).length, 0)
-  assert.equal(rows(object(off.calls[0].context.contexto_verificado).politicas_negocio).length, 0)
-  assert.equal(rows(object(failure.calls[0].context.contexto_verificado).politicas_negocio).length, 0)
+  assert.deepEqual(object(writer.contexto_verificado).politicas_negocio, input().politicas_negocio)
+  assert.deepEqual(object(off.calls[0].context.contexto_verificado).politicas_negocio, input().politicas_negocio)
+  assert.deepEqual(object(failure.calls[0].context.contexto_verificado).politicas_negocio, input().politicas_negocio)
   const withoutVectorSwitch = (calls: typeof on.calls) => calls.map(call => call.task === 'writing' ? {
     ...call, context: { ...call.context, contexto_verificado: { ...object(call.context.contexto_verificado),
       catalog_search: { ...object(object(call.context.contexto_verificado).catalog_search), embeddingsEnabled: false } } },

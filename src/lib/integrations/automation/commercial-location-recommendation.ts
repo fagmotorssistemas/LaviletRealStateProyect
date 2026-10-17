@@ -35,11 +35,11 @@ function hasApprovedSectorContext(info: Row) {
   ].every(key => keys.has(key))
 }
 
-function availableCapital(current: string) {
-  const value = normalized(current)
-  return /\b(?:capital|entrada|cuota inicial|ahorros?|disponible inicialmente)\b/.test(value)
-    || /\bno (?:tengo|tenemos|cuento|contamos con) (?:todo|el total|todo el dinero)\b/.test(value)
-    || /\bno tengo todo para (?:invertir|comprar|la compra)\b/.test(value)
+function availableCapital(info: Row): number | null {
+  const semantics = object(info.semantica_turno), budget = object(semantics.budget)
+  if (['down_payment', 'initial_capital'].includes(text(budget.subject)) && typeof budget.amount === 'number') return budget.amount
+  const amount = rows(semantics.financing_amounts).find(value => value.role === 'down_payment' && typeof value.amount === 'number')
+  return amount ? Number(amount.amount) : null
 }
 
 /**
@@ -48,13 +48,14 @@ function availableCapital(current: string) {
  * facts, the current published catalogue and enabled financing partners.
  */
 export function commercialLocationBudgetRecommendation(info: Row, current: string): string {
-  const message = normalized(current)
   const lead = object(info.lead)
-  const localContext = /\blocal(?:es)?\b/.test(message) || lead.preferred_category === 'local'
-  const locationPriority = /\b(?:ubicacion|sector|zona|exposicion|visibilidad)\b/.test(message)
-  const budget = statedBudget(current)
-  const initialCapital = availableCapital(current)
-  if (!localContext || !locationPriority || budget === null || (!initialCapital && !hasAffordabilityConcern(current))) return ''
+  const semantics = object(info.semantica_turno)
+  const localContext = object(semantics.property).category === 'local' || lead.preferred_category === 'local'
+  const locationPriority = rows(info.solicitudes_interpretadas || semantics.requests).some(request =>
+    Array.isArray(request.topics) && request.topics.includes('location'))
+  const initialCapital = availableCapital(info)
+  const budget = initialCapital ?? statedBudget(current, info)
+  if (!localContext || !locationPriority || budget === null || (!initialCapital && !hasAffordabilityConcern(current, info))) return ''
   if (!hasApprovedSectorContext(info)) return ''
 
   const policy = object(info.politica_comercial)
@@ -70,8 +71,7 @@ export function commercialLocationBudgetRecommendation(info: Row, current: strin
   const ground = [...locals].sort((a, b) => floorOrder(a) - floorOrder(b)
     || unitLabel(a).localeCompare(unitLabel(b), 'es', { numeric: true }))[0]
   const known = object(object(info.conversacion).datos_conocidos)
-  const activity = normalized(text(known.actividad_comercial))
-  const business = /restaurante/.test(activity + ' ' + message) ? 'un restaurante' : 'un negocio'
+  const business = text(known.actividad_comercial) ? `su ${text(known.actividad_comercial)}` : 'su negocio'
   const groundFloor = floorLabel(ground)
   const closestFloor = floorLabel(closest)
   const closestPrice = Number(closest.published_commercial_price)

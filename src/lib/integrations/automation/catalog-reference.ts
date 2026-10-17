@@ -1,6 +1,5 @@
 import { sanitizeTourSpaces } from '@/lib/tour/tourRooms'
 import { object,text,type Row } from './data'
-import { normalized } from './sdr-rules'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 
 /** Resolve validated codes or saved IDs, never parse conversational text. */
@@ -10,17 +9,17 @@ export function resolveCatalogReference(catalog: Row[], current: string, previou
   const grounded = acceptedExtractorConfidence(property.confidence) && !!evidence
     && current.normalize('NFKC').toLowerCase().includes(evidence.normalize('NFKC').toLowerCase())
   const canonical = (value: unknown) => text(value).toUpperCase().replace(/^LC-?0*/, 'LC-').replace(/^0+/, '')
-  const codes = grounded && Array.isArray(property.unit_numbers) ? property.unit_numbers.map(text) : []
+  const codes = grounded && property.reference_kind === 'explicit' && Array.isArray(property.unit_numbers)
+    ? property.unit_numbers.map(text) : []
   const matches = codes.length ? catalog.filter(unit => codes.map(canonical).includes(canonical(unit.unit_number))) : []
   return { explicit: codes.length > 0, hasUnitMention: codes.length > 0, matches, requestedCodes: codes,
     memory: matches.length ? { ids: matches.map(unit => unit.id), numbers: matches.map(unit => unit.unit_number) } : saved }
 }
 
-export function catalogReferenceReply(matches: Row[], current: string) {
+export function catalogReferenceReply(matches: Row[], _current: string, interpreted: unknown = {}) {
   if (!matches.length) return ''
-  const m = normalized(current)
-  if(/\b(?:edificio|proyecto|areas comunes|amenidades)\b/.test(m)&&!/\b(?:unidad|departamento|suite|local)\s+\d/.test(m))return ''
-  if (!/cual|que (?:ofrece|tiene|incluye)|informacion|detalle|\[imagen|\[archivo/.test(m) || /precio|valor|cuanto cuesta|dueno|constructora/.test(m)) return ''
+  const semantics = object(interpreted)
+  if (!['details', 'compare'].includes(text(object(semantics.property).operation))) return ''
   const first = matches[0], number = (v: unknown) => Number(v).toLocaleString('es-EC', { maximumFractionDigits: 2 })
   const codes = matches.map(u => text(u.unit_number)).sort().join(', ')
   const opening = matches.length === 1 ? `Claro, se trata ${first.category === 'local' ? 'del local' : 'de la unidad'} ${codes}.`

@@ -18,6 +18,8 @@ import { compactFinancingExtraction,FINANCING_EXTRACTION_RULES } from './financi
 import { FINANCING_QUOTE_EXTRACTION_RULES,FINANCING_QUOTE_SCHEMA } from './financing-quote'
 import { isolateHistoricalBudget,reconcileConfirmedBudgetEcho } from './historical-budget-isolation'
 import { interpretationConsistencyIssues } from './interpretation-consistency'
+import { interactionGoalIssues, INTERACTION_GOAL_RULES } from './interaction-mode'
+import { CONTEXTUAL_OBJECTION_EXTRACTION_RULES } from './project-objections'
 import { reconcileHistoricalInterpretation,rememberInterpretationFacts } from './interpretation-memory'
 import { partiallyRecoverInterpretation } from './interpretation-partial-recovery'
 import { LEAD_NURTURE_EXTRACTION_RULES } from './lead-nurture-state'
@@ -35,7 +37,7 @@ import { BLOCK_RECOVERY_RULES,CURRENT_TURN_INTERPRETATION_RULE,EXTRACTION_CONSIS
 import { TURN_RULES } from './turn-routing'
 import { normalizedTurnRouting,TURN_ROUTING_RULES,TURN_ROUTING_SCHEMA } from './turn-routing-contract'
 import { normalizedPendingQuestion,normalizeTurnSemantics,pendingQuestionFromReply,TURN_SEMANTIC_EXTRACTION_RULES,TURN_SEMANTICS_SCHEMA } from './turn-semantics'
-import { normalizedVisitPreference,VISIT_PREFERENCE_SCHEMA } from './visit-preference-contract'
+import { normalizedVisitPreference,VISIT_PREFERENCE_SCHEMA,visitPreferenceSchemaForSources } from './visit-preference-contract'
 
 export const CONVERSATION_CONTRACT_VERSION = 'lavilet-dialogue-v4'
 
@@ -159,7 +161,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     const candidates = [primary, ...batch.map(object)].filter(item => ['specified', 'ambiguous', 'declined'].includes(text(item.decision))
       || item.location_type != null || !['', 'none'].includes(text(object(item.date).kind)) || !['', 'none'].includes(text(object(item.time).kind)))
     const context = { sourceMessageId: text(input.source_message_id), sourceAt: text(input.source_at),
-      currentMessages: input.current_messages, history: input.historial, pendingQuestion: normalizedPendingQuestion(input.pregunta_pendiente),
+      currentMessages: input.current_messages, history: input.historial || input.historial_reciente, pendingQuestion: normalizedPendingQuestion(input.pregunta_pendiente),
       answer: object(value.turn_semantics).answer_to_previous, collecting: object(input.coordinacion_visita).status === 'collecting' }
     return batch.length > 12 || candidates.some(preference => !normalizedVisitPreference(preference, readable, context))
   }
@@ -196,6 +198,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     ...(!Object.hasOwn(value, 'communication') || !Object.hasOwn(value, 'routing') || object(value.action_authority).version !== 'action-authority-v1' ? ['invalid_turn_contract'] : []),
     ...(inconsistentSocialTurn(value) || missingOperationMeaning(value) ? ['invalid_turn_contract'] : []),
     ...(visitPreferenceInvalid(value) ? ['invalid_visit_preference'] : []),
+    ...interactionGoalIssues(value, readable),
     ...interpretationSourceIssues(value, readable, pending, normalizedPendingQuestion(input.pregunta_pendiente), monetaryReferences), ...interpretationConsistencyIssues(value, readable),
   ])]
   if (method === 'model') {
@@ -203,11 +206,14 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     // controls retrieval/context size, never the meaning of a requirement.
     const nameAssessmentRequired = requiresProfileNameAssessment(input)
     const extractionSchema = closedObject({ ...object(TURN_EXTRACTION_SCHEMA.properties),
+      visit_preference: visitPreferenceSchemaForSources(input),
+      visit_preferences: { type: 'array', maxItems: 12, items: visitPreferenceSchemaForSources(input) },
       ...(nameAssessmentRequired ? { name_response: closedObject(nameResponseProperties) } : {}),
       catalog_request: CATALOG_REQUEST_SCHEMA })
     const prompt = await dependencies.activePrompt('extractor_eventos')
     const requestRules = `Contrato ${CONVERSATION_CONTRACT_VERSION}.\n${EXTRACTION_REQUEST_RULES}`
     const commonInterpretation = TURN_ROUTING_RULES + '\n' + COMMUNICATION_INTERPRETATION_RULES + '\n' + ACTION_AUTHORITY_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES
+      + '\n' + CONTEXTUAL_OBJECTION_EXTRACTION_RULES
     const currentInstructions = (compactFinancingExtraction(input) ? promptSections([
       ['Función y configuración del extractor', prompt], ['Interpretación del turno y recopilación financiera', FINANCING_EXTRACTION_RULES],
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
@@ -217,6 +223,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Consultas y negociación de descuentos', DISCOUNT_REQUEST_EXTRACTION_RULES],
       ['Preferencia de entidad', FINANCING_PARTNER_CHOICE_RULES],
       ['Nutrición y compra aplazada', LEAD_NURTURE_EXTRACTION_RULES],
+      ['Orientación e información solicitada', INTERACTION_GOAL_RULES],
       ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Interpretación del perfil pendiente', nameAssessmentRequired && LEAD_PROFILE_EXTRACTION_RULES],
@@ -233,7 +240,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       ['Orientación sobre entrada y cuotas', FINANCING_QUOTE_EXTRACTION_RULES],
       ['Intención, presupuesto y preferencias de inmuebles', TURN_SEMANTIC_EXTRACTION_RULES],
       ['Consulta estructurada del catálogo', CATALOG_REQUEST_RULES],
-      ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_PREFERENCE_EXTRACTION_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
+      ['Visitas y respuestas a propuestas pendientes', TURN_RULES + '\n' + VISIT_INTENT_EXTRACTION_RULES],
       ['Temas actuales por solicitud', REQUEST_TOPICS_RULES + '\n' + FINANCING_REQUEST_TOPICS_RULES + '\n' + COMMON_AREA_REQUEST_RULES],
       ['Comprobación de coherencia entre bloques', EXTRACTION_CONSISTENCY_RULES],
       ['Formato de salida', 'El esquema JSON enviado con esta llamada es la única definición de campos y valores permitidos. Complete sus campos; use null solo donde el esquema lo permite y el dato sea desconocido. No añada un formato alternativo ni texto fuera del JSON.'],
@@ -293,6 +300,14 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
           fields: [...blocks.semanticFields, ...blocks.rootFields], preserve_other_fields: true,
           instruction: 'Corrija únicamente los bloques del esquema. Las referencias conocidas no son declaraciones actuales; no copie citas del historial. Conserve las demás interpretaciones y permisos.' } }) as Row
       repairInput.mensajes_actuales = currentMessageFragments(readable)
+      if (blocks.visit) {
+        // Source recovery needs original message text and IDs. The generic
+        // historical-evidence sanitizer deliberately strips these fields.
+        repairInput.current_messages = modelInput.current_messages
+        repairInput.historial = modelInput.historial
+        repairInput.visit_preference_proposed = raw.visit_preference
+        repairInput.visit_preferences_proposed = raw.visit_preferences
+      }
       repairInput.interpretacion_propuesta = interpretationRepairContext({ property: object(object(raw.turn_semantics).property),
         primary_intent: object(raw.turn_semantics).primary_intent,
         requests: raw.requests, catalog_request: raw.catalog_request,
@@ -301,6 +316,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
         : BLOCK_RECOVERY_RULES + '\n' + CURRENT_EVIDENCE_FRAGMENTS_RULES + (blocks.budget ? '\n' + FINANCING_AMOUNTS_RULES + '\n' + EXTRACTION_CONSISTENCY_RULES : '')
           + (blocks.profile ? '\n' + LEAD_PROFILE_EXTRACTION_RULES : '')
           + (blocks.visit ? '\n' + VISIT_PREFERENCE_EXTRACTION_RULES : '')
+          + (blocks.semanticFields.includes('interaction_goal') ? '\n' + INTERACTION_GOAL_RULES : '')
           + (blocks.property ? '\n' + CATALOG_REQUEST_RULES + '\n' + REQUEST_TOPICS_RULES : '')
       const repaired = await dependencies.aiJson(repairInstructions,
         blocks.fullTurn ? { ...modelInput, recuperacion_interpretacion: repairInput.recuperacion_interpretacion }
@@ -395,7 +411,7 @@ function normalizeInterpretation(input: Row, raw: Row, readable: string, method:
   raw = resolveFinancingEntryReference(raw, actionMessage, normalizedPendingQuestion(input.pregunta_pendiente))
   const pending = normalizedPendingQuestion(input.pregunta_pendiente)
   const visitContext = { sourceMessageId: text(input.source_message_id), sourceAt: text(input.source_at),
-    history: input.historial, currentMessages: input.current_messages, pendingQuestion: pending, answer: object(raw.turn_semantics).answer_to_previous,
+    history: input.historial || input.historial_reciente, currentMessages: input.current_messages, pendingQuestion: pending, answer: object(raw.turn_semantics).answer_to_previous,
     collecting: object(input.coordinacion_visita).status === 'collecting' }
   const extracted = normalizeEvents(raw, actionMessage, pending.id === 'financing_data', pending, visitContext)
   const preferences = (Array.isArray(raw.visit_preferences) ? raw.visit_preferences : []).flatMap(preference => {

@@ -130,8 +130,13 @@ for (const [question, id] of [
   ['¿Desea revisar departamentos o penthouses de tres dormitorios?', 'property_category'],
   ['¿Cuál departamento o penthouse de tres dormitorios prefiere?', 'property_category'],
   ['¿Le gustaría que revisemos las alternativas de tres dormitorios en departamentos y penthouses?', 'property_requirements'],
-] as const) test('real question recognition preserves '+id+' in: '+question, () => {
-  assert.equal(actualContinuation(question).id, id)
+] as const) test('a structured delivered question preserves '+id+' for this paraphrase: '+question, () => {
+  const acts = { property_floor: 'choose_floor', budget_amount: 'budget', property_category: 'choose_category', property_requirements: 'explore_alternatives' }
+  assert.deepEqual(actualContinuation(question), {}, 'the retired prose reader must remain inert')
+  const saved = deliveredPendingQuestion(question, { metadata: { text: question, continuation_id: id,
+    continuation_act: acts[id], purpose: 'choose_property' } })
+  assert.equal(saved.id, id)
+  assert.equal(saved.question, question)
 })
 
 test('writer metadata cannot be reclassified by a lexical system veto or by the factual reviewer', async () => {

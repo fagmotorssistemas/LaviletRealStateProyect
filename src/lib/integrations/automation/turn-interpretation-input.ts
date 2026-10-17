@@ -266,6 +266,7 @@ export function interpretationRepairBlocks(issues: string[]) {
       ...(property || fields.includes('primary_intent') || issues.includes('inconsistent_primary_intent:budget')
         ? ['primary_intent', 'primary_evidence', 'confidence'] : []),
       ...(property ? ['property'] : []), ...(budget ? ['budget'] : []), ...(quantity ? ['housing_quantities'] : []),
+      ...(fields.includes('interaction_goal') ? ['interaction_goal'] : []),
     ])],
     rootFields: [...new Set([...(property ? ['preferred_category', 'declaration_evidence', 'unit_id', 'catalog_request', 'requests'] : []),
       ...(budget ? ['financing_amounts', 'qualification'] : []), ...(requests ? ['requests'] : []),

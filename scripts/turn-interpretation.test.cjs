@@ -5,6 +5,7 @@ require('./test-typescript.cjs')
 const { interpretConversationTurn: interpretModelTurn, rememberInterpretedTurn, TURN_EXTRACTION_SCHEMA, CONVERSATION_CONTRACT_VERSION } = require('../src/lib/integrations/automation/turn-interpretation.ts')
 const { typedTurnFixture, authorityFixture } = require('../src/lib/integrations/automation/fixtures/typed-turn.fixture.ts')
 const { TURN_SEMANTICS_SCHEMA } = require('../src/lib/integrations/automation/turn-semantics.ts')
+const { visitPreferenceSchemaForSources } = require('../src/lib/integrations/automation/visit-preference-contract.ts')
 const { unreadMediaMarker } = require('../src/lib/integrations/automation/media-format.ts')
 const { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } = require('../src/lib/integrations/automation/lead-profile.ts')
 
@@ -122,7 +123,9 @@ test('readable text accompanying a failed attachment is interpreted once with a 
   assert.equal(calls.length, 2)
   assert.equal(calls[0].name, 'extractor_eventos')
   assert.equal(calls[1].input.mensaje_actual, current)
-  assert.deepEqual(Object.fromEntries(Object.entries(calls[1].schema.properties).filter(([key]) => key !== 'catalog_request')), TURN_EXTRACTION_SCHEMA.properties)
+  assert.deepEqual(Object.fromEntries(Object.entries(calls[1].schema.properties).filter(([key]) => key !== 'catalog_request')),
+    { ...TURN_EXTRACTION_SCHEMA.properties, visit_preference: visitPreferenceSchemaForSources(calls[1].input),
+      visit_preferences: { type: 'array', maxItems: 12, items: visitPreferenceSchemaForSources(calls[1].input) } })
   assert.equal(calls[1].schema.additionalProperties, false)
   assert.ok(calls[1].schema.required.includes('catalog_request'))
   assert.ok(calls[1].instructions.includes(CONVERSATION_CONTRACT_VERSION))

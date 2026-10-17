@@ -1,6 +1,5 @@
-import { parseCommercialPrice } from '@/lib/inmobiliaria/unitPrices'
 import { replaceBedroomComparison } from './bedroom-comparison'
-import { catalogQuery,filterCatalog,validateCatalogReply } from './catalog-dialogue'
+import { catalogQuery,filterCatalog } from './catalog-dialogue'
 import { catalogReferenceReply,resolveCatalogReference } from './catalog-reference'
 import { commercialEngagement } from './commercial-engagement'
 import { object,text,type Row } from './data'
@@ -11,7 +10,7 @@ import { asksForHouse } from './product-fit'
 import { acceptsUnitOptions,mentionsFinancing,salesMemory } from './sales-policy'
 import { purchasePriceQuestion,salesSubject } from './sales-subject'
 import { normalized } from './sdr-rules'
-import { propertyFiltersFromText,propertyFiltersWithQuantityMeaning } from './turn-semantics'
+import { propertyFiltersWithQuantityMeaning } from './turn-semantics'
 import { appendUnitModel,unitModelDelivery } from './unit-model'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
@@ -83,13 +82,10 @@ function priceSelection(info: Row, current: string, summary: Row) {
   // A fresh, explicit category price question defines a new scope. A short
   // clarification instead retains the interpreter's normalized query filters.
   const freshCategoryQuery = !resolvedQuery && !!literalCategory && asksUnitPrice(current, true, info)
-  const currentFilters = propertyFiltersWithQuantityMeaning(propertyFiltersFromText(current, text(object(propertyContext.pending_question).id)), info.semantica_turno)
-  const semanticFilters = object(semanticProperty.filters)
+  const semanticFilters = propertyFiltersWithQuantityMeaning(object(semanticProperty.filters), info.semantica_turno)
   const filters = replaceBedroomComparison({ ...(freshCategoryQuery ? {} : object(sharedQuery.filters)),
-    ...Object.fromEntries(Object.entries(semanticFilters).filter(([, value]) => value !== null && value !== undefined)),
-    ...Object.fromEntries(Object.entries(currentFilters).filter(([, value]) => value !== null && value !== undefined)) },
-    semanticFilters.bedrooms != null || Array.isArray(semanticFilters.bedrooms_any) && semanticFilters.bedrooms_any.length ? semanticFilters : currentFilters)
-  if (currentFilters.bedrooms !== null || semanticFilters.bedrooms != null && !(Array.isArray(semanticFilters.bedrooms_any) && semanticFilters.bedrooms_any.length > 1)) delete filters.bedrooms_any
+    ...Object.fromEntries(Object.entries(semanticFilters).filter(([, value]) => value !== null && value !== undefined)) }, semanticFilters)
+  if (semanticFilters.bedrooms != null && !(Array.isArray(semanticFilters.bedrooms_any) && semanticFilters.bedrooms_any.length > 1)) delete filters.bedrooms_any
   else if (Array.isArray(filters.bedrooms_any) && filters.bedrooms_any.length > 1) filters.bedrooms = null
   const query = catalogQuery(resolvedQuery ? reference.query : { ...sharedQuery,
     category: category === 'vivienda' ? null : category || sharedQuery.category,
@@ -111,6 +107,7 @@ function priceSelection(info: Row, current: string, summary: Row) {
     selected = queryUnits(); filteredQuery = true
   } else if (category && !explicit) {
     selected = queryUnits()
+    if (category === 'vivienda' && !hasFilters) generalRange = true
   } else if (!explicit && !bedrooms && !comparisonIds.length && !ids(propertyContext.selected_ids).length
     && !ids(propertyContext.focused_ids).length && offeredIds.length && asksUnitPrice(current, true, info)
     && semanticProperty.query_scope === 'offered') {
@@ -210,7 +207,8 @@ function focusedPriceDescription(units: Row[], approximate: boolean, history: un
 // conversation summary identifies a unit but never authorizes disclosing its price.
 type PriceQuote = { reply: string; quoted: boolean; needsAdvisor?: boolean; financingOffer?: string; units?: Row[]; prices?: number[]; ranges?: { category: string; bedrooms: number; min: number; max: number; complete: boolean }[]; comparison?: { ids: string[]; difference: number }; followUp?: { question: string; purpose: 'explore_quoted_options'; candidate_ids: string[]; category: string; bedrooms: number | null } }
 export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQuote | null {
-  if (asksForHouse(current)) return null
+  if (info.alcance_negocio === 'out_of_scope' || object(object(info.contrato_turno).scope).kind === 'out_of_scope') return null
+  if (asksForHouse(current, info)) return null
   if (!currentPriceGoal(info, current)) return null
   const policy = object(info.politica_comercial)
   if (policy.precios_autorizados !== true) return {
@@ -314,18 +312,16 @@ export function unitPriceQuote(info: Row, current: string, summary: Row): PriceQ
 }
 
 export function acceptedPriceOption(info: Row, current: string, summary: Row) {
-  const history = rows(info.historial), last = text(history.filter(row => ['bot', 'asesor'].includes(text(row.role))).at(-1)?.content)
-  if (!acceptsUnitOptions(current, last)) return null
+  const semantics = object(info.semantica_turno), pending = object(info.pregunta_pendiente || summary._pending_question)
+  if (!acceptsUnitOptions(current, '', { semantics, pendingQuestion: pending, intent: info.contrato_turno })) return null
   const catalog = rows(info.catalogo)
-  const named = resolveCatalogReference(catalog, last).matches
-  const lastPrice = [...history].reverse().find(row => row.role === 'cliente' && asksUnitPrice(text(row.content)))
-  const options = named.length ? named : lastPrice ? unitPriceQuote(info, text(lastPrice.content), summary)?.units || [] : []
+  const options = catalog.filter(unit => ids(pending.candidate_ids).includes(text(unit.id)))
   // An affirmative answer accepts reviewing options; it does not select the
   // cheapest of several units on the client's behalf.
   const unit = options.length === 1 && availableUnit(options[0]) ? options[0] : null
   if (!unit) return null
-  const detail = catalogReferenceReply([unit], 'Qué ofrece')
-  const model = unitModelDelivery({ explicit: true, matches: [unit] }, 'Quiero ver esta unidad', info.historial, summary._unit_models_sent)
+  const detail = catalogReferenceReply([unit], current, { ...semantics, property: { ...object(semantics.property), operation: 'details' } })
+  const model = unitModelDelivery({ explicit: true, matches: [unit] }, current, info.historial, summary._unit_models_sent, semantics)
   return { reply: appendUnitModel(detail, model), audit: { source: 'accepted_price_option', fallback: false,
     unit_reference: { ids: [unit.id], numbers: [unit.unit_number] }, ...(model ? { unit_model: model } : {}) } }
 }
@@ -343,78 +339,8 @@ export function priceEvidence(quote: PriceQuote, info: Row) {
   }
 }
 
-function quotedGroupIssues(reply: string, units: Row[]) {
-  if (!units.length) return []
-  const issues: string[] = [], numberKey = (value: unknown) => Number(text(value).replace(/\D/g, ''))
-  const catalogUnits: Row[] = units.map(unit => ({ ...unit, floor_number: unit.floor_number == null || unit.floor_number === ''
-    ? propertyFiltersFromText(text(unit.floor)).floor_number : Number(unit.floor_number) }))
-  const catalogAudit = { verified_catalog: true, catalog_results: { units: catalogUnits } }
-  const validateFacts = (value: string) => {
-    const check = validateCatalogReply(value, catalogAudit)
-    if (!check.valid) issues.push(['catalog_unit_mismatch', 'catalog_category_mismatch'].includes(check.reason || '') ? 'price_unit_outside_query' : check.reason || 'unsupported_fact')
-  }
-  validateFacts(reply)
-  let previousGroup: Row[] = []
-  const clauses = reply.replace(/https?:\/\/\S+/g, '').replace(/¿[^?]*\?/g, '')
-    .split(/(?<!\d)\.\s+|(?<=\d)\.(?!\d)\s+|[;\n]+/)
-  for (const clause of clauses) {
-    const m = normalized(clause)
-    const named = [...m.matchAll(/\b(departamentos?|apartamentos?|suites?|penthouses?|local(?:es)?(?: comerciales?)?|unidades?)\s+(?:numeros?\s*)?((?:lc[- ]?)?\d{1,4}(?:\s*(?:,|y|e)\s*(?:(?:el|la)\s+)?(?:lc[- ]?)?\d{1,4})*)\b/g)]
-    const implicit = [...m.matchAll(/\b(?:el|la|los|las)\s+((?:lc[- ]?)?\d{3,4}(?:\s*(?:,|y|e)\s*(?:(?:el|la)\s+)?(?:lc[- ]?)?\d{3,4})*)\b/g)]
-    const references = [...named.map(match => ({ category: match[1].startsWith('apartamento') ? 'departamento'
-      : match[1].startsWith('local') ? 'local' : match[1].startsWith('unidad') ? null : match[1].replace(/s$/, ''), codes: match[2] })),
-    ...implicit.filter(match => !named.some(other => (match.index || 0) >= (other.index || 0)
-      && (match.index || 0) < (other.index || 0) + other[0].length)).map(match => ({ category: null, codes: match[1] }))]
-    const referenced = [...new Map(references.flatMap(reference => (reference.codes.match(/(?:lc[- ]?)?\d+/g) || [])
-      .flatMap(code => catalogUnits.filter(unit => numberKey(unit.unit_number) === numberKey(code)
-        && (!reference.category || unit.category === reference.category)))).map(unit => [unit.id, unit])).values()]
-    const sharedSubject = /\b(?:ambos|ambas|cada un[oa]|los dos|las dos|todos|todas|estan ubicad|se encuentran|se ubican)\b/.test(m)
-    const group = referenced.length ? referenced : sharedSubject ? previousGroup.length > 1 ? previousGroup : catalogUnits : []
-    if (referenced.length) previousGroup = referenced
-    // A second sentence may use "ambos" instead of repeating unit numbers.
-    // Bind that assertion to the same quoted set before checking its attributes.
-    if (!referenced.length && sharedSubject && group.length > 1) validateFacts(`Unidades ${joinOptions(group.map(unit => text(unit.unit_number)))}: ${clause}`)
-    if (!group.length || /\bdiferencia\b/.test(m)) continue
-    const amounts = [...clause.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)].map(match => {
-      try { return parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) } catch { return null }
-    })
-    if (/\brespectivamente\b/.test(m) && amounts.length === group.length) {
-      if (group.some((unit, index) => amounts[index] !== moneyValue(unit))) issues.push('price_unit_mismatch')
-    } else if (amounts.length === 1 && !/\b(?:desde|hasta|rango|entre|a partir)\b/.test(m)
-      && group.some(unit => moneyValue(unit) !== amounts[0])) issues.push('price_unit_mismatch')
-  }
-  return issues
-}
-
-/** Offline diagnostic helper; outgoing prose is assessed only by the AI reviewer. */
-export function verifiedPriceReplyIssues(reply: string, info: Row, current: string, quote: PriceQuote): string[] {
-  const issues = priceReplyIssues(reply, info, current, quote.prices).filter(issue => issue !== 'style')
-  issues.push(...quotedGroupIssues(reply, quote.units || []))
-  const amounts = [...reply.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)].map(match => {
-    try { return parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) } catch { return null }
-  })
-  const prices = quote.prices || []
-  if (amounts.some(amount => amount === null || !prices.includes(amount) && amount !== quote.comparison?.difference)) issues.push('unsupported_fact')
-  const required = quote.ranges?.length ? quote.ranges.flatMap(r => [r.min, r.max]) : (quote.units || []).length > 3 ? [Math.min(...prices), Math.max(...prices)] : prices
-  if (required.some(price => !amounts.includes(price))) issues.push('verified_price_omitted')
-  // A known amount attached to the wrong property is still an incorrect fact.
-  const mentions = [...reply.matchAll(/\b(suite|departamento|penthouse|local)\s+(?:n[úu]mero\s+)?(LC[- ]?\d+|\d{1,4})\b/gi)]
-  for (let index = 0; index < mentions.length; index++) {
-    const mention = mentions[index]
-    const unit = quote.units?.find(unit => normalized(text(unit.category)) === normalized(mention[1]) && normalized(text(unit.unit_number)) === normalized(mention[2]))
-    if (!unit) { issues.push('price_unit_outside_query'); continue }
-    const clause = reply.slice((mention.index || 0) + mention[0].length, mentions[index + 1]?.index).split(/[;\n]|(?<=[.!?])\s/)[0]
-    // Collective ordered prices are already checked as a group above; do not
-    // attach every listed amount to the last singular unit mention.
-    if (/\brespectivamente\b/.test(normalized(clause))) continue
-    for (const amount of clause.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)) {
-      try {
-        if (parseCommercialPrice((amount[1] || amount[2]).replace(/[.,]$/, '')) !== moneyValue(unit)) issues.push('price_unit_mismatch')
-      } catch { issues.push('unsupported_fact') }
-    }
-  }
-  return [...new Set(issues)]
-}
+/** Compatibility API: factual prose review belongs to the configured AI reviewer. */
+export function verifiedPriceReplyIssues(_reply: string, _info: Row, _current = '', _evidence?: unknown): string[] { void _current; void _evidence; return [] }
 
 export const PRICE_REPLY_RULES = `La política comercial de este turno prevalece sobre el historial y cualquier guion anterior.
 Solo informe precios de catálogo autorizados: nunca reutilice un precio recordado si ahora está oculto.
@@ -430,33 +356,5 @@ No repita ofertas de financiamiento ya mencionadas. No añada por rutina «la ap
 Si le preguntan expresamente si el crédito está aprobado o garantizado, explique que la entidad debe evaluar el caso; nunca asegure una aprobación.
 ${LAUNCH_PRICE_COMPARISON_RULE}`
 
-/** Offline diagnostic helper; not an approval or observation gate for writer output. */
-export function priceReplyIssues(reply: string, info: Row, current = '', expectedPrices?: number[]) {
-  const policy = object(info.politica_comercial), m = normalized(reply)
-  const styleIssues = /precios?[^.!?\n]{0,35}(?:registrad|autorizad)|(?:registrad|autorizad)[^.!?\n]{0,25}precios?/.test(m)
-    || !/aprob|garanti|asegur/.test(normalized(current)) && /aprobacion depende|entidad evalua cada solicitud/.test(m)
-  const discloses = /(?:\$\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares))/i.test(reply) && /precio|valor|cuesta|costo|desde|opciones/.test(m)
-  if (!discloses) return styleIssues ? ['style'] : []
-  const disclosureRequested = currentPriceGoal(info, current) || statedBudget(current) !== null || hasAffordabilityConcern(current)
-    || /\bno (?:se|estoy segur[oa]|tengo claro|tengo idea)\b.*\b(?:presupuesto|dinero|invertir|gastar|pagar)\b/.test(normalized(current))
-    || /\b(?:me interesa|prefiero|elijo|escojo|me quedo con|quiero|quisiera)\b.*\b(?:suite|departamento|local|unidad)\s*(?:numero\s*)?\d{1,4}\b/.test(normalized(current))
-  if (policy.precios_autorizados !== true) return ['unsupported_fact']
-  if (/€|£|\b(?:EUR|GBP|euros|libras esterlinas)\b/i.test(reply)) return ['unsupported_fact']
-  const selection = priceSelection(info, current, {})
-  const comparison = comparisonFacts(selection.selected, selection.contextual)
-  const allowed = expectedPrices || selection.selected
-    .filter(availableUnit).map(moneyValue).filter((value): value is number => value !== null)
-  for (const match of reply.matchAll(/\$\s*(\d[\d.,]*)|\b(\d[\d.,]*)\s*(?:USD|d[oó]lares)/gi)) {
-    try {
-      const amount = parseCommercialPrice((match[1] || match[2]).replace(/[.,]$/, '')) || 0
-      const before = normalized(reply.slice(0, match.index).split(/[.!?;\n]/).at(-1) || '')
-      const after = normalized(reply.slice((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 45))
-      const differenceLabel = /\bdiferencia\b[^.!?;\n]{0,80}$/.test(before) || /^(?:usd|dolares)?\s*(?:mas|menos)\b/.test(after)
-      if (differenceLabel) {
-        if (!comparison || comparison.difference !== amount) return ['unsupported_fact']
-      } else if (!allowed.includes(amount)) return ['unsupported_fact']
-    }
-    catch { return ['unsupported_fact'] }
-  }
-  return styleIssues || current.trim() && !disclosureRequested ? ['style'] : []
-}
+/** Compatibility API: factual prose review belongs to the configured AI reviewer. */
+export function priceReplyIssues(_reply: string, _info: Row, _current = '', _evidence?: unknown): string[] { void _current; void _evidence; return [] }

@@ -35,7 +35,8 @@ export function requestedPropertyContinuation(current: string, input: Commercial
   if (communication && communication !== 'substantive') return deny('no_substantive_current_turn')
   if (scope.uncertain === true || !['property', 'mixed', 'neutral'].includes(text(scope.kind))) return deny('property_scope_not_verified')
   const mode = object(semantics.interaction_goal)
-  if (mode.mode === 'information_only' && acceptedExtractorConfidence(mode.confidence) && currentEvidence(current, mode.mode_evidence))
+  if (mode.mode === 'information_only' && mode.qualification_decision === 'pause'
+    && acceptedExtractorConfidence(mode.confidence) && currentEvidence(current, mode.mode_evidence))
     return deny('current_information_only_mode')
   const literal = (value: unknown) => currentEvidence(current, value)
   const requests = (Array.isArray(intent.requests) ? intent.requests : []).map(object)
@@ -91,7 +92,8 @@ export function commercialEngagement(current: string, history: unknown, previous
   const continuation = mode.mode === 'information_only'
     ? { allowed: false, property_interest_renewed: false, reason: 'information_only_mode', allowed_question_ids: [] }
     : requestedPropertyContinuation(current, turn)
-  const explicitGuidedSearch = goal.mode === 'guided_search' && acceptedExtractorConfidence(goal.confidence)
+  const explicitGuidedSearch = goal.mode === 'guided_search' && goal.qualification_decision === 'resume'
+    && acceptedExtractorConfidence(goal.confidence)
     && !!currentEvidence(current, goal.mode_evidence)
   if (continuation.property_interest_renewed === true || explicitGuidedSearch) { passive = false; interested = true }
   return { passive, interested, interaction_mode: mode, property_continuation_allowed: continuation.allowed === true, property_continuation: continuation }

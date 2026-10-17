@@ -42,18 +42,9 @@ export function needsSupplementaryFeatures(verified: Row): boolean {
     })
 }
 
-const normalizeNeed = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-
-/** Select verified access facts for a current practical need, even when the
- * extractor only recorded a search/floor filter. This never creates a
- * preference, a floor number or an accessibility guarantee. History and
- * summaries are deliberately excluded from the fallback. */
-export function supplementaryFeatureFacts(verified: Row, current: string, matched: Row[]): Row[] {
+/** Compatibility API. Relevance is supplied by the common AI interpretation. */
+export function supplementaryFeatureFacts(verified: Row, _current: string, matched: Row[]): Row[] {
   const facts = Array.isArray(verified.instalaciones) ? verified.instalaciones.map(object) : []
   if (needsSupplementaryFeatures(verified)) return facts
-  const mobilityNeed = /\b(?:gradas?|escaleras?|escalones?|ascensores?|elevadores?|rampas?)\b|movilidad\s+(?:reducida|limitada)|silla\s+de\s+ruedas|\bandador\b|(?:cuesta|dificultad|problemas?|dificil).{0,35}(?:caminar|subir|bajar)|(?:caminar|subir|bajar).{0,35}(?:cuesta|dificultad|problemas?|dificil)/.test(normalizeNeed(current))
-  if (!mobilityNeed) return matched
-  const accessFact = /\b(?:ascensores?|elevadores?|rampas?|escaleras?|escalones?)\b|accesib|acceso\s+(?:sin\s+(?:gradas|escalones)|a\s+nivel)|sin\s+barreras/
-  return facts.filter(fact => matched.includes(fact) || accessFact.test(normalizeNeed(
-    Object.values(fact).filter(value => typeof value === 'string').join(' '))))
+  return matched
 }

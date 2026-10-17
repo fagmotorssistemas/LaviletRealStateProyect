@@ -101,7 +101,9 @@ test('an explicit direction request preserves the exact authorized facts in both
     assert.ok(JSON.stringify(authority).includes(map), `${task} lost the requested map`)
     if (task === 'review') assert.equal(rows(context.obligaciones_del_turno).some(row => row.id === 'current_request'), false)
   }))
-  const result = await completeTurnReply({ current, baseReply: reply, verified, audit: { ...audit, source: 'location' } }, mock.generate)
+  const result = await completeTurnReply({ current, baseReply: reply, verified: { ...verified, semantica_turno: {
+    routing: { location_target: 'project', location_kind: 'request', address_preference: 'include', map_preference: 'include',
+      evidence: current, confidence: 'high' } } }, audit: { ...audit, source: 'location' } }, mock.generate)
   mock.assertContexts()
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])

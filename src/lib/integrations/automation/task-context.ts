@@ -1,16 +1,15 @@
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { object, text, type Row } from './data'
-import { supplementaryFeatureFacts } from './needs-guidance'
 import { catalogQuery, filterCatalog } from './catalog-dialogue'
 import { compactCatalogUnit } from './catalog-result'
-import { relevantFacts, selectPolicies } from './semantic-catalog-context'
+import { projectKnowledgeForTurn } from './semantic-catalog-context'
 import { selectedFinancingUnit } from './financing-stage'
 import { leadBudget } from './budget-state'
 import { turnEvidence } from './turn-evidence'
 import { proposalInformationContext } from './commercial-journey'
 import { withProjectIntroductionForTurn } from './project-introduction-context'
 import { budgetRecommendationPresentation } from './budget-presentation'
-import { projectObjectionRequests, withProjectObjectionContext } from './project-objections'
+import { withProjectObjectionContext } from './project-objections'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const hasValues = (value: unknown): boolean => value != null && value !== false && value !== ''
@@ -97,8 +96,6 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     : financeOnly ? 'financing' : selectionRequired ? 'property_selection'
       : generalPrice ? 'price_summary' : overview ? 'project_overview' : categoryOverview ? 'category_overview' : broadInformation ? 'catalog_overview'
         : domains.size > 1 || requests.length > 1 ? 'multiple_requests' : 'property'
-  const objections = projectObjectionRequests(verified, current)
-  const objectionLocation = objections.some(request => Array.isArray(request.topics) && request.topics.includes('location'))
   const result = withProjectIntroductionForTurn(withProjectObjectionContext(verified, current))
   const categoryComparison = object(verified.category_price_comparison)
   if (categoryComparison.version === 'category-price-comparison-v1') {
@@ -107,15 +104,7 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     void _members
     result.category_price_comparison = summary
   }
-  const queryText = [current, ...requests.map(r => text(r.request))].join('\n')
-  // Include facts requested by ANY current request, never only the primary intent.
-  result.instalaciones = objections.length ? rows(verified.instalaciones) : supplementaryFeatureFacts(verified, current,
-    relevantFacts(verified.instalaciones, queryText, /amenidad|instalacion|comodidad|area[s]? comun|servicios del proyecto/))
-  result.lugares_cercanos = objectionLocation ? rows(verified.lugares_cercanos)
-    : relevantFacts(verified.lugares_cercanos, queryText, /cerca|alrededor|entorno|sector|ubicacion|zona|barrio/)
-  result.contexto_sector = objectionLocation ? rows(verified.contexto_sector)
-    : relevantFacts(verified.contexto_sector, queryText, /entorno|sector|ubicacion|zona|barrio|plusval/)
-  result.politicas_negocio = selectPolicies(verified, queryText, domains)
+  Object.assign(result, projectKnowledgeForTurn({ ...verified, solicitudes_interpretadas: requests }))
   if (financeOnly && audit.verified_catalog !== true) {
     const unit = selectedFinancingUnit(verified)
     result.catalogo = unit ? [unit] : []
@@ -133,7 +122,6 @@ export function taskVerifiedContext(verified: Row, audit: Row, current: string):
     result.instalaciones = []; result.lugares_cercanos = []; result.contexto_sector = []
     result.financing_collection = audit.financing_collection
   }
-  delete result.posicionamiento_proyecto
   result.prompt_context_selection = { version: 'task-context-v1', mode: 'task_context', task,
     embedding_applied: object(audit.catalog_retrieval).applied === true,
     blocks: ['catalogo', 'instalaciones', 'lugares_cercanos', 'contexto_sector', 'politicas_negocio'].map(key => ({

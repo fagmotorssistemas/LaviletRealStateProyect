@@ -84,7 +84,7 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
   const explicitChoice = declaredUnitChoice.kind === 'selected' && acceptedExtractorConfidence(declaredUnitChoice.confidence)
     && !!explicitUnitChoiceEvidence && normalized(current).includes(explicitUnitChoiceEvidence)
   const semanticOperation = explicitChoice ? 'select' : semanticValid && ['search', 'rank', 'compare', 'select', 'details'].includes(text(semantic.operation)) ? text(semantic.operation) : ''
-  const category = semanticValid && !confirmsSet ? text(semantic.category) : ''
+  const category = semanticValid && (!confirmsSet || explicitCategoryChoice) ? text(semantic.category) : ''
   const excluded = semanticValid && !confirmsSet ? groundedCurrentCategoryExclusions(semantic, current, pending) : []
   const eligible = (units: Row[]) => units.filter(unit => (!category || unit.category === category) && !excluded.includes(text(unit.category)))
   const fromIds = (value: unknown) => ids(value).flatMap(id => catalog.filter(unit => text(unit.id) === id))
@@ -436,7 +436,16 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
     && (oldFilters.floor_number === null || Number(unit.floor_number) === oldFilters.floor_number)
     && (oldFilters.min_area_m2 === null || Number(unit.area_internal_m2) >= oldFilters.min_area_m2)
     && (oldFilters.max_area_m2 === null || Number(unit.area_internal_m2) <= oldFilters.max_area_m2))
-  if ((!semanticOperation || semanticOperation === 'search') && asksAlternatives && residentialQuery && originalBedrooms !== null && currentFilters.bedrooms === null
+  const answersAlternativeProposal = Object.keys(proposal).length > 0
+    && ['explore_alternatives', 'confirm_bedrooms'].includes(text(pending.act))
+    && (positive || answersPendingQuestion(semantics, pending.id as Parameters<typeof answersPendingQuestion>[1], 'negative')
+      || pending.act === 'explore_alternatives' && !!category
+      || pending.act === 'confirm_bedrooms' && currentFilters.bedrooms !== null)
+  // A delivered proposal has its own acceptance transition below. The generic
+  // alternative search must not preempt it and leave the original requirements
+  // alongside a relaxed filter (for example eq 5 together with bedrooms 3).
+  if (!answersAlternativeProposal
+    && (!semanticOperation || semanticOperation === 'search') && asksAlternatives && residentialQuery && originalBedrooms !== null && currentFilters.bedrooms === null
     && alternatives.length && !alternatives.some(unit => Number(unit.bedrooms) === originalBedrooms)
     && alternatives.every(unit => Number(unit.bedrooms) > 0)) {
     if (!Object.keys(object(context.original_query)).length) context.original_query = normalizedPropertyQuery(previousQuery)
@@ -744,7 +753,7 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
     // and accepting a set never selects one of its units.
     if (!Object.keys(object(context.original_query)).length) context.original_query = normalizedPropertyQuery(previousQuery)
     const proposedFilters = normalizedPropertyFilters(proposal.filters)
-    Object.assign(query, { ...proposal, category: categoryPreference ? category : proposal.category,
+    Object.assign(query, { ...proposal, category: category || proposal.category,
       filters: { ...proposedFilters, ...Object.fromEntries(Object.entries(currentFilters).filter(([key, value]) => value !== null
         && !(structured.version === 'catalog-request-v1' && key.startsWith('bedrooms') && currentBedroomRequirements.length))) },
       operation: 'search', selector: null })

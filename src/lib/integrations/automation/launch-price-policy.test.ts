@@ -37,9 +37,12 @@ test('a future comparison policy is editable and applies only after publication,
 })
 
 test('current quotes stay exact without an authorized future-price comparison', () => {
+  const current = 'Quisiera saber los precios de departamentos de 2 dormitorios'
   const quote = unitPriceQuote({ catalogo: catalog, alcance_negocio: 'property',
+    semantica_turno: { primary_intent: 'ask_price', confidence: 'high', primary_evidence: current, property: { category: 'departamento', operation: 'search',
+      filters: { bedrooms: 2 }, reference_kind: 'none', evidence: current, confidence: 'high' } },
     politica_comercial: { precios_autorizados: true, precios_aproximados: true },
-    lead: { preferred_category: 'departamento', preferred_bedrooms: 2 } }, 'Quisiera saber los precios de departamentos de 2 dormitorios', {})
+    lead: { preferred_category: 'departamento', preferred_bedrooms: 2 } }, current, {})
   assert.equal(quote?.quoted, true)
   assert.deepEqual(quote?.prices, [270000, 310000])
   assert.deepEqual(quote?.units?.map(unit => unit.id), ['d304', 'd504'])

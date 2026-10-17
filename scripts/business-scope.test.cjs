@@ -4,6 +4,8 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const ts = require('typescript')
+require('./test-typescript.cjs')
+const localRequire = require('node:module').createRequire(__filename)
 const root = path.resolve(__dirname, '..')
 const data = {
   object: value => value && typeof value === 'object' && !Array.isArray(value) ? value : {},
@@ -17,6 +19,8 @@ function load(file, mocks) {
   const loadedModule = { exports: {} }
   new Function('require', 'module', 'exports', source)(id => {
     if (id in mocks) return mocks[id]
+    if (id === './commercial-engagement' || id === './turn-communication' || id === './extractor-confidence')
+      return localRequire('../src/lib/integrations/automation/' + id.slice(2) + '.ts')
     throw Error(`Unexpected dependency: ${id}`)
   }, loadedModule, loadedModule.exports)
   return loadedModule.exports

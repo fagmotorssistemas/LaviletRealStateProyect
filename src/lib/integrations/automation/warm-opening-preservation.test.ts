@@ -27,11 +27,11 @@ test('a completed writer presentation survives both final preparation passes ver
   }
 })
 
-test('an incomplete or rejected route draft still uses the approved summary and a warm opening', () => {
+test('an incomplete route preview uses the approved summary without inserting a coded courtesy', () => {
   for (const status of ['unavailable', 'rejected_guard', 'rejected_review']) {
     const audit = { ...initial, turn_completeness: { status, initial_presentation: { source: 'writer' } } }
     const reply = protectInitialProjectPresentation('Hola. Los precios comienzan en $1.', audit)
-    assert.match(reply, /^Con mucho gusto le comparto información\./)
+    assert.ok(reply.startsWith(summary))
     assert.ok(reply.includes(summary))
     assert.ok(reply.endsWith(question))
     assert.doesNotMatch(reply, /\$1/)

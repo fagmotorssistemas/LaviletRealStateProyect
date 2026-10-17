@@ -4,7 +4,6 @@ import { object, text, type Row } from './data'
 import { projectIntroductionForTurn } from './project-introduction-context'
 import { locationRequestKind } from './visit-location'
 import { normalizedRequestTopics } from './request-topics'
-import { asksUnitPrice } from './price-reply'
 import { replyQuestions } from './reply-question'
 import { budgetRecommendationPresentation } from './budget-presentation'
 import { interpretedPriceComparison } from './category-price-comparison'
@@ -116,12 +115,10 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
     || object(intent.interpretation).extractor_primary_intent || semantics.primary_intent)
   const legacyCanonicalPrice = !hasCurrentTypedTopics && intent.objective === 'ask_price'
     && intent.price_request_status !== 'answered' && (!extractorIntent || extractorIntent === 'ask_price')
-    && currentGrounded.some(request => request.domain === 'property'
-      && asksUnitPrice(text(request.request) || text(request.evidence), true))
+    && currentGrounded.some(request => request.domain === 'property')
   const legacyVerifiedQuote = !hasCurrentTypedTopics && intent.price_request_status !== 'answered'
     && audit.source === 'unit_price' && audit.verified_price_only === true
     && !(acceptedExtractorConfidence(semantics.confidence) && extractorIntent && extractorIntent !== 'ask_price')
-    && asksUnitPrice(current, true)
   const legacyPrice = legacyCanonicalPrice || legacyVerifiedQuote || !hasCurrentTypedTopics && acceptedExtractorConfidence(semantics.confidence) && extractorIntent === 'ask_price'
     && (literal(semantics.primary_evidence, current)
       || currentGrounded.some(request => request.domain === 'property'))
@@ -169,7 +166,7 @@ export function responseContentScope(current: string, verified: Row = {}, audit:
   const modes = [receipt.channel, receipt.mode, receipt.meeting_type, object(receipt.slot).mode].map(text).map(normalized)
   const remote = modes.some(mode => ['virtual', 'videollamada', 'zoom', 'telefono', 'teléfono', 'remote', 'online', 'phone'].includes(mode))
   const inPersonConfirmation = confirmed && !remote
-  const legacyLocationKind = hasCurrentTypedTopics ? null : locationRequestKind(current)
+  const legacyLocationKind = hasCurrentTypedTopics ? null : locationRequestKind(current, semantics)
   const locationRequested = requested.has('location') || !!legacyLocationKind
   const explicitExactLocation = locationRequested && (disclosure.exact_location_allowed === true
     && disclosure.reason !== 'verified_in_person_confirmation' || ['request', 'clarification'].includes(legacyLocationKind || ''))

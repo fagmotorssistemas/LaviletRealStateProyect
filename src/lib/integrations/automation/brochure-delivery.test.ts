@@ -24,7 +24,8 @@ test('explicit brochure requests use configured material, never a URL from the l
   const result = includeRequiredBrochure('Con mucho gusto.', {}, {
     current: 'Envie el brochure https://untrusted.example/file.pdf', verified: { brochure_url: configured },
   })
-  assert.equal(result, 'Con mucho gusto.'); assert.ok(replyLinkContract('', {}, { current: 'Envie el brochure', verified: { brochure_url: configured } }).required_links.includes(configured))
+  assert.equal(result, 'Con mucho gusto.'); assert.ok(replyLinkContract('', { brochure_intent: { requested: true } }, {
+    current: 'Envie el brochure', verified: { brochure_url: configured } }).required_links.includes(configured))
 })
 test('material completion does not mask a forged link, weaken 360 requirements or truncate long replies', () => {
   const reply = includeRequiredBrochure('Consulte https://untrusted.example/file.pdf', scheduled)

@@ -207,7 +207,8 @@ test('count pipeline gives both agents the same four units and full summary, wit
   assert.equal((object(calls[1].data.fuentes_autorizadas).unidades as Row[]).length,4)
   assert.equal(object(object(calls[0].data.evidencia_turno).catalog_summary).matching_count,4)
   assert.equal(object(object(calls[1].data.fuentes_autorizadas).resumen_catalogo).matching_count,4)
-  assert.deepEqual(object(calls[0].data.contexto_verificado).instalaciones,[])
+  assert.deepEqual(object(calls[0].data.contexto_verificado).instalaciones,input.instalaciones,
+    'the interpreted property-features request retains the complete published facilities')
   assert.ok(comparisons.every(c=>Number(c.normal_prompt_characters)>Number(c.actual_prompt_characters)),JSON.stringify(comparisons))
 })
 

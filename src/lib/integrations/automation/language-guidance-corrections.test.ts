@@ -1,4 +1,5 @@
 import { writerFixture } from './fixtures/writer-response.fixture'
+import { typedTurnFixture } from './fixtures/typed-turn.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -6,7 +7,7 @@ import { conversationLanguage, withConversationLanguage, setConversationLanguage
 import { reconcileInformationalEvidence, informationalEvidenceQuote, currentMessageFragments } from './current-evidence-fragments'
 import { interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { commercialJourneyPlan } from './commercial-journey'
-import { resolvePropertyTurn } from './property-context'
+import { resolvePropertyTurn, rememberPropertyReply } from './property-context'
 import { deliveredPendingQuestion } from './continuation-question'
 import { normalizeTurnSemantics, normalizedPendingQuestion } from './turn-semantics'
 import { contextualReasoningEvidence, contextualCalculationCheck, groundedResultQuantityPresent } from './contextual-reasoning'
@@ -34,9 +35,9 @@ function info(bedrooms = 3): Row {
     financiamiento: { partners: ['Banco Pichincha'], current: {}, journey: {} } }
 }
 function raw(current: string): Row {
-  return { requests: [{ domain: 'property', request: 'Quiere comparar las vistas', topics: ['property_features'], evidence: current, confidence: 'high' }],
+  return typedTurnFixture(current, { requests: [{ domain: 'property', request: 'Quiere comparar las vistas', topics: ['property_features'], evidence: current, confidence: 'high' }],
     turn_semantics: { primary_intent: 'project_information', primary_evidence: current, confidence: 'high',
-      property: { group: 'residential', operation: 'details', reference_kind: 'none', evidence: current, confidence: 'high', filters: {} } } }
+      property: { group: 'residential', operation: 'details', reference_kind: 'none', evidence: current, confidence: 'high', filters: {} } } })
 }
 
 test('English is interpreted once, preserved in memory, and short replies do not reset it', async () => {
@@ -149,6 +150,7 @@ test('choosing an explicitly offered PH accepts exploration, retains 300000, and
     continuation_id: 'property_requirements', continuation_act: 'explore_alternatives', purpose: 'choose_property' }, requests: [] }).question }, catalog), catalog)
   const current = 'prefiero los penthouses'
   const semantics = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'select_property', primary_evidence: current, confidence: 'high',
+    category_choice: { kind: 'selected', category: 'penthouse', evidence: current, confidence: 'high' },
     property: { group: 'residential', category: 'penthouse', operation: 'search', query_scope: 'catalog', evidence: current, confidence: 'high' } } }, current, pending)
   const summary = { _property_context: { ...object(input.property_context), pending_question: pending }, _pending_question: pending,
     _interpretation_memory: { budget } }
@@ -156,7 +158,9 @@ test('choosing an explicitly offered PH accepts exploration, retains 300000, and
   assert.equal(object(reference.query).category, 'penthouse')
   assert.equal(object(object(reference.query).filters).bedrooms, 3)
   assert.deepEqual(object(reference.context).selected_ids, [])
-  const next = commercialJourneyPlan({ ...input, property_context: reference.context, semantica_turno: semantics })
+  const saved = rememberPropertyReply(catalog, reference.context, 'Revisemos los penthouses.', {
+    catalog_query: reference.query, pending_question: {} })
+  const next = commercialJourneyPlan({ ...input, property_context: saved, semantica_turno: semantics })
   assert.equal(next.action, 'offer_financing')
   assert.equal(object(object(next.readiness).budget).amount, 300000)
   assert.equal(object(next.readiness).financing_accepted, false)

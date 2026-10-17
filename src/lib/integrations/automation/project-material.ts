@@ -43,13 +43,10 @@ export function wantsBrochure(current: string, history: unknown = [], interprete
   return brochureDeliveryIntent(current, history, interpreted, pending).requested
 }
 
-export function brochureReply(current: string, history: unknown, mode: string, physicalStateConfigured = false, requested = wantsBrochure(current, history)) {
+export function brochureReply(_current: string, _history: unknown, _mode: string, _physicalStateConfigured = false, requested = false) {
+  void _physicalStateConfigured
   if (!requested) return ''
-  if(physicalStateConfigured) return `Le comparto el brochure para conocer la propuesta y sus espacios. Sus representaciones del diseño no son una constancia del avance de obra:\n\n${BROCHURE_URL}`
-  const launch = mode === 'lanzamiento'
-  return launch
-    ? `Le comparto el brochure para que pueda conocer la propuesta y sus espacios. Las imágenes muestran cómo está previsto el proyecto; todavía no hay departamentos construidos.\n\n${BROCHURE_URL}`
-    : `Aquí puede revisar el brochure y conocer mejor los espacios del proyecto:\n\n${BROCHURE_URL}`
+  return `Aquí puede revisar el brochure y conocer la propuesta y los espacios previstos para el proyecto:\n\n${BROCHURE_URL}`
 }
 
 /** Compatibility only; final writer prose is never rewritten. */

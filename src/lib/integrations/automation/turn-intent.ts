@@ -1,6 +1,5 @@
 import { object,text,type Row } from './data'
 import { acceptedExtractorConfidence } from './extractor-confidence'
-import { asksUnitPrice } from './price-reply'
 import { normalizedRequestTopics } from './request-topics'
 import { reservationPermission } from './reservation-action'
 import { normalizedReservation } from './turn-semantics'
@@ -35,7 +34,7 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current, pending, answer, input.semantics.action_authority), input.current, input.semantics.action_authority)
   const reconciledRequest = reconciledInformationRequest(input, reservation)
   const interaction = object(input.semantics.interaction_goal)
-  const modeDeclarationOnly = interaction.mode === 'information_only' && interaction.specific_topic !== true
+  const modeDeclarationOnly = interaction.mode === 'information_only' && interaction.qualification_decision === 'pause' && interaction.specific_topic !== true
     && acceptedExtractorConfidence(interaction.confidence) && !!text(interaction.mode_evidence)
   const requests = (reconciledRequest ? [reconciledRequest] : input.requests).filter(request =>
     // Declaring a conversational goal is not a request for a project recital.
@@ -69,7 +68,7 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
       ? normalizedRequestTopics(request.topics)?.includes('purchase_price')
         && (request.source === 'pending' ? !!text(request.evidence).trim() : currentEvidence(request, input.current))
       : !currentTyped.length && (!text(request.evidence).trim() || request.source === 'pending' || currentEvidence(request, input.current))
-        && asksUnitPrice(text(request.request), true)))
+        && input.semantics.primary_intent === 'ask_price'))
   const categoryAnswer = ['select_property', 'answer_previous'].includes(text(input.semantics.primary_intent))
     && acceptedExtractorConfidence(property.confidence) && (text(property.category) || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0)
     && !requests.some(request => acceptedExtractorConfidence(request.confidence) && !['property', 'courtesy'].includes(text(request.domain)))
@@ -148,7 +147,7 @@ export function rememberTurnIntentAfterReply(contract: unknown, audit: unknown, 
     || validation.passed !== true || object(review.recovery).pending === true) return intent
   const priceRequests = rows(intent.requests).filter(request => request.domain === 'property'
     && (Array.isArray(request.topics) ? normalizedRequestTopics(request.topics)?.includes('purchase_price')
-      : asksUnitPrice(text(request.request), true)))
+      : intent.objective === 'ask_price'))
   const fragments = priceRequests.map(request => text(request.evidence).trim()).filter(Boolean)
   const referenceOnly = !fragments.length
   if (!fragments.length && Array.isArray(intent.required_facts) && intent.required_facts.includes('price'))

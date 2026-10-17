@@ -151,7 +151,7 @@ test('question wording is owned by AI metadata, not lexical recognition; code ne
   const plan = { action: 'offer_financing', question_id: 'financing_invitation', question: '¿Le gustaría continuar con el financiamiento?' }
   assert.deepEqual(continuationContentIssues(plan.question, plan), [])
   assert.deepEqual(continuationContentIssues('¿Revisamos juntos las alternativas para financiarla?', plan), [])
-  assert.equal(validContinuationMetadata({ continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue' }, '¿Revisamos juntos las alternativas para financiarla?', plan), true)
+  assert.equal(validContinuationMetadata({ text: '¿Revisamos juntos las alternativas para financiarla?', continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue' }, '¿Revisamos juntos las alternativas para financiarla?', plan), true)
   assert.deepEqual(completeRequiredContinuation('Con gusto le orientamos.', plan), { reply: 'Con gusto le orientamos.', audit: null })
   assert.equal(includeRequiredBrochure('Con gusto.', { profile_introduction: { brochure_required: true } }), 'Con gusto.')
   const projected = writerObjectiveContext({ contexto_verificado: { siguiente_paso_comercial: plan, pregunta_pendiente: { id: 'property_bedrooms', question: '¿Cuántos dormitorios necesita?' } }, historial_reciente: [{ role: 'bot', content: '¿Cuántos dormitorios necesita?' }] })

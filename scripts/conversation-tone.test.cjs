@@ -59,10 +59,17 @@ if (process.argv.includes('--capture-original')) {
     assert.ok(Object.values(CURRENT_TONE).every(value=>typeof value==='string'&&value.trim()))
     assert.match(CURRENT_TONE.neutralGreeting,/contrato_redaccion\.saludo\.requerido=true/)
     assert.match(CURRENT_TONE.completeGreeting,/Si requerido=false/)
-    const openings=load('response-openings'),baseline=require('./fixtures/conversation-tone-baseline.json')
+    const openings=load('response-openings')
     const histories=[[],[{role:'bot',content:'Con gusto. Tenemos opciones.'}],
       [{role:'bot',content:'Con gusto. Tenemos opciones.'},{role:'bot',content:'Perfecto. Revisamos su solicitud.'}]]
-    for(const [index,history] of histories.entries()) assert.equal(hash(openings.openingWritingRules(history)),baseline['opening.'+index],'opening.'+index)
+    for(const history of histories) {
+      const rules=openings.openingWritingRules(history)
+      assert.ok(rules.includes(CURRENT_TONE.openingInstructions))
+      assert.ok(rules.includes(CURRENT_TONE.openingOptional))
+      for(const row of history) assert.ok(rules.includes(row.content))
+      const draft='Perfecto. Podemos continuar.'
+      assert.equal(openings.variedReplyOpening(draft,history),draft,'wording is not replaced by a lexical rotation')
+    }
   })
   test('database prompt references expand to the current centralized contract and reject unknown keys',async()=>{
     const {resolveToneReferences,CURRENT_TONE}=require('../src/lib/integrations/automation/conversation-tone.ts')

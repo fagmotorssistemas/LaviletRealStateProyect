@@ -472,7 +472,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     uncertain: businessScope.uncertain,
     confidence: businessScope.confidence || null,
     greeting,
-    courtesy: isCourtesyOnly(current),
+    courtesy: null,
   })
   async function transferToAdvisor(reason: string, cause: Pick<DecisionRecord, 'rule_id' | 'origin' | 'caused_by_step' | 'facts'>) {
     const decision = decisionRecord({ ...cause, reason, outcome: 'requested',
@@ -562,11 +562,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       return { action: 'advisor_handoff', message, registration_verified: false }
     }
   }
-  let memory = commercialMemory(previousSummary._commercial_memory, context.historial, current)
+  let memory = commercialMemory(previousSummary._commercial_memory, context.historial, '', {})
   const state = sdrState(lead, context.historial)
   // Repair is interpreted with the full turn below, before choosing a route.
   if (repair) greeting = false
-  let turnGreeting = greetingForTurn(current, pendingRead.data || context.historial, lead.last_bot_message_at, activeLast.sentAt)
+  let turnGreeting = greetingForTurn(current, pendingRead.data || context.historial, lead.last_bot_message_at, activeLast.sentAt, {})
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period,preferred_location_type').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
@@ -1122,7 +1122,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (reply) audit = { source: 'brochure', brochure_sent: true }
     }
     if (!reply && acceptsUnitOptions(current, text(state.ultima_respuesta), { semantics: turnSemantics, pendingQuestion, intent: turnIntent })) {
-      const accepted = acceptedPriceOption(await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), current, previousSummary)
+      const accepted = acceptedPriceOption({ ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile),
+        semantica_turno: turnSemantics, contrato_turno: turnIntent, property_context: propertyTurn?.context,
+        pregunta_pendiente: pendingQuestion }, current, previousSummary)
       reply = accepted?.reply || `No tengo los detalles actualizados de esa unidad. Le comparto el brochure para que pueda conocer la propuesta del proyecto:\n\n${BROCHURE_URL}`
       audit = accepted?.audit || { source: 'price_option_unavailable', brochure_sent: true }
     }
@@ -1357,7 +1359,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       } else if (visitRequested) {
         await guard()
         const visitInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
-        const quote = priceTurn ? unitPriceQuote({ ...visitInfo, contrato_turno: turnIntent, alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
+        const quote = priceTurn ? unitPriceQuote({ ...visitInfo, semantica_turno: turnSemantics, contrato_turno: turnIntent,
+          property_context: reference.context, pregunta_pendiente: pendingQuestion,
+          alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
         if (quote?.needsAdvisor) {
           reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita', { rule_id: 'price.unverified_for_visit', origin: 'catalog', caused_by_step: catalogStep })
           audit = { source: 'price_and_visit_handoff' }

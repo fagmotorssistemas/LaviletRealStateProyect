@@ -35,10 +35,10 @@ export function unitModelDelivery(reference: { explicit: boolean; hasUnitMention
   const alreadySent = unitTourPreviouslySent({ unit_id: unit?.id, unit_number: unit?.unit_number }, history, sentUnitIds)
   if (alreadySent && !asksModel) return null
   if (!unit) return { unit_id: null, unit_number: null, url, model_available: true,
-    caption: `Aquí puede explorar el recorrido virtual 360 de La Vilet: ${url}. Es una representación del proyecto, no un recorrido de obra terminada.` }
+    caption: `Aquí puede explorar el recorrido virtual 360 de La Vilet: ${url}. Es una representación de los espacios previstos para el proyecto.` }
   const label = `${unit.category === 'suite' ? 'la suite' : unit.category === 'penthouse' ? 'el penthouse' : 'el departamento'} ${text(unit.unit_number)}`
   return { unit_id: text(unit.id), unit_number: text(unit.unit_number), url, model_available: true,
-    caption: `Aquí puede explorar ${label} en el recorrido virtual 360 de La Vilet: ${url}. Es una representación del proyecto, no un recorrido de obra terminada.` }
+    caption: `Aquí puede explorar ${label} en el recorrido virtual 360 de La Vilet: ${url}. Es una representación de los espacios previstos para el proyecto.` }
 }
 
 /** Selection is a resolved catalogue decision, not a number parsed from prose.

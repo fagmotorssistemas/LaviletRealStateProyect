@@ -52,6 +52,7 @@ const { normalizeEvents, normalizedVisitIntent, normalizedVisitPreference, valid
 const data = require('../src/lib/integrations/automation/data.ts')
 const scope = data.scope
 const { typedTurnFixture, authorityFixture } = require('../src/lib/integrations/automation/fixtures/typed-turn.fixture.ts')
+const { currentExtractorFixture } = require('./fixtures/current-extractor-fixture.cjs')
 const { visitPreferenceFixture } = require('../src/lib/integrations/automation/fixtures/visit-preference.fixture.ts')
 const openings = require('../src/lib/integrations/automation/response-openings.ts')
 const financingStep = reply => ({ kind: 'financing_consent', reply,
@@ -59,6 +60,22 @@ const financingStep = reply => ({ kind: 'financing_consent', reply,
     text: reply, continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue' }) })
 const financingAnswer = evidence => ({ turn_semantics: { answer_to_previous: {
   question_id: 'financing_invitation', kind: 'affirmative', confidence: 'high', evidence } } })
+
+test('typed runtime: a visit status request retains its operational route without reopening intake or profile', async t => {
+  live(t)
+  const current = '¿En qué quedó la cita que estábamos coordinando?', raw = typedTurnFixture(current)
+  raw.visit_intent = { kind: 'visit_status', purpose: 'status', target: 'project', destination: null, evidence: current, confidence: 'high' }
+  raw.requests = [{ domain: 'visit', topics: [], request: 'Consultar el estado de la cita', evidence: current, confidence: 'high' }]
+  const h = conversationHarness({ reviewEnabled: false, extracted: raw,
+    requests: [{ id: 'request', status: 'awaiting_advisor', assigned_advisor_id: 'advisor' }],
+    proposals: [{ id: 'proposal', request_id: 'request', status: 'awaiting_advisor', assigned_advisor_id: 'advisor' }] })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source, 'visit_status')
+  assert.equal(h.calls.some(call => call.name === 'lv_collect_visit_intake'), false)
+  assert.doesNotMatch(sent.p_content, /nombre|residencia|dormitorios|presupuesto/)
+})
 
 for (const current of ['eh\nhola amigo', 'holaaaa pana', 'bonjour, mon ami']) {
   test('typed runtime: social opening keeps the open welcome: ' + current, async t => {
@@ -200,6 +217,60 @@ test('typed runtime: a date-looking answer to another flow cannot schedule a vis
   assert.equal(h.calls.some(call => call.name === 'lv_collect_visit_intake'), false)
 })
 
+test('typed runtime: a combined price and visit request keeps the current selected unit and both requests', async t => {
+  live(t)
+  const current = 'Quiero coordinar una visita a la oficina y saber el precio del 605'
+  const raw = typedTurnFixture(current, { action_authority: authorityFixture(current, 'visit') })
+  raw.events = ['requested_visit']
+  raw.visit_intent = { kind: 'request_visit', purpose: 'coordination', target: 'project', destination: 'office',
+    evidence: current, confidence: 'high' }
+  Object.assign(raw.turn_semantics, { primary_intent: 'request_visit', primary_evidence: current, confidence: 'high',
+    property: { category: 'penthouse', operation: 'details', reference_kind: 'explicit', unit_numbers: ['605'],
+      filters: {}, evidence: current, confidence: 'high' } })
+  raw.requests = [{ domain: 'visit', topics: ['visit'], request: 'Coordinar visita a la oficina', evidence: current, confidence: 'high' },
+    { domain: 'property', topics: ['purchase_price'], request: 'Precio del 605', evidence: current, confidence: 'high' }]
+  const unit = { id: 'u605', unit_number: '605', category: 'penthouse', bedrooms: 3, published_commercial_price: 337272,
+    is_published: true, status: 'disponible' }
+  const h = conversationHarness({ reviewEnabled: false, extracted: raw, catalog: [unit], commercialInfo: {
+    catalogo: [unit], catalog_read: { complete: true }, politica_comercial: { precios_autorizados: true },
+    estado_proyecto: { stage: 'not_started', verifiedOn: '2026-10-16', enabledPlaces: ['office'], primaryPlace: 'office', officeAtProjectSite: true } } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(h.calls.filter(call => call.name === 'lv_collect_visit_intake').length, 1)
+  const written = h.calls.filter(call => call.name === 'completeTurnReply').at(-1).args
+  assert.equal(written.verified.semantica_turno.primary_intent, 'request_visit')
+  assert.equal(written.verified.contrato_turno.requests.some(request => request.topics.includes('purchase_price')), true)
+  assert.match(written.baseReply, /337[.,]272/)
+  assert.equal(h.calls.some(call => call.name === 'process_financing_message_v3'), false)
+})
+
+test('typed runtime: accepting details of several quoted homes uses the common flow without claiming missing data', async t => {
+  live(t)
+  const current = 'Sí, quiero conocer las opciones', pending = { id: 'unit_choice', act: 'explore_quoted_options',
+    question: '¿Le gustaría conocer estas opciones?', candidate_ids: ['u602', 'u605'] }
+  const raw = typedTurnFixture(current)
+  Object.assign(raw.turn_semantics, { primary_intent: 'answer_previous', primary_evidence: current, confidence: 'high',
+    answer_to_previous: { question_id: pending.id, kind: 'affirmative', evidence: current, confidence: 'high' },
+    property: { category: 'penthouse', operation: 'details', query_scope: 'offered', reference_kind: 'followup',
+      unit_numbers: [], filters: {}, evidence: current, confidence: 'high' } })
+  raw.requests = [{ domain: 'property', topics: ['property_features'], request: 'Conocer las opciones ofrecidas', evidence: current, confidence: 'high' }]
+  const catalog = ['602', '605'].map(number => ({ id: 'u' + number, unit_number: number, category: 'penthouse',
+    bedrooms: 3, is_published: true, status: 'disponible', published_commercial_price: 337272 }))
+  const h = conversationHarness({ reviewEnabled: false, extracted: raw, catalog, commercialInfo: {
+    catalogo: catalog, catalog_read: { complete: true } }, summary: { _pending_question: pending,
+    _property_context: { offered_ids: ['u602', 'u605'], selected_ids: [], pending_question: pending,
+      query: { category: 'penthouse', group: 'residential', operation: 'details', scope: 'offered', filters: { bedrooms: 3 } } } } })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  const route = h.calls.find(call => call.name === 'commercialReply')
+  assert.ok(route, 'multiple known candidates must reach shared planning, not a missing-unit brochure fallback')
+  assert.deepEqual(route.args.property_context.selected_ids, [])
+  const written = h.calls.filter(call => call.name === 'completeTurnReply').at(-1).args
+  assert.notEqual(written.audit.source, 'price_option_unavailable')
+  assert.doesNotMatch(written.baseReply, /No tengo los detalles actualizados/)
+  assert.equal(h.calls.some(call => ['lv_request_reservation_handoff', 'process_financing_message_v3', 'lv_collect_visit_intake'].includes(call.name)), false)
+})
+
 test('actual Wednesday intake preserves extracted natural dates and times through the conversation handler', async t => {
   live(t)
   const cases = [
@@ -259,7 +330,8 @@ test('acknowledging the submitted Wednesday preference never creates a second vi
   const h = conversationHarness({ reviewEnabled: false, visitDraft: { status: 'submitted' },
     proposals: [{ id: 'request', status: 'awaiting_advisor', proposed_by: 'client' }],
     history: [{ role: 'bot', content: 'Registré su solicitud para el miércoles a las 3:00 p. m.; el equipo revisará ese horario.' }],
-    extracted: { events: ['requested_visit'], visit_intent: { kind: 'accept_visit_preference', purpose: 'preference',
+    extracted: { action_authority: typedTurnFixture(current).action_authority,
+      events: ['requested_visit'], visit_intent: { kind: 'accept_visit_preference', purpose: 'preference',
       target: 'project', evidence: 'si si justamente para esa fecha', confidence: 'high' },
       visit_preference: { evidence: 'si si justamente para esa fecha', date_text: 'miércoles 21 de octubre', time_text: 'a las 3 de la tarde', confidence: 'high' } } })
   h.rows[0].payload.text = current
@@ -1936,7 +2008,7 @@ function conversationHarness(options = {}) {
       aiJson: async (prompt, input) => {
         calls.push({ name: 'ai', args: { prompt, input } })
         if (options.extractionFails && prompt.includes('extractor_eventos')) throw Error('OPENAI_INCOMPLETE')
-        return prompt.includes('extractor_eventos') ? typedTurnFixture(input.mensaje_actual, { events: [], opt_out: options.optOut === true,
+        return prompt.includes('extractor_eventos') ? currentExtractorFixture(input.mensaje_actual, { events: [], opt_out: options.optOut === true,
           ...(typeof options.extracted === 'function' ? options.extracted(input) : options.extracted) })
           : prompt.startsWith('Clasifique') ? { intent: options.intent || 'question' }
             : prompt === 'revisor_respuesta' ? { aprobada: true } : {}

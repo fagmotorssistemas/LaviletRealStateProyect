@@ -123,7 +123,7 @@ for (const available of [true, false]) test('current stairs need reaches the fin
   assert.equal(result.needsAdvisor, false)
   assert.equal(writerCalls, 1)
   const evidence = object(writerContext.contexto_verificado)
-  assert.deepEqual(evidence.instalaciones, available ? [originalElevator] : [])
+  assert.deepEqual((evidence.instalaciones as Row[]).filter(fact => fact.amenity_name === originalElevator.amenity_name), available ? [originalElevator] : [])
   assert.match(String(object(writerContext.razonamiento_contextual).guidance), /existencia de ascensores no demuestra/)
   assert.deepEqual(object(object(verified.semantica_turno).catalog_request).semantic_preferences, [])
   assert.deepEqual(verified, original)

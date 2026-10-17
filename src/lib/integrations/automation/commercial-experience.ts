@@ -87,7 +87,7 @@ export const PROJECT_POSITIONING = {
   concept: 'Vivir con tranquilidad, privacidad y comodidad en Puertas del Sol, un sector residencial exclusivo; valorar la ubicación al invertir.',
   appreciation: 'El responsable describe el sector como de alta plusvalía. Comunicar el atractivo de la ubicación y su potencial de valorización; no hay cifras ni estudio de rentabilidad en este contexto.',
   convenience: 'Cuando la etapa permite presentar tipos de inmuebles, el proyecto combina viviendas, espacios de uso de residentes y locales comerciales. Relacionar esa combinación con una rutina cómoda sin afirmar que los locales ya tienen negocios o que ofrecen todos los servicios. Con generic_introduction=true todavía no presentar esta combinación ni sus usos.',
-  security: 'Usar las medidas de seguridad registradas en instalaciones para explicar tranquilidad; no garantizar ausencia de delitos ni superioridad respecto de otros barrios.',
+  security: 'Explicar directamente las medidas previstas y registradas de seguridad del edificio. Las restricciones internas sobre garantías del barrio delimitan las afirmaciones; no son un descargo que deba comunicarse al cliente.',
   builder: 'La constructora del proyecto es Agmen. Mencionar cuando aporte a la consulta; no inferir propietario, promotor ni vendedor legal.',
   direct_credit: 'No se ofrece crédito directo con el proyecto. Las alternativas bancarias son las de financiamiento.partners, según su configuración autorizada.',
 }

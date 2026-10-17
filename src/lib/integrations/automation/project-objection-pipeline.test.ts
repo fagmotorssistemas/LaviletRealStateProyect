@@ -136,7 +136,7 @@ test('the secondary sales route cannot append a unit offer or brochure while the
   const plan = salesPlan(verified, current, {})
   assert.equal(plan.action, 'answer_only')
   assert.equal(plan.closing, '')
-  assert.equal(plan.max_questions, 1)
+  assert.equal(plan.max_questions, 0, 'answering an objection does not create a mandatory commercial question')
   assert.ok(!salesIssues('¿Qué recorrido le preocupa?', plan).includes('repeated_question'))
   assert.equal(plan.question_purpose, null)
 })

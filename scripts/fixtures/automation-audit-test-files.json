@@ -1,4 +1,5 @@
 [
+  "src/lib/integrations/automation/conversation-stability.test.ts",
   "scripts/automation-healthcheck.test.mjs",
   "scripts/business-scope.test.cjs",
   "scripts/catalog-dialogue.test.cjs",

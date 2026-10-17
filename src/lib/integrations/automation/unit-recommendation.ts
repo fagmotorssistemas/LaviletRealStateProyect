@@ -47,7 +47,7 @@ export function unitRecommendation(info: Row, current: string, summary: Row = {}
   const details = [roomCount > 0 ? `${roomCount === 1 ? 'un dormitorio' : `${roomCount} dormitorios`}` : '',
     area > 0 ? `${area.toLocaleString('es-EC', { maximumFractionDigits: 2 })} m² interiores` : ''].filter(Boolean)
   const reply = `Podemos empezar por ${label}${unitFloor ? `, en ${unitFloor.toLocaleLowerCase('es')}` : ''}.${details.length ? ` Tiene ${details.join(' y ')}.` : ''}`
-  const model = unitModelDelivery({ explicit: true, matches: [unit] }, current, info.historial, summary._unit_models_sent)
+  const model = unitModelDelivery({ explicit: true, matches: [unit] }, current, info.historial, summary._unit_models_sent, info.semantica_turno)
   return { reply: appendUnitModel(reply, model), audit: { source: 'unit_recommendation', fallback: false,
     unit_reference: { ids: [unit.id], numbers: [unit.unit_number] }, ...(model ? { unit_model: model } : {}) } }
 }

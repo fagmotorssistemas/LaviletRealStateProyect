@@ -11,7 +11,7 @@ const closed = (properties: Row) => ({ type: 'object', additionalProperties: fal
 
 export const VISIT_PREFERENCE_SCHEMA = closed({
   version: { type: 'string', enum: [VISIT_PREFERENCE_VERSION] },
-  decision: { type: 'string', enum: [...decisions] },
+  decision: { type: 'string', enum: [...decisions], description: 'specified si aporta fecha, hora O lugar. none exige date.kind=none, time.kind=none, location_type=null y uncertain_fields=[].' },
   date: closed({ kind: { type: 'string', enum: [...dateKinds] }, year: integer, month: integer, day: integer,
     offset_days: integer, weekday: integer, week_offset: integer,
     occurrence: { type: ['string', 'null'], enum: ['on_or_after', 'strictly_next', null] } }),
@@ -22,15 +22,28 @@ export const VISIT_PREFERENCE_SCHEMA = closed({
   location_type: { type: ['string', 'null'], enum: [...places, null] },
   evidence: { type: 'string' },
   confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-  source: closed({ kind: { type: 'string', enum: ['current', 'history'] }, message_id: { type: ['string', 'null'] } }),
+  source: closed({ kind: { type: 'string', enum: ['current', 'history'] }, message_id: { type: ['string', 'null'],
+    description: 'ID persistido de current_messages o de un mensaje de cliente del historial; los IDs current:N de fragmentos no son IDs de mensajes. null si no hay ID provisto.' } }),
 })
 
+/** Bound provider choices to real message identities, independently of wording. */
+export function visitPreferenceSchemaForSources(input: Row): Row {
+  const current = (Array.isArray(input.current_messages) ? input.current_messages : []).map(row)
+  const history = (Array.isArray(input.historial || input.historial_reciente) ? input.historial || input.historial_reciente : []) as unknown[]
+  const identifiers = [...new Set([str(input.source_message_id), ...current.flatMap(item => [str(item.external_message_id), str(item.id)]),
+    ...history.map(row).filter(item => ['cliente', 'user'].includes(str(item.role)))
+      .flatMap(item => [str(item.external_message_id), str(item.message_id), str(item.id)])].filter(Boolean))]
+  return { ...VISIT_PREFERENCE_SCHEMA, properties: { ...VISIT_PREFERENCE_SCHEMA.properties,
+    source: closed({ kind: { type: 'string', enum: ['current', 'history'] },
+      message_id: { type: ['string', 'null'], enum: [...identifiers, null], description: 'Use solo uno de estos IDs persistidos. Los identificadores de fragmentos tienen otro propósito.' } }) } }
+}
+
 export const VISIT_PREFERENCE_EXTRACTION_RULES = `En mensajes agrupados, visit_preferences contiene una preferencia por mensaje de origen de current_messages, con su ID real y su evidencia literal. Separe fecha y hora si proceden de mensajes diferentes; use [] cuando no hay componentes adicionales. El servidor conserva sus fuentes y orden. No atribuya a un mensaje el contenido de otro. visit_preference usa exclusivamente el contrato visit-preference-v2 del esquema. La IA interpreta el lenguaje; no hay un parser posterior de palabras, fechas escritas ni horas escritas. No devuelva date_text, time_text ni canonical_text.
-decision=specified para una preferencia única; ambiguous cuando aún existen alternativas o falta una decisión; declined para rechazar una preferencia; none cuando no expresa una preferencia. uncertain_fields identifica los datos realmente ambiguos o rechazados y no borra los demás.
+decision=specified cuando aporta UNA fecha, hora O lugar identificados, aunque falten los demás componentes. Por ejemplo, pedir una visita a la oficina sin día ni hora lleva decision=specified, date.kind=none, time.kind=none, location_type=office: el lugar ya es una preferencia válida. No clasifique eso como none ni ambiguous por faltar fecha/hora. ambiguous identifica alternativas o ambigüedad del componente expresado; declined rechaza una preferencia. none exige date.kind=none, time.kind=none, location_type=null y uncertain_fields=[]. uncertain_fields identifica los datos realmente ambiguos o rechazados y no borra los demás.
 date.kind: absolute lleva year/month/day; relative_day lleva offset_days respecto de la fecha local del mensaje de origen; weekday lleva weekday ISO (lunes=1), week_offset para una semana calendario concreta (0=actual, 1=siguiente), o week_offset=null y occurrence=on_or_after/strictly_next para la próxima ocurrencia; month_day lleva month/day y year=null; unchanged conserva la fecha ya demostrada; none no aporta fecha. Los campos no usados son null. Puede incluir weekday junto con absolute/month_day si el cliente indicó ambos: el calendario comprobará que coincidan.
 time.kind=clock lleva hour/minute y meridiem am/pm/24h. Si expresó solo una hora de 1 a 12 sin distinguir mañana/tarde, use meridiem=null; no elija una franja por iniciativa propia. period lleva morning/afternoon/evening; unchanged conserva la hora demostrada; none no aporta hora. Los demás campos son null.
 La hora, día, correcciones, repeticiones, negaciones y alternativas las decide la IA según el significado completo. Una repetición oral de la misma opción no crea varias opciones. Si la pregunta pendiente pide fecha, una afirmación confirma solo la referencia demostrada por ese contexto, no acepta un cupo del asesor ni otra gestión.
-source.kind=current atribuye evidence literal al mensaje actual y message_id=null cuando no se proporciona su ID. Para recuperar una preferencia original citada por una respuesta breve, source.kind=history exige el ID exacto de un mensaje de cliente provisto y evidence literal de ese mensaje; nunca use un mensaje del bot como declaración del cliente. La respuesta actual debe estar vinculada a visit_date_time en una coordinación vigente. No cambie una fecha relativa por una fecha absoluta calculada por usted: la resuelve el calendario con el instante original.
+source.kind=current atribuye evidence literal al mensaje actual y message_id copia el external_message_id de current_messages o source_message_id; use null cuando no se proporciona un ID. Los IDs current:N de mensajes_actuales identifican fragmentos informativos, NO mensajes persistidos: no los copie en source.message_id. Para recuperar una preferencia original citada por una respuesta breve, source.kind=history exige el ID exacto de un mensaje de cliente provisto y evidence literal de ese mensaje; nunca use un mensaje del bot como declaración del cliente. La respuesta actual debe estar vinculada a visit_date_time en una coordinación vigente. No cambie una fecha relativa por una fecha absoluta calculada por usted: la resuelve el calendario con el instante original.
 location_type solo recoge el lugar expresamente pedido o aceptado. No cambie building por office ni acepte una alternativa por consultar horarios. Una preferencia no registra ni confirma una cita por sí sola.`
 
 export type VisitDate = { kind: typeof dateKinds[number]; year: number | null; month: number | null; day: number | null;

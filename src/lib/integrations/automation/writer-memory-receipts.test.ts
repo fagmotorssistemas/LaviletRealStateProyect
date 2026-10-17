@@ -79,9 +79,13 @@ test('commercial memory records delivered writer receipts and typed continuation
   assert.equal(remembered.unit_options_offered, true)
 })
 
-test('commercial memory still interprets customer finance questions and an evidenced refusal of a pending visit', () => {
-  const remembered = rememberSalesReply({}, [], '¿Qué opciones de financiamiento tienen?', 'Texto opaco', undefined, {})
+test('commercial memory retains interpreted finance questions and an evidenced refusal of a pending visit', () => {
+  const current = '¿Qué opciones de financiamiento tienen?'
+  const remembered = rememberSalesReply({}, [], current, 'Texto opaco', {
+    semantics: { primary_intent: 'ask_financing', primary_evidence: current, confidence: 'high' },
+  }, {})
   assert.equal(remembered.financing_mentioned, true)
+  assert.equal(rememberSalesReply({}, [], current, 'Texto opaco', undefined, {}).financing_mentioned, false)
   const declined = rememberSalesReply({ visit_invited: true }, [], 'Ahora no', 'Texto opaco', {
     pendingQuestion: { id: 'visit_invitation', act: 'visit', question: 'Podemos organizar una visita.' },
     semantics: { answer_to_previous: { question_id: 'visit_invitation', kind: 'negative', confidence: 'high', evidence: 'Ahora no' } },
