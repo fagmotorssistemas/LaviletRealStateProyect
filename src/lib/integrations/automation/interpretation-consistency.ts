@@ -13,6 +13,25 @@ const answerKinds = new Set(['affirmative', 'negative', 'uncertain', 'value'])
 const propertyTopics = new Set(['project_overview', 'location', 'purchase_price', 'commercial_stage',
   'construction_status', 'delivery', 'spatial_fit', 'accessibility', 'property_features', 'property_options', 'visualization'])
 
+/** Compare model-owned fields, never words. A typed category answer must carry
+ * the corresponding property meaning before the planner can ask a next step. */
+export function propertyAnswerConsistencyIssues(raw: Row, current: string, pending: Row): string[] {
+  const semantics = object(raw.turn_semantics), property = object(semantics.property)
+  const answer = object(semantics.answer_to_previous), choice = object(semantics.category_choice)
+  const currentValue = pending.id === 'property_category' && answer.question_id === pending.id
+    && answer.kind === 'value' && acceptedExtractorConfidence(answer.confidence) && grounded(answer.evidence, current)
+  const chosen = choice.kind === 'selected' && acceptedExtractorConfidence(choice.confidence)
+    && grounded(choice.evidence, current) && ['suite', 'departamento', 'penthouse', 'local'].includes(text(choice.category))
+  const propertyValid = acceptedExtractorConfidence(property.confidence) && grounded(property.evidence, current)
+  const group = text(property.group), category = text(property.category)
+  if ((currentValue || chosen) && (!propertyValid || !['residential', 'commercial'].includes(group)
+    && !['suite', 'departamento', 'penthouse', 'local'].includes(category))) return ['incomplete_property_answer:property']
+  if (propertyValid && (category === 'local' && group === 'residential'
+    || ['suite', 'departamento', 'penthouse'].includes(category) && group === 'commercial'
+    || chosen && category && category !== choice.category)) return ['inconsistent_property_answer:property']
+  return []
+}
+
 /** A current withdrawal, role clarification or an unknown budget is still a
  * monetary update. Absence of a new budget amount must not erase any of them. */
 function hasCurrentMonetaryMeaning(raw: Row, current: string): boolean {

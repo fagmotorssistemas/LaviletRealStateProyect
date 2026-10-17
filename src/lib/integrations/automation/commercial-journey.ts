@@ -168,6 +168,11 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     || Object.keys(object(audit.reservation)).length > 0 && object(audit.reservation).existing_request !== true
       && audit.source !== 'reservation_information'
     || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
+  if (object(audit.profile_introduction).material_question === true && !newOperation && reservationContext.active !== true) return {
+    version: 'commercial-journey-v1', action: 'answer_material_question', question: '', question_id: '',
+    financing_offer_allowed: false, visit_offer_allowed: false,
+    instruction: 'Responda la consulta sobre el material con su descripción autorizada y conserve las decisiones pendientes. El cliente está resolviendo una duda antes de decidir. No repita nombre, residencia ni vivienda/local y no adjunte el brochure si su entrega no está autorizada en este turno. Atienda también las demás consultas actuales.',
+  }
   if (reservationContext.version === RESERVATION_OPERATION_VERSION && reservationContext.read_status === 'available'
     && reservationContext.active === true && !differentSelection && !newOperation && !information && !broadInformation) return {
     version: 'commercial-journey-v1', action: 'current_operation', question: '', question_id: '',

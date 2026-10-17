@@ -1,0 +1,99 @@
+{
+  "capturedAt": "2026-10-17T06:04:47.736Z",
+  "baseCommit": "da0d2e66a633fcaea99ce342cee950368b18cf7f",
+  "scope": "Brochure decision, contextual property interest, initial presentation, Luna scope and visual roles",
+  "production": {
+    "codeDeployedInThisIntervention": false,
+    "gitPushed": false,
+    "sqlMigrationsCreated": false,
+    "databaseWrites": false,
+    "realMessages": false,
+    "reviewerActivated": false
+  },
+  "currentContract": {
+    "tests": 391,
+    "passed": 391,
+    "failed": 0,
+    "source": "tmp/material-commercial-contract-result.json"
+  },
+  "relatedTests": {
+    "tests": 106,
+    "passed": 106,
+    "failed": 0,
+    "source": "tmp/material-commercial-regression.tap",
+    "overlapsCurrentContract": true
+  },
+  "staticChecks": {
+    "types": {
+      "startedAt": "2026-10-17T06:01:45.523Z",
+      "finishedAt": "2026-10-17T06:01:52.516Z",
+      "exit": 0
+    },
+    "eslint": {
+      "startedAt": "2026-10-17T06:01:52.516Z",
+      "finishedAt": "2026-10-17T06:01:58.708Z",
+      "exit": 0,
+      "files": 15
+    }
+  },
+  "build": {
+    "status": "passed",
+    "startedAt": "2026-10-17T06:02:42.417Z",
+    "finishedAt": "2026-10-17T06:03:50.176Z",
+    "exit": 0,
+    "source": "tmp/material-commercial-build.log"
+  },
+  "realProviderEvaluation": {
+    "scenarios": [
+      {
+        "id": "brochure-content-before-decision",
+        "source": "tmp/material-commercial-brochure-final.json",
+        "status": "passed",
+        "turns": 5,
+        "databaseWrites": false,
+        "realMessages": false,
+        "reviewerEnabled": false
+      },
+      {
+        "id": "contextual-commercial-choice",
+        "source": "tmp/material-commercial-live.json",
+        "status": "passed",
+        "turns": 3,
+        "databaseWrites": false,
+        "realMessages": false,
+        "reviewerEnabled": false
+      },
+      {
+        "id": "visual-luna",
+        "source": "tmp/material-commercial-vision-final.json",
+        "status": "passed",
+        "turns": 1,
+        "databaseWrites": false,
+        "realMessages": false,
+        "reviewerEnabled": false
+      }
+    ],
+    "acceptedConversationTurns": 8,
+    "acceptedSyntheticImages": 1,
+    "transcriptionModelChanged": false,
+    "voiceMeaningModel": "gpt-6-luna",
+    "audioDirectInputSupportedByLuna": false,
+    "source": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+  },
+  "baselineTestAdaptation": {
+    "source": "tmp/material-commercial-baseline.tap",
+    "failedBeforeChanges": 2,
+    "description": "Two related presentation tests still expected prose from retired helper; replaced with current writer-contract coverage."
+  },
+  "historicalSuite": {
+    "executed": false,
+    "individualReview": "deferred_by_user",
+    "previousFailures": 432,
+    "allProvenObsolete": false
+  },
+  "releaseReady": false,
+  "remainingWork": [
+    "Publish and verify these changes in the target environment.",
+    "Historical individual reconciliation remains deferred."
+  ]
+}

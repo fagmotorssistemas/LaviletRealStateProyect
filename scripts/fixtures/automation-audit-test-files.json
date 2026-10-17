@@ -1,5 +1,6 @@
 [
   "src/lib/integrations/automation/conversation-stability.test.ts",
+  "src/lib/integrations/automation/material-and-commercial-continuity.test.ts",
   "scripts/automation-healthcheck.test.mjs",
   "scripts/business-scope.test.cjs",
   "scripts/catalog-dialogue.test.cjs",

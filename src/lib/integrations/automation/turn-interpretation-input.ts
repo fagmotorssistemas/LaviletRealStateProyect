@@ -252,6 +252,7 @@ export function interpretationRepairBlocks(issues: string[]) {
     || issue.startsWith('invalid_monetary_reference:')
     ? 'budget' : issue.split(':')[1]))]
   const property = fields.includes('property')
+  const propertyAnswer = issues.some(issue => ['incomplete_property_answer:property', 'inconsistent_property_answer:property'].includes(issue))
   const budget = fields.includes('budget')
   const quantity = fields.some(field => /^quantity\.\d+$/.test(field || ''))
   const requests = fields.some(field => /^requests\.\d+$/.test(field || ''))
@@ -261,11 +262,12 @@ export function interpretationRepairBlocks(issues: string[]) {
   // entire turn was read from another source. This is different from one bad
   // property citation alongside a valid current budget/profile.
   const fullTurn = issues.includes('invalid_turn_contract') || fields.includes('primary_intent') && requests
-  return { property, budget, quantity, requests, profile, visit, fullTurn,
+  return { property, propertyAnswer, budget, quantity, requests, profile, visit, fullTurn,
     semanticFields: [...new Set([
       ...(property || fields.includes('primary_intent') || issues.includes('inconsistent_primary_intent:budget')
         ? ['primary_intent', 'primary_evidence', 'confidence'] : []),
       ...(property ? ['property'] : []), ...(budget ? ['budget'] : []), ...(quantity ? ['housing_quantities'] : []),
+      ...(propertyAnswer ? ['answer_to_previous', 'category_choice'] : []),
       ...(fields.includes('interaction_goal') ? ['interaction_goal'] : []),
     ])],
     rootFields: [...new Set([...(property ? ['preferred_category', 'declaration_evidence', 'unit_id', 'catalog_request', 'requests'] : []),
@@ -386,6 +388,7 @@ FUENTE PRINCIPAL: interprete mensaje_actual completo, aunque contenga errores or
 SITUACIONES PERSONALES: preserve las dudas sobre distribución, camas, otros muebles, circulación, mascotas y accesibilidad como solicitudes informativas con su referente vigente. Las implicaciones razonables orientan la respuesta; no declare una necesidad inferida como filtro, qualification, preferencia o requisito confirmado. Extraiga restricciones nuevas solo si el cliente las expresa. Una edad no prueba movilidad reducida, niños no determinan dormitorios y mencionar una mascota no confirma que el proyecto la admita. No convierta cantidades o medidas de objetos en personas o dormitorios. Responder una consulta intermedia requiere conservar la selección, las consultas pendientes y la pregunta comercial aún no contestada; la duda no es consentimiento para otra acción.
 La clasificación de alcance recibida es provisional. Interprete de forma independiente las solicitudes actuales; una etiqueta incierta no vuelve desconocida una petición inmobiliaria explícita. No necesita el catálogo de precios para extraer el presupuesto del cliente. La evidencia conserva el texto original con sus errores; el valor estructurado expresa su significado. No corrija la ortografía de una cita.
 USO RESIDENCIAL: una búsqueda de cuartos, habitaciones o dormitorios expresa vivienda: property.group=residential, sin elegir una tipología si no se indicó. Una categoría comercial del historial no debe mantenerse frente a esa necesidad actual. «Mínimo 3 cuartos» exige bedrooms >= 3; no necesita preguntar si habla de ambientes de un local. No confunda número de personas con dormitorios. Las plantas altas o superiores son una preferencia relativa: no invente floor_number=1 ni otra planta exacta; conserve esa preferencia en catalog_request.semantic_preferences. Un número de planta explícito sí permite un filtro numérico.
+ELECCIÓN DEL TIPO DE ESPACIO: interprete una respuesta a vivienda/local según la pregunta realmente entregada y el historial. «Me interesa algo comercial» en ese contexto declara property.group=commercial y category=local, operation=search y answer_to_previous.kind=value con el ID real de la pregunta; category_choice puede registrar esa elección. No es un asunto ajeno ni una nueva pregunta por elegir vivienda o local. No deduzca propósito de negocio propio o inversión, presupuesto, planta ni unidad. Una respuesta residencial amplia declara group=residential sin elegir suite, departamento o penthouse. Distinga preguntar sobre una categoría, preferirla, rechazarla y cambiar una preferencia anterior; explique únicamente una ambigüedad real.
 SEPARACIÓN ENTRE MEMORIA Y NOVEDADES: hechos_confirmados conserva declaraciones ya aceptadas. Su salida contiene únicamente novedades del mensaje actual; no reconstruya el perfil completo. Si un presupuesto conocido no se vuelve a declarar, budget.status=not_discussed, amount=null y evidence=""; esto significa «sin actualización», no que el sistema olvide el presupuesto. Lo mismo aplica a cantidades familiares, preferencias, qualification y perfil: sin declaración nueva, use el valor neutro del esquema. La memoria se conserva por separado. Si el cliente cambia, niega o precisa un dato, extraiga esa novedad con evidencia actual aunque contradiga la memoria. Una consulta de financiamiento puede continuar con datos conocidos sin volver a declararlos. Ninguna memoria autoriza una gestión o consentimiento nuevo.
 REFERENTE DE PROPUESTAS: propuesta_pendiente distingue la necesidad original de las alternativas que el bot acaba de recomendar. Una consulta de precios, tamaños, características, cantidad o comparación sin un nuevo ámbito explícito se refiere a esas alternativas: use property.operation=details o compare, reference_kind=followup o comparison y query_scope=offered o comparison. No reconstruya requisitos originales incompatibles en catalog_request. Puede consultar una categoría de esa propuesta sin aceptar sustituir su necesidad ni elegir una unidad. Conserve el propósito informativo; solo una aceptación o negativa real responde al consentimiento pendiente. Una nueva búsqueda explícita o una consulta general de todo el catálogo sí tiene su propio ámbito.
 `

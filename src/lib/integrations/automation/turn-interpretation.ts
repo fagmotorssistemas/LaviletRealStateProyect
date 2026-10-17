@@ -17,7 +17,7 @@ import { FINANCING_IDENTITY_RULES,FINANCING_IDENTITY_SCHEMA } from './financing-
 import { compactFinancingExtraction,FINANCING_EXTRACTION_RULES } from './financing-prompt'
 import { FINANCING_QUOTE_EXTRACTION_RULES,FINANCING_QUOTE_SCHEMA } from './financing-quote'
 import { isolateHistoricalBudget,reconcileConfirmedBudgetEcho } from './historical-budget-isolation'
-import { interpretationConsistencyIssues } from './interpretation-consistency'
+import { interpretationConsistencyIssues, propertyAnswerConsistencyIssues } from './interpretation-consistency'
 import { interactionGoalIssues, INTERACTION_GOAL_RULES } from './interaction-mode'
 import { CONTEXTUAL_OBJECTION_EXTRACTION_RULES } from './project-objections'
 import { reconcileHistoricalInterpretation,rememberInterpretationFacts } from './interpretation-memory'
@@ -177,7 +177,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
       || ['selected', 'conditional', 'rejected'].includes(text(object(object(value.turn_semantics).unit_choice).kind))
         && acceptedExtractorConfidence(object(object(value.turn_semantics).unit_choice).confidence)
         && evidenceMatches(text(object(object(value.turn_semantics).unit_choice).evidence), readable)
-      || ['request', 'accept', 'decline'].includes(text(object(value.material_request).kind))
+      || ['request', 'accept', 'decline', 'inquiry', 'defer'].includes(text(object(value.material_request).kind))
         && acceptedExtractorConfidence(object(value.material_request).confidence) && evidenceMatches(text(object(value.material_request).evidence), readable)
       || ['full_name', 'residence_city', 'residence_country'].some(key => value[key] != null && evidenceMatches(text(profile[key]), readable))
       || ['given_names', 'surnames', 'document'].some(key => identity[key] != null && evidenceMatches(text(identity.evidence), readable))
@@ -199,6 +199,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
     ...(inconsistentSocialTurn(value) || missingOperationMeaning(value) ? ['invalid_turn_contract'] : []),
     ...(visitPreferenceInvalid(value) ? ['invalid_visit_preference'] : []),
     ...interactionGoalIssues(value, readable),
+    ...propertyAnswerConsistencyIssues(value, readable, normalizedPendingQuestion(input.pregunta_pendiente)),
     ...interpretationSourceIssues(value, readable, pending, normalizedPendingQuestion(input.pregunta_pendiente), monetaryReferences), ...interpretationConsistencyIssues(value, readable),
   ])]
   if (method === 'model') {
@@ -300,6 +301,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
           fields: [...blocks.semanticFields, ...blocks.rootFields], preserve_other_fields: true,
           instruction: 'Corrija únicamente los bloques del esquema. Las referencias conocidas no son declaraciones actuales; no copie citas del historial. Conserve las demás interpretaciones y permisos.' } }) as Row
       repairInput.mensajes_actuales = currentMessageFragments(readable)
+      if (blocks.propertyAnswer) repairInput.historial = modelInput.historial
       if (blocks.visit) {
         // Source recovery needs original message text and IDs. The generic
         // historical-evidence sanitizer deliberately strips these fields.
@@ -317,7 +319,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
           + (blocks.profile ? '\n' + LEAD_PROFILE_EXTRACTION_RULES : '')
           + (blocks.visit ? '\n' + VISIT_PREFERENCE_EXTRACTION_RULES : '')
           + (blocks.semanticFields.includes('interaction_goal') ? '\n' + INTERACTION_GOAL_RULES : '')
-          + (blocks.property ? '\n' + CATALOG_REQUEST_RULES + '\n' + REQUEST_TOPICS_RULES : '')
+          + (blocks.property ? '\n' + CURRENT_TURN_INTERPRETATION_RULE + '\n' + TURN_SEMANTIC_EXTRACTION_RULES + '\n' + CATALOG_REQUEST_RULES + '\n' + REQUEST_TOPICS_RULES : '')
       const repaired = await dependencies.aiJson(repairInstructions,
         blocks.fullTurn ? { ...modelInput, recuperacion_interpretacion: repairInput.recuperacion_interpretacion }
           : quantityOnly ? { mensaje_actual: readable, pregunta_pendiente: input.pregunta_pendiente,

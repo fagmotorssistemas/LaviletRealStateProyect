@@ -5,6 +5,8 @@ import { generalProjectIntroductionTurn, projectIntroductionForTurn, withProject
 import { resolveTurnIntent } from './turn-intent'
 import { taskVerifiedContext } from './task-context'
 import { projectInformationReply } from './commercial-experience'
+import { leadIntroductionTurn } from './lead-introduction'
+import { finalWriterContract } from './response-plan'
 import { verifiedClaimSources } from './turn-evidence'
 import { compactTurnPromptContext } from './turn-prompt-context'
 import { businessRiskContext } from './business-risk-review'
@@ -31,10 +33,15 @@ test('single general request receives the approved summary after a greeting, wit
   for (const key of ['perfil_lead', 'materiales', 'contrato_turno', 'property_context']) assert.deepEqual(selected[key], input[key])
   assert.deepEqual(withProjectIntroductionForTurn(selected), selected)
   assert.deepEqual(input, before)
-  const reply = projectInformationReply(input, 'Quiero conocer el proyecto', 'https://example.com/brochure.pdf')
-  assert.match(reply, /La Vilet combina viviendas y locales comerciales/)
-  assert.match(reply, /brochure/); assert.match(reply, /\?$/)
-  assert.doesNotMatch(reply, /obra|construcción|2028|entrega|no ha comenzado/)
+  assert.equal(projectInformationReply(input, 'Quiero conocer el proyecto', 'https://example.com/brochure.pdf'), '')
+  const opening = leadIntroductionTurn({ current: 'Quiero conocer el proyecto', reply: '', projectInfo: input,
+    extracted: { turn_semantics: input.semantica_turno, requests: input.solicitudes_interpretadas },
+    audit: { resolved_turn_intent: input.contrato_turno } })
+  const contract = finalWriterContract('', opening.audit, { verified: input })
+  assert.equal(object(object(contract.estado_comercial).presentacion_proyecto).approved_summary, summary)
+  assert.equal(object(object(contract.estado_comercial).presentacion_proyecto).required, true)
+  assert.deepEqual(object(contract.estado_comercial).datos_a_pedir, ['full_name', 'current_residence'])
+  assert.equal(object(object(contract.estado_comercial).brochure).accion, 'offer_after_profile')
 })
 test('real intent projection keeps a source-less extracted request identical to its canonical current request and ignores unconstrained group all', () => {
   const input = fixture(), extracted = (input.solicitudes_interpretadas as Row[]).map(request => { const result = { ...request }; delete result.source; return result })
@@ -114,9 +121,14 @@ test('profile pending exchange still allows the first general information, inclu
 test('unknown or disabled summaries expose no reusable text and the legacy overview does not assert construction by default', () => {
   const input = fixture(); input.configuracion_presentacion_proyecto = { available: false, status: 'disabled' }
   assert.equal(projectIntroductionForTurn(input), null)
-  const reply = projectInformationReply(input, 'Quiero información general del proyecto', 'https://example.com/brochure.pdf')
-  assert.match(reply, /suites y departamentos/)
-  assert.doesNotMatch(reply, /construcción|obra|2028|entrega|no ha comenzado/)
+  assert.equal(projectInformationReply(input, 'Quiero información general del proyecto', 'https://example.com/brochure.pdf'), '')
+  const opening = leadIntroductionTurn({ current: 'Quiero conocer el proyecto', reply: '', projectInfo: input,
+    extracted: { turn_semantics: input.semantica_turno, requests: input.solicitudes_interpretadas },
+    audit: { resolved_turn_intent: input.contrato_turno } })
+  const presentation = object(object(finalWriterContract('', opening.audit, { verified: input }).estado_comercial).presentacion_proyecto)
+  assert.equal(presentation.approved_summary, null)
+  assert.equal(presentation.content_kind, 'basic_project_summary')
+  assert.doesNotMatch(opening.reply, /construcción|obra|2028|entrega|no ha comenzado/)
 })
 test('selection survives compacting and becomes a verified source for both review contracts', () => {
   const input = fixture(), selected = taskVerifiedContext(input, { source: 'project_overview' }, 'Quiero conocer el proyecto')

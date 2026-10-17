@@ -70,7 +70,10 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   const shared = profile.brochure_previously_sent === true || object(context.verified?.estado_conversacion).brochure_sent === true
   const resend = required.some(url => brochureLinks.includes(url))
   const tourOmitted = tourDeclined || tourSent && !required.includes(text(tour.url))
-  return { allowed_links: [...new Set(allowed.filter(url => (!shared || resend || !brochureLinks.includes(url))
+  const materialHeld = profile.brochure_decision_pending === true || profile.brochure_delivery_postponed === true || profile.material_question === true
+    || ['content_inquiry', 'delivery_deferred'].includes(text(material.reason))
+  return { allowed_links: [...new Set(allowed.filter(url => (!materialHeld || resend || !brochureLinks.includes(url))
+    && (!shared || resend || !brochureLinks.includes(url))
     && (!tourOmitted || url !== text(tour.url))))], required_links: [...new Set(required)] }
 }
 
@@ -173,6 +176,7 @@ ${CONTINUATION_QUESTION_RULE}
 ${TURN_CONTINUATION_RULES}
 ${VISIT_INTAKE_STATE_RULES}
 ${PROJECT_DELIVERY_RULES}
+Con brochure.accion=explain_content responda qué contiene usando la descripción autorizada, sin enviar enlace ni cerrar con petición, recordatorio o invitación a compartir datos. Con wait_for_decision responda la consulta actual y deje que el cliente decida sobre el material o sus datos. Estas decisiones no significan rechazo ni pausa comercial. Una pregunta intermedia no activa la excepción de captura omitida. En una captura autorizada, la frase de ofrecimiento explica el beneficio del brochure sin enumerar los datos; la única pregunta solicita los datos pendientes. Evite anteponer una condición que ya enumera nombre o residencia y después repetirlos en la pregunta.
 estado_comercial guía la redacción del intercambio; el revisor solo contrasta hechos y promesas con las fuentes. Atienda primero la consulta actual. profile_collection_decision decide si puede solicitar datos de presentación: capture, remind y confirm autorizan únicamente allowed_fields; defer, declined y complete prohíben volver a pedir nombre o residencia, aunque datos_pendientes todavía los incluya. Aportar el nombre tras la captura inicial permite un único recordatorio de residencia, también si adjunta una consulta comercial: responda esa consulta primero y después haga solamente la pregunta de residencia autorizada. Conserve la identificación de necesidades para los siguientes turnos y no reinicie categorías o dormitorios conocidos. Una consulta sin aportar perfil nuevo o una respuesta evasiva tras ese recordatorio no autoriza insistir. Las operaciones de reserva, visita y financiamiento aceptado conservan su prioridad; los datos exigidos para un trámite financiero expresamente aceptado se rigen por su propia etapa. Si requiere_captura=true, atienda primero la consulta y solicite únicamente datos_a_pedir. objetivo_presentacion indica si corresponde ofrecer el brochure con información del proyecto. Si brochure.accion=offer_after_profile, conecte claramente el ofrecimiento con los datos pendientes como paso previo para enviarlo, con redacción propia y sin una fórmula sobre guía personalizada. Esa es la secuencia inicial, no una prohibición absoluta de entrega: conserve share_now cuando el contrato autoriza el envío por petición directa, continuidad tras la captura omitida, negativa a aportar datos u otra excepción vigente. No exija datos como condición nueva para una entrega ya autorizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble solo si presentacion_sin_tipos=true. Si requiere_captura=false, continúe con el objetivo comercial vigente sin solicitar datos de presentación pospuestos, rechazados o ya confirmados. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
 Si estado_comercial.presentacion_proyecto.required=true, incluya una presentación breve basada en approved_summary antes de la pregunta de perfil. Ese resumen aprobado autoriza explicar el uso mixto y los tipos que contiene, aunque todavía no se haya entregado el brochure; no autoriza desplegar el catálogo, precios, estado de obra o fechas ajenos a la consulta. Ofrecer el brochure y pedir datos sin presentar el proyecto no cumple esta apertura. Mantenga la redacción natural y no repita la presentación en las respuestas posteriores.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. Atienda la solicitud actual completa.
@@ -208,7 +212,8 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
   const brochureUrl = text(introduction.brochure_url) || text(verified.brochure_url) || BROCHURE_URL
   const share = introduction.brochure_required === true || audit.source === 'brochure' || requiredLinks.includes(brochureUrl)
   const sharedBefore = introduction.brochure_previously_sent === true || conversation.brochure_sent === true
-  const brochureAction = share ? 'share_now' : sharedBefore ? 'already_shared'
+  const brochureAction = share ? 'share_now' : introduction.material_question === true ? 'explain_content'
+    : introduction.brochure_decision_pending === true || introduction.brochure_delivery_postponed === true ? 'wait_for_decision' : sharedBefore ? 'already_shared'
     : introduction.brochure_deferred === true ? 'offer_after_profile' : 'available_if_relevant'
   return { version: 'commercial-stage-v1',
     etapa: collect ? purpose === 'confirm_residence' ? 'confirm_profile' : 'collect_profile'
@@ -227,7 +232,7 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
       && !approvedPresentation,
     brochure: { compartido_previamente: sharedBefore,
       accion: brochureAction,
-      url: sharedBefore && !share ? null : brochureUrl },
+      url: ['explain_content', 'wait_for_decision'].includes(brochureAction) || sharedBefore && !share ? null : brochureUrl },
     siguiente_objetivo: collect ? purpose : text(object(audit.pending_question).act)
       || text(object(audit.resolved_turn_intent || verified.contrato_turno).objective) || 'answer_current_request',
   }

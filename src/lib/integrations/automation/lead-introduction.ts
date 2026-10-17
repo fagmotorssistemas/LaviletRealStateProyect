@@ -304,7 +304,15 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
   // A bare greeting keeps the short greeting route, including after a test reset.
   // Ask for the profile only once the lead expresses an actual request.
   const communication = turnCommunicationKind(extracted.communication || extracted.turn_semantics)
-  if (!input.current.trim() || communication && communication !== 'substantive') return unchanged
+  if (!input.current.trim() || communication && communication !== 'substantive') {
+    if (prior.brochure_decision_pending !== true && prior.brochure_delivery_postponed !== true || prior.brochure_sent === true) return unchanged
+    const decision = leadProfileCollectionDecision({ question_purpose: 'none', collection_reason: 'profile_decision_pending' }, profile, prior)
+    return { ...unchanged, brochureDeferred: true, audit: { ...audit, profile_collection_decision: decision,
+      profile_introduction: { question_purpose: 'none', brochure_decision_pending: prior.brochure_decision_pending === true,
+        brochure_delivery_postponed: prior.brochure_delivery_postponed === true, brochure_required: false,
+        brochure_deferred: true, brochure_previously_sent: false, brochure_url: input.brochureUrl || BROCHURE_URL,
+        collection_decision: decision, profile_state: profile } } }
+  }
   const recognition = nameRecognition(profile, prior)
   const suppliedCandidate = Boolean(object(currentProfile.residence_candidate).city || object(currentProfile.residence_candidate).country)
     && profile.residence_status === 'pending_confirmation'
@@ -323,6 +331,29 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
     return { ...unchanged,
       audit: { ...audit, profile_introduction: { profile_state: profile, question_purpose: 'none',
         collection_decision: unchanged.audit.profile_collection_decision, name_recognition: { name: recognition, optional: true } } } }
+  }
+  const materialQuestion = material.reason === 'content_inquiry'
+  const materialDeferred = material.reason === 'delivery_deferred'
+  const deliveryPostponed = (materialDeferred || prior.brochure_delivery_postponed === true) && !material.requested
+  const waitingForMaterialDecision = (materialQuestion || prior.brochure_decision_pending === true)
+    && !material.requested && !declined && missing.length > 0 && prior.brochure_sent !== true
+  // A question before deciding is neither an ignored profile request nor
+  // permission to deliver. Preserve that distinction across subsequent turns.
+  if (materialQuestion || deliveryPostponed || waitingForMaterialDecision && !suppliedProfile) {
+    const decision = leadProfileCollectionDecision({ question_purpose: 'none', profile_declined: declined,
+      collection_reason: 'profile_decision_pending' }, profile, prior)
+    return { ...unchanged, applied: true, brochureDeferred: waitingForMaterialDecision || deliveryPostponed,
+      state: { ...prior, brochure_decision_pending: waitingForMaterialDecision, brochure_delivery_postponed: deliveryPostponed },
+      audit: { ...audit, profile_collection_decision: decision, profile_introduction: {
+        stage: materialQuestion ? 'answer_material_question' : 'wait_for_profile_decision',
+        question: '', question_purpose: 'none', collection_decision: decision,
+        brochure_decision_pending: waitingForMaterialDecision, material_question: materialQuestion,
+        brochure_delivery_postponed: deliveryPostponed,
+        brochure_deferred: waitingForMaterialDecision || deliveryPostponed, brochure_required: false,
+        brochure_previously_sent: prior.brochure_sent === true, brochure_url: input.brochureUrl || BROCHURE_URL,
+        missing_fields: missing, reminder_count: Number(prior.reminder_count) || 0, profile_state: profile,
+        reason: 'answer_before_material_or_profile_decision',
+      } } }
   }
   // An informational request does not authorize proactive personal-data capture.
   // Keep the previous introduction receipt intact and acknowledge volunteered
@@ -394,7 +425,7 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
     // Ask only what is missing before automatically delivering material. Keep
     // direct material requests, already sent brochures, refusals and the bounded
     // reminder policy: this is not an indefinite requirement to disclose data.
-    brochureDeferred = remind && missing.length > 0 && prior.brochure_sent !== true && !materialRequested
+    brochureDeferred = (remind || waitingForMaterialDecision) && missing.length > 0 && prior.brochure_sent !== true && !materialRequested
     deliverBrochure = material.reason !== 'declined' && !brochureDeferred && (prior.brochure_sent !== true || materialRequested)
     const brochure = deliverBrochure ? `Aquí tiene el brochure digital completo del proyecto: ${url}` : ''
     if (remind) {
@@ -408,6 +439,8 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
       ...(confirm ? { confirmation_asked: true, confirmation_candidate: candidate } : {}),
       ...(denial && remind ? { denial_followup_asked: true } : {}) }
   }
+  state.brochure_decision_pending = waitingForMaterialDecision
+  state.brochure_delivery_postponed = false
   state.collection_status = collectionStatus(profile, state, declined)
   state.missing_fields = missing
   const stage = question ? asked ? 'reminder' : 'request' : 'deliver'
@@ -449,6 +482,7 @@ export function leadIntroductionTurn(input: LeadIntroductionInput) {
 }
 
 export const LEAD_INTRODUCTION_RULES = `
+- Consultar qué contiene el brochure antes de decidir es una duda intermedia. Con material_question=true explique su contenido autorizado sin adjuntar el enlace ni añadir petición, recordatorio o invitación a compartir datos. Con brochure_decision_pending=true atienda las consultas actuales y conserve la decisión pendiente: una cortesía no la resuelve. No anuncie al cliente este estado interno. Una solicitud expresa de envío o la respuesta de perfil posterior se rigen por la nueva decisión del turno. Pida los datos autorizados una sola vez en una sola pregunta natural: explique el beneficio del brochure en el ofrecimiento y reserve los datos pendientes para esa pregunta, sin enumerarlos antes como condición.
 APERTURA Y PERFIL DEL LEAD
 - Esta secuencia aplica cuando la captura está autorizada y no se ha suspendido la calificación para conocer el proyecto. En su etapa autorizada prevalece sobre las sugerencias generales de presentación, libertad editorial o cierre sin pregunta. El sistema decide la etapa y los datos pendientes; el redactor atiende la consulta y expresa la pregunta autorizada con sus propias palabras. El revisor, cuando está habilitado, contrasta únicamente hechos afirmados y promesas comerciales; no evalúa la captura, la secuencia ni la continuidad.
 - Siga estado_operativo.profile_introduction y su profile_state compartido con el extractor. Primero responda la consulta concreta y después integre con naturalidad una sola pregunta según question_purpose. Recibe objetivos y datos pendientes, no una frase que deba copiar. Si el brochure todavía está pendiente y brochure_deferred=true, conecte su ofrecimiento con la solicitud del nombre y la ciudad o país de residencia actual: proponga compartir el brochure y solicite los datos pendientes como paso previo de ese intercambio. No presente el ofrecimiento y la pregunta como dos asuntos inconexos. Varíe la redacción según la conversación, sin imponer «para compartirle el brochure» ni «guía personalizada». Esta conexión expresa la secuencia inicial; no afirme que sin esos datos nunca podrá recibir el material ni cambie las excepciones de entrega indicadas por el estado. Solicite únicamente nombre de presentación y ciudad o país de residencia actual, nunca dirección domiciliaria, desde dónde escribe ni el lugar donde quiere comprar. Un intercambio anterior sobre otro tema no acredita que estos datos ya se hayan solicitado. La cortesía debe acompañar la respuesta concreta, sin un saludo aislado seguido de una ficha seca.

@@ -14,10 +14,10 @@ export const BROCHURE_DESCRIPTION = Object.freeze({
 })
 
 export const MATERIAL_REQUEST_SCHEMA = { type: 'object', additionalProperties: false,
-  properties: { kind: { type: 'string', enum: ['request', 'accept', 'decline', 'none'] },
+  properties: { kind: { type: 'string', enum: ['request', 'accept', 'decline', 'inquiry', 'defer', 'none'] },
     evidence: { type: 'string' }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] } },
   required: ['kind', 'evidence', 'confidence'] }
-export const MATERIAL_REQUEST_RULES = 'material_request interpreta la solicitud del brochure: request si lo pide, accept si acepta una oferta anterior inequívoca de enviarlo, decline si lo rechaza y none en otro caso. Mencionar el brochure que ya recibió, sus planos o instalaciones no solicita volver a enviarlo: kind=none. Use evidencia literal ACTUAL. Un sí a elegir inmuebles, financiamiento o visita no acepta material. No convierta cualquier petición de información en solicitud del brochure.'
+export const MATERIAL_REQUEST_RULES = 'material_request interpreta por separado la decisión actual sobre el brochure: request si pide recibirlo ahora, accept si acepta una oferta anterior inequívoca de enviarlo, decline si rechaza el material, inquiry si consulta qué contiene o para qué sirve antes de decidir recibirlo o compartir sus datos, defer si pide esperar o recibirlo después, y none en otro caso. «Qué incluye para ver si le comparto mi información» es inquiry: explique el contenido, conserve la decisión pendiente y no envíe el enlace ni interprete rechazo del perfil. Consultar algo que vio en un brochure ya recibido, sus planos o instalaciones es none y no pide reenviarlo. Si consulta su contenido y además pide expresamente que se lo envíen ahora, use request y conserve ambas consultas. No confunda rechazar el material con rechazar compartir datos. Use evidencia literal ACTUAL. Un sí a elegir inmuebles, financiamiento o visita no acepta material. No convierta cualquier petición de información en solicitud del brochure.'
 
 /** One material decision shared by opening, routing and the final link contract. */
 export function brochureDeliveryIntent(current: string, history: unknown = [], extracted: Row = {}, pending: Row = {}) { void history;
@@ -29,6 +29,8 @@ export function brochureDeliveryIntent(current: string, history: unknown = [], e
   const offered = pending.id === 'brochure_offer' && pending.act === 'material'
   const answer = object(object(extracted.turn_semantics).answer_to_previous)
   if (grounded && material.kind === 'decline') return { requested: false, reason: 'declined', evidence }
+  if (grounded && ['inquiry', 'defer'].includes(text(material.kind)))
+    return { requested: false, reason: material.kind === 'inquiry' ? 'content_inquiry' : 'delivery_deferred', evidence }
   if (grounded && (material.kind === 'request' || material.kind === 'accept' && offered))
     return { requested: true, reason: material.kind === 'request' ? 'explicit_request' : 'accepted_offer', evidence }
   if (offered && answer.question_id === 'brochure_offer' && acceptedExtractorConfidence(answer.confidence) && answer.kind === 'affirmative'

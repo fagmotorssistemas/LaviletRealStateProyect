@@ -6,6 +6,8 @@ const root = path.resolve(__dirname, '..')
 const destination = path.join(root, 'tmp', 'conversation-contract-validation')
 const files = [
   'src/lib/integrations/automation/conversation-stability.test.ts',
+  'src/lib/integrations/automation/material-and-commercial-continuity.test.ts',
+  'src/lib/integrations/automation/ai-model-routing.test.ts',
   'src/lib/integrations/automation/typed-conversation-boundary.test.ts',
   'src/lib/integrations/automation/preparation-contract-boundary.test.ts',
   'src/lib/integrations/automation/extractor-confidence-pipeline.test.ts',

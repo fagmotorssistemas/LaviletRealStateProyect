@@ -7,9 +7,10 @@ export function aiRequestRole(schema: unknown, task: string, attachments: boolea
       : task === 'writing' ? 'draft' : 'interpretation'
 }
 
-/** Each evaluated role can change or roll back without changing media interpretation. */
+/** Roles can change independently; audio transcription uses its own endpoint/model. */
 export function automationModelForRole(role: AIRequestRole, env: NodeJS.ProcessEnv = process.env): string | undefined {
-  if (role === 'scope') return env.OPENAI_MODEL_SCOPE?.trim() || 'gpt-4o-mini'
+  if (role === 'scope') return env.OPENAI_MODEL_SCOPE?.trim() || 'gpt-6-luna'
+  if (role === 'media') return env.OPENAI_MODEL_MEDIA?.trim() || 'gpt-6-luna'
   if (role === 'reviewer') return env.OPENAI_MODEL_REVIEWER?.trim() || 'gpt-6-luna'
   if (role === 'extractor') return env.OPENAI_MODEL_EXTRACTOR?.trim() || 'gpt-6-luna'
   if (role === 'writer' || role === 'draft') return env.OPENAI_MODEL_WRITER?.trim() || 'gpt-6-luna'
@@ -25,6 +26,12 @@ export type AIReasoningEffort = ReviewReasoningEffort | ExtractorReasoningEffort
  * Luna roles start at low to avoid the provider's medium default. */
 export function automationReasoningEffortForRole(role: AIRequestRole, model: string,
   env: NodeJS.ProcessEnv = process.env): AIReasoningEffort | undefined {
+  if ((role === 'scope' || role === 'media') && model === 'gpt-6-luna') {
+    const setting = role === 'scope' ? 'OPENAI_SCOPE_REASONING_EFFORT' : 'OPENAI_MEDIA_REASONING_EFFORT'
+    const configured = env[setting]?.trim().toLowerCase() || 'low'
+    if (!['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(configured)) throw new Error(`${setting}_INVALID`)
+    return configured as AIReasoningEffort
+  }
   if (role === 'extractor' && model === 'gpt-6-luna') {
     const configured = env.OPENAI_EXTRACTOR_REASONING_EFFORT?.trim().toLowerCase() || 'low'
     if (!['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(configured)) throw new Error('OPENAI_EXTRACTOR_REASONING_EFFORT_INVALID')

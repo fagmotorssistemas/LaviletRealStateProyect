@@ -4,7 +4,7 @@
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict')
 require('@next/env').loadEnvConfig(path.resolve(__dirname, '..'), false, { info() {}, error() {} })
 require('./test-typescript.cjs')
-const { aiJson } = require('../src/lib/integrations/automation/ai.ts')
+const { aiJson, mediaText } = require('../src/lib/integrations/automation/ai.ts')
 const { interpretConversationTurn, rememberInterpretedTurn } = require('../src/lib/integrations/automation/turn-interpretation.ts')
 const { resolveTurnIntent } = require('../src/lib/integrations/automation/turn-intent.ts')
 const { resolvePropertyTurn, rememberPropertyReply } = require('../src/lib/integrations/automation/property-context.ts')
@@ -16,6 +16,7 @@ const { completeTurnReply } = require('../src/lib/integrations/automation/turn-c
 const { withResponseReviewPolicy } = require('../src/lib/integrations/automation/response-review-policy.ts')
 const { responseReviewSettings } = require('../src/lib/inmobiliaria/responseReview.ts')
 const { interactionMode } = require('../src/lib/integrations/automation/interaction-mode.ts')
+const { classifyBusinessScope, reconcileConversationScope } = require('../src/lib/integrations/automation/business-scope.ts')
 const { DEFAULT_TONE } = require('../src/lib/inmobiliaria/conversationTone.ts')
 const { executionCost } = require('../src/components/inmobiliaria/automation/workflow/executionCost.ts')
 const { object } = require('../src/lib/integrations/automation/data.ts')
@@ -35,6 +36,8 @@ const catalog = [
     area_internal_m2: 140.53, area_exterior_m2: 25.3, published_commercial_price: 341016 },
   { id: 'eval-p605', category: 'penthouse', unit_number: '605', bedrooms: 3, bathrooms_full: 2, floor_number: 6,
     area_internal_m2: 142.09, area_exterior_m2: 27.2, published_commercial_price: 337272 },
+  { id: 'eval-l01', category: 'local', unit_number: 'LC01', bedrooms: 0, bathrooms_full: 1, floor_number: 0,
+    area_internal_m2: 70, area_exterior_m2: 0, published_commercial_price: 155000 },
 ].map(unit => ({ ...unit, is_published: true, status: 'disponible', tour_url: 'https://example.com/tour/' + unit.unit_number }))
 const verified = {
   proyecto: { name: 'La Vilet', address: 'Puertas del Sol, Cuenca', description: 'Proyecto de uso mixto con viviendas y dos plantas comerciales.' },
@@ -110,6 +113,38 @@ cases.push({ id: 'requirements-to-selected-home', summary: clone(cases.find(item
   } })
 // This begins with an identified contact, without a previously selected unit.
 cases.at(-1).summary._property_context = {}
+cases.push({ id: 'brochure-content-before-decision', useScope: true,
+  messages: ['Quiero información sobre el proyecto', 'Qué incluye ese brochure para ver si le comparto mi información',
+    'Oh ya', 'Me llamo Elena', 'Actualmente resido en Loja'],
+  check(turns) {
+    assert.equal(turns[0].profile_decision.action, 'capture')
+    for (const turn of turns.slice(1, 4)) {
+      assert.equal(turn.receipts.brochure_shared, false)
+      assert.doesNotMatch(turn.reply, /https?:\/\//)
+      assert.equal(turn.saved_introduction.brochure_decision_pending, true)
+    }
+    assert.equal(turns[1].scope.kind, 'property')
+    assert.equal(turns[1].introduction.material_question, true)
+    assert.ok(!turns[1].question?.continuation_id)
+    assert.equal(turns[2].saved_introduction.reminder_count, 0)
+    assert.deepEqual(turns[3].profile_decision.allowed_fields, ['current_residence'])
+    assert.equal(turns[4].receipts.brochure_shared, true)
+  } })
+cases.push({ id: 'contextual-commercial-choice', useScope: true,
+  summary: { ...clone(cases.find(item => item.id === 'selected-reservation-continuity').summary), _property_context: {},
+    _pending_question: { id: 'property_category', act: 'choose_category', question: '¿Le interesa una vivienda o un local comercial?' } },
+  history: [{ role: 'bot', content: '¿Le interesa una vivienda o un local comercial?' }],
+  messages: ['oh gracias\nbueno me interesa algo comercial', '¿Qué opciones tienen en planta baja?', 'En realidad prefiero una vivienda'],
+  check(turns) {
+    assert.equal(turns[0].scope.kind, 'property')
+    assert.equal(turns[0].semantics.property.group, 'commercial')
+    assert.equal(turns[0].semantics.property.category, 'local')
+    for (const turn of turns) assert.notEqual(turn.plan.action, 'discover_use')
+    assert.equal(turns[1].property_context.query.group, 'commercial')
+    assert.equal(turns[2].semantics.property.group, 'residential')
+    for (const turn of turns) assert.doesNotMatch(turn.reply, /(?:vivienda.{0,20}o.{0,20}local|local.{0,20}o.{0,20}vivienda)/i)
+  } })
+cases.push({ id: 'visual-luna', visual: true, messages: [] })
 const realFetch = global.fetch, measurements = [], requests = [], results = []
 const cost = usage => executionCost(usage.map(item => ({ key: 'model_request', input: { model: item.model }, output: { token_usage: item.usage } }))).estimatedUsd
 global.fetch = async (url, options) => {
@@ -148,12 +183,31 @@ async function run() {
   const extractorPrompt = fs.readFileSync('supabase/prompts/extractor-eventos.md', 'utf8')
   for (const fixture of cases.filter(c => !selected.length || selected.includes(c.id))) {
     const record = { id: fixture.id, turns: [], status: 'running' }; results.push(record)
+    if (fixture.visual) {
+      const download = require('../src/lib/integrations/automation/media-download.ts'), previousDownload = download.downloadMedia
+      try {
+        const bytes = await require('sharp')(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="220"><rect width="100%" height="100%" fill="white"/><text x="30" y="70" font-size="36" fill="black">LOCAL COMERCIAL 05</text><text x="30" y="135" font-size="30" fill="black">Area interior: 70 m2</text></svg>')).png().toBuffer()
+        download.downloadMedia = async () => ({ bytes, mime: 'image/png' })
+        const result = await mediaText({ text: '', media: { type: 'image', url: 'https://example.com/synthetic.png' } })
+        assert.match(result, /LOCAL COMERCIAL 05/i)
+        assert.match(result, /70/)
+        assert.equal(requests.at(-1).model, 'gpt-6-luna')
+        record.turns.push({ synthetic: true, description: result, model: requests.at(-1).model })
+        record.status = 'passed'
+      } catch (error) { record.status = 'failed'; record.error = error.message }
+      finally { download.downloadMedia = previousDownload }
+      save()
+      console.log(JSON.stringify({ case: fixture.id, status: record.status, description: record.turns[0]?.description, error: record.error }))
+      continue
+    }
     let summary = clone(fixture.summary || {}), history = clone(fixture.history || []), reservation = null
     let calendar = {}, visitRequest = null, visitState = {}, slot = {}
     try {
       for (const [index, current] of fixture.messages.entries()) {
         const sourceId = 'synthetic-' + fixture.id + '-' + index
-        const interpreted = await interpretConversationTurn({ mensaje_actual: current, source_message_id: sourceId,
+        const classified = fixture.useScope ? await classifyBusinessScope(current, history, true, object(summary._turn_intent).scope, summary._pending_question)
+          : { kind: 'property', property_message: current, uncertain: false }
+        let interpreted = await interpretConversationTurn({ mensaje_actual: current, source_message_id: sourceId,
           source_at: '2026-10-16T21:00:00Z', current_messages: [{ external_message_id: sourceId, content: current, sent_at: '2026-10-16T21:00:00Z' }],
           historial: history.slice(-10), resumen: summary, contexto_propiedades: summary._property_context,
           catalogo_unidades: catalog, pregunta_pendiente: summary._pending_question, perfil_inicial: summary._lead_profile,
@@ -161,10 +215,13 @@ async function run() {
             assigned_to: 'synthetic-advisor', handoff_status: 'assigned' }, requests: [{ ...reservation,
             id: reservation.request_id, lead_id: 'synthetic-lead' }] }) : undefined,
           coordinacion_visita: visitState }, { activePrompt: async () => extractorPrompt, aiJson: generate })
+        const scopeDecision = fixture.useScope
+          ? await reconcileConversationScope(classified, current, interpreted.requests, history, summary._pending_question) : classified
+        if (scopeDecision.kind === 'property') interpreted = interpreted.withActionMessage?.(current) || interpreted
         const semantics = interpreted.semantics
         const profile = confirmedLeadProfile(mergeLeadProfile(summary._lead_profile, interpreted.extracted.lead_profile))
         const property = resolvePropertyTurn(catalog, current, summary, history, semantics)
-        const intent = resolveTurnIntent({ current, history, semantics, requests: interpreted.requests, scope: { kind: 'property', uncertain: false },
+        const intent = resolveTurnIntent({ current, history, semantics, requests: interpreted.requests, scope: scopeDecision,
           previous: summary._turn_intent, pendingQuestion: summary._pending_question })
         const mode = interactionMode(summary._interaction_mode, semantics)
         let audit = { source: 'commercial', resolved_turn_intent: intent, catalog_query: property.query,
@@ -229,7 +286,7 @@ async function run() {
         if (dialogue) visitState = rememberVisitDialogue(visitState, dialogue, visitRequest || { action: 'collecting' }, true)
         record.turns.push({ current, reply: written.reply, mode: mode.mode, profile, profile_decision: audit.profile_collection_decision || {},
           selected: object(summary._property_context).selected_ids || [], property_context: clone(summary._property_context),
-          semantics: clone(semantics), introduction: clone(audit.profile_introduction || {}),
+          semantics: clone(semantics), scope: scopeDecision, introduction: clone(audit.profile_introduction || {}),
           saved_introduction: clone(summary._lead_introduction || {}), requests: interpreted.requests, plan, receipts,
           reservation_authorized: reservationAuthorized,
           writer_facts: object(lastWriterContext.contexto_verificado).instalaciones || [], question: written.audit.question,
