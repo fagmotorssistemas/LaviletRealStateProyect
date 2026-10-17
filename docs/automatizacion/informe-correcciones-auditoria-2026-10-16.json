@@ -294,5 +294,192 @@
     "Local SQL and UI fixtures do not certify production delivery, migrations or scheduler.",
     "The regression selection extends the historical audit and is not every test in the repository.",
     "Historical invitations without structured receipts do not authorize a new operation from a bare affirmative."
+  ],
+  "supplementalUpdates": [
+    {
+      "date": "2026-10-17",
+      "reportSection": "9",
+      "scope": "post_audit_corrections_and_coverage",
+      "reviewedCodeVersion": "a1fc19f3cc5e1ef42a32233d68786a8c19ea8dfd",
+      "families": 17,
+      "additiveToOriginal20": false,
+      "corrections": [
+        {
+          "id": "S-01",
+          "before": "El significado interpretado por IA podía rechazarse por vocabulario, formato o por reconstruir la pregunta previa desde su prosa.",
+          "changeAndCoverage": "Contrato compartido de comunicación, solicitudes, autoridades y referencias; preferencias de visita con componentes y fuentes; recibos tipados de las preguntas realmente entregadas. Cubre paráfrasis, errores de escritura, respuestas breves y fecha/hora aportadas en mensajes distintos.",
+          "expectedAndLimit": "El código comprueba datos y condiciones operativas sin reinterpretar palabras. Completar una preferencia permite registrar la solicitud cuando se cumplen sus requisitos; anunciar una cita confirmada exige su registro propio. La migración de visitas pertenece a esa intervención previa.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-02",
+          "before": "Un selector por palabras podía excluir los hechos que respondían a la consulta.",
+          "changeAndCoverage": "Selección de bloques de contexto desde solicitudes y temas interpretados por IA, manteniendo políticas publicadas y fuentes compartidas. Cubre seguridad del edificio, ubicación, características y consultas equivalentes expresadas de formas distintas.",
+          "expectedAndLimit": "El redactor recibe los hechos pertinentes disponibles. No se le autoriza a inventar características ni a convertir medidas del edificio en estadísticas del barrio.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-03",
+          "before": "Límites internos se convertían en descargos; la desconfianza podía provocar una disculpa por algo no dicho.",
+          "changeAndCoverage": "Regla común de respuesta útil y positiva, alineación de bloques particulares y contraste con el historial real. Cubre objeciones, seguridad, materiales, visitas y dudas sobre la información anterior.",
+          "expectedAndLimit": "Explicar lo pertinente sin enumerar espontáneamente carencias o garantías inexistentes. Una pregunta directa sobre un dato ausente recibe una respuesta breve y honesta; no se oculta ni se inventa. Solo se rectifican afirmaciones anteriores realmente equivocadas.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-04",
+          "before": "Una petición corriente de información podía guardar una pausa persistente y detener el flujo.",
+          "changeAndCoverage": "Decisión estructurada de pausa, retoma o ausencia de cambio; validación de coherencia antes de planificar. Se repararon y verificaron dos estados afectados mediante actualización condicionada, conservando los demás datos.",
+          "expectedAndLimit": "Pedir información mantiene la orientación pertinente. Una pausa explícita, una negativa o una decisión pospuesta conserva su alcance. Las dos reparaciones no equivalen a una limpieza automática de todos los estados históricos.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-05",
+          "before": "Un objetivo histórico podía imponerse al actual, recuperar requisitos sustituidos o reabrir la búsqueda durante una operación.",
+          "changeAndCoverage": "Prioridad del plan actual, contexto operativo compartido y conservación de selección, consultas y alternativas aceptadas. Se retira de la búsqueda activa el requisito reemplazado y se conserva como historia.",
+          "expectedAndLimit": "Atender la consulta actual y continuar desde la decisión vigente, sin reiniciar requisitos ya resueltos ni inventar otra gestión. Un cambio expreso del cliente sigue teniendo efecto.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-06",
+          "before": "El formato del lote podía invalidar citas y una intención principal podía desplazar decisiones de otro mensaje.",
+          "changeAndCoverage": "Recuperación de citas contiguas con diferencias solo de espacios, conservación de cifras/negaciones/orden e instrucciones de integración de todos los mensajes. Contradicciones estructurales se devuelven a la IA mediante reparación limitada y registrada.",
+          "expectedAndLimit": "Conservar consultas y datos simultáneos sin aclaraciones genéricas causadas por formato. Una segunda extracción responde a una validación concreta; no es el revisor ni una obligación de procesar siempre dos veces.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-07",
+          "before": "Explicar el brochure podía activar el enlace o hacer desaparecer la presentación parcial pendiente.",
+          "changeAndCoverage": "Decisiones separadas para explicar contenido, esperar decisión, completar perfil y compartir ahora. Cubre consultas intermedias, nombre aportado junto con una consulta, petición expresa de envío y rechazo de datos o material.",
+          "expectedAndLimit": "Explicar contenido sin entregar por una mera mención. Si aporta un dato, conservarlo y pedir solo el pendiente cuando corresponda el recordatorio autorizado. La petición expresa y las excepciones vigentes permiten entrega sin forzar datos.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-08",
+          "before": "El recordatorio de residencia volvía a ofrecer y justificar el brochure aunque el perfil estuviera bien interpretado.",
+          "changeAndCoverage": "Acción `await_profile` y separación de ofrecimiento inicial y aclaraciones. El contrato conserva procedencia y significado temporal del lugar declarado.",
+          "expectedAndLimit": "Reconocer el dato recibido y preguntar solo por la residencia actual pendiente. No repetir el beneficio ni asumir que una residencia anterior u origen es la actual; una expresión incierta se aclara.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-09",
+          "before": "Una elección contextual podía perderse o coexistir con restricciones antiguas; números descriptivos podían convertirse en filtros.",
+          "changeAndCoverage": "Interpretación de elecciones respecto de la pregunta entregada, roles numéricos estructurados y prioridad de la aceptación de alternativas. Se distinguen referencias de comparación, consultas y selección expresa.",
+          "expectedAndLimit": "No volver a preguntar una categoría ya elegida ni deducir dormitorios de personas, edades u otras cantidades. Mencionar una categoría para consultar no equivale siempre a elegirla; no se inventan unidad, finalidad ni presupuesto.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-10",
+          "before": "Los agregados del catálogo podían describir un grupo más amplio que el conjunto elegido por el plan.",
+          "changeAndCoverage": "Proyección de evidencia de presentación sobre `selection_scope`, cálculo de rangos desde sus miembros y obligación de identificar el subconjunto al describirlo. Se conservan por separado las consultas independientes y comparaciones actuales.",
+          "expectedAndLimit": "Superficies, precios y plantas corresponden al grupo consultado. No generalizar sus datos a otra distribución ni inferir inexistencia global desde contexto recortado.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-11",
+          "before": "La consulta de altura podía mezclar plantas, recuperar unidades anteriores o contaminar el siguiente turno.",
+          "changeAndCoverage": "La IA entrega `floor_query` y su referente; el código calcula el máximo o compara plantas del catálogo. La consulta temporal caduca al siguiente turno y conserva preferencias, presupuesto y selección.",
+          "expectedAndLimit": "Responder sobre las plantas solicitadas sin volver por rutina a otras unidades. Explorar otra altura no aumenta el presupuesto, acepta otra categoría ni autoriza financiamiento. Si falta un referente inequívoco, se aclara.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-12",
+          "before": "El texto de una nota de voz podía contener una cifra equivocada; la traza no identificaba el transcriptor efectivo.",
+          "changeAndCoverage": "Se documentó y verificó la separación entre transcripción acústica e interpretación con Luna. **No se cambió el transcriptor ni se corrigió el audio original.** Quedan pendientes una comparación con ese audio y el registro del modelo efectivo.",
+          "expectedAndLimit": "No presentar la migración de imágenes a Luna como mejora de transcripción. Los controles de voz clara y confianza no garantizan cada dígito. El valor predeterminado local sigue siendo `whisper-1`; no acredita el modelo del evento productivo examinado.",
+          "status": "diagnosed_acoustic_evaluation_and_provenance_pending"
+        },
+        {
+          "id": "S-13",
+          "before": "Un número contradictorio con una referencia relativa podía tratarse como elección inequívoca de otra opción.",
+          "changeAndCoverage": "El intérprete puede declarar `reference_kind=ambiguous`; el consumidor conserva búsqueda/selección y el plan `clarify_unit_reference` pide aclarar candidatos. Cubre referencias relativas incompatibles con las opciones realmente ofrecidas, también en texto transcrito.",
+          "expectedAndLimit": "Aclarar antes de mostrar otro recorrido o cambiar distribución. No autocorregir el número ni bloquear una petición clara e independiente de otra unidad. Depende de que la IA identifique la ambigüedad; no repara el sonido.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-14",
+          "before": "Una unidad identificada podía terminar con un objetivo genérico sin pregunta.",
+          "changeAndCoverage": "Plan `confirm_selected_option` cuando falta decidir continuidad y no existe una acción autorizada de mayor prioridad. La aceptación de la pregunta entregada se guarda como continuidad de esa unidad, separada de la selección.",
+          "expectedAndLimit": "Proponer continuar con la opción conocida sin repetir ficha, recorrido o presupuesto pospuesto. Aceptar esa continuidad no inicia visita, financiamiento ni reserva. No se repite si ya está resuelta.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-15",
+          "before": "Agradecer podía cerrar el intercambio mediante un atajo sin redactor, aun con una decisión pendiente.",
+          "changeAndCoverage": "Separación interpretada por IA de `courtesy_only` y `closing_only`; `resume_pending_decision` conserva la pregunta realmente pendiente y permite retomarla una vez. La memoria de repetición se guarda tras el envío aceptado y con metadatos coincidentes.",
+          "expectedAndLimit": "Un agradecimiento neutro puede continuar la decisión; no la acepta. Una despedida explícita se respeta. No se inventa captura porque falten campos ni se insiste indefinidamente; pausas, límites de perfil y gestiones en espera conservan prioridad.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-16",
+          "before": "La instrucción exacta y el mensaje analizado eran difíciles de contrastar; una ruta sin redactor resultaba poco clara.",
+          "changeAndCoverage": "Panel destacado con el JSON capturado de `contrato_redaccion.objetivo_siguiente`, acceso al contexto y perfil originales, copia y aviso de ausencia de llamada. Mensaje fijo en la vista de pasos y conservación de selección al actualizar.",
+          "expectedAndLimit": "Inspeccionar lo que realmente recibió el redactor, sin recalcularlo con reglas actuales. Registros parciales se señalan. La mejora no incluye la vista de arquitectura: la interferencia del minimapa sigue pendiente.",
+          "status": "step_view_implemented_architecture_minimap_pending"
+        },
+        {
+          "id": "S-17",
+          "before": "Aprobaciones parciales podían interpretarse como cierre de toda la automatización o de sus fallos históricos.",
+          "changeAndCoverage": "Evaluador de secuencias con modelos reales, memoria y operaciones ficticias; registros de intentos fallidos y resultados por ejecución. Se separan aceptación estructural, naturalidad, pruebas históricas y operación productiva.",
+          "expectedAndLimit": "Más evidencia sobre recorridos completos, sin prometer cobertura universal. La revisión individual de 432 fallos sigue aplazada; los controles estructurales no certifican cada frase ni un despliegue.",
+          "status": "scoped_evaluations_available_historical_and_broader_review_open"
+        }
+      ],
+      "validationSources": [
+        "validacion-estabilizacion-2026-10-16.json",
+        "validacion-brochure-interes-y-multimedia-2026-10-17.json",
+        "validacion-lotes-brochure-y-plantas-2026-10-17.json",
+        "validacion-contexto-redactor-2026-10-17.json",
+        "validacion-referencias-y-cortesias-2026-10-17.json"
+      ],
+      "countsOverlap": true,
+      "latestScopedValidation": {
+        "source": "validacion-referencias-y-cortesias-2026-10-17.json",
+        "checks": 430,
+        "passed": 430,
+        "failed": 0,
+        "syntheticTurns": 7,
+        "modelCalls": 21,
+        "originalAudioEvaluated": false
+      },
+      "historicalReview": {
+        "failures": 432,
+        "status": "deferred",
+        "rerunByThisUpdate": false
+      },
+      "pending": [
+        "Comparar el audio original entre transcriptores y registrar el modelo efectivo por llamada.",
+        "Revisar individualmente los 432 fallos hist?ricos cuando el usuario retome esa tarea.",
+        "Resolver la interferencia del minimapa en la vista de arquitectura.",
+        "Ampliar la evaluaci?n de naturalidad y comprobar c?digo y configuraci?n efectivamente desplegados."
+      ],
+      "voiceModels": {
+        "localDefault": "whisper-1",
+        "recordedProductionTranscriber": null,
+        "suggestedEvaluationCandidate": "gpt-transcribe",
+        "alreadyAcceptedAlternative": "gpt-4o-transcribe",
+        "gptTranscribeNeedsCodeAdaptation": true,
+        "originalAudioCompared": false,
+        "modelChangedByThisUpdate": false,
+        "lunaApiDirectAudioSupported": false,
+        "sources": [
+          "https://developers.openai.com/api/docs/guides/transcription",
+          "https://developers.openai.com/api/docs/models/gpt-transcribe",
+          "https://developers.openai.com/api/docs/models/gpt-4o-transcribe",
+          "https://developers.openai.com/api/docs/models/gpt-6-luna"
+        ]
+      },
+      "documentationUpdate": {
+        "sourceCodeChanged": false,
+        "newMigrations": [],
+        "modelsChanged": false,
+        "sqlApplied": false,
+        "productionChanges": false,
+        "customerMessages": false,
+        "realModelCalls": false,
+        "reviewerEnabled": false,
+        "aiPlannerInstalled": false
+      },
+      "scopeNote": "Los indicadores originales pertenecen a la intervenci?n del 16 de octubre. Los registros posteriores distinguen sus propias evaluaciones y reparaciones de estado; este suplemento no certifica el despliegue actual."
+    }
   ]
 }

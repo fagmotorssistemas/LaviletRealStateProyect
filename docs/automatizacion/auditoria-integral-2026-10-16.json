@@ -929,5 +929,167 @@
         "tmp/reservation-scope-lint-20261016.log"
       ]
     }
+  ],
+  "supplemental_reviews": [
+    {
+      "date": "2026-10-17",
+      "report_section": "12",
+      "scope": "generalized_patterns_from_post_audit_reviews",
+      "reviewed_code_version": "a1fc19f3cc5e1ef42a32233d68786a8c19ea8dfd",
+      "counting": {
+        "families": 17,
+        "identifiers": "S-01 to S-17",
+        "additive_to_original_20": false,
+        "independent_production_incident_count": false
+      },
+      "findings": [
+        {
+          "id": "S-01",
+          "situation": "Saludos, fechas, horas, aceptaciones y solicitudes expresadas con vocabulario o formatos variados.",
+          "general_failure": "Tras la interpretación de IA, otros componentes volvían a decidir el significado por palabras o formatos. Una interpretación válida podía perderse antes de planificar o registrar una operación; también se reconstruían permisos leyendo preguntas anteriores del bot.",
+          "evidence_and_relationship": "Fuentes, reproducciones y pruebas de contrato. Amplía A-03, A-14 y A-20.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-02",
+          "situation": "Consultas sobre seguridad, características del proyecto o temas expresados con sinónimos.",
+          "general_failure": "La selección textual de contexto podía ocultar hechos pertinentes. El redactor recibía menos información de la necesaria y contestaba con una carencia en lugar de explicar las medidas o características aprobadas.",
+          "evidence_and_relationship": "Fuentes y recorrido con modelo real. Amplía A-19.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-03",
+          "situation": "Objeciones, dudas, desconfianza y preguntas sobre límites del proyecto.",
+          "general_failure": "Prohibiciones internas terminaban convertidas en advertencias espontáneas al cliente. Algunos bloques favorecían disculparse por afirmaciones que no figuraban en el historial. El resultado era una respuesta defensiva, extensa o ajena a la preocupación concreta.",
+          "evidence_and_relationship": "Conflictos de instrucciones y evaluación de secuencias. Relacionado con A-04 y A-06.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-04",
+          "situation": "Solicitudes normales de información, precios o características.",
+          "general_failure": "Pedir información podía interpretarse como una orden de pausar la orientación comercial. Ese modo persistía y suprimía preguntas pertinentes de presentación o descubrimiento en mensajes posteriores. También había estados erróneos ya guardados que un cambio de prompt no reparaba.",
+          "evidence_and_relationship": "Trazas, estados persistidos y pruebas de pausa/retoma. Amplía A-10 y A-02.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-05",
+          "situation": "Aclaraciones, consultas intermedias y aceptación de una alternativa durante una búsqueda o gestión vigente.",
+          "general_failure": "El objetivo actual podía competir con una pregunta histórica o con requisitos ya sustituidos. La respuesta atendía un tema, pero terminaba pidiendo una decisión anterior, repitiendo una flexibilización o reabriendo la búsqueda durante una reserva.",
+          "evidence_and_relationship": "Reproducciones y secuencias completas. Amplía A-01 y A-02.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-06",
+          "situation": "Varios mensajes agrupados que aportan, por separado, una consulta, un dato o una preferencia.",
+          "general_failure": "Diferencias de espacios y saltos de línea podían invalidar la procedencia de una cita correcta y disparar otra extracción. Además, la intención principal podía desplazar una declaración independiente de otro mensaje del mismo lote.",
+          "evidence_and_relationship": "Trazas con motivo de reparación y evaluación de lotes. Relacionado con A-02 y A-18.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-07",
+          "situation": "Preguntas sobre el contenido del brochure, solicitudes de envío y entrega parcial de datos de presentación.",
+          "general_failure": "Se mezclaban explicar el material, autorizar su entrega y completar el perfil. Podía enviarse el enlace sin petición de envío, detenerse indebidamente la captura parcial o desaparecer el dato pendiente tras contestar una pregunta intermedia.",
+          "evidence_and_relationship": "Pruebas y secuencias con modelo real. Concreta A-05.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-08",
+          "situation": "Aclaraciones sobre residencia actual, anterior u origen, después de una oferta inicial del brochure.",
+          "general_failure": "Aunque la ficha conservara el significado del lugar, el contrato podía ordenar ofrecer otra vez el material. La respuesta repetía una justificación ya dada en lugar de reconocer el dato y aclarar únicamente lo pendiente. Una expresión temporal incierta tampoco justificaba inventar la residencia actual.",
+          "evidence_and_relationship": "Comparación de perfil, contrato y respuesta registrada. Concreta A-05 y A-02.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-09",
+          "situation": "Elecciones contextuales de categoría, aceptación de alternativas y cantidades usadas para describir necesidades o evaluar espacios.",
+          "general_failure": "Podía perderse una elección válida o conservarse a la vez un requisito antiguo incompatible. Códigos citados como contexto y cantidades descriptivas podían confundirse con nuevas selecciones o restricciones. El plan volvía a preguntas ya resueltas o buscaba otro conjunto.",
+          "evidence_and_relationship": "Reproducciones y recorridos de comparación/elección. Amplía A-01, A-02 y A-12.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-10",
+          "situation": "Información de inmuebles filtrada por categoría, dormitorios u otro subconjunto.",
+          "general_failure": "El plan seleccionaba un conjunto concreto, pero la evidencia del redactor conservaba agregados de un grupo más amplio. Las superficies o plantas podían atribuirse al subconjunto equivocado y la redacción no dejaba claro a qué inmuebles correspondían.",
+          "evidence_and_relationship": "Entradas registradas del redactor y pruebas de proyección. Amplía A-19 y A-12.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-11",
+          "situation": "Consultas por la planta más alta, opciones por encima/debajo de otra planta o precios de una planta concreta.",
+          "general_failure": "El alcance temporal de altura podía competir con el presupuesto o seguir activo en el turno siguiente. La respuesta mezclaba plantas o terminaba preguntando por unidades ajenas a la consulta. La lectura textual de plantas añadía otra interpretación a la de IA.",
+          "evidence_and_relationship": "Trazas y secuencias de altura, precio y presupuesto. Amplía A-02 y A-19.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-12",
+          "situation": "Notas de voz que contienen números de unidad u otros identificadores sensibles a un dígito.",
+          "general_failure": "Un número incorrecto ya presente en la transcripción se propagaba como entrada al intérprete. Los controles de voz clara no acreditaban la exactitud de cada cifra. La traza examinada no conservaba el modelo de transcripción efectivo, por lo que el valor predeterminado local no prueba cuál se usó en producción.",
+          "evidence_and_relationship": "Texto recibido antes de la extracción y aclaración posterior del usuario. **Audio original sin reevaluar y procedencia del modelo pendiente.**",
+          "status": "diagnosed_acoustic_evaluation_and_provenance_pending"
+        },
+        {
+          "id": "S-13",
+          "situation": "Referencias relativas a opciones ofrecidas acompañadas de un número incompatible con ese conjunto.",
+          "general_failure": "Se privilegiaba el número como referencia inequívoca, aunque contradijera la relación con las alternativas anteriores. Esto podía cambiar categoría, distribución o recorrido sin aclarar la intención. Es distinto de una petición clara e independiente de otra unidad.",
+          "evidence_and_relationship": "Traza y simulación real que detectó el fallo antes de corregirlo. Relacionado con A-02.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-14",
+          "situation": "Detalles o recorrido de una unidad ya identificada cuando todavía falta decidir si continuar con ella.",
+          "general_failure": "El plan podía terminar en un objetivo genérico sin pregunta ni continuación requerida. El redactor describía la opción, pero no recibía una decisión concreta que proponer; selección, continuidad y permiso transaccional no estaban suficientemente separados.",
+          "evidence_and_relationship": "Plan registrado sin pregunta y regresión específica. Amplía A-02.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-15",
+          "situation": "Agradecimientos durante un recorrido con una decisión pendiente y despedidas explícitas.",
+          "general_failure": "Un atajo de cortesía equiparaba agradecer con terminar y podía omitir por completo al redactor. Se perdía la continuidad aunque faltara una decisión. La solución tampoco podía consistir en insistir después de cada agradecimiento ni convertirlo en aceptación.",
+          "evidence_and_relationship": "Traza del atajo y secuencias de cortesía/cierre. Amplía A-02 y A-03.",
+          "status": "implemented_with_scoped_validation_not_production_certified"
+        },
+        {
+          "id": "S-16",
+          "situation": "Revisión del flujo de un mensaje, sus reparaciones y la instrucción exacta enviada al redactor.",
+          "general_failure": "El objetivo JSON era difícil de localizar; la ausencia de llamada al redactor podía confundirse con un plan omitido. El desplazamiento y las actualizaciones dificultaban contrastar el mensaje con sus pasos. En la vista de arquitectura también se reprodujo una interferencia del minimapa con la navegación.",
+          "evidence_and_relationship": "Capturas originales y pruebas de navegador. La mejora de pasos está comprobada localmente; **la interferencia del minimapa sigue abierta** y se reproduce sin el encabezado fijo.",
+          "status": "step_view_implemented_architecture_minimap_pending"
+        },
+        {
+          "id": "S-17",
+          "situation": "Cierre de validación tras sustituir contratos y reglas del flujo.",
+          "general_failure": "Aprobar comprobaciones estructurales o algunas secuencias no demostraba naturalidad general ni reconciliaba los fallos históricos. Simulaciones incompletas y expectativas antiguas podían mezclarse con regresiones actuales; atribuir todos sus fallos a obsolescencia habría ocultado problemas.",
+          "evidence_and_relationship": "Resultados conservados por ejecución. Amplía A-18. **La revisión individual de 432 fallos permanece aplazada y abierta.**",
+          "status": "scoped_evaluations_available_historical_and_broader_review_open"
+        }
+      ],
+      "validation_sources": [
+        "validacion-estabilizacion-2026-10-16.json",
+        "validacion-brochure-interes-y-multimedia-2026-10-17.json",
+        "validacion-lotes-brochure-y-plantas-2026-10-17.json",
+        "validacion-contexto-redactor-2026-10-17.json",
+        "validacion-referencias-y-cortesias-2026-10-17.json"
+      ],
+      "test_counts_overlap": true,
+      "historical_failures": {
+        "count": 432,
+        "status": "individual_review_deferred_not_rerun_by_documentation_update"
+      },
+      "pending": [
+        "Comparar el audio original entre transcriptores y registrar el modelo efectivo por llamada.",
+        "Revisar individualmente los 432 fallos hist?ricos cuando el usuario retome esa tarea.",
+        "Resolver la interferencia del minimapa en la vista de arquitectura.",
+        "Ampliar la evaluaci?n de naturalidad y comprobar c?digo y configuraci?n efectivamente desplegados."
+      ],
+      "documentation_update": {
+        "source_code_changed": false,
+        "models_changed": false,
+        "sql_applied": false,
+        "production_mutations": false,
+        "customer_messages": false,
+        "tests_rerun": false
+      },
+      "scope_note": "Los campos originales conservan el corte del 16 de octubre. Las evaluaciones reales y dos reparaciones puntuales posteriores constan en sus propios registros; esta actualizaci?n documental no las ejecuta de nuevo."
+    }
   ]
 }

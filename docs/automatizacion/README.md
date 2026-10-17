@@ -1,5 +1,7 @@
 # Automatización de La Vilet: referencia canónica
 
+**Ampliación de auditoría, 17/10/2026:** [Patrones generales de fallo encontrados después del corte original](auditoria-integral-2026-10-16.md#12-ampliación-de-hallazgos-del-17-de-octubre-de-2026) y [correcciones, casos cubiertos y pendientes](informe-correcciones-auditoria-2026-10-16.md#9-correcciones-posteriores-del-16-y-17-de-octubre-de-2026). Reúne interpretación, contexto, lotes, brochure, catálogo, voz, continuidad y diagnóstico. Distingue las correcciones implementadas de la precisión acústica, la revisión histórica y los pendientes productivos que siguen sin acreditar.
+
 **Interpretación y continuidad, revisión local del 16/10/2026:** [Antes, cambios, ejemplos, migración y límites de validación](correccion-interpretacion-y-continuidad-2026-10-16.md). La IA interpreta saludos, consultas y permisos; el código valida datos y ejecuta operaciones. Se sustituyen los analizadores textuales de citas por preferencias tipificadas y se conserva la memoria mediante referencias guardadas. Requiere `20261017000000_typed_visit_preferences.sql` y despliegue. La validación general todavía debe cerrarse antes de producción; no se enviaron mensajes ni se aplicó SQL.
 
 **Diagnóstico de la cita del miércoles:** [Causa comprobada y primera iteración](incidencia-cita-miercoles-2026-10-16.md). El extractor entendía la fecha y hora, pero sus formatos eran descartados antes del registro. La primera solución fue sustituida por el contrato de interpretación descrito arriba; sus cifras de pruebas son históricas.
