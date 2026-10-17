@@ -1,10 +1,11 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import Ajv from 'ajv'
 import { object, type Row } from './data'
 import { validateBusinessFacts, availableAssistance } from './business-facts'
 import { completeTurnReply } from './turn-completeness'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { effectiveTurnBudget, turnBudgetAssessment } from './turn-budget'
 import { financingInputs } from './financing'
 import { sanitizeTraceSummary } from './trace-summary'
@@ -27,10 +28,10 @@ const verified = { catalogo: units, hechos_confirmados: { budget }, financiamien
   semantica_turno: { budget: { status: 'not_discussed', amount: null, confidence: 'low', evidence: '' } } }
 const audit = { semantic_review_enabled: true, business_risk_review_enabled: true }
 const noQuestion = { role: 'none', purpose: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' }
-const pass = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts, question: null }
+const pass = { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
 const reply = 'El local cuesta $145,000; respecto de sus $100,000 faltan $45,000. La suite cuesta $210,000 y la diferencia es $110,000. Podemos revisar financiamiento con Banco Pichincha o Cooperativa JEP.'
 
-function harness(review: (context: Row, n: number) => Row) {
+function harness(review: (context: Row, n: number) => Row, validateReviewEnvelope = true) {
   const calls: string[] = [], drafts: string[] = []
   let reviews = 0
   const ajv = new Ajv({ allErrors: true })
@@ -41,15 +42,15 @@ function harness(review: (context: Row, n: number) => Row) {
     if (task === 'writing') {
       assert.equal(object(object(context.contexto_verificado).presupuesto_del_turno).amount, 100000)
       assert.equal(object(context.capacidades_disponibles).bank_contact, false)
-      result = { reply, question: noQuestion, requests: [{ fragment: 'R1', intent: 'Presupuesto y financiamiento',
-        request_type: 'specific_fact', status: 'answered', evidence: 'Diferencias y orientación', fact_key: 'price' }] }
+      result = writerFixture({ reply, question: noQuestion, requests: [{ fragment: 'R1', intent: 'Presupuesto y financiamiento',
+        request_type: 'specific_fact', status: 'answered', evidence: 'Diferencias y orientación', fact_key: 'price' }] })
     } else {
       assert.equal(object(object(context.fuentes_autorizadas).presupuesto_confirmado).amount, 100000)
       drafts.push(String(context.borrador)); result = review(context, ++reviews)
     }
     assert.ok(schema)
     const validate = ajv.compile(schema)
-    assert.ok(validate(result), ajv.errorsText(validate.errors))
+    if (task === 'writing' || validateReviewEnvelope) assert.ok(validate(result), ajv.errorsText(validate.errors))
     return result
   }
   return { generate, calls, drafts }
@@ -62,46 +63,48 @@ test('recorded adjustment draft passes once with remembered budget and both deri
   assert.equal(result.reply, reply)
   assert.deepEqual(mock.calls, ['writing', 'review'])
   assert.deepEqual(result.audit.repair_attempts, [])
-  const checks = object(result.audit.semantic_review).fact_checks as Row[]
-  assert.equal(checks.length, 5)
-  assert.ok(checks.every(check => check.status === 'verified'))
-  assert.deepEqual(object(result.audit.semantic_review).extracted_facts, facts)
+  assert.equal(object(result.audit.semantic_review).authority, 'ai_reviewer')
+  assert.equal(object(result.audit.semantic_review).fact_checks, undefined,
+    'approval must not be followed by a server numeric verdict')
+  assert.ok(validateBusinessFacts(facts, units, [], budget).every(check => check.status === 'verified'),
+    'the existing arithmetic diagnostic still covers both differences independently of delivery')
   const saved = sanitizeTraceSummary({ semantic_review: result.audit.semantic_review })
-  assert.equal(object((object(saved.semantic_review).fact_checks as Row[])[2].fact).kind, 'budget_difference')
+  assert.equal(object(saved.semantic_review).authority, 'ai_reviewer')
 })
 
-test('a mistaken price extraction is repaired on the same draft, preserving other verified facts', async () => {
-  const mock = harness((_context, n) => ({ ...pass, facts: n === 1
-    ? facts.map((item, i) => i === 2 ? { ...item, kind: 'catalog_value' } : item)
-    : [facts[2]] }))
+test('an obsolete numeric inventory receives one technical envelope retry on the unchanged draft', async () => {
+  const mock = harness((_context, n) => n === 1 ? { ...pass, facts } : pass, false)
   const result = await completeTurnReply({ current: 'y cuanto deberia ajustar', baseReply: reply, verified, audit }, mock.generate)
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.reply, reply)
   assert.deepEqual(mock.calls, ['writing', 'review', 'review'])
   assert.deepEqual(mock.drafts, [reply, reply])
-  assert.equal((object(result.audit.semantic_review).fact_checks as Row[]).length, 5)
-  assert.equal((result.audit.repair_attempts as Row[])[0].target, 'review_metadata')
+  assert.equal(object(result.audit.semantic_review).metadata_retries, 1)
+  assert.equal(object(result.audit.semantic_review).fact_checks, undefined)
+  assert.deepEqual(result.audit.repair_attempts, [], 'technical envelope repair never rewrites the writer draft')
 })
 
-test('unsupported calculations keep semantic approval and an explicit unverified audit', async () => {
-  const mock = harness(() => ({ ...pass, facts: [fact('other_calculation', 45000)] }))
+test('unsupported diagnostic calculations cannot override an AI approval', async () => {
+  const mock = harness(() => ({ ...pass }))
   const result = await completeTurnReply({ current: 'y cuanto deberia ajustar', baseReply: reply, verified, audit }, mock.generate)
   assert.equal(result.audit.status, 'checked')
-  assert.equal((object(result.audit.semantic_review).fact_checks as Row[])[0].status, 'unverified')
+  assert.equal(object(result.audit.semantic_review).authority, 'ai_reviewer')
+  assert.equal(object(result.audit.semantic_review).fact_checks, undefined)
+  assert.equal(validateBusinessFacts([fact('other_calculation', 45000)], units, [], budget)[0].status, 'unverified')
   assert.deepEqual(mock.calls, ['writing', 'review'])
 })
 
-test('optional extraction repair timeout preserves semantic approval without pretending numeric verification', async () => {
+test('an AI approval never starts a separate numeric extraction repair that could time out', async () => {
   const mock = harness((_context, n) => {
     if (n === 2) throw new OpenAIRequestError(0, true, 2, '', 'timeout')
-    return { ...pass, facts: [fact('catalog_value', 145000, 'unresolved')] }
+    return { ...pass }
   })
   const result = await completeTurnReply({ current: 'y cuanto deberia ajustar', baseReply: reply, verified, audit }, mock.generate)
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.reply, reply)
-  assert.equal((object(result.audit.semantic_review).fact_checks as Row[])[0].status, 'unverified')
-  assert.equal((result.audit.repair_attempts as Row[])[0].status, 'semantic_review_preserved')
-  assert.deepEqual(mock.calls, ['writing', 'review', 'review'])
+  assert.equal(object(result.audit.semantic_review).fact_checks, undefined)
+  assert.deepEqual(result.audit.repair_attempts, [])
+  assert.deepEqual(mock.calls, ['writing', 'review'])
 })
 
 test('structured checks reject wrong values even if that amount belongs to another unit', () => {
@@ -140,11 +143,11 @@ test('affordable subset ranges validate against their own members while global a
   const result = await completeTurnReply({ current: '¿Qué locales me alcanzan?', baseReply: draft, verified: context, audit },
     async (_rules, raw, _schema, _image, _file, _tone, task) => {
       tasks.push(task || '')
-      if (task === 'writing') return { reply: draft, question: noQuestion,
-        requests: [{ fragment: 'R1', intent: 'Locales dentro del presupuesto', request_type: 'specific_fact', status: 'answered', evidence: draft, fact_key: 'price' }] }
+      if (task === 'writing') return writerFixture({ reply: draft, question: noQuestion,
+        requests: [{ fragment: 'R1', intent: 'Locales dentro del presupuesto', request_type: 'specific_fact', status: 'answered', evidence: draft, fact_key: 'price' }] })
       const sources = object(object(raw).fuentes_autorizadas)
       assert.ok((sources.grupos as Row[]).some(group => group.id === subsetId))
-      return { ...pass, facts: [range] }
+      return { ...pass }
     })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, draft)
@@ -167,11 +170,11 @@ test('financing requirements reach writer and reviewer without confusing explana
     verified: { financiamiento: verified.financiamiento }, audit: { ...audit, source: 'financing_question' } },
     async (rules, _input, _schema, _image, _file, _tone, task) => {
       calls.push(task || '')
-      assert.ok(String(rules).includes(FINANCING_PROCESS_RULES.trim()), task)
+      assert.equal(String(rules).includes(FINANCING_PROCESS_RULES.trim()), task === 'writing')
       assert.doesNotMatch(String(rules), /En recopilación de datos financieros, pida directamente/)
-      if (task === 'review') return { ...pass, facts: [] }
-      return { reply: draft, question: noQuestion, requests: [{ fragment: 'R1', intent: 'Requisitos de revisión interna',
-        request_type: 'specific_fact', status: 'answered', evidence: draft, fact_key: null }] }
+      if (task === 'review') return { ...pass }
+      return writerFixture({ reply: draft, question: noQuestion, requests: [{ fragment: 'R1', intent: 'Requisitos de revisión interna',
+        request_type: 'specific_fact', status: 'answered', evidence: draft, fact_key: null }] })
     })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, draft)
@@ -195,22 +198,22 @@ test('bank partners never imply a bank contact and ambiguous offers never author
   assert.equal(input.consent, null)
 })
 
-test('reviewer recovers the actual question and offer without rewriting a valid draft', async () => {
+test('the writer receipt owns an internal adviser offer without reviewer classification or prose rewriting', async () => {
   const offeredReply = 'Podemos ayudarle a revisar las opciones de financiamiento. ¿Desea que un asesor de nuestro equipo le ayude?'
   const tasks: string[] = []
   const result = await completeTurnReply({ current: 'Como funciona el financiamiento?', baseReply: offeredReply, verified, audit },
     async (_rules, input, _schema, _image, _file, _tone, task) => {
       tasks.push(String(task))
-      if (task === 'writing') return { reply: offeredReply, question: noQuestion,
-        requests: [{ fragment: 'R1', intent: 'Ofrecer ayuda', request_type: 'general_information', status: 'answered', evidence: 'Ayuda financiera', fact_key: null }] }
+      if (task === 'writing') return writerFixture({ reply: offeredReply, question: noQuestion,
+        writer_receipts: { offered_action: 'internal_advisor' },
+        requests: [{ fragment: 'R1', intent: 'Ofrecer ayuda', request_type: 'general_information', status: 'answered', evidence: 'Ayuda financiera', fact_key: null }] })
       assert.equal(object(object(input).capacidades_disponibles).bank_contact, false)
-      return { ...pass, facts: [], question: { role: 'optional_continuation', purpose: 'offer_advisor',
-        missing_datum: '', next_decision: 'Solicitar ayuda del equipo interno si acepta.', offered_action: 'internal_advisor' } }
+      return { ...pass }
     })
   assert.equal(result.reply, offeredReply)
   assert.equal(result.audit.status, 'checked')
   assert.equal(object(result.audit.follow_up).usable, true)
-  assert.equal(object(result.audit.semantic_review).offered_action, 'internal_advisor')
+  assert.equal(object(result.audit.writer_receipts).offered_action, 'internal_advisor')
   assert.deepEqual(tasks, ['writing', 'review'])
 })
 
@@ -220,10 +223,10 @@ test('a confirmed false contact offer is corrected while authorized internal ass
   const bad = 'Le pondré en contacto directamente con un ejecutivo bancario disponible.'
   const result = await completeTurnReply({ current: 'Ayudeme con el financiamiento', baseReply: good, verified, audit },
     async (_rules, input, _schema, _image, _file, _tone, task) => {
-      if (task === 'writing') return { reply: ++writes === 1 ? bad : good, question: noQuestion,
-        requests: [{ fragment: 'R1', intent: 'Ayuda financiera', request_type: 'general_information', status: 'answered', evidence: 'Oferta', fact_key: null }] }
+      if (task === 'writing') return writerFixture({ reply: ++writes === 1 ? bad : good, question: noQuestion,
+        requests: [{ fragment: 'R1', intent: 'Ayuda financiera', request_type: 'general_information', status: 'answered', evidence: 'Oferta', fact_key: null }] })
       assert.equal(object(object(input).capacidades_disponibles).bank_contact, false)
-      return { ...pass, facts: [], verdict: writes === 1 ? 'block' : 'pass', findings: writes === 1 ? [{
+      return { ...pass, verdict: writes === 1 ? 'block' : 'pass', findings: writes === 1 ? [{
         category: 'business_guardrail', statement: bad, reason: 'Ofrece una capacidad externa que no está disponible.',
         authoritative_fact: 'Solo está disponible la derivación al equipo interno; bank_contact=false.',
       }] : [] }
@@ -241,11 +244,10 @@ test('material rejection rewrites directly even when its numeric metadata also n
   const result = await completeTurnReply({ current: '¿Cuánto cuesta el local?', baseReply: bad, verified, audit },
     async (_rules, _input, _schema, _image, _file, _tone, task) => {
       calls.push(String(task))
-      if (task === 'writing') return { reply: ++writes === 1 ? bad : good, question: noQuestion,
-        requests: [{ fragment: 'R1', intent: 'Precio del local', request_type: 'specific_fact', status: 'answered', evidence: 'Precio publicado', fact_key: 'price' }] }
-      return writes === 1 ? { ...pass, verdict: 'block', facts: [fact('catalog_value',100000,'local-1',bad)],
-        findings: [{ category: 'hard_fact', statement: bad, reason: 'Precio incorrecto.', authoritative_fact: '145000' }] }
-        : { ...pass, facts: [fact('catalog_value',145000,'local-1',good)] }
+      if (task === 'writing') return writerFixture({ reply: ++writes === 1 ? bad : good, question: noQuestion,
+        requests: [{ fragment: 'R1', intent: 'Precio del local', request_type: 'specific_fact', status: 'answered', evidence: 'Precio publicado', fact_key: 'price' }] })
+      return writes === 1 ? { ...pass, verdict: 'block', findings: [{ category: 'hard_fact', statement: bad, reason: 'Precio incorrecto.', authoritative_fact: '145000' }] }
+        : { ...pass }
     })
   assert.equal(result.reply,good)
   assert.equal(result.audit.status,'checked',JSON.stringify(result.audit))

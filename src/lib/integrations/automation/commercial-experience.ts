@@ -1,77 +1,53 @@
 import { CURRENT_TONE } from './conversation-tone'
 import { informationSubject } from './information-context'
 import { object, text, type Row } from './data'
-import { normalized } from './sdr-rules'
-import { commercialTurnTopics } from './multi-topic-turn'
-import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
+
+import { resolveCatalogReference } from './catalog-reference'
 import { projectIntroductionForTurn } from './project-introduction-context'
 
-const benefitTerms: Record<string, RegExp> = {
-  piscina: /piscina|nadar|natacion/, gimnasio: /gimnasio|entrenar|ejercicio/, seguridad: /seguridad|vigilancia|monitoreo/,
-  jardines: /jardin|(?:areas|espacios|zonas) verdes/, privacidad: /privacidad|accesos separados|entrada independiente|aislamiento/,
-  entorno: /supermercado|cafeteria|bancos cerca|servicios cerca/, plusvalia: /plusvalia|valorizacion/,
-  comodidad: /comodidad|\bcomod[oa]s?\b|confort/, tranquilidad: /tranquilidad|vida tranquila|vivir tranquil/,
-  iluminacion: /iluminad|iluminacion|luz natural/, balcones: /balcon/,
-}
+const benefitKeys = new Set(['piscina','gimnasio','seguridad','jardines','privacidad','entorno','plusvalia','comodidad','tranquilidad','iluminacion','balcones'])
 export type CommercialMemory = { mentioned_benefits: string[]; deferred_fields: string[] }
-const strings = (v: unknown) => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
-export function benefitsMentioned(content: string) {
-  return Object.keys(benefitTerms).filter(key => benefitTerms[key].test(normalized(content)))
-}
-export function commercialMemory(previous: unknown, history: unknown, current = ''): CommercialMemory {
-  const saved = object(previous)
-  const mentioned = new Set(strings(saved.mentioned_benefits).filter(k => k in benefitTerms))
-  const deferred = new Set(strings(saved.deferred_fields).filter(k => ['area_buscada', 'presupuesto'].includes(k)))
-  let lastReply = ''
-  const rows = (Array.isArray(history) ? history : []).map(object)
-  if (current) rows.push({ role: 'cliente', content: current })
-  for (const row of rows) {
-    const message = normalized(text(row.content))
-    if (['bot', 'asesor'].includes(text(row.role))) {
-      benefitsMentioned(message).forEach(b => mentioned.add(b)); lastReply = message
-    } else if (row.role === 'cliente') {
-      if (/\bno (?:se\b|estoy segur[oa]?\b|tengo idea\b|tengo claro\b|tenia idea\b|he pensado\b|lo he pensado\b)/.test(message)) {
-        if (/tamano|metros|metraje|area/.test(message + ' ' + lastReply)) deferred.add('area_buscada')
-        if (/presupuesto|cuanto.*invertir/.test(message + ' ' + lastReply)) deferred.add('presupuesto')
-      }
-      if (/\d+\s*(?:m2|metros)/.test(message)) deferred.delete('area_buscada')
-    }
+const strings = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
+/** Retired prose reader. Delivered writer receipts own these optional hints. */
+export function benefitsMentioned(_content: string): string[] { void _content;  return [] }
+export function commercialMemory(previous: unknown, history: unknown, _current = '', interpreted: unknown = {}): CommercialMemory { void _current;
+  const saved = object(previous), info = object(interpreted)
+  const semantics = object(info.semantics || info.semantica_turno || info.turn_semantics || info)
+  const mentioned = new Set(strings(saved.mentioned_benefits).filter(key => benefitKeys.has(key)))
+  const deferred = new Set(strings(saved.deferred_fields).filter(key => ['area_buscada','presupuesto'].includes(key)))
+  for (const row of (Array.isArray(history) ? history : []).map(object).filter(row => ['bot','asesor'].includes(text(row.role)))) {
+    const receipt = object(object(row.tool_calls).writer_receipts)
+    strings(receipt.mentioned_benefits).filter(key => benefitKeys.has(key)).forEach(key => mentioned.add(key))
   }
+  const budget = object(semantics.budget), answer = object(semantics.answer_to_previous)
+  const pending = object(info.pendingQuestion || info.pregunta_pendiente)
+  if (budget.subject === 'total_budget' || ['budget_amount','budget_kind'].includes(text(pending.id))) {
+    if (['unknown','no_defined_budget','declines_to_disclose'].includes(text(budget.status))) deferred.add('presupuesto')
+    if (['amount','maximum_total'].includes(text(budget.status)) && typeof budget.amount === 'number') deferred.delete('presupuesto')
+  }
+  if (answer.question_id === 'property_area' && ['uncertain','negative'].includes(text(answer.kind))) deferred.add('area_buscada')
+  const filters = object(object(semantics.property).filters)
+  if (typeof filters.min_area_m2 === 'number' || typeof filters.max_area_m2 === 'number') deferred.delete('area_buscada')
   return { mentioned_benefits: [...mentioned], deferred_fields: [...deferred] }
 }
-export function rememberCommercialReply(memory: CommercialMemory, reply: string): CommercialMemory {
-  return { ...memory, mentioned_benefits: [...new Set([...memory.mentioned_benefits, ...benefitsMentioned(reply)])] }
+export function rememberCommercialReply(memory: CommercialMemory, _reply: string, receiptRaw: unknown = {}): CommercialMemory {
+  const receipt = object(receiptRaw)
+  return { ...memory, mentioned_benefits: [...new Set([...memory.mentioned_benefits,
+    ...strings(receipt.mentioned_benefits).filter(key => benefitKeys.has(key))])] }
 }
 
-function requestedBenefits(current: string) {
-  const m = normalized(current)
-  const terms: Record<string, RegExp> = { ...benefitTerms, privacidad: /privacidad|entrada|acceso|circulacion|ruido|aislamiento/,
-    entorno: /cerca|alrededor|entorno|barrio|sector|supermercado|cafeteria|banco/,
-    plusvalia: /plusvalia|valoriza|inver|subir|subira|precio|ganancia|rentabilidad|reventa|venderlo|venderla/ }
-  return Object.keys(terms).filter(key => terms[key].test(m))
-}
-const asksOverview = (current: string) => /(?:que|cuales|todas).*(?:instalaciones|servicios|beneficios)|resum.*instalaciones|(?:informacion|detalles|cuenteme|cuentame|hablame).*(?:proyecto|edificio)/.test(normalized(current))
-export function residentialContinuity(info: Row, current: string) {
-  const history = (Array.isArray(info.historial) ? info.historial : []).map(object)
-  const m = normalized(current), lead = object(info.lead)
-  const previousBot = history.filter(row => ['bot', 'asesor'].includes(text(row.role))).map(row => normalized(text(row.content)))
-  const purposeAnswer = /^(?:(?:si|bueno|pues|es|lo quiero|lo busco)\s+)*(?:para )?(?:vivir|vivir ahi|vivir alli|vivir yo|vivir con mi familia|inversion|invertir)$/.test(m)
-  const bedroomAnswer = /(?:dormitorio|cuarto|habitacion)/.test(previousBot.at(-1) || '')
-    && /^(?:(?:si|bueno|quiero|quisiera|me gustaria|uno|de|con)\s+)*(?:[1-9]|uno|dos|tres|cuatro|cinco|seis)(?:\s+(?:cuartos?|dormitorios?|habitaciones?))?$/.test(m)
-  const categoryChosen = history.some((row, index) => row.role === 'cliente'
-    && /departamento/.test(normalized(text(row.content)))
-    && (/prefiero|solo|\bno\b.*suite/.test(normalized(text(row.content)))
-      || /suite/.test(normalized(text(history[index - 1]?.content))) && /departamento/.test(normalized(text(history[index - 1]?.content)))))
-  const catalog = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object)
-  const apartment = lead.preferred_category === 'departamento' || /departamento/.test(previousBot.at(-1) || '')
-  const bedroomToken = bedroomAnswer ? m.match(/\b([1-9]|uno|dos|tres|cuatro|cinco|seis)\b/)?.[1] : undefined
-  const bedroomWords: Record<string, number> = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 }
-  return { brief_preference_reply: previousBot.length > 0 && (purposeAnswer || bedroomAnswer),
-    requested_bedrooms: bedroomToken ? bedroomWords[bedroomToken] || Number(bedroomToken) : null,
+export function residentialContinuity(info: Row, _current: string) { void _current;
+  const semantics = object(info.semantica_turno), answer = object(semantics.answer_to_previous)
+  const context = object(info.property_context), query = object(context.query)
+  const filters = object(object(semantics.property).filters)
+  const purposeAnswer = answer.question_id === 'property_purpose' && answer.kind === 'value'
+  const bedroomAnswer = answer.question_id === 'property_bedrooms' && answer.kind === 'value'
+  const categoryChosen = object(context.category_preference).confirmed === true || strings(context.selected_ids).length > 0
+  return { brief_preference_reply: purposeAnswer || bedroomAnswer,
+    requested_bedrooms: typeof filters.bedrooms === 'number' ? filters.bedrooms : null,
     category_already_chosen: categoryChosen,
-    may_mention_suite: purposeAnswer && apartment && !categoryChosen && !lead.preferred_bedrooms
-      && !history.some(row => /\bsuites?\b/.test(normalized(text(row.content))))
-      && catalog.some(unit => unit.category === 'suite' && Number(unit.bedrooms) === 1) }
+    may_mention_suite: purposeAnswer && !categoryChosen && !query.category && !object(query.filters).bedrooms
+      && (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).some(unit => unit.category === 'suite' && unit.bedrooms === 1) }
 }
 
 export const RESIDENTIAL_CONTINUITY_RULES = `
@@ -81,47 +57,29 @@ CONTINUIDAD SIN REPETIR LA PRESENTACIÓN
 - continuidad_residencial.may_mention_suite indica una oportunidad de orientación, no la obligación de mencionar suites. No reabra una categoría ya descartada ni cambie la elección del lead; permita que las preferencias nuevas modifiquen la búsqueda.
 - Una pregunta explícita por amenidades, beneficios o un resumen merece explicación aunque se hayan mencionado antes. Puede omitir notas comerciales opcionales y adaptar el detalle a la consulta.`
 
-export function residentialContinuationIssues(reply: string, current: string, info: Row) {
-  const continuity = residentialContinuity(info, current)
-  if (!continuity.brief_preference_reply) return []
-  const issues: string[] = []
-  if (benefitsMentioned(reply).length || /sector exclusivo|puertas del sol|ambientes (?:amplios|agradables)|pensad[oa]s? para/.test(normalized(reply))) issues.push('repeated_presentation')
-  if (continuity.category_already_chosen && /\bsuites?\b/.test(normalized(reply)) && !/\bsuites?\b/.test(normalized(current))) issues.push('category_reopened')
-  if (continuity.may_mention_suite && !/\bsuites?\b/.test(normalized(reply))) issues.push('suite_awareness_omitted')
-  return issues
-}
-export function needsDimensions(current: string, memory: CommercialMemory) {
-  const m = normalized(current)
-  return /tamano|area|metro|m2|grande|ampli|pequen|espacio|distribu|compar|opciones/.test(m)
-    || /\b\d+[.,]\d{1,2}\b/.test(current)
-    || (memory.deferred_fields.includes('area_buscada') && /\bno (?:se\b|tengo idea\b|tenia idea\b|he pensado\b)/.test(m))
+/** Compatibility diagnostics cannot inspect or veto customer-facing prose. */
+export function residentialContinuationIssues(_reply: string, _current: string, _info: Row): string[] { void _reply; void _current; void _info;  return [] }
+export function needsDimensions(_current: string, _memory: CommercialMemory, interpreted: unknown = {}) {
+  const info = object(interpreted), semantics = object(info.semantica_turno || info.turn_semantics || info)
+  return ['details','compare','rank'].includes(text(object(semantics.property).operation))
+    || (Array.isArray(semantics.requests) ? semantics.requests : []).map(object).some(request => Array.isArray(request.topics)
+      && request.topics.some(topic => ['spatial_fit','property_features','property_options'].includes(text(topic))))
 }
 export function experienceContext(info: Row, current: string, memory: CommercialMemory): Row {
   const facilities = (Array.isArray(info.instalaciones) ? info.instalaciones : []).map(object)
   const catalog = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object)
   const reference = object(info.referencia_unidad)
-  const selected = Array.isArray(reference.matches) ? reference.matches.map(object) : resolveCatalogReference(catalog, current).matches
-  const dimensions = needsDimensions(current, memory) || selected.length > 0
+  const selected = Array.isArray(reference.matches) ? reference.matches.map(object) : resolveCatalogReference(catalog, current, {}, [], info.semantica_turno).matches
   return { ...info, instalaciones: facilities, memoria_comercial: memory,
-    continuidad_residencial: residentialContinuity(info, current),
-    unidades_consultadas: selected,
-    catalogo: catalog,
-    areas: 'Medidas verificadas disponibles como evidencia; mencione las que ayuden a responder u orientar la solicitud actual.',
-    presentation_suggestions: { prioritize_dimensions: dimensions, mentioned_benefits: memory.mentioned_benefits,
-      policy: 'Contextual writing suggestions never remove verified facts.' } }
+    continuidad_residencial: residentialContinuity(info, current), unidades_consultadas: selected, catalogo: catalog,
+    areas: 'Medidas verificadas disponibles como evidencia; mencione las que ayuden a responder la solicitud actual.',
+    presentation_suggestions: { prioritize_dimensions: needsDimensions(current, memory, info) || selected.length > 0,
+      mentioned_benefits: memory.mentioned_benefits, policy: 'Contextual writing suggestions never remove verified facts.' } }
 }
-export function turnWritingRules(current: string, memory: CommercialMemory) {
-  const avoid = asksOverview(current) ? [] : memory.mentioned_benefits.filter(b => !requestedBenefits(current).includes(b))
-  const m = normalized(current)
-  const clarify = /\bno entiendo\b|que significa|a que se refiere|explic/.test(m)
-  const topics = [clarify && /circulacion|entrada|acceso/.test(m) ? 'qué significan las entradas separadas' : '',
-    clarify && /parqueadero|parqueo|subsuel/.test(m) ? 'dónde están los parqueaderos, sin asignarlos a visitantes' : '',
-    /piscina|gimnasio/.test(m) && /[?¿]|quien|como|para residentes/.test(m) ? 'la consulta concreta sobre piscina o gimnasio; está permitido responderla aunque ya se mencionaron' : '',
-    /de que tamano|que area|que tamano.*(?:son|tienen)|cuantos metros/.test(m) ? 'los tamaños registrados, con ejemplos o rango interior' : ''].filter(Boolean)
-  return `\nORIENTACIÓN PARA ESTE TURNO:\n${avoid.length ? 'Ya explicamos estos beneficios: ' + avoid.join(', ') + '. Evite repetirlos por costumbre; puede usarlos si ayudan a una inquietud actual.' : ''}
-${topics.length ? 'Antes de otra pregunta, responda TODOS estos puntos: ' + topics.join('; ') + '.' : ''}
-${needsDimensions(current, memory) ? 'Use las medidas del catálogo que ayuden a responder.' : 'Puede relacionar dormitorios, distribución y medidas verificadas con lo que el cliente necesita, sin enumerarlas todas por rutina.'}
-${CURRENT_TONE.turnLength} Estas preferencias de presentación no son causas de rechazo. No necesita una pregunta de venta para cerrar cada explicación. El propósito de una continuación depende de la solicitud actual, no de repetir la pregunta de una plantilla.`
+export function turnWritingRules(_current: string, memory: CommercialMemory) {
+  return '\nResponda todas las consultas actuales antes de continuar. Use las medidas y beneficios verificados pertinentes; el historial y los metadatos muestran lo ya tratado. '
+    + 'No repita capturas que el cliente dejo pendientes por desconocer el dato. Campos pendientes: '+memory.deferred_fields.join(', ')+'. '
+    + CURRENT_TONE.turnLength
 }
 
 export const PROJECT_POSITIONING = {
@@ -129,7 +87,7 @@ export const PROJECT_POSITIONING = {
   concept: 'Vivir con tranquilidad, privacidad y comodidad en Puertas del Sol, un sector residencial exclusivo; valorar la ubicación al invertir.',
   appreciation: 'El responsable describe el sector como de alta plusvalía. Comunicar el atractivo de la ubicación y su potencial de valorización; no hay cifras ni estudio de rentabilidad en este contexto.',
   convenience: 'Cuando la etapa permite presentar tipos de inmuebles, el proyecto combina viviendas, espacios de uso de residentes y locales comerciales. Relacionar esa combinación con una rutina cómoda sin afirmar que los locales ya tienen negocios o que ofrecen todos los servicios. Con generic_introduction=true todavía no presentar esta combinación ni sus usos.',
-  security: 'Usar las medidas de seguridad registradas en instalaciones para explicar tranquilidad; no garantizar ausencia de delitos ni superioridad respecto de otros barrios.',
+  security: 'Explicar directamente las medidas previstas y registradas de seguridad del edificio. Las restricciones internas sobre garantías del barrio delimitan las afirmaciones; no son un descargo que deba comunicarse al cliente.',
   builder: 'La constructora del proyecto es Agmen. Mencionar cuando aporte a la consulta; no inferir propietario, promotor ni vendedor legal.',
   direct_credit: 'No se ofrece crédito directo con el proyecto. Las alternativas bancarias son las de financiamiento.partners, según su configuración autorizada.',
 }
@@ -160,162 +118,25 @@ ${CURRENT_TONE.commercialLength}
 - Una declaración anterior del bot NO acredita un hecho. Si antes dijo que no había áreas, corrija usando el catálogo actual. Si antes usó un término difícil, explique solo lo que respaldan proyecto e instalaciones.
 `
 
-export function experienceIssues(reply: string, current: string, info: Row, memory: CommercialMemory) {
-  const issues: string[] = [], m = normalized(current), r = normalized(reply)
-  if (residentialContinuationIssues(reply, current, info).length) issues.push('repeated_question')
-  const clarification = /\bno entiendo\b|que significa|a que se refiere|explic/.test(m)
-  if (/[?¿]|quien|como|para residentes/.test(m) && benefitsMentioned(current).some(b => ['piscina', 'gimnasio'].includes(b) && !benefitsMentioned(reply).includes(b))) issues.push('ignored_question')
-  if (clarification && /circulacion|entrada|acceso/.test(m) && !/entrada|acceso/.test(r)) issues.push('ignored_question')
-  if (clarification && /parqueadero|parqueo|subsuel/.test(m) && !/parqueadero|parqueo/.test(r)) issues.push('ignored_question')
-  const detailed = /\n| y |ademas/.test(m) && /explic|\bno entiendo\b|que (?:significa|quiere decir)|a que se refiere|sector|venderlo|venderla|reventa/.test(m)
-  const multipleTopics = commercialTurnTopics(current, info.historial).length > 1
-  if (reply.trim().split(/\s+/).length > (multipleTopics ? 160 : detailed ? 110 : 75) || /uso mixto|circulacion (?:comercial|para residentes)|unidades residenciales|expectativa de renta|metraje/.test(r)) issues.push('style')
-  if (/solo (?:permite|admite|puedo).*texto|promotora inmobiliaria|\bno por duenos individuales|pertenece a una promotora|puedo avisarle|le avisare/.test(r)) issues.push('unsupported_fact')
-  const referenced = object(info.referencia_unidad).matches
-  if (/\d[\d.,]*\s*(?:m²|m2|metros cuadrados)/i.test(reply) && !needsDimensions(current, memory) && !(Array.isArray(referenced) && referenced.length)) issues.push('style')
-  const requestedOverview = asksOverview(current), requested = requestedBenefits(current)
-  if (benefitsMentioned(reply).some(b => memory.mentioned_benefits.includes(b) && !requested.includes(b) && !requestedOverview)) issues.push('repeated_question')
-  if (!requestedOverview && benefitsMentioned(reply).length > 3) issues.push('style')
-  if (memory.deferred_fields.includes('area_buscada') && /\?.*(?:$)/.test(reply)
-    && /que tamano.*(?:mente|busca|necesita)|cuantos metros.*(?:busca|necesita)/.test(r)) issues.push('repeated_question')
-  const catalog = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object)
-  if (catalog.some(u => Number(u.area_internal_m2) > 0) && /\bno (?:tenemos|tengo|se tiene|hay|contamos).*(?:area|tamano).*(?:publicad|registrad|disponible|exact)|\bno (?:se tiene|tenemos|hay) publicad.*area/.test(r)) issues.push('unsupported_fact')
-  if (/\bno necesita salir|\bno hace falta salir|hay de todo|totalmente seguro|alta demanda|facil de arrendar/.test(r)) issues.push('unsupported_fact')
-  if (reply.split(/[.!?\n]/).some(s => /(?:plusvalia|rentabilidad) garantizada/.test(normalized(s)) && !/\bno\b|\bsin\b/.test(normalized(s)))) issues.push('unsupported_fact')
-  if (/areas? exteriores? (?:privadas?|exclusivas?)/.test(r)) issues.push('unsupported_fact')
-  if (/a (?:pocos|pocas|unas|unos|\d+) (?:minutos|cuadras)|a un paso/.test(r)) issues.push('unsupported_fact')
-  const parkingClaims = reply.split(/[.!?\n]/).filter(s => /parqueader|parqueo/i.test(s) && /visitantes|clientes/i.test(s))
-  if (parkingClaims.some(s => !/\bno (?:sabemos|consta|podemos|esta)|falta verificar|por confirmar/i.test(normalized(s)))) issues.push('unsupported_fact')
-  return [...new Set(issues)]
-}
+/** Retired lexical diagnostics and fallback. The shared writer owns wording. */
+export function experienceIssues(_reply: string, _current: string, _info: Row, _memory: CommercialMemory): string[] { void _reply; void _current; void _info; void _memory;  return [] }
+export function commercialFallback(_info: Row, _current: string, _memory: CommercialMemory) { void _info; void _current; void _memory;  return '' }
 
-// Last-resort answers use trusted catalog facts; never replace a rejected answer with an unrelated form question.
-export function commercialFallback(info: Row, current: string, memory: CommercialMemory) {
-  const m = normalized(current), sentences: string[] = []
-  const catalog = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object)
-  const reference = object(info.referencia_unidad)
-  const matches = Array.isArray(reference.matches) ? reference.matches.map(object) : resolveCatalogReference(catalog, current).matches
-  const continuity = residentialContinuity(info, current)
-  if (continuity.brief_preference_reply && (object(info.lead).preferred_category === 'departamento' || continuity.requested_bedrooms)) {
-    const rooms = [...new Set(catalog.filter(unit => unit.category === 'departamento').map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
-    if (rooms.length) {
-      if (continuity.requested_bedrooms && !rooms.includes(continuity.requested_bedrooms)) return `No contamos con departamentos de ${continuity.requested_bedrooms} dormitorios; las opciones son de ${rooms.join(' o ')}. Podemos revisar la distribución de ${rooms.at(-1)} dormitorios.`
-      return `Tenemos departamentos de ${rooms.join(' o ')} dormitorios.${continuity.may_mention_suite ? ' También hay suites de un dormitorio.' : ''}${continuity.requested_bedrooms ? '' : ' ¿Cuántos dormitorios le gustaría tener?'}`
-    }
-  }
-  const overview = /(?:informacion|saber|cuent|explic|detalles).*(?:proyecto|edificio)/.test(m)
-    && !/precio|cuesta|financ|credito|constru|dueno|propietario|cita|visita|metros|area|cerca|ubicacion|seguridad/.test(m)
-  if (overview && info.posicionamiento_proyecto && text(object(info.proyecto).name)) {
-    const name = /la\s*vilet/i.test(text(object(info.proyecto).name)) ? 'La Vilet' : text(object(info.proyecto).name)
-    return `${name} combina viviendas y locales en Puertas del Sol, Cuenca. La propuesta es disfrutar de privacidad y comodidad en el día a día, con espacios para residentes dentro del mismo edificio.`
-  }
-  const unitReply = catalogReferenceReply(matches, current)
-  if (unitReply) return unitReply
-  if (/quien.*(?:constru|hizo|hace)|quienes.*(?:constru|hicieron|hacen)|constructora/.test(m)) {
-    const price = /precio|cuanto cuesta/.test(m) && object(info.politica_comercial).precios_autorizados !== true
-      ? ` Aún no tengo un precio publicado${matches.length === 1 ? ' para ' + text(matches[0].unit_number) : ' para esa opción'}.` : ''
-    return 'La constructora del proyecto es Agmen.' + price + (/dueno|propietario/.test(m) ? ' El nombre del propietario no lo tengo confirmado.' : '')
-  }
-  if (/dueno|propietario|promotor/.test(m)) return 'No tengo confirmado el nombre del propietario para compartirlo. La constructora y el propietario pueden ser distintos; ese dato debe verificarlo el equipo.'
-  const facilities = normalized(JSON.stringify(info.instalaciones ?? []))
-  if (/circulacion|entrada|acceso/.test(m) && /independiente|separad/.test(facilities)) sentences.push('Las viviendas y los locales tienen entradas separadas.')
-  if (/parqueadero|parqueo|subsuel/.test(m) && /parqueadero|parqueo/.test(facilities)) sentences.push('Los parqueaderos están en los pisos bajo tierra; falta verificar cuáles corresponden a cada local.')
-  if (/tamano|area|metros|metraje/.test(m) || (memory.deferred_fields.includes('area_buscada') && /\bno (?:se\b|tengo idea\b|tenia idea\b|he pensado\b)/.test(m))) {
-    const category = text(object(info.lead).preferred_category)
-    const units = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).filter(u => (!category || u.category === category) && Number(u.area_internal_m2) > 0)
-    const selected = units.find(u => text(u.unit_number) && normalized(current).includes(normalized(text(u.unit_number))))
-    const number = (value: unknown) => Number(value).toLocaleString('es-EC', { maximumFractionDigits: 2 })
-    if (selected) {
-      sentences.push(`${text(selected.unit_number)} tiene ${number(selected.area_internal_m2)} m² interiores${Number(selected.area_exterior_m2) > 0 ? ' y ' + number(selected.area_exterior_m2) + ' m² exteriores' : ''}.`)
-    } else if (units.length) {
-      const areas = units.map(u => Number(u.area_internal_m2)), min = Math.min(...areas), max = Math.max(...areas)
-      sentences.push(`En el catálogo ${category === 'local' ? 'los locales tienen' : 'estas opciones tienen'} ${min === max ? number(min) : 'entre ' + number(min) + ' y ' + number(max)} m² interiores. Podemos comparar dos opciones para que se haga una idea del espacio.`)
-    }
-  }
-  if (sentences.length) return sentences.join(' ')
-  const residentPool = (Array.isArray(info.instalaciones) ? info.instalaciones : []).some(f => {
-    const fact = normalized(JSON.stringify(f)); return /piscina/.test(fact) && /(?:exclusiv|para|uso de).{0,30}resident/.test(fact)
-  })
-  if (/piscina.*resident|resident.*piscina|quien.*piscina/.test(m) && residentPool) return 'Sí, la piscina es para uso de los residentes.'
-  if (/cerca|alrededor|entorno|dia a dia/.test(m) && Array.isArray(info.lugares_cercanos)) {
-    const places = info.lugares_cercanos.map(object)
-    const examples = [places.find(p => /supermaxi|supermercado/i.test(text(p.poi_name))), places.find(p => /caffe|cafe/i.test(normalized(text(p.poi_name))))]
-      .filter((p): p is Row => !!p).map(p => text(p.poi_name))
-    if (examples.length) return `En el sector tiene opciones como ${examples.join(' y ')} para resolver compras o disfrutar una salida. ¿Qué servicio le gustaría tener cerca de su vivienda?`
-  }
-  if (/plusval|rentabil|subir|subira|aseguran.*precio/.test(m) && info.posicionamiento_proyecto) {
-    return 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.'
-  }
-  if (/suite/.test(m) && object(info.lead).preferred_category === 'suite') {
-    const units = (Array.isArray(info.catalogo) ? info.catalogo : []).map(object).filter(u => u.category === 'suite')
-    const oneBedroom = units.length && units.every(u => Number(u.bedrooms) === 1)
-    const purpose = object(info.lead).purchase_purpose
-    return `Podemos comparar las suites${oneBedroom ? ' de un dormitorio' : ''} según lo que busca${purpose === 'invertir' ? ' para su inversión' : purpose === 'vivir' ? ' para su día a día' : ''}. ${purpose === 'invertir' ? '¿Qué le gustaría priorizar al invertir?' : purpose === 'vivir' ? '¿Qué le gustaría mejorar con su nueva vivienda?' : '¿La busca para vivir o para invertir?'}`
-  }
-  if (/departamento|familia|dormitorio/.test(m) && !/precio|cuesta|financ|credito|area|tamano|metros|foto|modelo|cita|constru|seguridad|piscina|cerca/.test(m)) {
-    const bedrooms = [...new Set(catalog.filter(unit => unit.category === 'departamento').map(unit => Number(unit.bedrooms)).filter(value => value > 0))].sort((a, b) => a - b)
-    if (bedrooms.length) {
-      const known = object(object(info.conversacion).datos_conocidos).dormitorios
-      return `Podemos comparar departamentos de ${bedrooms.join(' o ')} dormitorios para ver cuál se adapta ${/familia/.test(m) ? 'a su familia' : 'a lo que busca'}.${known ? '' : ' ¿Cuántos dormitorios necesita?'}`
-    }
-  }
-  if (/donde|ubicacion|direccion|como lleg/.test(m) && text(object(info.proyecto).address)) return `La dirección es ${text(object(info.proyecto).address)}.${text(info.ubicacion) ? ' Puede verla aquí: ' + text(info.ubicacion) : ''}`
-  return ''
+/** The common interpretation, not vocabulary, identifies a project overview. */
+export function isProjectInformationRequest(_current: string, interpreted: unknown = {}) {
+  const info = object(interpreted), semantics = object(info.semantica_turno || info.turn_semantics || info)
+  return (Array.isArray(semantics.requests) ? semantics.requests : []).map(object).some(request =>
+    request.domain === 'property' && Array.isArray(request.topics) && request.topics.includes('project_overview'))
 }
-
-export function isProjectInformationRequest(current: string) {
-  const message = normalized(current)
-  if (/\b(?:brochure|brochur|folleto|catalogo|pdf)\b/.test(message)) return false
-  return /(?:informacion|detalles|cuenteme|cuentame|hablame).*(?:proyecto|edificio)/.test(message)
-    || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches|por favor)\s+)*(?:(?:quiero|quisiera|necesito|deseo|me gustaria)\s+)?(?:mas\s+)?(?:informacion|info|detalles)(?:\s+por favor)?$/.test(message)
-    || /^(?:(?:hola|buenos dias|buenas tardes|buenas noches)\s+)*(?:por favor\s+)?(?:compartame|comparteme|envieme|mandeme)\s+(?:mas\s+)?informacion(?:\s+(?:del|sobre el)\s+proyecto)?$/.test(message)
-}
-
 export function projectOverviewReply(info: Row, current: string) {
-  const message = normalized(current)
-  const subject = informationSubject(current, info)
-  // This paragraph is also used as one component of a mixed visit response.
-  if (!(subject === 'project' || (subject === null && isProjectInformationRequest(current)))) return ''
-  const introduction = projectIntroductionForTurn(info)
-  if (!introduction && !info.posicionamiento_proyecto) return ''
-  const history = (Array.isArray(info.historial) ? info.historial : []).map(object)
-  const firstReply = !history.some(row => ['bot', 'asesor'].includes(text(row.role)))
-  const includesGreeting = /^(?:hola|buenos dias|buen dia|buenas tardes|buenas noches|buenas|saludos|que tal)\b/.test(message)
-  const facilities = normalized(JSON.stringify(info.instalaciones || []))
-  const highlights = [
-    /piscina/.test(facilities) && 'piscina',
-    /gimnasio/.test(facilities) && 'gimnasio',
-    /jardin|areas verdes|espacios verdes/.test(facilities) && 'jardines',
-    /seguridad|vigilancia|monitoreo/.test(facilities) && 'medidas de seguridad',
-    /parqueadero|estacionamiento/.test(facilities) && 'parqueaderos',
-  ].filter((value): value is string => !!value).slice(0, 4)
-  const list = highlights.length > 1 ? `${highlights.slice(0, -1).join(', ')} y ${highlights.at(-1)}` : highlights[0] || ''
-  const opening = firstReply && !includesGreeting ? 'Hola. Claro que sí, con mucho gusto. ' : 'Claro que sí, con mucho gusto. '
-  if (introduction) return opening + text(introduction.summary)
-  return opening + 'La Vilet es un proyecto inmobiliario en Puertas del Sol, Cuenca, que reúne opciones para vivienda, como suites y departamentos, además de locales comerciales para negocio o inversión. La propuesta combina privacidad, comodidad y espacios pensados para residentes y actividades comerciales.'
-    + (list ? ` Entre sus instalaciones se encuentran ${list}.` : '')
+  if (informationSubject(current, info) !== 'project' && !isProjectInformationRequest(current, info)) return ''
+  return text(projectIntroductionForTurn(info)?.summary)
 }
-
 export function projectInformationReply(info: Row, current: string, brochureUrl: string) {
-  // Only a single project request may consume the whole turn as a presentation.
   if (informationSubject(current, info) !== 'project') return ''
-  // Shared eligibility for both conversation entry and commercial fallback.
-  // A general presentation must not consume specific questions or visit actions.
-  if (/precio|valor|financ|credito|cuanto|dormitorio|\b\d{3}\b|visita|cita|agendar|constructora|entrega|ubicacion|sector|alrededor|cerca/.test(normalized(current))) return ''
   const overview = projectOverviewReply(info, current)
-  if (!overview) return ''
-  return `${overview}\n\nPuede conocer el proyecto con más detalle en el brochure: ${brochureUrl}\n\n¿Le gustaría que le compartamos información de alguna de estas opciones?`
+  return overview ? overview+'\n\nBrochure: '+brochureUrl : ''
 }
-
-export function projectInformationChoiceReply(current: string, history: unknown) {
-  const message = normalized(current)
-  if (!/^(?:si|si por favor|claro|de acuerdo|esta bien|me parece bien|perfecto|por favor)$/.test(message)) return ''
-  const previous = normalized(text((Array.isArray(history) ? history : []).map(object)
-    .filter(row => ['bot', 'asesor'].includes(text(row.role))).at(-1)?.content))
-  if (!/(?:le gustaria|desea).{0,45}(?:informacion|conocer).{0,45}(?:opciones|alternativas)/.test(previous)) return ''
-  return 'Claro. Tenemos opciones para vivienda, como suites y departamentos, y también locales comerciales para negocio. ¿Con cuál de estas opciones le gustaría empezar?'
-}
-
-export function unresolvedCommercialReply(reply: string) {
-  return !reply.trim() || /\bno quiero darle informaci[oó]n imprecisa|\bno (?:tengo|tenemos|cuento|contamos)[^.!?\n]{0,55}(?:informaci[oó]n|dato|precio|detalle)[^.!?\n]{0,30}(?:confirmad|disponible|publicad|precis)|(?:necesito|debemos|debe|falta|hay que)[^.!?\n]{0,25}(?:verificar|consultar|confirmar)[^.!?\n]{0,60}(?:asesor|equipo|precio|dato|correspond)|(?:asesor|equipo)[^.!?\n]{0,40}(?:puede ayudarle|debe verificarlo)/i.test(reply)
-}
+/** Legacy prose-only continuation cannot create a commercial question. */
+export function projectInformationChoiceReply(_current: string, _history: unknown) { void _current; void _history;  return '' }
+export function unresolvedCommercialReply(reply: string) { return !reply.trim() }

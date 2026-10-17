@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -59,16 +60,17 @@ test('supplementary evidence retains applicable facts, restrictions and unknown 
     politicas_negocio: [...rows(input().politicas_negocio), { topic: 'otros', policy_content: 'No permitir usos industriales.' }] }
   const audit = { catalog_retrieval: { applied: true } }
   const slim = semanticCatalogContext(verified, audit, fixture.message)
-  assert.deepEqual(slim.instalaciones, [])
+  assert.deepEqual(slim.instalaciones, verified.instalaciones)
   assert.deepEqual(slim.lugares_cercanos, [])
   assert.deepEqual(slim.contexto_sector, [])
-  assert.equal(rows(slim.politicas_negocio).length, 1)
-  assert.equal(rows(slim.politicas_negocio)[0].topic, 'otros')
+  assert.deepEqual(slim.politicas_negocio, verified.politicas_negocio)
   assert.deepEqual(slim.politica_comercial, verified.politica_comercial)
   assert.deepEqual(slim.politica_financiera, verified.politica_financiera)
-  const pool = semanticCatalogContext(verified, audit, 'Busco una suite con piscina')
+  const topics = (requested: string[]) => ({ ...verified, solicitudes_interpretadas: [{ domain: 'property', topics: requested,
+    confidence: 'high', request: 'Consulta interpretada', evidence: 'Consulta interpretada' }] })
+  const pool = semanticCatalogContext(topics(['property_features']), audit, 'Busco una suite con piscina')
   assert.deepEqual(pool.instalaciones, verified.instalaciones) // includes resident-only restriction
-  const park = semanticCatalogContext({ ...verified, lugares_cercanos: [{ poi_name: 'Parques', poi_category: 'Zona verde' }] }, audit, 'Busco una suite junto a un parque')
+  const park = semanticCatalogContext({ ...topics(['location']), lugares_cercanos: [{ poi_name: 'Parques', poi_category: 'Zona verde' }] }, audit, 'Busco una suite junto a un parque')
   assert.equal(rows(park.lugares_cercanos).length, 1)
   const payment = semanticCatalogContext(verified, audit, 'Busco local para pagar al contado')
   assert.ok(rows(payment.politicas_negocio).some(p => p.topic === 'pagos'))
@@ -103,9 +105,9 @@ async function run(enabled: boolean, failSearch = false, compareCosts = false, w
     const data = object(context)
     costComparisons.push(promptCostComparison(instructions, context, _schema))
     calls.push({ task: task!, instructions, context: data })
-    if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-    return { reply, question: { role: 'required_collection', purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure' },
-      requests: rows(data.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Buscar local', status: 'answered', evidence: 'Locales con espacio exterior.', fact_key: null, request_type: 'general_information' })) }
+    if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
+    return writerFixture({ reply, question: { role: 'required_collection', purpose: 'collect_lead_profile', missing_datum: 'Nombre y residencia actual', next_decision: 'Compartir el brochure' },
+      requests: rows(data.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Buscar local', status: 'answered', evidence: 'Locales con espacio exterior.', fact_key: null, request_type: 'general_information' })) })
   })
   return { calls, result, embeddings, costComparisons }
 }
@@ -118,8 +120,8 @@ test('exact contexts are compact with the switch on or off; optional ranking fai
     assert.deepEqual(r.calls.map(c => c.task), ['writing', 'review'])
     for (const call of r.calls) {
       const obligations = rows(call.context.obligaciones_del_turno).map(o => o.id)
-      assert.ok(obligations.includes('profile_full_name'))
-      assert.ok(obligations.includes('profile_current_residence'))
+      assert.equal(obligations.includes('profile_full_name'), call.task === 'writing')
+      assert.equal(obligations.includes('profile_current_residence'), call.task === 'writing')
     }
   }
   assert.equal(off.embeddings, 0)
@@ -132,15 +134,15 @@ test('exact contexts are compact with the switch on or off; optional ranking fai
   assert.equal(rows(object(reviewer.fuentes_autorizadas).unidades).length, 16)
   assert.equal(rows(object(off.calls[0].context.evidencia_turno).units).length, 16)
   assert.equal(rows(object(failure.calls[0].context.evidencia_turno).units).length, 16)
-  assert.equal(rows(object(writer.contexto_verificado).politicas_negocio).length, 0)
-  assert.equal(rows(object(off.calls[0].context.contexto_verificado).politicas_negocio).length, 0)
-  assert.equal(rows(object(failure.calls[0].context.contexto_verificado).politicas_negocio).length, 0)
+  assert.deepEqual(object(writer.contexto_verificado).politicas_negocio, input().politicas_negocio)
+  assert.deepEqual(object(off.calls[0].context.contexto_verificado).politicas_negocio, input().politicas_negocio)
+  assert.deepEqual(object(failure.calls[0].context.contexto_verificado).politicas_negocio, input().politicas_negocio)
   const withoutVectorSwitch = (calls: typeof on.calls) => calls.map(call => call.task === 'writing' ? {
     ...call, context: { ...call.context, contexto_verificado: { ...object(call.context.contexto_verificado),
       catalog_search: { ...object(object(call.context.contexto_verificado).catalog_search), embeddingsEnabled: false } } },
   } : call)
   assert.deepEqual(withoutVectorSwitch(on.calls), withoutVectorSwitch(off.calls))
-  assert.equal(object(on.result.audit.prompt_context_selection).mode, 'task_context')
+  assert.equal(object(object(writer.contexto_verificado).prompt_context_selection).mode, 'task_context')
 })
 
 test('cost comparison observes both agents without changing their inputs, output, calls or off behavior', async () => {

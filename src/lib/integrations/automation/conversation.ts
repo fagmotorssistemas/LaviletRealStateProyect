@@ -1,112 +1,113 @@
-import { interactionMode } from './interaction-mode'
-import { audienceAllows } from './audience-boundary'
-import { applyShowroomEntry } from './showroom-contact'
-import { showWhatsAppTyping } from './whatsapp-typing'
-import { rememberLeadNurture, nurtureWithCommercialProfile } from './lead-nurture-state'
-import { rememberPipelineAvailability } from './lead-pipeline-receipts'
-import { acceptedExtractorConfidence } from './extractor-confidence'
-import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
-import { interpretCommercialJourney, rememberCommercialJourney, purchaseReadiness, commercialJourneyPlan } from './commercial-journey'
-import { leadBudget } from './budget-state'
-import { currentTopicReply } from './current-topic'
-import { discountNegotiationForTurn } from './discount-request'
-import { withHandoffNotice } from './handoff-copy'
-import { replyQuestionText } from './reply-question'
-import { unverifiedReply } from './delivery-integrity'
-import { withConversationTone, conversationToneAudit } from './tone-settings'
-import { withConversationLanguage, setConversationLanguage } from './conversation-language'
-import { loadResponseReviewPolicy } from './response-review-settings'
-import { responseReviewEnabled, responseReviewObservationOnly, withResponseReviewPolicy } from './response-review-policy'
+import { readinessInvitation,readinessPlaceClarification,type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
-import { readinessInvitation, readinessPlaceClarification, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
+import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
+import { isUnitOfferContext } from '@/lib/meta/waLeadSubmittedEligibility'
+import { resolveRecentUnitOfferText } from '@/lib/meta/waLeadSubmittedOfferContext'
+import { applyWhatsappAdsConsentFromClientMessage,evaluateWaLeadSubmittedForCurrentTurn } from '@/lib/meta/waLeadSubmittedTurn'
 import 'server-only'
-import { activePrompt, aiJson, mediaText, draftReply } from './ai'
+import { actionAuthorized,actionDecision } from './action-authority'
+import { activePrompt,aiJson,draftReply,mediaText } from './ai'
 import { automationModelForRole } from './ai-model-routing'
+import { audienceAllows } from './audience-boundary'
+import { leadBudget } from './budget-state'
+import { commercialJourneyPlan,interpretCommercialJourney,purchaseReadiness,rememberCommercialJourney } from './commercial-journey'
+import { assertLive,automationSettings } from './config'
+import { setConversationLanguage,withConversationLanguage } from './conversation-language'
+import { validateIntent,VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
+import { preserveCtwaForContact } from './ctwa-lead-store'
+import { currentTopicReply } from './current-topic'
+import { autoConfig,db,object,one,permitted,rpc,scope,text,type Row } from './data'
+import { unverifiedReply } from './delivery-integrity'
+import { discountNegotiationForTurn } from './discount-request'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { withHandoffNotice } from './handoff-copy'
+import { compareInboundOrder } from './inbound-order'
+import { interactionMode } from './interaction-mode'
+import { confirmedInterpretationMemory } from './interpretation-memory'
+import { botStopped,getKommoContact,getKommoLead,launchSalesbot,setKommoField } from './kommo'
+import { isProfileOnlyTurn,leadIntroductionTurn,leadProfileCollectionDecision,leadProfilePendingQuestion,leadProfileQuestionIssues,rememberLeadIntroduction } from './lead-introduction'
+import { nurtureWithCommercialProfile,rememberLeadNurture } from './lead-nurture-state'
+import { rememberPipelineAvailability } from './lead-pipeline-receipts'
+import { confirmedLeadName,confirmedLeadProfile,mergeLeadProfile } from './lead-profile'
 import { OpenAIRequestError } from './openai-request'
 import { unansweredInbound } from './pending-inbound'
-import { confirmedInterpretationMemory } from './interpretation-memory'
-import { assertLive, automationSettings } from './config'
-import { normalizedVisitPreference, validateIntent, VISIT_PREFERENCE_EXTRACTION_RULES } from './conversation-rules'
-import { autoConfig, db, object, one, permitted, rpc, scope, text, type Row } from './data'
-import { botStopped, getKommoContact, getKommoLead, launchSalesbot, setKommoField } from './kommo'
-import { inboundFromRow, type Inbound } from './webhook'
-import { compareInboundOrder } from './inbound-order'
-import { preserveCtwaForContact } from './ctwa-lead-store'
-import { applyWhatsappAdsConsentFromClientMessage, evaluateWaLeadSubmittedForCurrentTurn } from '@/lib/meta/waLeadSubmittedTurn'
-import { resolveRecentUnitOfferText } from '@/lib/meta/waLeadSubmittedOfferContext'
-import { isUnitOfferContext } from '@/lib/meta/waLeadSubmittedEligibility'
-import type { Guard } from './visits'
-import { isGreetingOnly, qualifiedFacts, sdrState } from './sdr-rules'
-import { commercialContext, commercialReply, publishedUnitCatalog, catalogSearchConfiguration } from './sdr'
-import { appendUnitModel, unitModelDelivery, selectedUnitModelDelivery } from './unit-model'
-import { showroomRequest, asksConstructionStatus } from './virtual-showroom'
+import { replyQuestionText } from './reply-question'
+import { responseReviewEnabled,responseReviewObservationOnly,withResponseReviewPolicy } from './response-review-policy'
+import { loadResponseReviewPolicy } from './response-review-settings'
 import { visitRoutePermission } from './route-consistency'
-import { visitDialogueTurn, visitDialogueBaseReply, visitDialoguePendingQuestion, visitDialogueIntakeSnapshot, reconcileVisitDialogueScope, rememberVisitDialogue } from './visit-dialogue'
-import { isProfileOnlyTurn, leadIntroductionTurn, leadProfileCollectionDecision, leadProfileQuestionIssues, rememberLeadIntroduction } from './lead-introduction'
-import { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
+import { catalogSearchConfiguration,commercialContext,commercialReply,publishedUnitCatalog } from './sdr'
+import { qualifiedFacts,sdrState } from './sdr-rules'
+import { applyShowroomEntry } from './showroom-contact'
+import { conversationToneAudit,withConversationTone } from './tone-settings'
+import { turnCommunicationKind } from './turn-communication'
+import { appendUnitModel,selectedUnitModelDelivery,unitModelDelivery } from './unit-model'
+import { asksConstructionStatus,showroomRequest } from './virtual-showroom'
+import { reconcileVisitDialogueScope,rememberVisitDialogue,visitDialogueBaseReply,visitDialogueIntakeSnapshot,visitDialoguePendingQuestion,visitDialogueTurn } from './visit-dialogue'
+import type { Guard } from './visits'
+import { inboundFromRow,type Inbound } from './webhook'
+import { showWhatsAppTyping } from './whatsapp-typing'
 
-import { tourContinuation } from './tour-continuation'
-import { resolveTurnIntent, rememberTurnIntentAfterReply } from './turn-intent'
-import { isOnlyUnitVisualRequest, isUnitVisualRequest } from './unit-visual-request'
-import { localVisualMaterialContext } from './visual-materials'
+import { applyTurnGreeting,greetingForTurn,naturalConversationReply } from './conversation-style'
 import { priceNoticeForConversation } from './price-conditions'
-import { applyTurnGreeting, greetingForTurn, isCourtesyOnly, naturalConversationReply } from './conversation-style'
+import { tourContinuation } from './tour-continuation'
+import { rememberTurnIntentAfterReply,resolveTurnIntent } from './turn-intent'
+import { isUnitVisualRequest } from './unit-visual-request'
+import { localVisualMaterialContext } from './visual-materials'
 
-import { financingContext, financingInputs, financingQuestionReply, isFinancingTurn, priceFinancingReply, financingPartnerAnswer } from './financing'
-import { financingQuoteInquiry, financingQuoteContext } from './financing-quote'
-import { financingCollection, financingReadyForHandoff, personalDataFragments } from './financing-intake'
-import { financingIdentity } from './financing-identity'
-import { financingAmounts, financingBalance } from './financing-amounts'
-import { rememberFinancingEntry } from './financing-entry'
-import { intakeReply, isVisitDetail, needsVisitHelp, visitTurnIntent, visitBusinessHoursReply, visitHoursWereOffered } from './visit-intake'
-import { asksVisitStatus, asksTeamAttendance, teamAttendanceReply, declinedFollowup, explicitlyRequestsVisit, hasUnrelatedAppointmentTarget, isConversationRepair, TURN_RULES, visitStatusReply } from './turn-routing'
-import { commercialMemory, isProjectInformationRequest, projectInformationChoiceReply, projectInformationReply, projectOverviewReply } from './commercial-experience'
-import { resolveCatalogReference } from './catalog-reference'
-import { propertyContext, resolvePropertyTurn, rememberPropertyReply } from './property-context'
-import { commercialEngagement } from './commercial-engagement'
-import { preferredPropertyCategory } from './property-selection'
-import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
-import { acceptsUnitOptions, acceptsVisitInvitation, ambiguousVisitAcceptance, rememberSalesReply } from './sales-policy'
-import { mediaFailureReply, unreadMediaMarker } from './media-format'
-import { variedReplyOpening, applyDecidedOpening } from './response-openings'
-import { acceptedPriceOption, asksUnitPrice, unitPriceQuote } from './price-reply'
-import { scheduleNutrition24h } from './nutrition'
-import { scheduleNutritionWeekOne } from './nutrition-week-one'
-import { scheduleNutritionLater } from './nutrition-later'
-import { nutritionContinuation } from './nutrition-week-one-rules'
-import { brochureReply, BROCHURE_URL, launchVisitReply, vehicleScopeReply, brochureDeliveryIntent } from './project-material'
-import { salesSubject } from './sales-subject'
-import { classifyBusinessScope, reconcileConversationScope, type BusinessScopeDecision } from './business-scope'
-import { inboundFreshness } from './inbound-freshness'
-import { financingFieldAnswer } from './financing-continuation'
-import { locationAnswer, locationRequestKind, withVisitLocation } from './visit-location'
-import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
-import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
-import { selectedVisitOption } from './visit-choice'
-import { visitParserReady } from './visit-parser-health'
 import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
-import { asksForHouse, houseProductReply } from './product-fit'
-import { declinesAllVisitAlternatives } from './visit-escalation'
-import { completeTurnReply } from './turn-completeness'
-import { scopeFallbackReply, scopeWritingContract, scopePolicyContext } from './scope-response'
-import { catalogQuery, filterCatalog, catalogDialogueReply } from './catalog-dialogue'
-import { advisorOwnsConversation } from './human-attention'
-import { traceForEvents, traceText, type AutomationExecutionTrace } from './execution-trace'
-import { financingPrerequisiteReply } from './property-selection'
-import { financingJourney, financingStage, selectedFinancingUnit, canResumeFinancing, rememberedFinancingPartner } from './financing-stage'
-import { answersPendingQuestion, normalizedPendingQuestion } from './turn-semantics'
-import { deliveredPendingQuestion } from './continuation-question'
-import { followUpUsable, pendingFollowUpNeedsInterpretation } from './review-disposition'
-import { MAX_REPLY_CHARACTERS, responsePlan, protectInitialProjectPresentation } from './response-plan'
-import { evaluateInterestDecision, requestReservationHandoff, reservationRequest, verifiedReservationReceipt } from './reservation-action'
-import { commercialTurnTopics } from './multi-topic-turn'
-import { CONVERSATION_CONTRACT_VERSION, interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
-import { decisionRecord, catalogSnapshot, type DecisionRecord } from './decision-record'
 import { withAIExecutionTrace } from './ai-execution-trace'
-import { PreReplySendError } from './delivery-phase'
-import { prepareReplyRegistration, markReplyDispatchStarted, registerAcceptedReply, markReplyMemorySaved, AcceptedReplyRegistrationError, type ReplyCheckpoint } from './reply-registration'
-import { requireReviewedResponse } from './response-review-recovery'
+import { classifyBusinessScope,reconcileConversationScope,type BusinessScopeDecision } from './business-scope'
+import { catalogDialogueReply,catalogQuery,filterCatalog } from './catalog-dialogue'
+
+import { mediaClarificationReply } from './clarification'
+import { commercialEngagement } from './commercial-engagement'
+import { commercialMemory,projectInformationReply,projectOverviewReply } from './commercial-experience'
+import { deliveredPendingQuestion } from './continuation-question'
 import { assessMissingFacts } from './coverage-evidence'
+import { catalogSnapshot,decisionRecord,type DecisionRecord } from './decision-record'
+import { PreReplySendError } from './delivery-phase'
+import { traceForEvents,traceText,type AutomationExecutionTrace } from './execution-trace'
+import { financingContext,financingInputs,financingPartnerAnswer,financingQuestionReply,isFinancingTurn,priceFinancingReply } from './financing'
+import { financingAmounts,financingBalance } from './financing-amounts'
+import { rememberFinancingEntry } from './financing-entry'
+import { financingIdentity } from './financing-identity'
+import { financingCollection,financingReadyForHandoff,personalDataFragments } from './financing-intake'
+import { financingInvitationReceipt } from './financing-invitation'
+import { financingQuoteContext,financingQuoteInquiry } from './financing-quote'
+import { canResumeFinancing,financingJourney,financingStage,rememberedFinancingPartner,selectedFinancingUnit } from './financing-stage'
+import { advisorOwnsConversation } from './human-attention'
+import { inboundFreshness } from './inbound-freshness'
+import { locationDisclosurePolicy,projectLocationForPrompt } from './location-policy'
+import { mediaFailureReply,unreadMediaMarker } from './media-format'
+import { commercialTurnTopics } from './multi-topic-turn'
+import { scheduleNutrition24h } from './nutrition'
+import { scheduleNutritionLater } from './nutrition-later'
+import { scheduleNutritionWeekOne } from './nutrition-week-one'
+import { nutritionContinuation } from './nutrition-week-one-rules'
+import { acceptedPriceOption,unitPriceQuote } from './price-reply'
+import { asksForHouse,houseProductReply } from './product-fit'
+import { BROCHURE_URL,brochureDeliveryIntent,brochureReply,vehicleScopeReply } from './project-material'
+import { propertyContext,rememberPropertyReply,resolvePropertyTurn } from './property-context'
+import { financingPrerequisiteReply,preferredPropertyCategory } from './property-selection'
+import { AcceptedReplyRegistrationError,markReplyDispatchStarted,markReplyMemorySaved,prepareReplyRegistration,registerAcceptedReply,type ReplyCheckpoint } from './reply-registration'
+import { evaluateInterestDecision,requestReservationHandoff,reservationRequest,verifiedReservationReceipt } from './reservation-action'
+import { loadReservationContext } from './reservation-context-loader'
+import { hydrateReservationSelection,projectReservationOperation,reconcileReservationOperation } from './reservation-operation-context'
+import { applyDecidedOpening,variedReplyOpening } from './response-openings'
+import { MAX_REPLY_CHARACTERS,protectInitialProjectPresentation,responsePlan } from './response-plan'
+import { requireReviewedResponse } from './response-review-recovery'
+import { followUpUsable,pendingFollowUpNeedsInterpretation } from './review-disposition'
+import { acceptsUnitOptions,acceptsVisitInvitation,ambiguousVisitAcceptance,rememberSalesReply } from './sales-policy'
+
+import { scopeFallbackReply,scopePolicyContext,scopeWritingContract } from './scope-response'
+import { completeTurnAnswer,turnAnswerFacts } from './turn-answer'
+import { completeTurnReply } from './turn-completeness'
+import { CONVERSATION_CONTRACT_VERSION,interpretConversationTurn,rememberInterpretedTurn } from './turn-interpretation'
+import { declinedFollowup,teamAttendanceReply,TURN_RULES,visitStatusReply } from './turn-routing'
+import { answersPendingQuestion,normalizedPendingQuestion } from './turn-semantics'
+import { intakeReply,visitBusinessHoursReply } from './visit-intake'
+import { locationAnswer,locationRequestKind,withVisitLocation } from './visit-location'
+import { visitParserReady } from './visit-parser-health'
 
 export const visitIntentPrompt = `Clasifique la respuesta a una propuesta de visita usando el historial cronológico.
 Devuelva JSON {"intent":"accept|counterproposal|reject|cancel|question|unclear|opt_out","visit_preference":null}.
@@ -431,21 +432,31 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   let interestDecision: Row | null = null
   let summary: Row = {}, audit: Row = {}
   let turnCatalog: Row[] = [], propertyTurn: Row = {}, currentSemantics: Row = {}
-  let greeting = !inbound.mediaFailed && !pendingInputs.length && isGreetingOnly(current)
+  let reservationContext: Row = {}
+  const routing = () => object(currentSemantics.routing)
+  const visitMeaning = () => object(currentSemantics.visit_intent)
+  const explicitlyRequestsVisit = (_message: string) => { void _message; return actionAuthorized(currentSemantics.action_authority, 'visit') }
+  const hasUnrelatedAppointmentTarget = (_message: string) => { void _message; return visitMeaning().target === 'other' }
+  const isVisitDetail = (_message: string) => { void _message; return ['preference', 'coordination', 'accept_alternative'].includes(text(visitMeaning().purpose)) }
+  const needsVisitHelp = (_message: string) => { void _message; return routing().visit_help === true }
+  const visitTurnIntent = (_message: string) => { void _message; return routing().visit_response === 'counterproposal' ? 'counterproposal' : null }
+  const asksVisitStatus = (_message: string, _reply = '') => { void _reply; return visitMeaning().kind === 'visit_status' }
+  const asksTeamAttendance = (_message: string) => { void _message; return routing().team_attendance === true }
+  const visitHoursWereOffered = (_reply: string) => { void _reply; return object(previousSummary._last_operational_step).kind === 'visit_hours' }
+  const isCourtesyOnly = (_message: string) => { void _message; return courtesy }
+
+  let greeting = false, courtesy = false, modelOnly = false, repair = false
   const storedSummary = await applyShowroomEntry(lead,object(conversationBefore.summary),current)
   const previousSummary: Row = { ...storedSummary, _lead_profile: confirmedLeadProfile(storedSummary._lead_profile) }
   setConversationLanguage(previousSummary._conversation_language)
   let businessScope: BusinessScopeDecision = { kind: 'neutral', property_message: current, reply: '', uncertain: false }
-  const financeContinuation = !inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)
-    && financingFieldAnswer(current, context.historial, {explicit_consent:true})
-    ? financingFieldAnswer(current, context.historial, (await financingContext(lead)).current) : null
+  const financeContinuation = null
   const scopeStep = trace.start('scope_classification', 'Interpretar alcance del mensaje', 'ai', 'business-scope.ts', {
     message: traceText(current),
     financing_continuation: Boolean(financeContinuation),
   })
-  if (!inbound.mediaFailed && meaningfulText && !greeting && !isCourtesyOnly(current)) {
-    businessScope = financeContinuation || isProjectInformationRequest(current) ? {kind:'property',property_message:current,reply:'',uncertain:false}
-      : await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true, object(previousSummary._turn_intent).scope, previousSummary._pending_question)
+  if (!inbound.mediaFailed && meaningfulText) {
+    businessScope = await classifyBusinessScope(current, context.historial, previousSummary._brand_introduced === true, object(previousSummary._turn_intent).scope, previousSummary._pending_question)
     if (businessScope.kind === 'out_of_scope') {
       reply = scopeFallbackReply(businessScope, previousSummary._brand_introduced === true)
       audit = { source: 'business_out_of_scope', business_scope: businessScope.kind }
@@ -461,9 +472,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     uncertain: businessScope.uncertain,
     confidence: businessScope.confidence || null,
     greeting,
-    courtesy: isCourtesyOnly(current),
+    courtesy: null,
   })
-  const modelOnly = isOnlyUnitVisualRequest(current) && !explicitlyRequestsVisit(current)
   async function transferToAdvisor(reason: string, cause: Pick<DecisionRecord, 'rule_id' | 'origin' | 'caused_by_step' | 'facts'>) {
     const decision = decisionRecord({ ...cause, reason, outcome: 'requested',
       setting: { kind: 'code', label: 'Condición de derivación al asesor', source: 'conversation.ts · turn-completeness.ts' } })
@@ -493,6 +503,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     return handoffNotice
   }
   async function collectVisit(args: Row) {
+    args = { ...args, p_snapshot: { ...object(args.p_snapshot),
+      _interpreted_visits: Array.isArray(currentSemantics.visit_preferences) ? currentSemantics.visit_preferences : [],
+      _current_visit_message_ids: inbound.normalized.map(message => message.externalId) } }
     const visitStep = trace.start('visit_coordination', 'Coordinar visita', 'action', 'visit-intake.ts · lv_collect_visit_intake', {
       has_interpreted_preference: Boolean(object(args.p_snapshot)._interpreted_visit),
       needs_help: args.p_needs_help === true,
@@ -526,11 +539,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         return { ...result, registration_verified: true, assigned_advisor_id: saved.assigned_advisor_id || null }
       }
       if (!['collecting', 'stale', 'closed_day', 'past', 'outside_hours'].includes(text(result.action))) throw new Error('VISIT_INTAKE_INVALID_RESULT')
-      const retained = object(object(object(args.p_snapshot)._visit_dialogue_consent).source_preference)
-      const retainedSource = text(retained.source_message_id)
+      const consent = object(object(args.p_snapshot)._visit_dialogue_consent)
+      const retained = Array.isArray(consent.source_preferences) ? consent.source_preferences.map(object) : [object(consent.source_preference)]
+      const retainedSources = retained.map(item => text(item.source_message_id || object(item.source).message_id)).filter(Boolean)
       const sources = object(result.slot).source_messages
       const verifiedSources = (Array.isArray(sources) ? sources : []).map(object)
-      if (retainedSource && result.action === 'collecting' && !verifiedSources.some(source => [text(source.id), text(source.external_id)].includes(retainedSource))) {
+      if (result.action === 'collecting' && retainedSources.some(id => !verifiedSources.some(source => [text(source.id), text(source.external_id)].includes(id)))) {
         const message = await transferToAdvisor('coordinar la cita en el lugar aceptado conservando la fecha y hora declaradas; verificar la fuente anterior antes de registrar otra solicitud', {
           rule_id: 'visit.prior_preference_requires_verification', origin: 'operational', caused_by_step: visitStep })
         trace.finish(visitStep, 'paused', { action: 'advisor_handoff', reason: 'VISIT_PRIOR_PREFERENCE_NOT_VERIFIED', request_registered: false })
@@ -548,25 +562,40 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       return { action: 'advisor_handoff', message, registration_verified: false }
     }
   }
-  const memory = commercialMemory(previousSummary._commercial_memory, context.historial, current)
+  let memory = commercialMemory(previousSummary._commercial_memory, context.historial, '', {})
   const state = sdrState(lead, context.historial)
-  const repair = isConversationRepair(current) && !!state.ultima_respuesta
+  // Repair is interpreted with the full turn below, before choosing a route.
   if (repair) greeting = false
-  const turnGreeting = greetingForTurn(current, pendingRead.data || context.historial, lead.last_bot_message_at, activeLast.sentAt)
+  let turnGreeting = greetingForTurn(current, pendingRead.data || context.historial, lead.last_bot_message_at, activeLast.sentAt, {})
   const proposals = (Array.isArray(context.propuestas) ? context.propuestas : []).map(object)
   const { data: visitDraft, error: draftError } = await db().from('lv_visit_intakes').select('status,needs_help,preferred_period,preferred_location_type').eq('conversation_id', inbound.registration.conversation_id).maybeSingle()
   if (draftError) throw new Error('VISIT_INTAKE_CONTEXT_FAILED')
   // Common interpretation precedes every conversational response route.
   await guard()
-  const minimalTurn = !meaningfulText || greeting
+  const minimalTurn = !meaningfulText
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor') })
   const toolsContextStep = trace.start('decision_context', 'Cargar catálogo y contexto financiero', 'context', 'sdr.ts · financing.ts', { required: !minimalTurn })
   const finance = minimalTurn ? { partners: [], current: {} } : await financingContext(lead)
   turnCatalog = minimalTurn ? [] : await publishedUnitCatalog()
   const catalogSearch = minimalTurn ? { embeddingsEnabled: false } : await catalogSearchConfiguration()
+  if (!minimalTurn) reservationContext = reconcileReservationOperation(
+    await loadReservationContext(lead, turnCatalog, activeLast.sentAt), previousSummary._reservation_operation, {}, originalTurn)
   trace.finish(toolsContextStep, minimalTurn ? 'skipped' : 'succeeded', { catalog_units: turnCatalog.length, financing_partners: finance.partners.length })
-  const initialReference = resolveCatalogReference(turnCatalog, current, previousSummary._unit_reference, context.historial)
-  const previousPropertyContext = minimalTurn ? object(previousSummary._property_context) : propertyContext(turnCatalog, previousSummary._property_context, context.historial)
+  const rememberedPropertyContext = minimalTurn ? object(previousSummary._property_context)
+    : propertyContext(turnCatalog, previousSummary._property_context, context.historial)
+  const previousPropertyContext = minimalTurn ? rememberedPropertyContext
+    : hydrateReservationSelection(rememberedPropertyContext, reservationContext, turnCatalog)
+  if (previousPropertyContext !== rememberedPropertyContext) {
+    // Restore only from a verified customer request, before interpreting the
+    // new turn. Its explicit changes can still replace or reject this choice.
+    previousSummary._property_context = previousPropertyContext
+    previousSummary._pending_question = previousPropertyContext.pending_question
+  }
+  const savedQuestion = object(previousSummary._pending_question || previousPropertyContext.pending_question)
+  const referenceIds = new Set([previousPropertyContext.selected_ids, previousPropertyContext.offered_ids,
+    previousPropertyContext.comparison_ids, previousPropertyContext.focused_ids, savedQuestion.target_ids, savedQuestion.candidate_ids]
+    .flatMap(value => Array.isArray(value) ? value.map(text) : []))
+  const initialReference = { matches: turnCatalog.filter(unit => referenceIds.has(text(unit.id))), source: 'saved_typed_references' }
   const semanticStep = trace.start('semantic_extraction', 'Interpretar intención y datos', 'ai', 'ai.ts · conversation-rules.ts · turn-semantics.ts', {
     message: traceText(current), has_previous_summary: Object.keys(previousSummary).length > 0,
     catalog_matches: initialReference.matches.length,
@@ -576,17 +605,20 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const pendingQuestion = pendingFollowUpNeedsInterpretation(previousSummary, lastResponse) ? {}
     : rememberedQuestion
   const interpretationInputForTurn = {
+    source_message_id: activeLast.externalId, source_at: activeLast.sentAt,
+    current_messages: inbound.normalized.map(message => ({ external_message_id: message.externalId, sent_at: message.sentAt, content: message.text })),
     catalog_search: catalogSearch,
     consultas_pendientes: pendingInputs,
     resumen: previousSummary, historial: context.historial,
     perfil_inicial: { ...object(previousSummary._lead_profile), awaiting: object(previousSummary._lead_introduction).status === 'pending',
       missing: ['full_name', 'residence_city', 'residence_country'].filter(key => !text(object(previousSummary._lead_profile)[key])) },
     historial_reciente: Array.isArray(context.historial) ? context.historial.slice(-8) : [],
-    tema_actual: salesSubject(current, context.historial), alcance_negocio: businessScope.kind,
+    tema_actual: object(previousSummary._turn_intent).subject, alcance_negocio: businessScope.kind,
     alcance_negocio_incierto: businessScope.uncertain,
     ultima_pregunta: state.ultima_respuesta, pregunta_pendiente: pendingQuestion,
     contexto_propiedades: previousPropertyContext, catalogo_unidades: turnCatalog,
     propuestas: proposals, coordinacion_visita: visitDraft, dialogo_visita: previousSummary._visit_dialogue, financiamiento: finance,
+    reservation_context: reservationContext,
     unidades_identificadas: initialReference.matches, mensaje_actual: originalTurn,
     mensaje_accion: businessScope.kind === 'out_of_scope' || businessScope.uncertain && businessScope.outside_evidence && businessScope.confidence !== 'low' ? '' : current,
   }
@@ -600,7 +632,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const classifiedScope = businessScope.kind
   const classifiedUncertain = businessScope.uncertain
   const readableVisit = interpretation.withActionMessage?.(current) || interpretation
-  const visitScope = hasUnrelatedAppointmentTarget(current) ? businessScope
+  const visitScope = object(readableVisit.extracted.visit_intent).target === 'other' ? businessScope
     : reconcileVisitDialogueScope(businessScope, current, readableVisit.extracted.visit_intent, interpretation.requests)
   const reconciledScope = visitScope !== businessScope ? visitScope
     : await reconcileConversationScope(businessScope, current, interpretation.requests, context.historial, pendingQuestion)
@@ -620,6 +652,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       { scope: businessScope.kind, reason: businessScope.reason, grounded_requests: interpretation.requests.filter(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)).length })
   }
   const { extracted, semantics: turnSemantics } = interpretation
+  currentSemantics = turnSemantics
+  memory = commercialMemory(previousSummary._commercial_memory, context.historial, current, { semantics: turnSemantics, pendingQuestion })
+  turnGreeting = greetingForTurn(current, pendingRead.data || context.historial, lead.last_bot_message_at, activeLast.sentAt, turnSemantics.communication)
+  greeting = turnCommunicationKind(turnSemantics) === 'greeting_only'
+  courtesy = turnCommunicationKind(turnSemantics) === 'courtesy_only'
+  repair = object(turnSemantics.routing).repair_requested === true && !!state.ultima_respuesta
+  modelOnly = object(turnSemantics.routing).visual_only === true && !actionAuthorized(turnSemantics.action_authority, 'visit')
+  if (greeting || courtesy) { reply = ''; audit = {}; businessScope = { kind: 'neutral', property_message: current, reply: '', uncertain: false } }
   setConversationLanguage(extracted.conversation_language)
   const turnIntent = resolveTurnIntent({ current, history: context.historial, semantics: turnSemantics, requests: interpretation.requests,
     scope: businessScope, previous: previousSummary._turn_intent, pendingQuestion,
@@ -637,6 +677,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   interpretation.requests = turnIntent.requests
   extracted.requests = turnIntent.requests
   turnSemantics.requests = turnIntent.requests
+  reservationContext = reconcileReservationOperation(reservationContext, previousSummary._reservation_operation,
+    businessScope.kind === 'out_of_scope' ? {} : turnSemantics, originalTurn)
   trace.setVersions({ contractVersion: CONVERSATION_CONTRACT_VERSION, model: automationModelForRole('extractor'),
     promptVersions: interpretation.promptRevision ? { extractor_eventos: interpretation.promptRevision } : {} })
   const interaction = interactionMode(previousSummary._interaction_mode || object(previousSummary._sales_memory).interaction_mode, turnSemantics)
@@ -671,6 +713,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _turn_intent: turnIntent,
     _interaction_mode: interaction,
     _lead_nurture: nurtureState,
+    // A minimal greeting does not reload operation facts or erase a durable
+    // decision to leave the earlier request behind.
+    _reservation_operation: minimalTurn ? previousSummary._reservation_operation || {} : reservationContext,
     _lead_pipeline_events: rememberPipelineAvailability(previousSummary._lead_pipeline_events, interpretation.requests, current, activeLast.externalId, activeLast.sentAt),
     _unit_reference: minimalTurn || unresolvedPropertyScope ? previousSummary._unit_reference || {} : reference.memory,
     _property_context: minimalTurn || unresolvedPropertyScope ? previousPropertyContext : reference.context }
@@ -689,12 +734,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   trace.add('lead_profile_resolution', 'Interpretar los datos del lead', 'decision', 'lead-profile.ts', 'succeeded', {},
     { profile: summary._lead_profile, decisions: object(summary._lead_profile).diagnostics })
   extracted.turn_semantics = turnSemantics
-  if(financeContinuation) Object.assign(extracted,financeContinuation)
+
   const financeInput = financingInputs(extracted, current, text(state.ultima_respuesta), finance, object(previousSummary._last_operational_step))
   const quoteInquiry = financingQuoteInquiry(extracted, current)
   const brochureIntent = brochureDeliveryIntent(current, context.historial, extracted, pendingQuestion)
   summary._financing_journey = financingJourney(object(previousSummary._financing_journey), financeInput, activeLast.externalId)
-  summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, text(state.ultima_respuesta))
+  summary._financing_identity = financingIdentity(object(previousSummary._financing_identity), extracted.financing_identity, current, pendingQuestion)
   summary._financing_amounts = financingAmounts(object(previousSummary._financing_amounts), extracted.financing_amounts, current)
   summary._financing_entry = rememberFinancingEntry(object(previousSummary._financing_entry), current, extracted, pendingQuestion, activeLast.externalId)
   const financeSelection = { lead, catalogo: turnCatalog, referencia_unidad: reference, property_context: reference.context,
@@ -717,16 +762,29 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   extracted.financing_consent = financeInput.consent
   extracted.financing_partner = financeInput.partner
   const collectingVisit = visitDraft?.status === 'collecting'
-  if (answersPendingQuestion(turnSemantics, 'visit_destination', 'affirmative') && object(previousSummary._visit_dialogue).status === 'offered'
+  if (actionAuthorized(turnSemantics.action_authority, 'visit') && answersPendingQuestion(turnSemantics, 'visit_destination', 'affirmative') && object(previousSummary._visit_dialogue).status === 'offered'
     && object(extracted.visit_intent).kind !== 'decline_visit') extracted.visit_intent = { kind: 'accept_visit_preference', purpose: 'accept_alternative',
       target: 'project', destination: object(previousSummary._visit_dialogue).offered_destination,
       evidence: object(turnSemantics.answer_to_previous).evidence, confidence: object(turnSemantics.answer_to_previous).confidence }
+  // A grounded value answering this draft's date/time question is the same
+  // coordination, even when the extractor omitted its parallel visit label.
+  // The typed preference is independently validated against the current input.
+  const visitDateAnswer = collectingVisit && actionAuthorized(turnSemantics.action_authority, 'visit') && pendingQuestion.id === 'visit_date_time'
+    && ['value', 'affirmative'].includes(text(object(turnSemantics.answer_to_previous).kind))
+    && answersPendingQuestion(turnSemantics, 'visit_date_time')
+    && extracted.visit_preference
+    && !hasUnrelatedAppointmentTarget(current)
+  if (visitDateAnswer && !['decline_visit', 'visit_information', 'visit_status'].includes(text(object(extracted.visit_intent).kind))) {
+    const answer = object(turnSemantics.answer_to_previous)
+    extracted.visit_intent = { kind: 'accept_visit_preference', purpose: 'preference', target: 'project',
+      destination: object(extracted.visit_intent).destination || null, evidence: answer.evidence, confidence: answer.confidence }
+  }
   const semanticVisit = object(extracted.visit_intent)
   const visitInfoForTurn: Row = !minimalTurn && (acceptedExtractorConfidence(semanticVisit.confidence) && semanticVisit.kind !== 'none'
     || Object.keys(object(previousSummary._visit_dialogue)).length || collectingVisit)
     ? await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile) : {}
   const visitDialoguePlan = visitInfoForTurn.estado_proyecto ? visitDialogueTurn({ previous: previousSummary._visit_dialogue,
-    intent: semanticVisit, preference: extracted.visit_preference, readiness: visitInfoForTurn.estado_proyecto as ProjectReadiness,
+    intent: semanticVisit, preference: extracted.visit_preference, preferences: extracted.visit_preferences, readiness: visitInfoForTurn.estado_proyecto as ProjectReadiness,
     intake: visitDraft, proposals, current, sourceMessageId: activeLast.externalId, sourceAt: activeLast.sentAt, pendingQuestion }) : {}
   const semanticVisitRequest = semanticVisit.kind === 'request_visit' && !hasUnrelatedAppointmentTarget(current)
   // A semantic acceptance needs a durable draft or an actually offered visit
@@ -736,14 +794,19 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     || visitDialoguePlan.current_kind === 'accept_alternative' && visitDialoguePlan.operation_allowed === true
     || answersPendingQuestion(turnSemantics, 'visit_invitation', 'affirmative')
   const explicitVisitRequest = explicitlyRequestsVisit(current)
-  const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta))
-  const visitSignal = explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted
+  const invitationAccepted = acceptsVisitInvitation(current, text(state.ultima_respuesta), { semantics: turnSemantics, pendingQuestion, intent: turnIntent })
+  const currentPendingAnswer = object(turnSemantics.answer_to_previous)
+  const answersAnotherFlow = pendingQuestion.id && !text(pendingQuestion.id).startsWith('visit_')
+    && currentPendingAnswer.question_id === pendingQuestion.id && acceptedExtractorConfidence(currentPendingAnswer.confidence)
+    && ['affirmative', 'negative', 'value'].includes(text(currentPendingAnswer.kind))
+    && !explicitVisitRequest && !semanticVisitRequest
+  const visitSignal = actionAuthorized(turnSemantics.action_authority, 'visit') && (explicitVisitRequest || semanticVisitRequest || semanticVisitAcceptance || invitationAccepted)
   const visitPermission = visitRoutePermission(interpretation.requests, turnSemantics, semanticVisit, visitSignal)
   trace.add('route_consistency', 'Comprobar ruta frente a la solicitud actual', 'decision', 'route-consistency.ts', 'succeeded', {}, visitPermission)
-  const canRequestVisit = visitPermission.allowed && visitDialoguePlan.information_only !== true && visitDialoguePlan.current_kind !== 'decline'
+  const canRequestVisit = visitPermission.allowed && !answersAnotherFlow && visitDialoguePlan.information_only !== true && visitDialoguePlan.current_kind !== 'decline'
     && !modelOnly && !asksVisitStatus(current, text(state.ultima_respuesta)) && (!repair || isVisitDetail(current))
     && (!isCourtesyOnly(current) || semanticVisitAcceptance || invitationAccepted)
-    && (visitSignal || collectingVisit)
+    && visitSignal
   if (canRequestVisit && visitSignal) extracted.events = [...new Set([...(extracted.events as string[]), 'requested_visit'])]
   if (!canRequestVisit) extracted.events = (extracted.events as string[]).filter(e => e !== 'requested_visit')
   const priceTurn = turnIntent.required_facts.includes('price')
@@ -752,7 +815,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const reservationInformation = turnIntent.objective === 'ask_reservation'
   const reservationSelectedIds = Array.isArray(previousPropertyContext.selected_ids) ? previousPropertyContext.selected_ids : []
   const reservationAction = startingReservation ? reservationRequest(reservation, inbound.normalized, turnCatalog,
-    turnCatalog.filter(unit => reservationSelectedIds.includes(unit.id))) : null
+    turnCatalog.filter(unit => reservationSelectedIds.includes(unit.id)), turnSemantics.action_authority) : null
   if (reservation.kind === 'declined' || reservation.request_deferred === true || startingReservation && !reservationAction) {
     extracted.events = (extracted.events as string[]).filter(event => event !== 'asked_reservation')
   }
@@ -808,10 +871,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reply = vehicleScopeReply(current, context.historial)
     if (reply) audit = { source: 'vehicle_out_of_scope' }
   }
-  if (!reply && !inbound.mediaFailed && asksForHouse(current) && !extracted.requested_advisor
+  if (!reply && !inbound.mediaFailed && asksForHouse(current, turnSemantics) && !extracted.requested_advisor
     && financeInput.consent !== true && !(extracted.events as string[]).includes('requested_visit')) {
-    reply = houseProductReply(current, text(state.ultima_respuesta))
-    if (/financ|cr[eé]dito|hipoteca/i.test(current)) reply += ' ' + priceFinancingReply(current, finance)
+    reply = houseProductReply(current, text(state.ultima_respuesta), turnSemantics)
+    if (currentFinancialRequest) reply += ' ' + priceFinancingReply(current, finance, extracted)
     audit = { source: 'product_clarification' }
   }
   // Facts and explicit consent apply to the interpreted turn, regardless of response route.
@@ -840,7 +903,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         { events: extracted.events, caused_by_step: semanticStep }, { ...scoreDecision, action_executed: false })
     }
     // Do not persist UUIDs invented by extraction or arbitrarily pick among equal-sized units.
-    const unitId = !informationalOnly && !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current)) && reference.matches.length === 1 ? reference.matches[0].id : null
+    const unitId = !informationalOnly && !reference.needsClarification && (reference.explicit || isUnitVisualRequest(current, turnSemantics)) && reference.matches.length === 1 ? reference.matches[0].id : null
     if (unitId) extracted.preferred_category = reference.matches[0].category
     const previousCategory = lead.preferred_category
     const declarations = object(await rpc('save_lead_declarations', { p_lead_id: lead.id, p_preferred_category: extracted.preferred_category,
@@ -979,6 +1042,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           const receipt = result.receipt
           lead = await one('leads', text(lead.id))
           if (!verifiedReservationReceipt(receipt, lead, request)) throw new Error('RESERVATION_HANDOFF_NOT_VERIFIED')
+          reservationContext = projectReservationOperation({ requests: [{ ...receipt, lead_id: lead.id,
+            source_sent_at: activeLast.sentAt }], lead, catalog: turnCatalog })
+          summary._reservation_operation = reservationContext
           const assigned = ['assigned', 'acknowledged'].includes(text(receipt.handoff_status))
           const subject = request.unit_numbers.length ? ` de la unidad ${request.unit_numbers.join(', ')}` : ''
           handoffNotice = assigned
@@ -1030,7 +1096,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     }
   }
   if (!reply && !informationalOnly && !inbound.mediaFailed && !operationalTurn && (turnIntent.objective === 'project_information'
-    || (!acceptedExtractorConfidence(turnSemantics.confidence) && isProjectInformationRequest(current)))) {
+    )) {
     const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), semantica_turno: turnSemantics, property_context: reference.context }
     introductionProjectInfo = info
     reply = projectInformationReply(info, current, BROCHURE_URL)
@@ -1049,24 +1115,22 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         audit = { source: 'team_attendance', verified_appointments: appointments.data || [] }
       }
     }
-    if (!reply) {
-      reply = projectInformationChoiceReply(current, context.historial)
-      if (reply) audit = { source: 'project_information_choice' }
-    }
-    if (!reply && brochureIntent.requested) {
+    if (!reply && brochureIntent.requested && !interpretation.requests.some(request => request.domain !== 'courtesy'
+      && (request.domain !== 'property' || (Array.isArray(request.topics) ? request.topics : []).some(topic => topic !== 'project_overview')))) {
       const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
       reply = brochureReply(current, context.historial, text(info.modo_comercial),!!info.estado_proyecto, brochureIntent.requested)
       if (reply) audit = { source: 'brochure', brochure_sent: true }
     }
-    if (!reply && acceptsUnitOptions(current, text(state.ultima_respuesta))) {
-      const accepted = acceptedPriceOption(await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), current, previousSummary)
+    if (!reply && acceptsUnitOptions(current, text(state.ultima_respuesta), { semantics: turnSemantics, pendingQuestion, intent: turnIntent })) {
+      const accepted = acceptedPriceOption({ ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile),
+        semantica_turno: turnSemantics, contrato_turno: turnIntent, property_context: propertyTurn?.context,
+        pregunta_pendiente: pendingQuestion }, current, previousSummary)
       reply = accepted?.reply || `No tengo los detalles actualizados de esa unidad. Le comparto el brochure para que pueda conocer la propuesta del proyecto:\n\n${BROCHURE_URL}`
       audit = accepted?.audit || { source: 'price_option_unavailable', brochure_sent: true }
     }
     if (!reply) reply = mediaClarificationReply(current)
     if (reply && !audit.source) audit = { source: 'media_clarification' }
-    if (!reply && fabricatedActionRequest(current)) { reply = 'Para confirmarle una cita o una reserva, primero debe quedar registrada y aprobada en el sistema. Puedo ayudarle a coordinarla.'; audit = {source:'action_not_recorded'} }
-    if (!reply) {reply = declinedFollowup(current, text(state.ultima_respuesta)); if (reply) audit = { source: 'declined_followup' }}
+    if (!reply) {reply = declinedFollowup(current, text(state.ultima_respuesta), turnSemantics); if (reply) audit = { source: 'declined_followup' }}
     if (!reply && asksVisitStatus(current, text(state.ultima_respuesta))) {
       reply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
       if (!reply) reply = visitDraft?.status === 'collecting'
@@ -1075,8 +1139,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           : 'No encuentro una solicitud de visita registrada ni una cita confirmada. ¿Qué día y hora le gustaría venir?'
       if (reply) audit = { source: 'visit_status' }
     }
-    const locationRequest = locationRequestKind(current)
-    const earlyTopics = commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind))
+    const locationRequest = locationRequestKind(current, turnSemantics)
+    const earlyTopics = commercialTurnTopics(current, context.historial, ['property', 'mixed'].includes(businessScope.kind), turnSemantics)
     if (!reply && locationRequest && earlyTopics.length === 1 && earlyTopics[0] === 'location') {
       const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
       reply = locationAnswer(info, locationRequest)
@@ -1087,12 +1151,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         audit = { source: 'location_handoff' }
       }
     }
-    if (!reply && repair && !/asesor|persona|humano/i.test(current) && !explicitlyRequestsVisit(current) && salesSubject(current).subject !== 'property' && !asksUnitPrice(current)) {
+    if (!reply && repair && !extracted.requested_advisor && !explicitlyRequestsVisit(current) && !interpretation.requests.some(request => request.domain === 'property')) {
       const finance = await financingContext(lead)
       const selected = text(finance.current.selected_partner_name)
       const visitReply = visitStatusReply(proposals, visitDraft?.status === 'collecting')
-      const declined = (Array.isArray(context.historial) ? context.historial : []).map(object).slice(-4)
-        .some(m => /dejamos la cita cancelada|hemos cancelado la cita/.test(text(m.content)))
+      const declined = object(previousSummary._visit_dialogue).status === 'cancelled'
       reply = declined ? 'Disculpe la confusión. Su cita quedó cancelada y no vamos a proponerle otra fecha si no lo desea.'
         : visitReply ? 'Disculpe la confusión. ' + visitReply
           : selected ? `Disculpe la repetición. Ya tengo registrada su elección de ${selected}.${finance.current.explicit_consent === true ? ' Podemos continuar desde los datos que faltan, sin comenzar de nuevo.' : ' La revisión todavía no se ha iniciado; podemos retomarla cuando usted lo indique.'}`
@@ -1100,12 +1163,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       if (reply) audit = { source: 'context_repair' }
     }
   }
-  if(!reply && ambiguousVisitAcceptance(current,text(state.ultima_respuesta))) {
+  if(!reply && ambiguousVisitAcceptance(current,text(state.ultima_respuesta), { semantics: turnSemantics, pendingQuestion, intent: turnIntent })) {
     reply='¿Se refiere a coordinar una visita?'
     audit={source:'visit_acceptance_clarification'}
   }
-  if (!reply && !inbound.mediaFailed && isCourtesyOnly(current) && !acceptsVisitInvitation(current,text(state.ultima_respuesta)) && !proposals.some(p => p.status === 'awaiting_client')) {
-    if (isCourtesyOnly(text(state.ultima_respuesta)) || /^Con mucho gusto, ¡le esperamos!$/i.test(text(state.ultima_respuesta))) {
+  if (!reply && !inbound.mediaFailed && isCourtesyOnly(current) && !acceptsVisitInvitation(current,text(state.ultima_respuesta), { semantics: turnSemantics, pendingQuestion, intent: turnIntent }) && !proposals.some(p => p.status === 'awaiting_client')) {
+    if (object(previousSummary._last_operational_step).kind === 'courtesy') {
       trace.add('route_selected', 'Cortesía ya atendida', 'decision', 'conversation-style.ts', 'skipped', {}, { action: 'courtesy_already_acknowledged' })
       return { action: 'courtesy_already_acknowledged' }
     }
@@ -1127,17 +1190,11 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     reply = mediaFailureReply(activeLast.media, inbound.mediaErrors)
     audit = { source: 'media_not_understood', media_errors: inbound.mediaErrors }
   }
-  if (!reply && businessScope.kind === 'mixed' && (explicitlyRequestsVisit(current) || ((proposals.length || visitDraft?.status === 'collecting') && (isVisitDetail(current) || /cancel|reprogram/i.test(current))))) {
-    // The existing SQL appointment parser reads the original message. Let a human
-    // resolve mixed bookings so a flight's date cannot become the property's date.
-    reply = await transferToAdvisor('coordinación inmobiliaria mezclada con otra gestión; verificar únicamente la visita al proyecto', { rule_id: 'visit.mixed_scope', origin: 'operational', caused_by_step: semanticStep })
-    audit = { source: 'mixed_visit_handoff' }
-  }
   if (!reply && visitDialoguePlan.information_only === true) {
     reply = visitDialoguePlan.current_kind === 'availability_information'
       ? [visitBusinessHoursReply(visitInfoForTurn.horario_atencion, { action: 'information' }, activeLast.sentAt), text(visitDialoguePlan.question)].filter(Boolean).join(' ')
       : visitDialogueBaseReply(visitDialoguePlan, visitInfoForTurn.estado_proyecto as ProjectReadiness)
-    if (!reply) reply = 'Podemos explicarle los lugares de atención habilitados y los horarios publicados; la disponibilidad de una cita requiere verificación del equipo.'
+    if (!reply) reply = 'Podemos ayudarle a coordinar una visita en los lugares de atención habilitados. ¿Qué le gustaría conocer sobre la atención?'
     audit = { source: 'visit_information', covered_requests: ['visit_information'], pending_question: visitDialoguePendingQuestion(visitDialoguePlan) }
   } else if (!reply && ['coordination', 'preference', 'accept_alternative'].includes(text(visitDialoguePlan.current_kind)) && visitDialoguePlan.operation_allowed !== true) {
     reply = visitDialogueBaseReply(visitDialoguePlan, visitInfoForTurn.estado_proyecto as ProjectReadiness)
@@ -1154,37 +1211,33 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       message: traceText(current), proposals_available: proposals.length,
     })
     const proposal: Row | null = proposals.length === 1 ? { ...proposals[0], source_sent_at: activeLast.sentAt } : null
-    const classification = await aiJson(visitIntentPrompt + '\n' + TURN_RULES, { mensaje_cliente: current,
-      propuesta: proposal && visitDraft?.status === 'collecting' ? { ...proposal, status: 'awaiting_advisor' } : proposal,
-      historial: context.historial })
     const options = Array.isArray(proposal?.proposed_options) ? proposal.proposed_options.map(object) : []
-    const visitRequests = interpretation.requests.filter(request => request.domain === 'visit' && acceptedExtractorConfidence(request.confidence))
-    const sentences = current.split(/[.!]\s+|\n+/).map(value => value.trim().replace(/[.!]$/, ''))
-    const visitClause = visitRequests.length === 1 && sentences.includes(text(visitRequests[0].evidence).replace(/[.!]$/, ''))
-      && !/\b(?:no|pero|solo si|siempre que|a condici[oó]n|si (?:me|nos|el|la|es)|quiz[aá]s|tal vez)\b/i.test(current)
-      ? text(visitRequests[0].evidence) : ''
-    // A complete, unconditional acceptance sentence can coexist with a separate question.
-    // A model-proposed substring must never remove a condition or refusal from consent.
-    const selected = selectedVisitOption(current, options, activeLast.sentAt)
-      ?? (visitClause ? selectedVisitOption(visitClause, options, activeLast.sentAt) : null)
-    const interpretedVisit = normalizedVisitPreference(classification.visit_preference, current)
-    const override = visitTurnIntent(current)
-    // Withdrawal is authorized only by the common, evidenced interpretation.
-    const intent = validateIntent(classification.intent === 'opt_out' ? { intent: extracted.opt_out ? 'opt_out' : 'question' } : selected !== null ? { intent: 'accept' }
-      : override === 'counterproposal' ? { intent: override } : classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
+    const response = object(turnSemantics.routing)
+    const sameProposal = !!proposal && [text(proposal.id), text(proposal.request_id)].includes(text(response.proposal_id))
+    const authorized = actionAuthorized(turnSemantics.action_authority, 'visit')
+    const selected = sameProposal && authorized && response.visit_response === 'accept' && Number.isInteger(response.option_index)
+      && Number(response.option_index) >= 1 && Number(response.option_index) <= options.length ? Number(response.option_index) : null
+    const interpretedVisit = extracted.visit_preference
+    const decision = sameProposal ? text(response.visit_response) : 'question'
+    const decline = actionDecision(turnSemantics.action_authority, 'visit')
+    const permittedDecline = decline.attribution === 'self' && decline.target === 'project' && decline.decision === 'decline'
+    const classification = { intent: ['accept', 'counterproposal'].includes(decision) ? authorized ? decision : 'question'
+      : ['cancel', 'reject'].includes(decision) ? permittedDecline ? decision : 'question' : ['question', 'unclear'].includes(decision) ? decision : 'question' }
+    const intent = validateIntent(classification, proposal, activeLast.sentAt, text(context.mensaje_actual_at))
     trace.finish(visitIntentStep, 'succeeded', {
       intent, selected_option: selected, has_preference: Boolean(interpretedVisit), proposal_status: text(proposal?.status),
     })
     if (intent === 'opt_out') {
       await guard(); await rpc('set_tracking_preference', { p_lead_id: lead.id, p_consent: false, p_reason: 'solicitó no recibir más mensajes' })
       reply = 'Hemos registrado su solicitud de no recibir más mensajes.'; finalNotice = true
-    } else if (proposal && declinesAllVisitAlternatives(current, proposal, intent)) {
+    } else if (proposal && sameProposal && permittedDecline && response.all_options_declined === true) {
       await guard()
       const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
         p_needs_help: true, p_previous_request: proposal.request_id || proposal.id, p_snapshot: proposal })
       reply = text(result.message) || 'Entiendo. Pediré al equipo que revise otras fechas y le enviaremos nuevas opciones por aquí.'
       audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action,
-        preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified,
+        preference: result.slot, needs_location: result.needs_location, enabled_places: result.enabled_places,
+        request_id: result.request_id, registration_verified: result.registration_verified,
         assigned_advisor_id: result.assigned_advisor_id, proposal_rejected: true, bot_paused: false }
     } else if (proposal && intent === 'accept' && options.length > 1) {
       if (selected === null) {
@@ -1206,13 +1259,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         || (proposal.proposed_by === 'advisor' && proposal.status === 'awaiting_client'))
       const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
         p_needs_help: advisorHelp, p_previous_request: proposal.request_id || proposal.id,
-        p_snapshot: interpretedVisit ? { ...proposal, _interpreted_visit: interpretedVisit } : proposal })
+        p_snapshot: interpretedVisit ? { ...proposal, _interpreted_visit: interpretedVisit, _visit_preference_context: { question_id: pendingQuestion.id, answer: turnSemantics.answer_to_previous } } : proposal })
       reply = text(result.message) || intakeReply(result, activeLast.sentAt)
       if (result.action === 'collecting' && requestedHelp) {
         const visitInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
         reply = visitBusinessHoursReply(visitInfo.horario_atencion, result, activeLast.sentAt) || reply
       }
-      audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id }
+      audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action,
+        preference: result.slot, needs_location: result.needs_location, enabled_places: result.enabled_places,
+        request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id }
     } else if (proposal && intent === 'unclear') {
       reply = proposal.status === 'awaiting_advisor'
         ? 'El equipo todavía está revisando el horario. Le confirmaremos por aquí en cuanto esté listo.'
@@ -1304,12 +1359,15 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
       } else if (visitRequested) {
         await guard()
         const visitInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
-        const quote = priceTurn ? unitPriceQuote({ ...visitInfo, contrato_turno: turnIntent, alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
+        const quote = priceTurn ? unitPriceQuote({ ...visitInfo, semantica_turno: turnSemantics, contrato_turno: turnIntent,
+          property_context: reference.context, pregunta_pendiente: pendingQuestion,
+          alcance_negocio: businessScope.kind, financiamiento: finance, referencia_unidad: reference }, current, summary) : null
         if (quote?.needsAdvisor) {
           reply = await transferToAdvisor('confirmar el precio solicitado y ayudar a coordinar la visita', { rule_id: 'price.unverified_for_visit', origin: 'catalog', caused_by_step: catalogStep })
           audit = { source: 'price_and_visit_handoff' }
         } else {
-          const intakeSnapshot = visitDialogueIntakeSnapshot(visitDialoguePlan, semanticVisit, extracted.visit_preference, activeLast.externalId)
+          const intakeSnapshot = { ...visitDialogueIntakeSnapshot(visitDialoguePlan, semanticVisit, extracted.visit_preference, activeLast.externalId),
+            _visit_preference_context: { question_id: pendingQuestion.id, answer: turnSemantics.answer_to_previous } }
           const result = await collectVisit({ p_lead: lead.id, p_message: activeLast.externalId,
             p_needs_help: false, ...(Object.keys(intakeSnapshot).length ? { p_snapshot: intakeSnapshot } : {}) })
           reply = text(result.message) || intakeReply(result, activeLast.sentAt)
@@ -1320,7 +1378,9 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
           const overview = projectOverviewReply(visitInfo, current)
           if (overview) reply = overview + ' ' + reply
           if (quote) reply = quote.reply.replace(/\s*¿[^?]+\?\s*$/, '') + ' ' + reply
-          audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action, preference: result.slot, request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id,
+          audit = { source: result.action === 'advisor_handoff' ? 'advisor_handoff' : 'visit_intake', action: result.action,
+            preference: result.slot, needs_location: result.needs_location, enabled_places: result.enabled_places,
+            request_id: result.request_id, registration_verified: result.registration_verified, assigned_advisor_id: result.assigned_advisor_id,
             semantic_visit_intent: semanticVisit.kind || null }
         }
         if (brochureIntent.requested) reply += `\n\nLe comparto el brochure del proyecto: ${BROCHURE_URL}`
@@ -1345,7 +1405,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         }
       }
       else {
-        const model = reference.needsClarification ? null : unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent)
+        const model = reference.needsClarification ? null : unitModelDelivery(reference, current, context.historial, previousSummary._unit_models_sent, turnSemantics)
         const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, propuestas: proposals,
           recorrido_comercial: summary._commercial_journey || {}, perfil_lead: summary._lead_profile,
           hechos_confirmados: summary._interpretation_memory,
@@ -1378,13 +1438,6 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   if (appliedVisitAction) audit.completed_visit_action = appliedVisitAction
   if (inbound.mediaErrors.length) audit = {...audit, media_errors: inbound.mediaErrors}
-  if (audit.source === 'visit_intake') {
-    const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
-    if(info.estado_proyecto && /¿Qué día y a qué hora le gustaría venir\?/.test(reply)) {
-      const invitation=readinessInvitation(info.estado_proyecto as ProjectReadiness).replace('¿Le gustaría','Podemos').replace('?','.')
-      reply=reply.replace('¿Qué día y a qué hora le gustaría venir?',`${invitation} ¿Qué día y hora le convendrían?`)
-    } else if (!info.estado_proyecto && info.modo_comercial === 'lanzamiento') reply = launchVisitReply(reply, object(info.politica_visitas).launchDestination === 'office' ? 'office' : 'site')
-  }
   if (['financing', 'financing_question', 'financing_handoff', 'visit_intake', 'visit_status'].includes(text(audit.source))) {
     const info = { ...await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile), alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead) }
     const prepared = turnAnswerFacts(info, current, previousSummary)
@@ -1399,7 +1452,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   // Attach from the resolved state, independently of the commercial route.
   if (!finalNotice && !handoffNotice && !inbound.mediaFailed && !businessScope.uncertain
     && !['out_of_scope', 'mixed'].includes(businessScope.kind)) {
-    const selectedTour = selectedUnitModelDelivery(propertyTurn, current, context.historial, previousSummary._unit_models_sent)
+    const selectedTour = selectedUnitModelDelivery(propertyTurn, current, context.historial, previousSummary._unit_models_sent, turnSemantics)
     if (selectedTour) {
       reply = appendUnitModel(reply, selectedTour)
       audit.unit_model = selectedTour
@@ -1407,17 +1460,17 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   }
   if (audit.verified_catalog === true && !propertyTurn.needsClarification && object(audit.unit_model).delivery_required !== true) {
     const delivery = unitModelDelivery({ explicit: propertyTurn.explicit === true, hasUnitMention: propertyTurn.hasUnitMention === true,
-      matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).map(object) }, current, context.historial, previousSummary._unit_models_sent)
+      matches: (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).map(object) }, current, context.historial, previousSummary._unit_models_sent, turnSemantics)
     if (delivery) {
       reply = appendUnitModel(reply, delivery)
       audit.unit_model = delivery
     }
   }
-  const visualContinuation = showroomRequest(current, context.historial)
+  const visualContinuation = showroomRequest(current, context.historial, turnSemantics)
   const showroomEligible = !inbound.mediaFailed && !finalNotice && !handoffNotice
     && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind)
     && ['', 'catalog_search', 'catalog_select', 'catalog_reference', 'unit_model_request', 'commercial', 'location', 'project_overview', 'project_information_choice', 'visit_place_clarification'].includes(text(audit.source))
-  if (showroomEligible && (visualContinuation || asksConstructionStatus(current))) {
+  if (showroomEligible && (visualContinuation || asksConstructionStatus(current, turnSemantics))) {
     const info = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     const readiness = object(info.estado_proyecto)
     const noPhysicalUnits = readiness.stage === 'not_started'
@@ -1425,10 +1478,10 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     if (visualContinuation || noPhysicalUnits) {
       const delivery = unitModelDelivery({ explicit: false, allowGeneralTour: true, hasUnitMention: visualContinuation ? propertyTurn.hasUnitMention === true : false, matches: visualContinuation
         ? (Array.isArray(propertyTurn.matches) ? propertyTurn.matches : []).map(object) : [] },
-      'Quiero ver el recorrido virtual', context.historial, previousSummary._unit_models_sent)
+      'Quiero ver el recorrido virtual', context.historial, previousSummary._unit_models_sent, turnSemantics)
       if (delivery) {
         // A correction keeps the visualization goal; it is not a fresh request for a catalogue list.
-        const onlyVisualization = visualContinuation && interpretation.requests.length <= 1 && !/precio|financ|credito|ubicaci[oó]n|direcci[oó]n|agendar|reservar|dormitorio|habitaci[oó]n|baños?|superficie|metros|incluye|tiene/i.test(current)
+        const onlyVisualization = visualContinuation && routing().visual_only === true
         if (onlyVisualization) reply = 'Puede conocer la distribución y los espacios mediante el showroom virtual.'
         reply = appendUnitModel(reply, delivery)
         audit = { ...audit, unit_model: delivery, showroom_continuation: { ...visualContinuation, reason: visualContinuation ? 'requested_visualization' : 'physical_units_unavailable' },
@@ -1453,7 +1506,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     }
   }
   audit.brochure_intent = brochureIntent
-  if (!audit.profile_introduction && !startingReservation) {
+  if (!audit.profile_introduction && !startingReservation && reservationContext.active !== true) {
     if (!introductionProjectInfo && turnIntent.objective === 'project_information' && !finalNotice && !handoffNotice
       && !businessScope.uncertain && !['out_of_scope', 'mixed'].includes(businessScope.kind))
       introductionProjectInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
@@ -1538,10 +1591,12 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     const info: Row = scopeOnlyReview
       ? { ...scopePolicyContext({ ...commercialInfo, financiamiento: finance, semantica_turno: currentSemantics,
         property_context: propertyTurn.context, referencia_unidad: propertyTurn,
+        reservation_context: reservationContext, recorrido_comercial: summary._commercial_journey || {},
         solicitudes_interpretadas: turnIntent.requests }, businessScope), limite_alcance: scopeContract, contrato_turno: turnIntent }
       : { ...commercialInfo, alcance_negocio: businessScope.kind, financiamiento: await financingContext(lead), propuestas: proposals,
       ...(scopeContract ? { limite_alcance: scopeContract } : {}),
       estado_operativo: audit, coordinacion_visita: visitDraft, visit_dialogue_plan: visitDialoguePlan, referencia_unidad: propertyTurn,
+      reservation_context: reservationContext,
       avisos_operativos_confirmados: handoffNotice ? [handoffNotice] : [],
       property_context: object(propertyTurn.context), semantica_turno: currentSemantics,
       contrato_turno: turnIntent,
@@ -1583,7 +1638,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
         illustrative_example: object(info.financing_quote).illustrative_example,
         setting: { href: '/inmobiliaria/automatizacion/financiamiento', label: 'Entrada y financiamiento' } })
     }
-    if (!locationRequestKind(current)) delete (info as Row).ubicacion
+    if (!locationRequestKind(current, turnSemantics)) delete (info as Row).ubicacion
     const costBaseline = object(info.catalog_search).embeddingsEnabled === true
       ? { ...info, catalogo: commercialInfo.catalogo } : undefined
     if (object(audit.catalog_retrieval).applied === true || object(audit.catalog_retrieval).optimized === true) {
@@ -1688,7 +1743,8 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     requireReviewedResponse(reviewed.audit)
     const visitCoordinationHandled = audit.source === 'visit_intake'
       && ['collecting', 'submitted', 'closed_day', 'outside_hours', 'past'].includes(text(audit.action))
-      && (!reviewed.unresolved.length || reviewed.unresolved.every(item => /\b(?:visitas?|citas?|fechas?|horas?|horarios?|agenda|agendar|reagendar|propuestas?)\b/i.test(item)))
+      && reviewed.unresolved.every(fragment => interpretation.requests.some(request =>
+        request.domain === 'visit' && request.evidence === fragment))
     if (!observing && ((reviewed.needsAdvisor && !visitCoordinationHandled) || needsCommercialHandoff) && !finalNotice && !handoffNotice) {
       const reason = reviewed.unresolved.length ? 'resolver consultas concretas pendientes: ' + reviewed.unresolved.join(' | ').slice(0, 650) : pendingCommercialHandoff
       const notice = await transferToAdvisor(reason, { rule_id: 'advisor.verified_information_gap', origin: 'coverage_review', caused_by_step: coverageStep,
@@ -1704,7 +1760,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if (reviewing && handoffNotice && !actionExplained && !reviewedText) {
     operationalRedraftRequired = true
   }
-  if (!reviewedText && reviewing && !recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current)) {
+  if (!reviewedText && reviewing && !recoveringTurn() && !['business_out_of_scope', 'vehicle_out_of_scope', 'media_not_understood', 'scope_clarification', 'location_handoff'].includes(text(audit.source)) && locationRequestKind(current, turnSemantics)) {
     const locationInfo = await commercialContext(lead, context.historial, summary._lead_profile || previousSummary._lead_profile)
     const locationPolicy = locationDisclosurePolicy({ current, verified: locationInfo, audit })
     reply = withVisitLocation(reply, projectLocationForPrompt(locationInfo, locationPolicy), locationPolicy.exact_location_allowed === true)
@@ -1766,6 +1822,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   const canTrackFollowUp = followUpUsable(audit)
   const journeyPending = canTrackFollowUp ? deliveredPendingQuestion(reply, {
     metadata: object(audit.turn_completeness).question, plan: audit.commercial_journey,
+    candidates: [object(audit.pending_question), leadProfilePendingQuestion(reply, audit)],
   }, turnCatalog) : {}
   audit.pending_question = journeyPending
   const deferred = object(object(audit.commercial_journey).deferred_question)
@@ -1858,12 +1915,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
     _response_recovery: pendingRecovery ? { ...object(object(audit.turn_completeness).recovery), source_message_id: activeLast.externalId,
       current_request: writingCurrent, objective: turnIntent.objective } : {},
     _last_operational_step: !canTrackFollowUp ? { kind: 'unverified_offer', reply } : pendingRecovery ? object(summary._last_operational_step || previousSummary._last_operational_step)
-      : object(audit.pending_question).id === 'financing_invitation' ? { kind: 'financing_consent', reply }
+      : object(audit.pending_question).id === 'financing_invitation' ? { kind: 'financing_consent', reply,
+        invitation: financingInvitationReceipt(object(audit.turn_completeness).question) }
       : Object.keys(journeyPending).length ? { kind: 'commercial_question', question_id: journeyPending.id, reply }
       : reviewedOffer === 'ambiguous' ? { kind: 'ambiguous_offer', reply }
       : reviewedOffer === 'information' ? { kind: 'information_offer', reply }
       : reviewedOffer === 'internal_advisor' ? { kind: 'internal_advisor_offer', reply }
-      : reviewedOffer === 'financing_review' ? { kind: 'financing_consent', reply }
+      : reviewedOffer === 'financing_review' ? { kind: 'financing_consent', reply,
+        invitation: financingInvitationReceipt(object(audit.turn_completeness).question) }
       : {},
     ...(pendingRecovery ? { _unit_reference: propertyTurn.explicit === true && !propertyTurn.needsClarification
       ? propertyTurn.memory : previousSummary._unit_reference || {} } : audit.unit_reference ? { _unit_reference: audit.unit_reference } : {}),

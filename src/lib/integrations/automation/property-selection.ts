@@ -139,19 +139,12 @@ function budgetFromInfo(info: Row, current = '') {
   const confirmed = effectiveTurnBudget(info)
   if (acceptedExtractorConfidence(confirmed.confidence) && ['amount', 'maximum_total', 'initial_capital'].includes(text(confirmed.status))
     && typeof confirmed.amount === 'number' && Number.isFinite(confirmed.amount) && confirmed.amount > 0) return confirmed.amount
-  const direct = statedBudget(current)
+  const direct = statedBudget(current, info)
   if (direct !== null) return direct
   const lead = object(info.lead)
   for (const value of [lead.budget_max, lead.budget]) {
     const amount = Number(value)
     if (Number.isFinite(amount) && amount > 0) return amount
-  }
-  const signal = text(object(object(lead.behavior_signals).sdr).presupuesto_texto)
-  const signaled = statedBudget(signal)
-  if (signaled !== null) return signaled
-  for (const row of historyRows(info).filter(row => row.role === 'cliente').reverse()) {
-    const amount = statedBudget(text(row.content))
-    if (amount !== null) return amount
   }
   return null
 }

@@ -4,11 +4,12 @@ import { nutritionSendTime } from '@/lib/inmobiliaria/nutrition24h'
 import { assertLive } from './config'
 import { db, one, object, rpc, scope, text, type Row } from './data'
 import { nutritionLeadEligible } from './nutrition-context'
-import { weekOneContext, weekOneSettings } from './nutrition-week-one'
+import { nutritionNurtureState, weekOneContext, weekOneSettings } from './nutrition-week-one'
 import { laterChoice } from './nutrition-later-rules'
 import { botStopped, getKommoLead, launchSalesbot, setKommoField, verifyLaterTemplates } from './kommo'
 import type { Guard } from './visits'
 import { audienceAllows } from './audience-boundary'
+import { nutritionAnchorTime, nutritionIntent } from './nutrition-intent'
 
 export async function scheduleNutritionLater(leadId: string, conversationId: string, externalId: string) {
   const settings = await weekOneSettings()
@@ -23,9 +24,12 @@ export async function scheduleNutritionLater(leadId: string, conversationId: str
   const anchor = object(data?.[0]), at = Date.parse(text(anchor.sent_at))
   if (!audienceAllows(settings.audience, text(anchor.sent_at))) return { scheduled: false, reason: 'before_audience_activation' }
   if (anchor.external_message_id !== externalId || !Number.isFinite(at)) return { scheduled: false, reason: 'old_input' }
+  const nurture = await nutritionNurtureState(lead, conversation)
+  if (nurture.reason) return { scheduled: false, reason: nurture.reason }
+  if (nutritionIntent(lead, nurture.summary).informational) return { scheduled: false, reason: 'information_only_template' }
   const jobs = weeks.flatMap(week => {
     if (at < Date.parse(settings.later[week].activatedAt!)) return []
-    const due = nutritionSendTime(at + week * 7 * 86_400_000, settings.hours)
+    const due = nutritionSendTime(nutritionAnchorTime(at, nurture.resumeAt, week), settings.hours)
     return due ? [{ ...scope, kind: 'maintenance', contact_key: null, event_key: `nutrition${week}w:${conversationId}:${anchor.id}`, available_at: new Date(due).toISOString(),
       payload: { task: LATER_ROUTES[week].task, leadId, conversationId, kommoId: Number(lead.kommo_id), anchorId: anchor.id, anchorAt: anchor.sent_at, activatedAt: settings.later[week].activatedAt } }] : []
   })
@@ -44,11 +48,12 @@ export async function sendNutritionLater(job: Row, guard: Guard) {
   const payload = object(job.payload)
   const week: LaterWeek | null = payload.task === LATER_ROUTES[2].task ? 2 : payload.task === LATER_ROUTES[3].task ? 3 : null
   if (!week) throw Error('INVALID_NUTRITION_WEEK')
-  if (!Number.isFinite(Date.parse(text(payload.anchorAt))) || Date.now() - Date.parse(text(payload.anchorAt)) > (week * 7 + 14) * 86_400_000) return { action: 'cancelled', reason: 'expired' }
+  if (!Number.isFinite(Date.parse(text(payload.anchorAt)))) return { action: 'cancelled', reason: 'expired' }
   let c = await weekOneContext(payload, week, text(job.received_at) || undefined)
   if (c.reason || !c.lead) return { action: 'cancelled', reason: c.reason }
+  if (Date.now() - Math.max(Date.parse(text(payload.anchorAt)), c.resumeAt || 0) > (week * 7 + 14) * 86_400_000) return { action: 'cancelled', reason: 'expired' }
   if (c.due > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due).toISOString() }
-  const choose = (context: typeof c) => context.lead && laterChoice(week, context.lead, context.history, context.memory.outbound, context.financing.partners)
+  const choose = (context: typeof c) => context.lead && laterChoice(week, context.lead, context.history, context.memory.outbound, context.financing.partners, context.summary)
   const choice = choose(c)
   if (!choice) return { action: 'cancelled', reason: 'no_relevant_new_content' }
   if (!(await verifyLaterTemplates())[week]) return { action: 'cancelled', reason: 'template_not_approved_or_mismatched' }

@@ -1,0 +1,496 @@
+{
+  "capturedAt": "2026-10-17T04:28:37.022Z",
+  "baseCommit": "230b81763c5b42485f1140d35e09fc4812d5a482",
+  "status": "local_behavior_corrections_applied_general_validation_incomplete",
+  "releaseReady": false,
+  "codeDeployed": false,
+  "codePushed": false,
+  "newSqlMigrations": [],
+  "sqlMigrationsApplied": false,
+  "productionDataRepair": {
+    "at": "2026-10-17T03:17:05.939Z",
+    "applied": 2,
+    "verified": true,
+    "scope": "two_reviewed_information_only_states",
+    "otherSummaryFieldsPreserved": true,
+    "realMessages": false
+  },
+  "specific": {
+    "command": "npm run test:conversation-contract",
+    "startedAt": "2026-10-17T04:26:40.842Z",
+    "finishedAt": "2026-10-17T04:26:59.825Z",
+    "files": [
+      "src/lib/integrations/automation/conversation-stability.test.ts",
+      "src/lib/integrations/automation/typed-conversation-boundary.test.ts",
+      "src/lib/integrations/automation/preparation-contract-boundary.test.ts",
+      "src/lib/integrations/automation/extractor-confidence-pipeline.test.ts",
+      "src/lib/integrations/automation/opening-discovery-pipeline.test.ts",
+      "scripts/turn-interpretation.test.cjs",
+      "src/lib/integrations/automation/turn-communication.test.ts",
+      "src/lib/integrations/automation/visit-preference-contract.test.ts",
+      "src/lib/integrations/automation/visit-intake-continuity.test.ts",
+      "src/lib/integrations/automation/visit-intake-plan.test.ts",
+      "src/lib/integrations/automation/visit-intake.test.ts",
+      "src/lib/integrations/automation/visit-dialogue.test.ts",
+      "src/lib/integrations/automation/selected-property-operation-continuity.test.ts",
+      "src/lib/integrations/automation/canonical-planning-continuity.test.ts",
+      "src/lib/integrations/automation/financing-consent-evidence.test.ts",
+      "src/lib/integrations/automation/financing-invitation-receipt.test.ts",
+      "src/lib/integrations/automation/reservation-invitation-receipt.test.ts",
+      "src/lib/integrations/automation/greeting-preparation.test.ts",
+      "src/lib/integrations/automation/reservation-continuity-pipeline.test.ts",
+      "src/lib/integrations/automation/interpretation-neutral.test.ts",
+      "src/lib/integrations/automation/provider-schema-contract.test.ts",
+      "src/lib/integrations/automation/writer-authority.test.ts",
+      "src/lib/integrations/automation/writer-content-review.test.ts",
+      "src/lib/integrations/automation/response-review-policy.test.ts",
+      "src/lib/integrations/automation/mandatory-server-guards.test.ts",
+      "src/lib/integrations/automation/catalog-embeddings.test.ts",
+      "src/lib/integrations/automation/catalog-result.test.ts",
+      "scripts/visit-intake-continuity.pglite.test.cjs",
+      "scripts/reservation-assignment.pglite.test.cjs"
+    ],
+    "runtimePattern": "--test-name-pattern=typed runtime|actual Wednesday|evidenced date answer|acknowledging the submitted|family alternatives recover early budget",
+    "results": [
+      {
+        "name": "contracts",
+        "exitCode": 0,
+        "tests": 345,
+        "passed": 345,
+        "failed": 0
+      },
+      {
+        "name": "runtime",
+        "exitCode": 0,
+        "tests": 19,
+        "passed": 19,
+        "failed": 0
+      }
+    ],
+    "tests": 364,
+    "passed": 364,
+    "failed": 0,
+    "network": "blocked",
+    "realModels": false,
+    "realMessages": false,
+    "scope": "Current typed contract and selected real-handler regressions. The full historical audit remains a separate command."
+  },
+  "general": {
+    "command": "npm run test:audit-corrections",
+    "tests": 2695,
+    "passed": 2263,
+    "failed": 432,
+    "skipped": 0,
+    "exitCode": 1,
+    "manifest": "scripts/fixtures/automation-audit-test-files.json",
+    "inventory": "fallos-historicos-estabilizacion-2026-10-16.json",
+    "startedAt": "2026-10-17T04:26:41.242Z",
+    "finishedAt": "2026-10-17T04:27:56.594Z"
+  },
+  "typeScript": {
+    "command": "npx tsc --noEmit",
+    "at": "2026-10-17T04:22:33.342Z",
+    "exitCode": 0,
+    "error": null
+  },
+  "eslint": {
+    "command": "eslint --max-warnings=0 (modified source/test files)",
+    "at": "2026-10-17T04:26:49.586Z",
+    "files": 56,
+    "exitCode": 0
+  },
+  "build": {
+    "command": "next build",
+    "at": "2026-10-17T04:24:39.898Z",
+    "exitCode": 0,
+    "error": null,
+    "diagnostic": "test_contacts_action_failed / UNKNOWN during prerender; build exits 0, screen not certified by this build"
+  },
+  "diffCheck": {
+    "exitCode": 0
+  },
+  "productionReadCheck": {
+    "at": "2026-10-17T03:27:09.690Z",
+    "reviewEnabled": false,
+    "reviewObservation": false,
+    "reads": [
+      {
+        "table": "lead_commercial_profiles",
+        "readable": true,
+        "code": null
+      },
+      {
+        "table": "lead_commercial_stage_observations",
+        "readable": true,
+        "code": null
+      },
+      {
+        "table": "lv_visit_intakes",
+        "readable": true,
+        "code": null
+      }
+    ],
+    "mode": "read_only"
+  },
+  "realModels": {
+    "realMessages": false,
+    "databaseWrites": false,
+    "operations": "synthetic_receipts",
+    "reviewerEnabled": false,
+    "models": [
+      "gpt-6-luna",
+      "gpt-4.1"
+    ],
+    "acceptedCases": [
+      {
+        "case": "opening-security-trust",
+        "report": "tmp/conversation-stability/opening-after-brochure-fix.json",
+        "turns": 5,
+        "status": "passed"
+      },
+      {
+        "case": "explicit-pause",
+        "report": "tmp/conversation-stability/complete-final.json",
+        "turns": 3,
+        "status": "passed"
+      },
+      {
+        "case": "selected-reservation-continuity",
+        "report": "tmp/conversation-stability/complete-final.json",
+        "turns": 3,
+        "status": "passed"
+      },
+      {
+        "case": "visit-time-before-day",
+        "report": "tmp/conversation-stability/complete-final.json",
+        "turns": 4,
+        "status": "passed"
+      },
+      {
+        "case": "requirements-to-selected-home",
+        "report": "tmp/conversation-stability/accepted-final.json",
+        "turns": 5,
+        "status": "passed"
+      }
+    ],
+    "acceptedTurns": 20,
+    "attempts": [
+      {
+        "report": "tmp/conversation-stability/accepted-final.json",
+        "requests": 21,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.043915019999999985,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          },
+          {
+            "case": "requirements-to-selected-home",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/complete-final.json",
+        "requests": 42,
+        "models": [
+          "gpt-6-luna",
+          "gpt-4.1"
+        ],
+        "estimatedUsd": 0.07316555999999999,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "failed",
+            "error": "OPENAI_TIMEOUT",
+            "turns": 4
+          },
+          {
+            "case": "explicit-pause",
+            "status": "passed",
+            "error": null,
+            "turns": 3
+          },
+          {
+            "case": "selected-reservation-continuity",
+            "status": "passed",
+            "error": null,
+            "turns": 3
+          },
+          {
+            "case": "visit-time-before-day",
+            "status": "passed",
+            "error": null,
+            "turns": 4
+          },
+          {
+            "case": "requirements-to-selected-home",
+            "status": "failed",
+            "error": "do not ask again for an alternative the customer has accepted",
+            "turns": 5
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/context-and-selection-final.json",
+        "requests": 11,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.021115190000000002,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          },
+          {
+            "case": "requirements-to-selected-home",
+            "status": "failed",
+            "error": "OPENAI_TIMEOUT",
+            "turns": 0
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/first-live.json",
+        "requests": 5,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.00345454,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "failed",
+            "error": "OPENAI_TIMEOUT",
+            "turns": 1
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/live-evaluation.json",
+        "requests": 22,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.04339187,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          },
+          {
+            "case": "explicit-pause",
+            "status": "passed",
+            "error": null,
+            "turns": 3
+          },
+          {
+            "case": "selected-reservation-continuity",
+            "status": "passed",
+            "error": null,
+            "turns": 3
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/opening-after-brochure-fix.json",
+        "requests": 10,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.01474737,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/pause-reservation-final.json",
+        "requests": 12,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.03448522,
+        "results": [
+          {
+            "case": "explicit-pause",
+            "status": "passed",
+            "error": null,
+            "turns": 3
+          },
+          {
+            "case": "selected-reservation-continuity",
+            "status": "passed",
+            "error": null,
+            "turns": 3
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/positive-security-and-visits.json",
+        "requests": 12,
+        "models": [
+          "gpt-6-luna",
+          "gpt-4.1"
+        ],
+        "estimatedUsd": 0.02968797,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          },
+          {
+            "case": "visit-time-before-day",
+            "status": "failed",
+            "error": "TURN_INTERPRETATION_INVALID",
+            "turns": 0
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/requirements-after-priority-fix.json",
+        "requests": 10,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.02727194,
+        "results": [
+          {
+            "case": "requirements-to-selected-home",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/requirements-corrected-harness.json",
+        "requests": 10,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.014955030000000001,
+        "results": [
+          {
+            "case": "requirements-to-selected-home",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/requirements-final.json",
+        "requests": 10,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "estimatedUsd": 0.02826244,
+        "results": [
+          {
+            "case": "requirements-to-selected-home",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/visit-after-contract-clarification.json",
+        "requests": 4,
+        "models": [
+          "gpt-6-luna",
+          "gpt-4.1"
+        ],
+        "estimatedUsd": 0.016899780000000003,
+        "results": [
+          {
+            "case": "visit-time-before-day",
+            "status": "failed",
+            "error": "TURN_INTERPRETATION_INVALID",
+            "turns": 1
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/visit-and-security-final.json",
+        "requests": 19,
+        "models": [
+          "gpt-6-luna",
+          "gpt-4.1"
+        ],
+        "estimatedUsd": 0.061626349999999996,
+        "results": [
+          {
+            "case": "opening-security-trust",
+            "status": "passed",
+            "error": null,
+            "turns": 5
+          },
+          {
+            "case": "visit-time-before-day",
+            "status": "passed",
+            "error": null,
+            "turns": 4
+          }
+        ]
+      },
+      {
+        "report": "tmp/conversation-stability/visit-diagnostic.json",
+        "requests": 2,
+        "models": [
+          "gpt-6-luna",
+          "gpt-4.1"
+        ],
+        "estimatedUsd": 0.0059155399999999995,
+        "results": [
+          {
+            "case": "visit-time-before-day",
+            "status": "failed",
+            "error": "TURN_INTERPRETATION_INVALID",
+            "turns": 0
+          }
+        ]
+      }
+    ],
+    "estimatedUsdAllRecordedAttempts": 0.41889382,
+    "costIsEstimateNotInvoice": true,
+    "scope": "Real interpreter/planner/memory/writer with synthetic business operations, not a live processConversation execution. Prior attempts include timeouts and behavior failures, retained transparently."
+  },
+  "additional": {
+    "command": "node --test (conversation stability, language, comparison price, reviewer metadata, location)",
+    "tests": 90,
+    "passed": 90,
+    "failed": 0,
+    "overlapsOtherSuites": true
+  },
+  "remainingWork": [
+    {
+      "id": 14,
+      "status": "open",
+      "description": "Reconcile every historical failure individually and resolve any actual regressions before deployment."
+    },
+    {
+      "status": "not_done",
+      "description": "Push and deploy the corrected code after release validation."
+    }
+  ]
+}

@@ -34,7 +34,7 @@ export function catalogCostBaseline(original: Row, audit: Row, current: string, 
       return compactTurnPromptContext({ ...data, evidencia_turno: evidence, evidencia_afirmaciones: sources,
         estado_operativo: normalAudit,
         contexto_verificado: experienceContext({ ...verified, historial: history }, current,
-          commercialMemory(verified.memoria_comercial, history, current)) })
+          commercialMemory(verified.memoria_comercial, history, current, verified)) })
     }
     if (task === 'review' && data.fuentes_autorizadas) {
       const expanded = businessRiskContext({ current, reply: String(data.borrador || ''),

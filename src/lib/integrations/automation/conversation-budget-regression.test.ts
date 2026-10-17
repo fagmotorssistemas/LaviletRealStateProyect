@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import Ajv from 'ajv'
@@ -7,7 +8,7 @@ import { resolvePropertyTurn } from './property-context'
 import { catalogDialogueReply, catalogQuery, filterCatalog } from './catalog-dialogue'
 import { completeTurnReply } from './turn-completeness'
 import { turnBudgetAssessment } from './turn-budget'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { buildNumericReferences, numericCoverageSchema, numericCoverageIssues } from './focused-numeric-coverage'
 import { structuredFactIssues } from './structured-facts'
 import { verifiedAbsenceReply } from './catalog-absence'
@@ -39,21 +40,20 @@ test('inclusive price endpoints reach the first writer and a real comparison def
           assert.equal(group.published_commercial_price, 250000)
           assert.equal(object(group.upper_values).published_commercial_price, 310000)
           if (writers === 2) {
-            const repair = object(context.reparacion), corrections = rows(repair.correcciones_concretas)
+            const repair = object(context.reparacion), corrections = rows(repair.hallazgos_revisor)
             assert.equal(corrections.length, 1)
             assert.equal(corrections[0].statement, statement)
-            assert.equal(corrections[0].fragment, statement)
-            assert.equal(corrections[0].scope, 'affected_statement_only')
+            assert.equal(corrections[0].category, 'hard_fact')
             assert.equal(corrections[0].authoritative_fact, 'El precio mínimo del grupo es 250000 USD, incluido ese valor.')
-            assert.match(String(repair.instruccion), /Conserve literalmente las demás frases/)
+            assert.match(String(repair.instruccion), /afirmaciones señaladas por la IA revisora/)
             assert.equal(repair.borrador, `${statement} ${continuation}`)
           }
-          return { reply: needsCorrection && writers === 1 ? `${statement} ${continuation}` : reply,
+          return writerFixture({ reply: needsCorrection && writers === 1 ? `${statement} ${continuation}` : reply,
             requests: [{ fragment: 'R1', intent: 'Opciones y financiamiento', request_type: 'general_information', status: 'answered', evidence: 'Catálogo', fact_key: 'price' }],
-            question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+            question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
         }
         const blocked = needsCorrection && writers === 1
-        return { review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [], question: null, verdict: blocked ? 'block' : 'pass', findings: blocked ? [{
+        return { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: blocked ? 'block' : 'pass', findings: blocked ? [{
           category: 'hard_fact', statement, reason: 'El mínimo está incluido; no todas las unidades lo superan.',
           authoritative_fact: 'El precio mínimo del grupo es 250000 USD, incluido ese valor.',
         }] : [] }
@@ -159,7 +159,7 @@ test('a complete empty search explains the original comparison, never an exact b
   assert.equal(verifiedAbsenceReply({ ...audit, catalog_query: catalogQuery({ operation: 'search', filters: { bedrooms: 5, bedrooms_operator: 'between', bedrooms_upper: 2 } }) }), null)
 })
 
-test('multi-turn budget and floor response passes exact review; omitting the budget triggers writer repair without exact-text rules', async () => {
+test('multi-turn budget and floor coverage remains a writer obligation outside factual reviewer authority', async () => {
   for (const omitBudget of [false, true]) {
     const { verified, route } = turn()
     const reply = 'Hay departamentos de al menos 2 dormitorios. Las opciones están en tercera, cuarta y quinta planta. Los precios parten de $180.000, por encima de su presupuesto de $50.000. ¿Desea revisar las opciones?'
@@ -175,18 +175,14 @@ test('multi-turn budget and floor response passes exact review; omitting the bud
         if (task === 'writing') {
           writers++
           assert.equal(object(object(context.contexto_verificado).presupuesto_del_turno).minimum_price, 180000)
-          if (writers === 2) assert.ok(JSON.stringify(context.reparacion).includes('current_budget_answer'))
-          answer = { reply: omitBudget && writers === 1 ? noBudget : reply,
+          assert.ok(rows(context.obligaciones_del_turno).some(row => row.id === 'current_budget_answer'))
+          answer = writerFixture({ reply: omitBudget && writers === 1 ? noBudget : reply,
             requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Atender preferencias y presupuesto', request_type: 'specific_fact',
               status: 'answered', evidence: 'Información de las opciones solicitadas', fact_key: null })),
-            question: { role: 'optional_continuation', purpose: 'choose_property', missing_datum: '', next_decision: 'Revisar opciones tras explicar el presupuesto.', continuation_id: 'unit_choice', continuation_act: 'explore_quoted_options' } }
+            question: { role: 'optional_continuation', purpose: 'choose_property', missing_datum: '', next_decision: 'Revisar opciones tras explicar el presupuesto.', continuation_id: 'unit_choice', continuation_act: 'explore_quoted_options' } })
         } else {
-          assert.ok(rows(context.obligaciones_del_turno).some(row => row.id === 'current_budget_answer'))
-          const missing = omitBudget && writers === 1
-          answer = { review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [], question: null, verdict: missing ? 'block' : 'pass',
-            findings: missing ? [{ category: 'turn_goal', statement: 'El borrador omite el presupuesto.',
-              reason: 'Enumera características sin responder si el presupuesto alcanza.',
-              authoritative_fact: 'La obligación current_budget_answer exige atender el presupuesto actual.' }] : [] }
+          assert.equal(rows(context.obligaciones_del_turno).some(row => row.id === 'current_budget_answer'), false)
+          answer = { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
         }
         const validate = ajv.compile(schema)
         assert.ok(validate(answer), ajv.errorsText(validate.errors))
@@ -197,8 +193,10 @@ test('multi-turn budget and floor response passes exact review; omitting the bud
       audit: { ...route.audit, semantic_review_enabled: true, business_risk_review_enabled: true } }, generate)
     assert.deepEqual(failures, [])
     assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
-    assert.equal(result.reply, reply)
-    assert.deepEqual(tasks, omitBudget ? ['writing', 'review', 'writing', 'review'] : ['writing', 'review'])
+    assert.equal(result.reply, omitBudget ? noBudget : reply)
+    assert.equal(writers, 1)
+    assert.deepEqual(tasks, ['writing', 'review'])
+    assert.deepEqual(result.audit.repair_attempts, [])
     assert.equal(result.needsAdvisor, false)
   }
 })

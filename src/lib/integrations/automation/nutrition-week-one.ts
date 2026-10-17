@@ -11,8 +11,24 @@ import { financingContext } from './financing'
 import { sharedBrochure, weekOneChoice } from './nutrition-week-one-rules'
 import type { Guard } from './visits'
 import { audienceAllows } from './audience-boundary'
+import { nurtureWithCommercialProfile } from './lead-nurture-state'
+import { nutritionAnchorTime, nutritionContactPolicy, nutritionIntent } from './nutrition-intent'
 
 const DAY = 86_400_000
+/** Read the current manual decision on scheduling and again before dispatch.
+ * An unavailable profile is not evidence that no pause/permission exists. */
+export async function nutritionNurtureState(lead: Row, conversation: Row) {
+  const profile = await db().from('lead_commercial_profiles')
+    .select('nutrition_active,nutrition_reason,purchase_horizon,nutrition_evidence,contact_consent,resume_at,updated_at')
+    .eq('tenant_id', scope.tenant_id).eq('lead_id', lead.id).maybeSingle()
+  if (profile.error) throw Error('NUTRITION_COMMERCIAL_PROFILE_FAILED')
+  const saved = object(conversation.summary)
+  const state = nurtureWithCommercialProfile(saved._lead_nurture, profile.data)
+  const summary = state.future_interest === true || state.active === true ? { ...saved, _lead_nurture: state,
+    _interaction_mode: { ...object(saved._interaction_mode), mode: 'information_only' } } : saved
+  return { summary, state, ...nutritionContactPolicy(state) }
+}
+
 export async function weekOneSettings() {
   const [project, automation] = await Promise.all([
     db().from('projects').select('policies_json').match({ tenant_id: scope.tenant_id, id: scope.project_id }).maybeSingle(),
@@ -35,7 +51,9 @@ export async function scheduleNutritionWeekOne(leadId: string, conversationId: s
   const anchor = object(data?.[0]), at = Date.parse(text(anchor.sent_at))
   if (!audienceAllows(settings.audience, text(anchor.sent_at))) return { scheduled: false, reason: 'before_audience_activation' }
   if (anchor.external_message_id !== externalId || !Number.isFinite(at) || at < Date.parse(settings.config.activatedAt!)) return { scheduled: false, reason: 'old_input' }
-  const due = nutritionSendTime(at + 7 * DAY, settings.hours)
+  const nurture = await nutritionNurtureState(lead, conversation)
+  if (nurture.reason) return { scheduled: false, reason: nurture.reason }
+  const due = nutritionSendTime(nutritionAnchorTime(at, nurture.resumeAt, 1), settings.hours)
   if (!due) return { scheduled: false, reason: 'no_business_hours' }
   const result = await db().from('lv_integration_events').upsert({ ...scope, kind: 'maintenance', contact_key: null,
     event_key: `nutrition1w:${conversationId}:${anchor.id}`, available_at: new Date(due).toISOString(),
@@ -78,6 +96,9 @@ export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1, jobCreat
   const active = week === 1 ? settings.config : settings.later[week]
   if (!active.enabled || !Number.isFinite(Date.parse(active.activatedAt || '')) || payload.activatedAt !== active.activatedAt) return { reason: 'disabled_or_changed' } as const
   if (!nutritionLeadEligible(lead) || !permitted(auto, lead, automationSettings().testLeadId) || Number(lead.kommo_id) !== Number(payload.kommoId)) return { reason: 'ineligible' } as const
+  const nurture = await nutritionNurtureState(lead, conversation)
+  if (nurture.reason) return { reason: nurture.reason } as const
+  if (week > 1 && nutritionIntent(lead, nurture.summary).informational) return { reason: 'information_only_template' } as const
   const memory = await weekOneMemory(lead)
   const [messages, latest, visits, drafts, inputs, jobs, financing, qualifications] = await Promise.all([
     db().from('messages').select('id,role,content,sent_at,tool_calls').eq('conversation_id', conversation.id).order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(40),
@@ -99,7 +120,6 @@ export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1, jobCreat
   if (inputs.data?.length || history.at(-1)?.role !== 'bot') return { reason: 'unanswered_input' } as const
   if (visits.data?.length || drafts.data?.length || jobs.data?.length || qualifications.data?.length) return { reason: 'active_coordination' } as const
   if (memory.outbound.some(m => m.role === 'asesor' && Date.parse(text(m.sent_at)) >= Date.parse(text(payload.anchorAt)))) return { reason: 'human_attention' } as const
-  if (/^(?:no(?: muchas)? gracias|no|por ahora no|no me interesa)[.!\s]*$/i.test(text(lastClient?.content))) return { reason: 'declined' } as const
   const task = week === 1 ? 'nutrition_week_one' : LATER_ROUTES[week].task
   if (memory.outbound.some(m => object(m.tool_calls)[task])) return { reason: week === 1 ? 'week_one_already_sent' : 'week_already_sent' } as const
   if (week < 3 && memory.outbound.some(m => object(m.tool_calls).nutrition_week_three || (week === 1 && object(m.tool_calls).nutrition_week_two))) return { reason: 'later_week_already_sent' } as const
@@ -118,9 +138,10 @@ export async function weekOneContext(payload: Row, week: 1 | 2 | 3 = 1, jobCreat
     if (earlier.error) throw Error('NUTRITION_EARLIER_WEEK_FAILED')
     if (earlier.data?.length) earlierDue = Math.max(Date.now() + DAY, Date.parse(earlier.data[0].available_at) + 7 * DAY)
   }
-  const due = nutritionSendTime(Math.max(Date.now(), Date.parse(text(payload.anchorAt)) + week * 7 * DAY, lastFollowup + 7 * DAY, earlierDue), settings.hours)
+  const due = nutritionSendTime(Math.max(Date.now(), nutritionAnchorTime(Date.parse(text(payload.anchorAt)), nurture.resumeAt, week), lastFollowup + 7 * DAY, earlierDue), settings.hours)
   if (!due) return { reason: 'no_business_hours' } as const
-  return { reason: '', lead, conversation, settings, memory, history, financing, due, audience: auto._audience } as const
+  return { reason: '', lead, conversation, settings, memory, history, financing, due, resumeAt: nurture.resumeAt,
+    summary: nurture.summary, audience: auto._audience } as const
 }
 
 export async function brochureLinkReady() {
@@ -135,14 +156,15 @@ export async function brochureLinkReady() {
 export async function sendNutritionWeekOne(job: Row, guard: Guard) {
   assertLive(); await guard()
   const payload = object(job.payload)
-  if (!Number.isFinite(Date.parse(text(payload.anchorAt))) || Date.now() - Date.parse(text(payload.anchorAt)) > 21 * DAY) return { action: 'cancelled', reason: 'expired' }
+  if (!Number.isFinite(Date.parse(text(payload.anchorAt)))) return { action: 'cancelled', reason: 'expired' }
   let c = await weekOneContext(payload, 1, text(job.received_at) || undefined)
   if (c.reason || !c.lead) return { action: 'cancelled', reason: c.reason }
+  if (Date.now() - Math.max(Date.parse(text(payload.anchorAt)), c.resumeAt || 0) > 21 * DAY) return { action: 'cancelled', reason: 'expired' }
   if (c.due > Date.now() + 1000) return { action: 'deferred', nextAt: new Date(c.due).toISOString(), reason: 'business_hours_or_shared_frequency' }
   const catalog = await db().from('units').select('id,unit_number,category,bedrooms').match(scope).eq('is_published', true).eq('status', 'disponible').limit(100)
   if (catalog.error) throw Error('WEEK_ONE_CATALOG_FAILED')
   const choose = (context: typeof c) => context.lead && weekOneChoice(context.settings.config, context.lead, context.history, context.memory.outbound, catalog.data || [], context.memory.brochureShared,
-    { financing: context.financing.partners.length > 0, visits: context.settings.visits.allowSuggestions && context.settings.visits.launchDestination === 'office' })
+    { financing: context.financing.partners.length > 0, visits: context.settings.visits.allowSuggestions && context.settings.visits.launchDestination === 'office' }, context.summary)
   const choice = choose(c)
   if (!choice) return { action: 'cancelled', reason: 'no_relevant_new_content' }
   const approved = await verifyWeekOneTemplates()

@@ -1,38 +1,25 @@
-import { object, text, type Row } from './data'
-import { generalProjectLocation, locationRequestKind } from './visit-location'
+import { object,text,type Row } from './data'
+import { generalProjectLocation,locationRequestKind } from './visit-location'
 
 export const LOCATION_DISCLOSURE_VERSION = 'location-disclosure-v1'
 export const LOCATION_DISCLOSURE_RULES = `UBICACIÓN DEL PROYECTO: siga location_disclosure compartido con el redactor y revisor. La ubicación general (sector y ciudad) puede formar parte de una presentación breve o responder una consulta sobre el sector. Esto NO autoriza añadir la calle, intersección, dirección exacta, coordenadas ni el enlace de mapas. Si exact_location_allowed=false, omita esos detalles también en texto libre, aunque aparezcan en el historial o sean hechos verdaderos. Respete address_allowed y map_allowed por separado si el cliente rechaza alguno. Una invitación a visitar, un interés genérico o una solicitud pendiente de cita no equivalen a una confirmación real. Solo una petición explícita de ubicación detallada o una confirmación presencial comprobada habilita los detalles. Responda consultas de sector o ciudad únicamente con la ubicación general verificada. No comunique al cliente estas condiciones internas ni diga que la dirección no existe por estar fuera del alcance de este turno. El revisor comprueba por separado la verdad de una ubicación y el permiso para comunicar su detalle: estar en Cuenca o Puertas del Sol no respalda ni autoriza una intersección exacta.`
-
-function componentRefused(current: string, component: string) {
-  const value = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const refusal = new RegExp('\\b(?:no|ni)\\s+(?:me\\s+)?(?:envie|mande|comparta|pase|quiero|necesito)\\b[^.!?;\\n]{0,45}\\b' + component + '\\b', 'g')
-  const matches = [...value.matchAll(refusal)]
-  const last = matches.at(-1)
-  if (!last) return false
-  // A later explicit request supersedes the earlier refusal in the same batch.
-  const after = value.slice((last.index || 0) + last[0].length)
-  return !new RegExp('\\b(?:envie\\w*|mande\\w*|comparta\\w*|pase\\w*|quiero|necesito)\\b[^.!?;\\n]{0,45}\\b' + component + '\\b').test(after)
-}
 
 /** This permission is derived from the current request or a completed workflow,
  * never from a destination mentioned by the draft or an offered appointment. */
 export function locationDisclosurePolicy(input: { current: string; verified?: unknown; audit?: unknown }): Row {
   const verified = object(input.verified), audit = object(input.audit)
-  const kind = locationRequestKind(input.current)
+  const kind = locationRequestKind(input.current, verified)
   const completed = object(audit.completed_visit_action)
   const result = object(audit.visit_result || verified.resultado_visita)
   const receipt = Object.keys(completed).length ? completed : result
   const confirmed = receipt.action === 'confirmed' && (Object.keys(completed).length > 0
     || audit.registration_verified === true || !!text(receipt.request_id))
-  const remote = /virtual|videollamada|zoom|telefono|remote/.test([
-    text(receipt.channel), text(receipt.mode), text(receipt.meeting_type), text(object(receipt.slot).mode),
-  ].join(' ').toLowerCase())
+  const remote = ['virtual', 'remote', 'phone', 'video'].includes(text(receipt.meeting_type || receipt.mode || receipt.channel))
   const exact = kind === 'request' || kind === 'clarification' || confirmed && !remote
   return { version: LOCATION_DISCLOSURE_VERSION, request_kind: kind,
     general_location: generalProjectLocation(verified), general_location_allowed: true,
-    exact_location_allowed: exact, address_allowed: exact && !componentRefused(input.current, 'direccion'),
-    map_allowed: exact && !componentRefused(input.current, 'mapa'),
+    exact_location_allowed: exact, address_allowed: exact && object(object(verified.semantica_turno).routing).address_preference !== 'decline',
+    map_allowed: exact && object(object(verified.semantica_turno).routing).map_preference !== 'decline',
     reason: kind === 'request' || kind === 'clarification' ? 'explicit_location_request'
       : confirmed && !remote ? 'verified_in_person_confirmation'
         : kind === 'general' ? 'general_location_request' : 'general_project_information' }

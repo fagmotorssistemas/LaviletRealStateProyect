@@ -37,7 +37,8 @@ describe('project location authority and prompt projection', () => {
   it('allows verified direction and map facts after an explicit current request', () => {
     for (const current of ['¿Dónde queda La Vilet?', 'Envíeme la ubicación', '¿Cómo llego a la oficina?',
       'Quiero información del departamento y el mapa', '¿En qué sector queda? Además deme la dirección.']) {
-      const policy = locationDisclosurePolicy({ current, verified })
+      const policy = locationDisclosurePolicy({ current, verified: { ...verified,
+        semantica_turno: { routing: { location_kind: 'request' } } } })
       assert.equal(policy.exact_location_allowed, true, current)
       const projected = projectLocationForPrompt(verified, policy)
       assert.equal((projected.proyecto as { address: string }).address, address)
@@ -48,7 +49,8 @@ describe('project location authority and prompt projection', () => {
     }
   })
   it('honors separate refusals of the map or textual address within compound requests', () => {
-    const addressOnly = locationDisclosurePolicy({ current: 'Deme la dirección. No quiero el mapa.', verified })
+    const addressOnly = locationDisclosurePolicy({ current: 'Deme la dirección. No quiero el mapa.', verified: { ...verified,
+      semantica_turno: { routing: { location_kind: 'request', address_preference: 'include', map_preference: 'decline' } } } })
     assert.equal(addressOnly.address_allowed, true)
     assert.equal(addressOnly.map_allowed, false)
     const addressSources = projectLocationForPrompt(verified, addressOnly)
@@ -58,7 +60,8 @@ describe('project location authority and prompt projection', () => {
     assert.ok(addressReply.includes(address))
     assert.ok(!addressReply.includes(map))
 
-    const mapOnly = locationDisclosurePolicy({ current: 'No necesito la dirección. Envíeme el mapa.', verified })
+    const mapOnly = locationDisclosurePolicy({ current: 'No necesito la dirección. Envíeme el mapa.', verified: { ...verified,
+      semantica_turno: { routing: { location_kind: 'request', address_preference: 'decline', map_preference: 'include' } } } })
     assert.equal(mapOnly.address_allowed, false)
     assert.equal(mapOnly.map_allowed, true)
     const mapSources = projectLocationForPrompt(verified, mapOnly)
@@ -67,7 +70,8 @@ describe('project location authority and prompt projection', () => {
     assert.ok(!mapReply.includes(address))
     assert.ok(mapReply.includes(map))
 
-    const changedMind = locationDisclosurePolicy({ current: 'No quiero el mapa. Envíeme el mapa.', verified })
+    const changedMind = locationDisclosurePolicy({ current: 'No quiero el mapa. Envíeme el mapa.', verified: { ...verified,
+      semantica_turno: { routing: { location_kind: 'request', address_preference: 'unspecified', map_preference: 'include' } } } })
     assert.equal(changedMind.map_allowed, true)
   })
   it('does not treat an invitation, submitted request or model claim as a confirmed visit', () => {

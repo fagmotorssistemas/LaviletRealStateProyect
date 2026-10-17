@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, scope, type Row } from './data'
@@ -169,9 +170,9 @@ test('a detailed category request has one commercial plan and omits unrelated af
     audit: { ...audit, semantic_review_enabled: true, business_risk_review_enabled: true } },
     async (rules, data, _schema, _image, _file, _tone, task) => {
       calls.push({ task: task!, data: object(data), rules })
-      if (task === 'writing') return { reply, requests: [{ fragment: 'R1', intent: 'Detalles', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null }],
-        question: { purpose: 'permission_to_continue', role: 'optional_continuation', missing_datum: '', next_decision: 'Financiamiento' } }
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      if (task === 'writing') return writerFixture({ reply, requests: [{ fragment: 'R1', intent: 'Detalles', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null }],
+        question: { purpose: 'permission_to_continue', role: 'optional_continuation', missing_datum: '', next_decision: 'Financiamiento' } })
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     })
   assert.equal(result.audit.status, 'checked')
   assert.deepEqual(calls.map(c => c.task), ['writing', 'review'])

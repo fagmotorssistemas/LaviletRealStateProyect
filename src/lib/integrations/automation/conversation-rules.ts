@@ -1,20 +1,16 @@
-import { acceptedExtractorConfidence } from './extractor-confidence'
-import { PROPERTY_CATEGORIES } from './property-category-contract'
-import { object, text, type Row } from './data'
-import { normalized } from './sdr-rules'
-import { financingDocument } from './financing-identity'
+import { object,text,type Row } from './data'
 import { EXTRACTED_CONVERSATION_EVENTS } from './event-contract'
-import { isAssetOnlyPurposeEvidence, isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence, isPassivePurchaseEvidence } from './purchase-evidence'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { financingDocument } from './financing-identity'
+import { PROPERTY_CATEGORIES } from './property-category-contract'
+import { isAssetOnlyPurposeEvidence,isGeneralProjectOverviewWithoutPurchaseScope,isPassiveProfilePurposeEvidence,isPassivePurchaseEvidence } from './purchase-evidence'
+
+import type { VisitPreferenceContext } from './visit-preference-contract'
+import { normalizedVisitPreference } from './visit-preference-contract'
+import { actionAuthorized, actionDeclined, currentContactDecision, normalizedActionAuthority } from './action-authority'
 const events = new Set<string>(EXTRACTED_CONVERSATION_EVENTS)
 
-export const VISIT_PREFERENCE_EXTRACTION_RULES = `
-Cuando el mensaje contenga una preferencia de fecha u hora para una visita, devuelva además:
-"visit_preference":{"evidence":"copia literal del fragmento del cliente","date_text":"fecha corregida o null","time_text":"hora corregida o null","location_type":"office|site|work_area|model|completed_unit|null","confidence":"high|medium|low"}.
-date_text debe conservar el sentido y usar solo una de estas formas: hoy, mañana, pasado mañana, un día de lunes a domingo con referencia opcional a esta/próxima semana, AAAA-MM-DD, DD/MM/AAAA o DD de mes.
-time_text debe usar una hora inequívoca como "a las 10 am", "a las 14:30", "por la mañana" o "por la tarde". Corrija faltas ortográficas evidentes, pero no cambie el día, la hora ni AM/PM.
-evidence debe ser una copia literal presente en mensaje_cliente. Use confidence=high solo cuando exista una única interpretación clara. Ante alternativas, negaciones, aproximaciones, contradicciones o duda, use medium/low. Si no hay preferencia de visita, devuelva visit_preference:null.
-location_type representa respectivamente oficina, terreno del proyecto, área autorizada de obra, departamento modelo o unidad terminada. No lo complete si el cliente no menciona un lugar.
-No convierta hoy/mañana ni un día de la semana en una fecha absoluta; el calendario la calculará con la fecha real del mensaje.`
+export { normalizedVisitPreference,VISIT_PREFERENCE_EXTRACTION_RULES,VISIT_PREFERENCE_SCHEMA } from './visit-preference-contract'
 
 export const VISIT_INTENT_EXTRACTION_RULES = `
 Devuelva además "visit_intent" para interpretar semánticamente SOLO la intención de visita del mensaje actual:
@@ -26,46 +22,19 @@ target indica a qué negocio pertenece la cita según mensaje e historial: proje
 No confunda una fecha futura como "miércoles que viene" con una pregunta sobre si una persona va a venir. No convierta una cita médica, vuelo, hotel u otro servicio ajeno en una visita al proyecto.
 Use confidence=high solo cuando el fragmento literal permite una única interpretación. evidence debe ser una copia literal presente en mensaje_actual. No use el historial como evidencia de una intención nueva.`
 
-const plain = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
-const weekday = '(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)'
-const month = '(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)'
-const datePattern = new RegExp(`^(?:hoy|manana|pasado manana|mismo dia|(?:el )?${weekday}(?: de (?:esta semana|la (?:proxima|siguiente) semana|la semana (?:que viene|entrante)))?|(?:el )?[0-9]{4}-[0-9]{2}-[0-9]{2}|(?:el )?[0-9]{1,2}/[0-9]{1,2}(?:/[0-9]{4})?|(?:el )?[0-9]{1,2} de ${month}(?: de [0-9]{4})?)$`)
-const timePattern = /^(?:misma hora|mismo horario|(?:a las? )?(?:[01]?[0-9]|2[0-3])(?::[0-5][0-9])?\s*(?:am|pm|horas?)?|(?:por|en|de) la (?:manana|tarde|noche))$/
-
-export function normalizedVisitPreference(raw: unknown, message: string): Row | null {
-  const preference = object(raw)
-  const evidence = text(preference.evidence).trim()
-  if (!acceptedExtractorConfidence(preference.confidence) || !evidence || evidence.length > 240) return null
-  const normalizedEvidence = normalized(evidence)
-  const normalizedMessage = normalized(message)
-  if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
-  // A canonical value must never silently select one of several options or turn a rejection into a request.
-  if (/\b(?:o|entre|quizas|tal vez|aproximadamente|alrededor)\b/.test(normalizedMessage)
-    || /\b(?:no puedo|no quiero|cancelar|cancelo|cancelacion)\b/.test(normalizedEvidence)) return null
-  const dateText = plain(text(preference.date_text))
-  const timeText = plain(text(preference.time_text))
-  const locationType = ['office', 'site', 'work_area', 'model', 'completed_unit'].includes(text(preference.location_type)) ? text(preference.location_type) : null
-  if ((dateText && !datePattern.test(dateText)) || (timeText && !timePattern.test(timeText)) || (!dateText && !timeText && !locationType)) return null
-  const canonicalText = [dateText, timeText].filter(Boolean).join(' ')
-  if (canonicalText.length > 160) return null
-  return { evidence, date_text: dateText || null, time_text: timeText || null, location_type: locationType,
-    canonical_text: canonicalText || null, confidence: preference.confidence }
-}
-
 export function normalizedVisitIntent(raw: unknown, message: string): Row | null {
   const intent = object(raw)
   const kind = text(intent.kind)
   const evidence = text(intent.evidence).trim()
   if (!['request_visit', 'accept_visit_preference', 'visit_information', 'decline_visit', 'visit_status', 'none'].includes(kind)
     || !acceptedExtractorConfidence(intent.confidence) || !evidence || evidence.length > 240) return null
-  const normalizedEvidence = normalized(evidence)
-  const normalizedMessage = normalized(message)
+  const normalizedEvidence = evidence.normalize('NFKC').toLowerCase()
+  const normalizedMessage = message.normalize('NFKC').toLowerCase()
   if (!normalizedEvidence || !normalizedMessage.includes(normalizedEvidence)) return null
-  if (kind === 'request_visit' && /\b(?:no|tampoco|ni)\s+(?:quiero|quisiera|deseo|puedo|podemos|me interesa|me gustaria)\b/.test(normalizedEvidence)) return null
   const purposes = ['coordination', 'preference', 'accept_alternative', 'availability_information', 'access_information', 'decline', 'cancel', 'status', 'none']
   const purpose = purposes.includes(text(intent.purpose)) ? text(intent.purpose)
     : kind === 'request_visit' ? 'coordination' : kind === 'accept_visit_preference' ? 'preference' : kind === 'visit_status' ? 'status' : 'none'
-  const compatiblePurposes: Record<string, string[]> = { request_visit: ['coordination'], accept_visit_preference: ['preference', 'accept_alternative'],
+  const compatiblePurposes: Record<string, string[]> = { request_visit: ['coordination', 'preference'], accept_visit_preference: ['preference', 'accept_alternative'],
     visit_information: ['availability_information', 'access_information'], decline_visit: ['decline', 'cancel'], visit_status: ['status'], none: ['none'] }
   if (!compatiblePurposes[kind].includes(purpose)) return null
   const target = ['project', 'other', 'unspecified'].includes(text(intent.target)) ? text(intent.target) : 'unspecified'
@@ -73,20 +42,21 @@ export function normalizedVisitIntent(raw: unknown, message: string): Row | null
   return { kind, purpose, target, destination, evidence, confidence: intent.confidence }
 }
 
-export function normalizeEvents(raw: unknown, message: string, awaitingDocument = false, pendingQuestion?: unknown): Row {
+export function normalizeEvents(raw: unknown, message: string, _awaitingDocument = false, pendingQuestion?: unknown, visitContext?: VisitPreferenceContext): Row { void _awaitingDocument;
   const data = object(raw)
+  const authority = normalizedActionAuthority(data.action_authority, message)
+  const contact = currentContactDecision(authority)
   const nullableText = (key: string) => text(data[key]).trim() || null
   const positive = (key: string) => typeof data[key] === 'number' && Number.isFinite(data[key]) && Number(data[key]) >= 0 ? data[key] : null
   const chosenEvents = [...new Set(['first_response', ...(Array.isArray(data.events) ? data.events.filter(e => typeof e === 'string' && events.has(e)) : [])])]
-  const document = financingDocument(object(data.financing_identity).document || data.national_id || data.ruc
-    || (awaitingDocument && /^[\d\s.-]+$/.test(message.trim()) ? message.trim() : ''), message)
+  const document = financingDocument(object(data.financing_identity).document || data.national_id || data.ruc, message)
   const evidence = object(data.declaration_evidence)
   const supported = (key: string) => {
-    const quote = normalized(text(evidence[key]))
-    return quote.length > 0 && quote.length <= 180 && normalized(message).includes(quote)
+    const quote = text(evidence[key]).normalize('NFKC').toLowerCase()
+    return quote.length > 0 && quote.length <= 500 && message.normalize('NFKC').toLowerCase().includes(quote)
   }
   const overviewOnly = isGeneralProjectOverviewWithoutPurchaseScope(data, message)
-  const passiveSource = (quote: unknown) => isPassivePurchaseEvidence(quote)
+  const passiveSource = (quote: unknown) => isPassivePurchaseEvidence(quote, { communication: data.communication })
     || isPassiveProfilePurposeEvidence(data, pendingQuestion, quote) || overviewOnly
   const category = supported('preferred_category') && !passiveSource(evidence.preferred_category)
     && (PROPERTY_CATEGORIES as readonly string[]).includes(text(data.preferred_category)) ? data.preferred_category : null
@@ -100,13 +70,13 @@ export function normalizeEvents(raw: unknown, message: string, awaitingDocument 
     purchase_purpose: purpose,
     unit_id: /^[a-f0-9-]{36}$/i.test(text(data.unit_id)) ? data.unit_id : null,
     preferred_visit_time_text: nullableText('preferred_visit_time_text'),
-    visit_preference: normalizedVisitPreference(data.visit_preference, message),
+    visit_preference: normalizedVisitPreference(data.visit_preference, message, visitContext),
     visit_intent: normalizedVisitIntent(data.visit_intent, message),
     visit_needs_help: data.visit_needs_help === true,
-    tracking_consent: data.consent_granted === true || data.tracking_consent === true,
-    opt_out: data.opt_out === true,
-    requested_advisor: data.requested_advisor === true,
-    financing_consent: typeof data.financing_consent === 'boolean' ? data.financing_consent : null,
+    ...contact,
+    action_authority: authority,
+    requested_advisor: actionAuthorized(authority, 'advisor'),
+    financing_consent: actionAuthorized(authority, 'financing') ? true : actionDeclined(authority, 'financing') ? false : null,
     financing_partner: nullableText('financing_partner'), full_name: nullableText('full_name'),
     applicant_type: ['empleado', 'independiente'].includes(text(data.applicant_type)) ? data.applicant_type : null,
     national_id: document.national_id,

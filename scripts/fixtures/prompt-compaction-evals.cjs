@@ -81,7 +81,10 @@ async function prepareProposal(message, price) {
       optimized_catalog_request: { group: 'residential', category: null, requirements: [requirement] } },
     semantica_turno: { confidence: 'high', budget: { status: 'not_discussed' } } }
   const plan = commercialJourneyPlan(info)
-  const proposalPending = normalizedPendingQuestion(journeyPendingQuestion(String(plan.question), plan, true), units)
+  const proposalPending = normalizedPendingQuestion(journeyPendingQuestion(String(plan.question), plan, true, {
+    text: String(plan.question), purpose: 'choose_property', continuation_id: plan.question_id,
+    continuation_act: plan.question_act || 'explore_alternatives',
+  }), units)
   const context = rememberPropertyReply(units, info.property_context, String(plan.question), { pending_question: proposalPending, original_query: plan.requested_query })
   const currentSemantics = price ? { primary_intent: 'ask_price', confidence: 'high',
     property: { group: 'residential', category: null, operation: 'search', query_scope: 'catalog', reference_kind: 'none', unit_numbers: [],

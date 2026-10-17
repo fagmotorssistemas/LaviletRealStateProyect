@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fixture from './fixtures/extractor-profile-turn.json'
@@ -129,9 +130,9 @@ test(`a missing writer question is never appended or tracked as delivered: ${mod
       audit: { source: 'catalog_search', semantic_review_enabled: true, business_risk_review_enabled: true } },
     async (_rules, _raw, _schema, _image, _file, _tone, task) => {
       calls.push(task || '')
-      if (task === 'writing') return { reply: draft, requests: [], question: metadataKind === 'absent' ? null
-        : { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      if (task === 'writing') return writerFixture({ reply: draft, requests: [], question: metadataKind === 'absent' ? null
+        : { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     }))
   assert.equal(result.reply, draft, JSON.stringify(result.audit.final_validation))
   assert.equal(result.needsAdvisor, false)
@@ -163,11 +164,10 @@ test('a reviewer flow finding cannot force a second writer attempt or replace th
     verified: { siguiente_paso_comercial: plan, catalogo: [] },
     audit: { source: 'catalog_search', semantic_review_enabled: true, business_risk_review_enabled: true } },
   async (_rules, _raw, _schema, _image, _file, _tone, task) => {
-    if (task === 'writing') return { reply: ++writerCalls === 1 ? draft : second, requests: [], question: null }
-    return ++reviewCalls === 1 ? { review_contract: 'business-risk-v2', verdict: 'block', facts: [], question: null,
-      findings: [{ category: 'turn_goal', statement: draft, reason: 'Simplifique la respuesta para retomar la búsqueda.',
+    if (task === 'writing') return writerFixture({ reply: ++writerCalls === 1 ? draft : second, requests: [], question: null })
+    return ++reviewCalls === 1 ? { review_contract: 'content-review-v1', verdict: 'block', findings: [{ category: 'turn_goal', statement: draft, reason: 'Simplifique la respuesta para retomar la búsqueda.',
         authoritative_fact: 'Conserve únicamente la continuación de dormitorios.' }] }
-      : { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      : { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
   })
   assert.ok(result.reply.startsWith(draft))
   assert.equal(writerCalls, 1)
@@ -181,7 +181,9 @@ test('completion retains the delivered concrete entry proposal and its amount re
   const completed = completeRequiredContinuation('Continuemos con la orientación financiera.', candidate)
   assert.equal(completed.audit, null)
   assert.equal(completed.reply, 'Continuemos con la orientación financiera.')
-  const pending = deliveredPendingQuestion(String(entry.question), { plan: candidate })
+  const pending = deliveredPendingQuestion(String(entry.question), { plan: candidate,
+    metadata: { text: String(entry.question), purpose: 'collect_financing_required',
+      continuation_id: 'financing_down_payment', continuation_act: 'financing' } })
   assert.equal(pending.id, 'financing_down_payment')
   assert.equal(object(pending.amount_reference).amount, 400000)
   assert.ok(String(object(pending.amount_reference).question_source).includes('presupuesto'))

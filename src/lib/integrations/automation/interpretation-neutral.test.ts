@@ -4,6 +4,7 @@ import profileFixture from './fixtures/extractor-profile-turn.json'
 import { object, type Row } from './data'
 import { interpretConversationTurn, TURN_EXTRACTION_SCHEMA } from './turn-interpretation'
 import { interpretationSourceIssues, normalizeInactiveInterpretation, TurnInterpretationError } from './turn-interpretation-input'
+import { authorityFixture } from './fixtures/typed-turn.fixture'
 
 const current = profileFixture.turn_semantics.primary_evidence
 const fixture = (): Row => structuredClone(profileFixture)
@@ -109,8 +110,8 @@ test('neutral property does not lose an active budget or a current request for a
     semantics.primary_evidence = message
     semantics.answer_to_previous = { kind: 'none', question_id: 'none', evidence: '', confidence: 'high' }
     raw.requests = [{ request: message, evidence: message, domain: scenario === 'budget' ? 'financing' : 'advisor', topics: scenario === 'budget' ? ['financing'] : [], confidence: 'high' }]
-    if (scenario === 'budget') semantics.budget = { status: 'initial_capital', amount: 100, amount_reference_id: null, evidence: message, confidence: 'high' }
-    else { raw.requested_advisor = true; object(raw.action_evidence).requested_advisor = message }
+    if (scenario === 'budget') semantics.budget = { ...object(semantics.budget), status: 'initial_capital', amount: 100, amount_reference_id: null, evidence: message, confidence: 'high' }
+    else raw.action_authority = authorityFixture(message, 'advisor')
     assertSchema(raw, TURN_EXTRACTION_SCHEMA)
     let calls = 0
     const result = await interpretConversationTurn({ mensaje_actual: message }, { activePrompt: async () => 'Extract', aiJson: async () => { calls++; return raw } })

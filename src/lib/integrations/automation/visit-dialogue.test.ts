@@ -9,6 +9,7 @@ import { normalizedPendingQuestion } from './turn-semantics'
 import { visitBusinessHoursReply } from './visit-intake'
 import { type ProjectReadiness, projectReadiness, readinessInvitation, readinessRules, validateReadiness } from '@/lib/inmobiliaria/projectReadiness'
 import { object, type Row } from './data'
+import { visitPreferenceFixture as fixture } from './fixtures/visit-preference.fixture'
 
 const readiness: ProjectReadiness = { stage: 'not_started', progress: '', verifiedOn: '2026-09-17', enabledPlaces: ['office'], primaryPlace: 'office', conditions: '', officeAtProjectSite: true }
 const intent = (current: string, purpose: string, destination: string | null = null, target = 'project') => normalizedVisitIntent({ kind:
@@ -59,7 +60,8 @@ describe('semantic visit destination and informational continuity', () => {
       const journey = commercialJourneyPlan({ visit_dialogue_plan: plan, coordinacion_visita: { status: 'collecting' } })
       assert.equal(journey.question_id, 'visit_destination')
       const hours = visitBusinessHoursReply({ 1: { open: '08:30', close: '18:30' } }, { action: 'information' })
-      assert.match(hours, /08:30.*18:30.*no cupos confirmados/)
+      assert.match(hours, /08:30.*18:30/)
+      assert.doesNotMatch(hours, /no cupos confirmados|antes de confirmar|requiere verificación/)
       assert.doesNotMatch(hours, /qué fecha|indíquenos|edificación|obra/)
     })
   }
@@ -86,7 +88,8 @@ describe('semantic visit destination and informational continuity', () => {
   })
   it('accepts only the offered destination and keeps the original time evidence attributed to its source', () => {
     const current = 'Quiero recorrer el edificio el viernes a las 10am'
-    const preference = normalizedVisitPreference({ evidence: current, date_text: 'viernes', time_text: 'a las 10 am', location_type: null, confidence: 'high' }, current)
+    const preference = normalizedVisitPreference(fixture({ evidence: current, date: { kind: 'weekday', weekday: 5, occurrence: 'on_or_after' },
+      time: { kind: 'clock', hour: 10, minute: 0, meridiem: 'am' } }), current)
     const first = turn(current, 'coordination', {}, 'building', { preference, sourceMessageId: 'source', sourceAt: '2026-10-06T14:00:00Z' })
     const previous = rememberVisitDialogue({}, first, {}, true)
     const acceptance = 'Sí, en la oficina'
@@ -98,7 +101,7 @@ describe('semantic visit destination and informational continuity', () => {
     assert.equal(plan.requested_destination, 'building')
     assert.equal(plan.alternative_accepted, true)
     const snapshot = visitDialogueIntakeSnapshot(plan, acceptedIntent, null, 'acceptance')
-    assert.equal(object(snapshot._interpreted_visit).canonical_text, null)
+    assert.equal(object(snapshot._interpreted_visit).version, 'visit-preference-v2')
     assert.equal(object(object(snapshot._visit_dialogue_consent).source_preference).source_message_id, 'source')
     assert.equal(object(object(snapshot._visit_dialogue_consent).source_preference).evidence, current)
   })

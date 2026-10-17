@@ -9,7 +9,8 @@ export function scopePolicyContext(commercial: Row, scope: BusinessScopeDecision
   // A provisional label without an outside subject cannot erase business facts.
   // Confirmed outside boundaries still receive only the project/policy context.
   if (scope.uncertain && !scope.outside_evidence) keys.push('catalogo', 'catalog_read', 'catalogo_verificacion',
-    'financiamiento', 'semantica_turno', 'property_context', 'referencia_unidad', 'solicitudes_interpretadas')
+    'financiamiento', 'semantica_turno', 'property_context', 'referencia_unidad', 'solicitudes_interpretadas',
+    'reservation_context', 'recorrido_comercial')
   return { ...Object.fromEntries(keys.filter(key => commercial[key] !== undefined).map(key => [key, commercial[key]])),
     alcance_negocio: scope.kind }
 }

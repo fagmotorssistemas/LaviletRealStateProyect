@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { text, type Row } from './data'
-import { financingPendingFields, financingReply } from './financing'
+import { text,type Row } from './data'
+import { financingPendingFields,financingReply } from './financing'
 import { financingNameQuestion } from './financing-identity'
 
 const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -17,17 +17,10 @@ export function financingReadyForHandoff(fin: Row, partners: string[]): boolean 
  * handoffs. Keep hashes in the audit; never duplicate the document there. A
  * mixed message's business question is deliberately not covered by this set. */
 export function personalDataFragments(current: string, identity: Row, document: Row) {
-  const names = new Set(normalized(text(identity.full_name)).split(/[^\p{L}]+/u).filter(Boolean))
-  const words = new Set('me llamo mi nombre nombres apellido apellidos completo completos es son soy yo y el la de del numero cedula identidad documento este esta aqui gracias bien bueno ya por favor'.split(' '))
-  const hasDocument = ['accepted', 'invalid_length', 'incomplete'].includes(text(document.status))
-  return [...new Set([current, ...current.split(/\n+|[;!?¿]/)].filter(fragment => {
-    if (!fragment.trim() || /[?¿]/.test(fragment)) return false
-    let value = normalized(fragment)
-    if (hasDocument) value = value.replace(/\b\d[\d .-]*\d\b/g, ' ')
-    const tokens = value.split(/[^\p{L}\d]+/u).filter(Boolean)
-    const hasName = tokens.some(token => names.has(token))
-    return (hasName || hasDocument && /\d/.test(fragment)) && tokens.every(token => names.has(token) || words.has(token))
-  }).map(intakeFragmentKey))]
+  const evidence = [identity.evidence, document.evidence].map(text).filter(quote => quote.trim()
+    && current.normalize('NFKC').includes(quote.normalize('NFKC')))
+  return [...new Set(evidence.map(intakeFragmentKey))]
+
 }
 
 /** The persisted application is the authority for missing fields and lender. */

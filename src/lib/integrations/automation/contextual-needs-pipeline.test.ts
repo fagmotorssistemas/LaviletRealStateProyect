@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
@@ -50,10 +51,10 @@ for (const mode of ['normal', 'observation', 'disabled', 'compact_financing'] as
         assert.ok(String(rules).includes(CONTEXTUAL_NEEDS_WRITER_RULES), 'shared reasoning reaches this writer route')
         assert.ok(String(rules).includes(CONVERSATION_WRITING_STYLE_RULES))
         writerContext = context
-        return { reply, question: metadata, requests: [{ fragment: 'R1', intent: 'Consulta actual', request_type: 'specific_fact',
-          status: 'answered', evidence: reply, fact_key: null }] }
+        return writerFixture({ reply, question: metadata, requests: [{ fragment: 'R1', intent: 'Consulta actual', request_type: 'specific_fact',
+          status: 'answered', evidence: reply, fact_key: null }] })
       }
-      return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: { ...metadata, offered_action: 'none' } }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     }))
     assert.equal(result.reply, reply, JSON.stringify(result.audit))
     assert.equal(result.needsAdvisor, false)
@@ -84,10 +85,10 @@ test('multiple needs questions retain both requests and resume the bank choice w
     const context = object(raw)
     if (task === 'writing') {
       sentRequests = context.referencias_solicitud as Row[]
-      return { reply, question: metadata, requests: sentRequests.map(ref => ({ fragment: ref.id, intent: 'Consulta de distribución o mascotas',
-        request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: null })) }
+      return writerFixture({ reply, question: metadata, requests: sentRequests.map(ref => ({ fragment: ref.id, intent: 'Consulta de distribución o mascotas',
+        request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: null })) })
     }
-    return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: { ...metadata, offered_action: 'none' } }
+    return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
   })
   assert.equal(result.reply, reply, JSON.stringify(result.audit))
   assert.equal(sentRequests.length, 2)
@@ -113,32 +114,23 @@ for (const available of [true, false]) test('current stairs need reaches the fin
     if (task === 'writing') {
       writerCalls++
       writerContext = object(raw)
-      return { reply, question: metadata, requests: [{ fragment: 'R1', intent: 'Necesidad de evitar gradas',
-        request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: null }] }
+      return writerFixture({ reply, question: metadata, requests: [{ fragment: 'R1', intent: 'Necesidad de evitar gradas',
+        request_type: 'specific_fact', status: 'answered', evidence: reply, fact_key: null }] })
     }
-    return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: { ...metadata, offered_action: 'none' } }
+    return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
   })
   assert.equal(result.reply, reply, JSON.stringify(result.audit))
   assert.equal(result.needsAdvisor, false)
   assert.equal(writerCalls, 1)
   const evidence = object(writerContext.contexto_verificado)
-  assert.deepEqual(evidence.instalaciones, available ? [originalElevator] : [])
+  assert.deepEqual((evidence.instalaciones as Row[]).filter(fact => fact.amenity_name === originalElevator.amenity_name), available ? [originalElevator] : [])
   assert.match(String(object(writerContext.razonamiento_contextual).guidance), /existencia de ascensores no demuestra/)
   assert.deepEqual(object(object(verified.semantica_turno).catalog_request).semantic_preferences, [])
   assert.deepEqual(verified, original)
 })
 
 const bedMeasures = 'Dos camas de 0,90 m por 1,90 m: ¿qué superficie suman?'
-const footprintProof = (result: number): Row => ({ operation: 'multiply', scope: 'grounded', operands: [
-  { value: 0.9, unit: 'm', source: { kind: 'lead_current', reference: '', quote: bedMeasures } },
-  { value: 1.9, unit: 'm', source: { kind: 'lead_current', reference: '', quote: bedMeasures } },
-  { value: 2, unit: 'count', source: { kind: 'lead_current', reference: '', quote: bedMeasures } },
-], result: { value: result, unit: 'm2' } })
 const footprintReply = 'Con las medidas que indica, las dos camas suman 3.42 m² de huella. Eso no confirma que quepan: faltan las dimensiones y la distribución de la habitación para revisar la circulación. '+question
-function footprintFact(calculation: Row): Row {
-  return { statement: 'las dos camas suman 3.42 m² de huella', kind: 'other_calculation', subject_id: null,
-    scope: null, field: 'derived_value', value: 3.42, upper_value: null, relation: 'eq', unit: 'm2', calculation }
-}
 
 for (const brokenMetadata of [false, true]) test('writer/reviewer verifies bed-footprint arithmetic without changing the property area; repaired metadata='+brokenMetadata, async () => {
   const calls: string[] = []
@@ -147,20 +139,20 @@ for (const brokenMetadata of [false, true]) test('writer/reviewer verifies bed-f
     audit: { source: 'property_details', semantic_review_enabled: true, business_risk_review_enabled: true } },
   async (_rules, raw, _schema, _image, _file, _tone, task) => {
     calls.push(task || '')
-    if (task === 'writing') return { reply: footprintReply, question: metadata, requests: [{ fragment: 'R1', intent: 'Superficie ocupada por camas',
-      request_type: 'specific_fact', status: 'answered', evidence: 'Cálculo de huella y limitación de distribución', fact_key: null }] }
+    if (task === 'writing') return writerFixture({ reply: footprintReply, question: metadata, requests: [{ fragment: 'R1', intent: 'Superficie ocupada por camas',
+      request_type: 'specific_fact', status: 'answered', evidence: 'Cálculo de huella y limitación de distribución', fact_key: null }] })
     reviews++
     assert.equal(object(raw).borrador, footprintReply)
-    return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [],
-      facts: [footprintFact(footprintProof(brokenMetadata && reviews === 1 ? 3.5 : 3.42))],
-      question: { ...metadata, offered_action: 'none' } }
+    if (brokenMetadata && reviews === 1) return { review_contract: 'content-review-v1', verdict: 'pass', findings: [], obsolete_numeric_inventory: [] }
+    return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
   })
   assert.equal(result.reply, footprintReply, JSON.stringify(result.audit))
   assert.equal(result.audit.status, 'checked')
   assert.deepEqual(calls, brokenMetadata ? ['writing', 'review', 'review'] : ['writing', 'review'])
-  const checks = object(result.audit.semantic_review).fact_checks as Row[]
-  assert.equal(checks[0].status, 'verified')
-  assert.equal(object(checks[0].fact).field, 'derived_value')
+  assert.equal(object(result.audit.semantic_review).metadata_retries, brokenMetadata ? 1 : 0)
+  assert.equal(object(result.audit.semantic_review).authority, 'ai_reviewer')
+  assert.equal(object(result.audit.semantic_review).fact_checks, undefined,
+    'the code must not calculate a second verdict about the wording')
   assert.equal(unit.area_internal_m2, 142.09)
   assert.equal(object(result.audit.question).continuation_id, 'financing_partner')
 })
@@ -173,12 +165,10 @@ test('verified arithmetic never overrides a semantic finding about guaranteed fi
     audit: { source: 'property_details', semantic_review_enabled: true, business_risk_review_enabled: true } },
   async (_rules, _raw, _schema, _image, _file, _tone, task) => {
     calls.push(task || '')
-    if (task === 'writing') return { reply: ++drafts === 1 ? badReply : footprintReply, question: metadata,
-      requests: [{ fragment: 'R1', intent: 'Huella de dos camas', request_type: 'specific_fact', status: 'answered', evidence: 'Cálculo', fact_key: null }] }
+    if (task === 'writing') return writerFixture({ reply: ++drafts === 1 ? badReply : footprintReply, question: metadata,
+      requests: [{ fragment: 'R1', intent: 'Huella de dos camas', request_type: 'specific_fact', status: 'answered', evidence: 'Cálculo', fact_key: null }] })
     const first = ++reviews === 1
-    return { review_contract: 'business-risk-v2', verdict: first ? 'block' : 'pass',
-      facts: [footprintFact(footprintProof(3.42))], question: { ...metadata, offered_action: 'none' },
-      findings: first ? [{ category: 'hard_fact', statement: 'Le garantizo que caben cómodamente en esa habitación.',
+    return { review_contract: 'content-review-v1', verdict: first ? 'block' : 'pass', findings: first ? [{ category: 'hard_fact', statement: 'Le garantizo que caben cómodamente en esa habitación.',
         reason: 'La huella de las camas no demuestra cabida ni circulación sin medidas y distribución de la habitación.',
         authoritative_fact: 'Solo existen medidas de las camas; faltan dimensiones y distribución de la habitación.' }] : [] }
   })

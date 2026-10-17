@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { object, type Row } from './data'
@@ -88,8 +89,8 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
           if (task === 'writing') {
             contexts.push(context); rulesSeen.push(rules)
             const refs = context.referencias_solicitud as Row[]
-            return { reply, question: null, requests: refs.map(ref => ({ fragment: ref.id,
-              intent: 'Atender preocupación actual', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
+            return writerFixture({ reply, question: null, requests: refs.map(ref => ({ fragment: ref.id,
+              intent: 'Atender preocupación actual', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) })
           }
           reviews.push(context)
           const sources = object(context.fuentes_autorizadas).otros_hechos_y_politicas as Row[]
@@ -97,7 +98,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
           assert.ok(!sources.some(source => String(source.path).includes('objeciones_proyecto.guidance')))
           assert.ok((object(context.fuentes_autorizadas).hechos_con_cantidades as Row[])
             .some(fact => fact.value === 2 && fact.unit === 'floor'))
-          return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: null }
+          return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         }))
       assert.equal(result.reply, reply, JSON.stringify(result.audit))
       assert.equal(result.needsAdvisor, false)
@@ -135,7 +136,7 @@ test('the secondary sales route cannot append a unit offer or brochure while the
   const plan = salesPlan(verified, current, {})
   assert.equal(plan.action, 'answer_only')
   assert.equal(plan.closing, '')
-  assert.equal(plan.max_questions, 1)
+  assert.equal(plan.max_questions, 0, 'answering an objection does not create a mandatory commercial question')
   assert.ok(!salesIssues('¿Qué recorrido le preocupa?', plan).includes('repeated_question'))
   assert.equal(plan.question_purpose, null)
 })

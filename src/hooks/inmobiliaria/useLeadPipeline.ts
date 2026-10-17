@@ -66,40 +66,54 @@ export function useLeadPipeline(enabled: boolean) {
   const [pages, setPages] = useState<Partial<Record<LeadPipelineStage, number>>>({})
   const [data, setData] = useState<LeadPipelineListData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [refresh, setRefresh] = useState(0)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
   const requestId = useRef(0)
+  const inFlight = useRef<number | null>(null)
+  const hasData = useRef(false)
+
+  const load = useCallback(async (background: boolean) => {
+    if (!enabled) return
+    if (background && inFlight.current !== null) return
+    const id = ++requestId.current
+    inFlight.current = id
+    const preserve = background && hasData.current
+    if (preserve) setIsRefreshing(true)
+    else { setIsLoading(true); setError(null) }
+    setRefreshError(null)
+    try {
+      const result: ListLeadPipelineResult = await listLeadPipelineAction({
+        ...filters, view, page, pages, pageSize: view === 'board' ? 12 : 25,
+      })
+      if (id !== requestId.current) return
+      if (!result.ok) throw Error(result.error)
+      hasData.current = true
+      setData(result.data)
+      setError(null)
+    } catch (reason) {
+      if (id !== requestId.current) return
+      const message = reason instanceof Error ? reason.message : 'No se pudo cargar el embudo de leads.'
+      if (preserve) setRefreshError(message)
+      else { setError(message); setData(null); hasData.current = false }
+    } finally {
+      if (inFlight.current === id) inFlight.current = null
+      if (id === requestId.current) {
+        setIsLoading(false)
+        setIsRefreshing(false)
+      }
+    }
+  }, [enabled, filters, view, page, pages])
 
   useEffect(() => {
     if (!enabled) return
-    const id = ++requestId.current
-    const timer = window.setTimeout(async () => {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const result: ListLeadPipelineResult = await listLeadPipelineAction({
-          ...filters, view, page, pages, pageSize: view === 'board' ? 12 : 25,
-        })
-        if (id !== requestId.current) return
-        if (!result.ok) {
-          setError(result.error)
-          setData(null)
-          return
-        }
-        setData(result.data)
-      } catch (reason) {
-        if (id !== requestId.current) return
-        setError(reason instanceof Error ? reason.message : 'No se pudo cargar el embudo de leads.')
-        setData(null)
-      } finally {
-        if (id === requestId.current) setIsLoading(false)
-      }
-    }, filters.search ? 250 : 0)
+    const timer = window.setTimeout(() => { void load(false) }, filters.search ? 250 : 0)
     return () => {
       window.clearTimeout(timer)
-      if (requestId.current === id) requestId.current += 1
+      requestId.current += 1
+      inFlight.current = null
     }
-  }, [enabled, filters, view, page, pages, refresh])
+  }, [enabled, filters.search, load])
 
   const updateFilter = useCallback(<K extends keyof LeadPipelineFilters>(key: K, value: LeadPipelineFilters[K]) => {
     setIsLoading(true)
@@ -128,9 +142,8 @@ export function useLeadPipeline(enabled: boolean) {
   }, [])
 
   const reload = useCallback(() => {
-    setIsLoading(true)
-    setRefresh((value) => value + 1)
-  }, [])
+    void load(true)
+  }, [load])
 
   useEffect(() => {
     if (!enabled) return
@@ -142,6 +155,6 @@ export function useLeadPipeline(enabled: boolean) {
 
   return {
     view, changeView, filters, updateFilter, resetFilters, page, setPage,
-    setColumnPage, data, isLoading, error, reload,
+    setColumnPage, data, isLoading, isRefreshing, error, refreshError, reload,
   }
 }

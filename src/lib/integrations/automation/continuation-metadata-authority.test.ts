@@ -66,7 +66,7 @@ test('unknown catalog IDs and conflicting receipt scopes never select an arbitra
     plan: { ...plan, selected_unit_id: 'invented', selection_scope: { unit_ids: ['p605', 'invented'] } } }, catalog)
   assert.deepEqual(missing.target_ids, [])
   assert.deepEqual(missing.candidate_ids, ['p605'])
-  assert.deepEqual(deliveredPendingQuestion('No parsing.', { metadata, plan }).target_ids, [])
+  assert.deepEqual(deliveredPendingQuestion('No parsing.', { metadata, plan }).target_ids, ['p605'], 'The omitted catalogue retains the same verified plan scope')
   const contradictory = deliveredPendingQuestion('No parsing.', { metadata, plan, candidates: [
     { id: 'unit_choice', act: 'show_unit_details', target_ids: ['p605'] },
     { id: 'unit_choice', act: 'show_unit_details', target_ids: ['p602'] },

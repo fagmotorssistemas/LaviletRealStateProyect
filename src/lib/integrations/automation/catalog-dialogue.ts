@@ -635,7 +635,7 @@ export function catalogDialogueReply(info: Row, _current = ''): { reply: string;
         progressive_selection: { stage: 'choose_unit', question: next, candidate_ids: unitIds(units), criteria: query.filters, reason: 'details_require_unit_choice' } })
     }
     const unit = units[0]
-    const delivery = unitModelDelivery({ explicit: true, hasUnitMention: true, matches: [unit] }, _current, info.historial, info.unit_models_sent)
+    const delivery = unitModelDelivery({ explicit: true, hasUnitMention: true, matches: [unit] }, _current, info.historial, info.unit_models_sent, info)
     const tour = delivery?.unit_id ? { ...delivery, delivery_required: true, delivery_reason: query.operation === 'select' ? 'selected_unit' : 'single_compatible_option' } : null
     const spaces = sanitizeTourSpaces(Array.isArray(unit.spaces) ? unit.spaces : []).slice(0, 8).map(value => text(value).toLocaleLowerCase('es'))
     const description = text(unit.description).trim().replace(/\s+/g, ' ').slice(0, 350)

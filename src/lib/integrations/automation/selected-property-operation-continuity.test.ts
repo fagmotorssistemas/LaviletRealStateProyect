@@ -66,7 +66,8 @@ test('descriptive categories preserve the selected subject during operational an
 
 test('a real category change or current search refinement still clears the old selection', () => {
   const changed = resolvePropertyTurn(units, 'Prefiero los penthouses', selectedSummary(), [],
-    semantics('Prefiero los penthouses', 'select_property', { category: 'penthouse', unit_numbers: [], reference_kind: 'none' }))
+    { ...semantics('Prefiero los penthouses', 'select_property', { category: 'penthouse', operation: 'search', unit_numbers: [], reference_kind: 'none' }),
+      category_choice: { kind: 'selected', category: 'penthouse', evidence: 'Prefiero los penthouses', confidence: 'high' } })
   assert.equal(changed.reason, 'catalog_search')
   assert.deepEqual(changed.matches.map(unit => unit.id), ['u602'])
   assert.deepEqual(changed.context.selected_ids, [])
@@ -87,7 +88,8 @@ test('a literal unknown or rejected unit is never replaced by the old selected u
   assert.deepEqual(unknown.context.selected_ids, [])
   const rejected = 'No quiero el departamento 502'
   const negative = resolvePropertyTurn(units, rejected, selectedSummary(), [],
-    semantics(rejected, 'select_property', { unit_numbers: ['502'] }))
+    { ...semantics(rejected, 'select_property', { unit_numbers: ['502'] }),
+      unit_choice: { kind: 'rejected', unit_numbers: ['502'], evidence: rejected, confidence: 'high' } })
   assert.equal(negative.reason, 'unit_rejected')
   assert.deepEqual(negative.context.selected_ids, [])
 })

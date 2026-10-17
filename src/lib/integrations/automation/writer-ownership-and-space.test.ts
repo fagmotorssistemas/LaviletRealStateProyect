@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -108,7 +109,9 @@ test('a typed acceptance of space priority advances category choice without an e
   const initialReference = { context: summary._property_context }
   const plan = commercialJourneyPlan(info(initialReference, summary, {}))
   const reply = '¿Le parece bien que prioricemos la amplitud interior?'
-  const pending = deliveredPendingQuestion(reply, { plan, metadata: { text: reply, purpose: 'choose_property',
+  const pending = deliveredPendingQuestion(reply, { plan,
+    candidates: [{ id: 'property_priority', act: 'confirm_priority', candidate_ids: catalog.map(unit => unit.id) }],
+    metadata: { text: reply, purpose: 'choose_property',
     continuation_id: 'property_priority', continuation_act: 'confirm_priority' } }, catalog)
   assert.equal(pending.id, 'property_priority')
   assert.ok((pending.candidate_ids as string[]).length > 0)
@@ -148,7 +151,7 @@ test('question wording is owned by AI metadata, not lexical recognition; code ne
   const plan = { action: 'offer_financing', question_id: 'financing_invitation', question: '¿Le gustaría continuar con el financiamiento?' }
   assert.deepEqual(continuationContentIssues(plan.question, plan), [])
   assert.deepEqual(continuationContentIssues('¿Revisamos juntos las alternativas para financiarla?', plan), [])
-  assert.equal(validContinuationMetadata({ continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue' }, '¿Revisamos juntos las alternativas para financiarla?', plan), true)
+  assert.equal(validContinuationMetadata({ text: '¿Revisamos juntos las alternativas para financiarla?', continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue' }, '¿Revisamos juntos las alternativas para financiarla?', plan), true)
   assert.deepEqual(completeRequiredContinuation('Con gusto le orientamos.', plan), { reply: 'Con gusto le orientamos.', audit: null })
   assert.equal(includeRequiredBrochure('Con gusto.', { profile_introduction: { brochure_required: true } }), 'Con gusto.')
   const projected = writerObjectiveContext({ contexto_verificado: { siguiente_paso_comercial: plan, pregunta_pendiente: { id: 'property_bedrooms', question: '¿Cuántos dormitorios necesita?' } }, historial_reciente: [{ role: 'bot', content: '¿Cuántos dormitorios necesita?' }] })
@@ -161,8 +164,8 @@ test('successful writer draft remains unchanged in demonstration, disabled and l
   for (const control of [{ enabled: true, demoMode: true }, { enabled: false, demoMode: false }, { enabled: true, demoMode: false }]) {
     const draft = 'Saludos. Con gusto podemos revisar sus preferencias.'
     const generate = async (_instructions: unknown, _data: unknown, _schema: unknown, _a: unknown, _b: unknown, _c: unknown, task: unknown) => task === 'review'
-      ? { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-      : { reply: draft, requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+      ? { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
+      : writerFixture({ reply: draft, requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
     const result = await withResponseReviewPolicy({ enabled: control.enabled, observationOnly: control.demoMode, updatedAt: null },
       () => completeTurnReply({ current: 'Saludos', history: [], baseReply: 'Hola.', verified: { catalogo: [], politica_comercial: {} },
         audit: { writer_greeting: 'Hola', semantic_review_enabled: true, business_risk_review_enabled: true } }, generate))

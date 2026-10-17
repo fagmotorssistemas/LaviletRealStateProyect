@@ -1,20 +1,26 @@
-import { informationOnly, INFORMATION_ONLY_WRITER_RULES } from './interaction-mode'
-import { acceptedExtractorConfidence } from './extractor-confidence'
+import { botVisitPolicy,visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { createHash } from 'node:crypto'
-import { object, text, type Row } from './data'
-import { selectedFinancingUnit, financingStage } from './financing-stage'
-import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers, propertyPurchasePriceLimit } from './budget-state'
-import { catalogQuery, filterCatalog, partitionCatalog, catalogRequirementAlternative, alternativeFloorQuestion,
-  canOfferLowerFloorBedrooms, catalogLowerFloorBedroomAlternative } from './catalog-dialogue'
-import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
+import { budgetClaimContract,budgetMentionPolicy,evaluateBudgetOptions } from './budget-evaluation'
+import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
+import { budgetKindQuestion,budgetQuestion,leadBudget,propertyPurchasePriceLimit,reviewedFinancingCovers } from './budget-state'
+import {
+alternativeFloorQuestion,
+canOfferLowerFloorBedrooms,catalogLowerFloorBedroomAlternative,
+catalogQuery,
+catalogRequirementAlternative,
+filterCatalog,partitionCatalog
+} from './catalog-dialogue'
 import { deliveredPendingQuestion } from './continuation-question'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { financingStage,selectedFinancingUnit } from './financing-stage'
+import { INFORMATION_ONLY_WRITER_RULES,informationOnly } from './interaction-mode'
+import { projectObjectionRequests } from './project-objections'
+import { reconcileReservationOperation,RESERVATION_OPERATION_VERSION } from './reservation-operation-context'
+import { prioritizesInteriorSpace,prioritizesViews,selectionPreferences,spaciousOptions,unrestrictedBedrooms,withoutBedroomConstraint } from './selection-preferences'
+import { communicationPlanForTurn } from './turn-communication'
 import { normalizedPropertyQuery } from './turn-semantics'
 import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
-import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
-import { isPassivePurchaseEvidence } from './purchase-evidence'
-import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy } from './budget-evaluation'
-import { selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, prioritizesViews, withoutBedroomConstraint, spaciousOptions } from './selection-preferences'
-import { projectObjectionRequests } from './project-objections'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -27,14 +33,12 @@ function declaredCommercialInterest(info: Row) {
   const context = object(info.property_context), query = object(context.query)
   const memory = object(info.hechos_confirmados), current = object(object(info.semantica_turno).property)
   const usable = (value: Row) => acceptedExtractorConfidence(value.confidence) && !!text(value.evidence).trim()
-    && !isPassivePurchaseEvidence(value.evidence)
   const currentProperty = usable(current) ? current : {}, saved = object(memory.property)
   const knownProperty = usable(saved) ? saved : {}
   const preference = object(context.category_preference)
   const confirmedCategory = preference.confirmed === true ? assetCategory(preference.category) : ''
   const exploration = object(context.exploration_state)
   const acceptedExploration = exploration.authorized === true && !!text(exploration.evidence).trim()
-    && !isPassivePurchaseEvidence(exploration.evidence)
   // Older delivered selection receipts did not carry declaration metadata. A
   // genuine floor/unit decision still retains its established category.
   const advancedCategory = ['choose_floor', 'choose_unit', 'review_unit'].includes(text(context.phase))
@@ -44,8 +48,7 @@ function declaredCommercialInterest(info: Row) {
     : assetGroup(assetCategory(property.category)) || (typeof object(property.filters).bedrooms === 'number' ? 'residential' : '')
   const qualificationPurpose = text(object(memory.qualification).proposito).trim()
   const rawPurpose = text(object(info.lead).purchase_purpose || qualificationPurpose)
-  const purpose = ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(rawPurpose)
-    && !(qualificationPurpose && isPassivePurchaseEvidence(qualificationPurpose)) ? rawPurpose : ''
+  const purpose = ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(rawPurpose) ? rawPurpose : ''
   const group = declaredGroup(currentProperty) || assetGroup(confirmedCategory) || declaredGroup(knownProperty)
     || assetGroup(advancedCategory) || (acceptedExploration && ['residential', 'commercial'].includes(text(query.group)) ? text(query.group) : '')
     || (['vivir', 'segunda_vivienda'].includes(purpose) ? 'residential' : purpose === 'negocio' ? 'commercial' : '')
@@ -79,13 +82,17 @@ export function commercialSelectionQuery(info: Row) {
     group: interest.group || assetGroup(category) || 'residential' })
   const quantities = rows(known.housing_quantities).filter(row => row.dimension === 'bedrooms' && row.role === 'requirement'
     && acceptedExtractorConfidence(row.confidence) && text(row.evidence).trim() && Array.isArray(row.values) && row.values.length === 1)
-  const remembered = object(object(context.exploration_state).accepted_filters).bedrooms
+  // Once a unit is chosen, a missing optional filter is not permission to
+  // revive requirements from before that choice. A current search still uses
+  // its own filters and the client's accepted exploration.
+  const selectedScope = query.scope === 'selected' && ids(context.selected_ids).length > 0 && query.operation !== 'search'
+  const remembered = selectedScope ? null : object(object(context.exploration_state).accepted_filters).bedrooms
     ?? object(object(known.property).filters).bedrooms
     ?? (quantities.length === 1 ? (quantities[0].values as number[])[0] : null)
   return catalogQuery({ ...query, category,
     group: interest.group || assetGroup(category) || null,
     filters: { ...object(query.filters), bedrooms: bedroomConditions.length
-      ? sameBedroomCondition ? currentBedrooms : null : currentBedrooms ?? (interest.group === 'commercial' ? null : remembered ?? lead.preferred_bedrooms) } })
+      ? sameBedroomCondition ? currentBedrooms : null : currentBedrooms ?? (interest.group === 'commercial' ? null : remembered ?? (selectedScope ? null : lead.preferred_bedrooms)) } })
 }
 
 function commercialSelectionCategory(info: Row) {
@@ -141,6 +148,8 @@ export function purchaseReadiness(info: Row): Row {
 
 /** One shared next step for writer, reviewer, memory and the lead card. */
 export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
+  const communicationPlan = communicationPlanForTurn(info, audit)
+  if (communicationPlan) return communicationPlan
   const clarification = object(object(info.semantica_turno).interpretation_clarification)
   if (Array.isArray(clarification.fields) && clarification.fields.length) return {
     version: 'commercial-journey-v1', action: 'clarify_interpretation', question_id: '',
@@ -149,6 +158,47 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const information = informationOnly(info)
   const goal = object(object(info.semantica_turno).interaction_goal)
   const broadInformation = ['all_categories', 'other_categories'].includes(text(goal.catalog_scope))
+  const reservationMessage = text(object(info.contrato_turno).current_message || info.mensaje_actual)
+  const reservationContext = reconcileReservationOperation(object(info.reservation_context), info.reservation_context,
+    info.semantica_turno, reservationMessage)
+  const selectedIds = ids(object(info.property_context).selected_ids)
+  const requestIds = ids(reservationContext.unit_ids)
+  const differentSelection = selectedIds.length > 0 && selectedIds.some(id => !requestIds.includes(id))
+  const newOperation = audit.action && audit.action !== 'information_only' || audit.financing_collection
+    || Object.keys(object(audit.reservation)).length > 0 && object(audit.reservation).existing_request !== true
+      && audit.source !== 'reservation_information'
+    || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
+  if (object(audit.profile_introduction).material_question === true && !newOperation && reservationContext.active !== true) return {
+    version: 'commercial-journey-v1', action: 'answer_material_question', question: '', question_id: '',
+    financing_offer_allowed: false, visit_offer_allowed: false,
+    instruction: 'Responda la consulta sobre el material con su descripción autorizada y conserve las decisiones pendientes. El cliente está resolviendo una duda antes de decidir. No repita nombre, residencia ni vivienda/local y no adjunte el brochure si su entrega no está autorizada en este turno. Atienda también las demás consultas actuales.',
+  }
+  if (reservationContext.version === RESERVATION_OPERATION_VERSION && reservationContext.read_status === 'available'
+    && reservationContext.active === true && !differentSelection && !newOperation && !information && !broadInformation) return {
+    version: 'commercial-journey-v1', action: 'current_operation', question: '', question_id: '',
+    selected_unit_id: requestIds.length === 1 ? requestIds[0] : null,
+    reservation_context: reservationContext, continuation_optional: true,
+    financing_offer_allowed: false, visit_offer_allowed: false,
+    instruction: 'Atienda la consulta actual y conserve la solicitud de reserva vigente identificada en reservation_context. '
+      + 'Use su estado y la asignación actual verificados; una solicitud registrada no confirma la reserva del inmueble, el pago ni que el asesor ya se haya comunicado. '
+      + 'Una aclaración, disculpa o consulta de seguimiento no reinicia la búsqueda. No vuelva a pedir presupuesto, dormitorios, categoría o unidad ni repita la invitación a iniciar la reserva que ya se solicitó. '
+      + 'Responda también precios, características u otras dudas actuales con sus fuentes. Puede cerrar sin pregunta; no añada una decisión comercial pendiente por rutina.',
+  }
+  const trackingRequest = rows(info.solicitudes_interpretadas || object(info.semantica_turno).requests)
+    .some(request => request.domain === 'tracking' && request.source !== 'pending'
+      && acceptedExtractorConfidence(request.confidence) && !!text(request.evidence).trim()
+      && reservationMessage.normalize('NFKC').toLocaleLowerCase('es').replace(/\s+/g, ' ')
+        .includes(text(request.evidence).normalize('NFKC').toLocaleLowerCase('es').replace(/\s+/g, ' ').trim()))
+  if (reservationContext.read_status === 'unavailable' && trackingRequest && !newOperation
+    && object(object(info.semantica_turno).property).operation !== 'search'
+    && object(object(info.semantica_turno).property).operation !== 'select') return {
+    version: 'commercial-journey-v1', action: 'answer_current_question', question: '', question_id: '',
+    continuation_optional: true, financing_offer_allowed: false, visit_offer_allowed: false,
+    instruction: 'Atienda la consulta de seguimiento actual. La lectura del registro de reservas no está disponible: '
+      + 'no afirme que no existe solicitud ni invente su estado, asignación o cancelación. Conserve los datos anteriores como antecedentes. '
+      + 'Explique únicamente lo que no puede comprobar y aclare solo una referencia que sea indispensable. '
+      + 'No reinicie la búsqueda ni vuelva a solicitar dormitorios, presupuesto o una nueva reserva por faltar esta comprobación.',
+  }
   const operation = audit.action || audit.reservation || audit.financing_collection
     || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
   if ((information || broadInformation) && !operation) return {
@@ -256,6 +306,11 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
   let budgetGuidance: Row = {}
   const plan = (action: string, instruction: string, question = '', questionId = ''): Row => ({
     version: 'commercial-journey-v1', action, instruction, question, question_id: questionId,
+    question_act: questionId.startsWith('financing_') ? 'financing'
+      : questionId.startsWith('visit_') ? 'visit' : questionId.startsWith('budget_') ? 'budget'
+        : questionId.startsWith('lead_') ? 'profile' : questionId === 'reservation_invitation' ? 'reservation'
+          : ['property_category', 'property_purpose'].includes(questionId) ? 'choose_category'
+            : questionId === 'property_floor' ? 'choose_floor' : questionId === 'unit_choice' ? 'choose_unit' : 'other',
     selected_unit_id: selected || null, readiness, profile_complete: profileDone,
     financing_offer_allowed: false, visit_offer_allowed: false,
     ...(Object.keys(budgetGuidance).length ? { budget_guidance: budgetGuidance } : {}),

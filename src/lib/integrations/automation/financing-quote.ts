@@ -1,42 +1,33 @@
+import { calculateMonthlyPayment,round2 } from '@/lib/financing/calculator'
+import { currentGuidanceSource,type FinancingGuidance } from '@/lib/inmobiliaria/financingGuidance'
+import { object,text,type Row } from './data'
 import { acceptedExtractorConfidence } from './extractor-confidence'
-import { calculateMonthlyPayment, round2 } from '@/lib/financing/calculator'
-import { currentGuidanceSource, type FinancingGuidance } from '@/lib/inmobiliaria/financingGuidance'
-import { object, text, type Row } from './data'
-import { normalized } from './sdr-rules'
-import { selectedFinancingUnit } from './financing-stage'
-import { simpleFinancingAcceptance } from './financing-invitation'
-import { MONTHLY_PAYMENT_POLICY, MONTHLY_PAYMENT_REPLY_RULES } from './monthly-payment-policy'
 import { publishedFinancingRequirements } from './financing-requirements'
+import { selectedFinancingUnit } from './financing-stage'
+import { MONTHLY_PAYMENT_POLICY,MONTHLY_PAYMENT_REPLY_RULES } from './monthly-payment-policy'
+import { normalized } from './sdr-rules'
 
 export const FINANCING_QUOTE_SCHEMA = { type: 'object', additionalProperties: false,
   properties: { requested: { type: 'boolean' }, before_application: { type: 'boolean' }, evidence: { type: 'string' },
     years: { type: ['number', 'null'] }, years_evidence: { type: 'string' } },
   required: ['requested', 'before_application', 'evidence', 'years', 'years_evidence'] }
-export const FINANCING_QUOTE_EXTRACTION_RULES = `financing_quote identifica consultas informativas sobre entrada, cuota, tasa, porcentaje financiable o plazo, incluso sin signos de pregunta y con faltas de escritura. requested=true exige evidence literal actual de esa consulta. Una respuesta afirmativa simple a la invitación de continuar el proceso, como «sí me parece bien» o «continuemos con JEP», no pide cifras ni explicación: requested=false y before_application=false. Una declaración de entrada tampoco es una consulta por sí sola. Conserve las consultas adicionales si mezcla aceptación y preguntas. before_application=true cuando quiere conocer cifras antes de decidir o solo pide orientación; un «sí me interesa saber más» no inicia revisión. En ese caso financing_consent=null. Si autoriza explícitamente iniciar la evaluación y además pide cifras, before_application=false. years es el plazo pedido, solo con years_evidence literal actual; no infiera un plazo desde edad, antigüedad laboral ni valores monetarios. Preguntar por JEP no elige JEP; «prefiero JEP» sí conserva la elección.`
+export const FINANCING_QUOTE_EXTRACTION_RULES = `financing_quote identifica consultas informativas sobre entrada, cuota, tasa, porcentaje financiable o plazo, incluso sin signos de pregunta y con faltas de escritura. requested=true exige evidence literal actual de esa consulta. Una respuesta afirmativa simple a la invitación de continuar el proceso, como «sí me parece bien» o «continuemos con JEP», no pide cifras ni explicación: requested=false y before_application=false. Una declaración de entrada tampoco es una consulta por sí sola. Conserve las consultas adicionales si mezcla aceptación y preguntas. before_application=true cuando quiere conocer cifras antes de decidir o solo pide orientación; un «sí me interesa saber más» no inicia revisión ni concede action_authority.financing. Si autoriza explícitamente iniciar la evaluación y además pide cifras, before_application=false. years es el plazo pedido, solo con years_evidence literal actual; no infiera un plazo desde edad, antigüedad laboral ni valores monetarios. Preguntar por JEP no elige JEP; «prefiero JEP» sí conserva la elección.`
 
-export type FinancingInquiry = { requested: boolean; beforeApplication: boolean; evidence: string; years: number | null }
+export type FinancingInquiry = { requested: boolean; beforeApplication: boolean; evidence: string; years: number | null; monthlyRequested?: boolean }
 export function financingQuoteInquiry(extracted: Row, current: string): FinancingInquiry {
-  const raw = object(extracted.financing_quote), message = normalized(current)
+  const raw = object(extracted.financing_quote)
   const literal = (value: unknown) => !!text(value).trim() && current.normalize('NFKC').toLowerCase().includes(text(value).trim().normalize('NFKC').toLowerCase())
-  const answer = object(object(extracted.turn_semantics).answer_to_previous)
-  const acceptanceOnly = answer.question_id === 'financing_invitation' && answer.kind === 'affirmative'
-    && acceptedExtractorConfidence(answer.confidence) && literal(answer.evidence) && simpleFinancingAcceptance(current)
-  // A literal yes can be valid evidence of acceptance, but cannot also prove a
-  // quotation inquiry. Keep mixed questions and conditional decisions intact.
-  const grounded = raw.requested === true && literal(raw.evidence) && !acceptanceOnly
-  // Compatibility with existing extractors: a question/request, never a declared contribution.
-  const fallback = /\b(?:entrada|cuotas?|tasa|porcentaje|plazo|mensualidad)\b/.test(message)
-    && /\b(?:cuanto|cual|como|aproximad\w*|estimad\w*|quisiera saber|quiero saber|puede indicar|podria indicar|me informa|necesito saber)\b/.test(message)
-  const requested = grounded || fallback
-  const explicitStart = /\b(?:autorizo|iniciemos|inicien|empecemos)\b[^.!?]{0,55}\b(?:evaluacion|revision|solicitud|tramite)\b/.test(message)
-    || /\bquiero (?:iniciar|empezar) (?:la |mi |una )?(?:evaluacion|revision|solicitud|tramite)\b/.test(message)
-  const asksFirst = /\b(?:antes de|primero (?:quiero|quisiera|necesito|deseo)|solo (?:quiero|quisiera|necesito|deseo))\b/.test(message)
-  const beforeApplication = requested && (asksFirst || !explicitStart)
-  const duration = normalized(text(raw.years_evidence)).match(/\b(\d+(?:[.,]\d+)?)\s*(anos?|meses?)\b/)
-  const durationYears = duration ? Number(duration[1].replace(',', '.')) / (duration[2].startsWith('mes') ? 12 : 1) : null
-  const years = grounded && typeof raw.years === 'number' && Number.isFinite(raw.years) && raw.years > 0 && raw.years <= 50
-    && literal(raw.years_evidence) && durationYears !== null && Math.abs(raw.years - durationYears) < 0.001 ? raw.years : null
-  return { requested, beforeApplication, evidence: grounded ? text(raw.evidence) : requested ? current : '', years }
+  // The interpreter owns whether this is a question, a conditional start or a
+  // separate authorization. Missing metadata is not permission to re-read prose.
+  const requested = raw.requested === true && literal(raw.evidence)
+  const beforeApplication = requested && raw.before_application !== false
+  const years = requested && typeof raw.years === 'number' && Number.isFinite(raw.years) && raw.years > 0 && raw.years <= 50
+    && literal(raw.years_evidence) ? raw.years : null
+  const requests = [extracted.requests, object(extracted.turn_semantics).requests]
+    .flatMap(value => Array.isArray(value) ? value.map(object) : [])
+  const monthlyRequested = requests.some(request => Array.isArray(request.topics) && request.topics.includes('monthly_payment')
+    && acceptedExtractorConfidence(request.confidence) && literal(request.evidence))
+  return { requested, beforeApplication, evidence: requested ? text(raw.evidence) : '', years, monthlyRequested }
 }
 
 /** Paused, expired and non-project lender terms never enter model context. */
@@ -56,7 +47,7 @@ export function financingPolicyContext(settings: FinancingGuidance, partners: st
 export type ActiveFinancingPolicy = ReturnType<typeof financingPolicyContext>
 
 function illustrativePayment(info: Row, inquiry: FinancingInquiry, estimates: Row[]) {
-  const asksMonthly = /\b(?:cuotas?|mensualidad(?:es)?|pago mensual)\b/.test(normalized(inquiry.evidence))
+  const asksMonthly = inquiry.monthlyRequested === true
     || (Array.isArray(object(info.contrato_turno).requests) ? object(info.contrato_turno).requests as Row[] : [])
       .some(request => Array.isArray(request.topics) && request.topics.includes('monthly_payment'))
   if (!inquiry.requested || !asksMonthly || estimates.some(estimate => typeof estimate.basic_monthly_payment === 'number')) return null

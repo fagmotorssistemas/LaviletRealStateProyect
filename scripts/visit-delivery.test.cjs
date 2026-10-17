@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs'), path = require('node:path'), Module = require('node:module'), ts = require('typescript')
@@ -135,16 +136,13 @@ test('approved wording is never regenerated or overwritten after advisor review'
   assert.equal(prepareVisit(prepared).job.payload.detail, approvedMessage)
 })
 
-test('a changed proposal or omitted slot cannot be delivered', () => {
+test('a changed proposal or omitted structured slot cannot be delivered', () => {
   const changed = context()
   changed.request.proposed_options = [choices[0], slot('2026-09-15T16:00:00.000Z'), choices[2]]
   assert.ok(validateVisit(prepareVisit(changed), now).reasons.includes('options_changed'))
   const missing = context()
   missing.job.payload.options = []
   assert.ok(validateVisit(missing, now).reasons.includes('missing_options'))
-  const absentFromCopy = context()
-  absentFromCopy.job.payload.detail = `Solo una opción. Dirección: ${address}\nMapa: ${map}`
-  assert.ok(validateVisit(absentFromCopy, now).reasons.includes('options_missing_from_message'))
 })
 
 test('duplicate or excessive options cannot be delivered as distinct alternatives', () => {
@@ -158,13 +156,21 @@ test('duplicate or excessive options cannot be delivered as distinct alternative
   }
 })
 
-test('a draft no longer matching selected options cannot be silently replaced and sent', () => {
+test('advisor-approved wording is preserved without imposing the generated literal options list', () => {
   const c = context()
-  c.job.payload.message_draft = 'La cita está confirmada. Le esperamos.'
+  c.job.payload.message_draft = 'Podemos recibirle el martes a las ocho o a las ocho y media; también el miércoles a las nueve. ¿Qué horario prefiere?'
+  const prepared = prepareVisit(c)
+  assert.equal(prepared.job.payload.detail, c.job.payload.message_draft)
+  assert.equal(validateVisit(prepared, now).action, 'send')
+  assert.equal(prepared.job.payload.detail.includes(visitOptionsList(choices)), false)
+})
+
+test('a missing approved preview defers delivery instead of inventing replacement wording', () => {
+  const c = context(); delete c.job.payload.message_draft
   const prepared = prepareVisit(c)
   assert.equal(prepared.job.payload.detail, '')
-  assert.equal(validateVisit(prepared, now).action, 'cancel')
-  assert.ok(validateVisit(prepared, now).reasons.includes('options_missing_from_message'))
+  assert.equal(validateVisit(prepared, now).action, 'defer')
+  assert.ok(validateVisit(prepared, now).reasons.includes('invalid_detail'))
 })
 
 test('expired requests, expired jobs and past alternatives are canceled', () => {
@@ -186,15 +192,16 @@ function confirmationContext() {
   return prepareVisit(c)
 }
 
-test('confirmed appointments include the complete verified location and cannot omit it', () => {
-  for (const [remove, reason] of [[address, 'address_changed_or_missing'], [map, 'map_changed_or_missing']]) {
-    const c = confirmationContext()
-    assert.equal(validateVisit(c, now).action, 'send')
-    assert.ok(c.job.payload.detail.includes(address)); assert.ok(c.job.payload.detail.includes(map))
-    c.job.payload.detail = c.job.payload.detail.replace(remove, '')
-    const decision = validateVisit(c, now)
-    assert.equal(decision.action, 'cancel'); assert.ok(decision.reasons.includes(reason))
-  }
+test('confirmed appointments carry verified location data without parsing the final wording', () => {
+  const c = confirmationContext()
+  assert.equal(validateVisit(c, now).action, 'send')
+  assert.ok(c.job.payload.detail.includes(address)); assert.ok(c.job.payload.detail.includes(map))
+  assert.equal(c.job.payload.location_snapshot.address, address)
+  assert.equal(c.job.payload.location_snapshot.map_url, map)
+  c.job.payload.detail = 'Su cita está confirmada. Nos vemos en la dirección acordada.'
+  assert.equal(validateVisit(c, now).action, 'send')
+  delete c.job.payload.location_snapshot
+  assert.equal(validateVisit(c, now).action, 'cancel')
 })
 
 test('a changed location invalidates an outdated confirmation but not an unrelated proposal', () => {

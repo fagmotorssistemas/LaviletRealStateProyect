@@ -38,7 +38,7 @@ const replacements: Partial<Record<keyof typeof CURRENT_TONE, string>> = {
   projectExample: '',
   operationalIntro: 'Redacte un mensaje de coordinación de visitas o financiamiento para el cliente de La Vilet.',
   operationalWriting: 'Conteste directamente el mensaje actual. Use usted. No elogie cualquier comentario ni repita fórmulas recientes. Evite sonar a formulario.',
-  operationalReview: 'Apruebe tono_natural si cumple el perfil seleccionado, trata de usted y responde al turno sin un interrogatorio. No exija ninguna palabra de cortesía en particular.',
+  operationalReview: 'La revisión se limita a hechos afirmados y promesas comerciales; el perfil de tono no cambia esa autoridad.',
   coverageTone: 'Trate de usted, sin «nuestra especialidad», sin preguntas de relleno, sin emojis y sin repetir una apertura reciente por obligación.',
   draftTone: 'Trate de usted, sin emojis ni identidad de asesor.',
   outsideTone: CURRENT_TONE.outsideTone
@@ -47,12 +47,12 @@ const replacements: Partial<Record<keyof typeof CURRENT_TONE, string>> = {
   storedCommercialTone: 'Habla de usted con disposición para ayudar. Varía las aperturas y conecta naturalmente la respuesta con el paso pertinente.',
   storedCourtesy: 'Usa cortesías breves cuando encajen con el perfil seleccionado, variando la redacción. No elogies una queja, un presupuesto insuficiente o cualquier afirmación por costumbre.',
   storedLength: 'Conteste todas las dudas sin sacrificar respuestas por un límite de palabras.',
-  storedReviewerTone: 'Evalúe la redacción según el perfil seleccionado. No exija cortesías ni agradecimientos.',
+  storedReviewerTone: 'Compruebe únicamente hechos afirmados y promesas comerciales. No evalúe el perfil de tono, preguntas ni continuidad.',
   openingInstructions: 'No copie la misma apertura en turnos consecutivos ni rote mecánicamente muletillas. Resuelva la consulta concreta sin inventar preferencias, beneficios o emociones. No elogie dudas, dificultades económicas ni quejas.\n',
   openingOptional: 'Adapte la apertura al perfil seleccionado y al mensaje actual.',
 }
 export async function configuredToneInstructions(instructions: string, override?: ToneSettings, task: ToneTask = 'data') {
-  // Reviewers receive facts and turn obligations, never the writer's tone profile.
+  // Reviewers receive factual sources, never the writer's tone profile.
   if (task === 'data' || task === 'review') return instructions
   const snapshot = override ? null : turnTone.getStore() ?? await readSnapshot()
   const settings = override ?? snapshot!.settings

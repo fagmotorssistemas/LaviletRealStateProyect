@@ -1,32 +1,25 @@
 import { LATER_ROUTES, type LaterWeek } from '@/lib/inmobiliaria/nutritionLater'
 import { object, text, type Row } from './data'
 import { normalized } from './sdr-rules'
+import { nutritionIntent } from './nutrition-intent'
 
-export function laterChoice(week: LaterWeek, lead: Row, history: Row[], outbound: Row[], partners: string[]) {
-  const clients = history.filter(m => m.role === 'cliente').slice(-8)
-  const recent = normalized(clients.map(m => text(m.content)).join(' '))
-  const declared = [...clients].reverse().map(m => normalized(text(m.content)))
-    .find(m => /para vivir|mi hogar|mi familia|para invertir|para rentar|para arrendar|mi negocio|negocio propio/.test(m)) || ''
-  const positivePurpose = [...declared.matchAll(/para vivir|mi hogar|mi familia|para invertir|para rentar|para arrendar|mi negocio|negocio propio/g)]
-    .filter(m => !/\bno(?: es| sera| quiero)?\s*$/.test(declared.slice(0, m.index))).at(-1)?.[0] || ''
-  const purpose = declared ? /para vivir|mi hogar|mi familia/.test(positivePurpose) ? 'vivir'
-    : /mi negocio|negocio propio/.test(positivePurpose) ? 'negocio' : positivePurpose ? 'invertir' : '' : text(lead.purchase_purpose)
-  const categoryText = [...clients].reverse().map(m => normalized(text(m.content))).find(m => /\blocal|suite|departamento|vivienda/.test(m)) || ''
-  const category = /\blocal/.test(categoryText) ? 'local' : /suite|departamento|vivienda/.test(categoryText) ? 'vivienda' : text(lead.preferred_category)
+export function laterChoice(week: LaterWeek, lead: Row, _history: Row[], outbound: Row[], partners: string[], summary: Row = {}) {
+  const intent = nutritionIntent(lead, summary)
+  // These approved templates invite a purchase decision. They cannot be
+  // rewritten into informational templates, so keep them paused in that mode.
+  if (intent.informational) return null
+  const purpose = intent.purchasePurpose, category = intent.category
   let topic = '', action = ''
   if (week === 2) {
     topic = purpose === 'invertir' ? 'una propiedad para invertir' : category === 'local' ? purpose === 'negocio' ? 'un local para su negocio' : 'un local comercial'
       : purpose === 'vivir' ? 'un nuevo hogar' : 'el espacio adecuado para usted'
     action = 'invite_pending_questions'
   } else {
-    const sent = normalized(outbound.map(m => text(m.content)).join(' '))
     const actions = outbound.flatMap(m => Object.values(object(m.tool_calls)).map(v => text(object(v).action)))
     const candidates: { action: string; topic: string }[] = []
-    if (partners.length && /financ|credito|presupuesto|alcanz|\bjep\b|pichincha/.test(recent)
-      && !/\bno (?:quiero|necesito|deseo)\b.*financ|\bpago (?:de )?contado\b/.test(recent)
-      && !/financiamiento|credito|pichincha|\bjep\b/.test(sent)) candidates.push({ action: 'financing_options', topic: 'conocer las alternativas de financiamiento' })
-    if ((category || lead.unit_id || /comprar|compra|invertir/.test(recent)) && !/proceso de compra|firma.{0,35}reserva|reserva.{0,35}firma/.test(sent)) candidates.push({ action: 'purchase_process', topic: 'revisar el proceso de compra del inmueble que le interesa' })
-    if (!/coordinar una (?:conversacion|llamada) con un asesor|asesor.{0,35}(?:contact|comunic)|(?:contact|comunic).{0,35}asesor/.test(sent)) candidates.push({ action: 'advisor_conversation', topic: 'coordinar una conversación con un asesor' })
+    if (partners.length && intent.financing) candidates.push({ action: 'financing_options', topic: 'conocer las alternativas de financiamiento' })
+    if (category || lead.unit_id || purpose) candidates.push({ action: 'purchase_process', topic: 'revisar el proceso de compra del inmueble que le interesa' })
+    candidates.push({ action: 'advisor_conversation', topic: 'coordinar una conversación con un asesor' })
     const selected = candidates.find(c => !actions.includes(c.action))
     if (!selected) return null
     action = selected.action

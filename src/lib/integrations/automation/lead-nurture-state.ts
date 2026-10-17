@@ -43,11 +43,13 @@ export function rememberLeadNurture(previous: unknown, raw: unknown, current: st
   const decision = text(request.decision), permission = text(request.contact_permission)
   if (decision === 'stop_contact' || permission === 'declined') return { ...before, active: false,
     contact_consent: false, contact_evidence: request.contact_evidence || request.evidence, declared_at: declaredAt }
-  if (decision === 'resume_now') return { ...before, active: false, future_interest: false, resumed_evidence: request.evidence, declared_at: declaredAt }
+  if (decision === 'resume_now') return { ...before, active: false, future_interest: false, resume_at: null,
+    resumed_evidence: request.evidence, declared_at: declaredAt }
   const future = decision === 'future_interest'
   if (!future && permission !== 'accepted') return before
   const next: Row = { ...before,
-    ...(future ? { reason: request.evidence, evidence: request.evidence, purchase_horizon: request.purchase_horizon, future_interest: true } : {}),
+    ...(future ? { reason: request.evidence, evidence: request.evidence, purchase_horizon: request.purchase_horizon,
+      future_interest: true, resume_at: null } : {}),
     ...(permission === 'accepted' ? { contact_consent: true, contact_evidence: request.contact_evidence } : {}), declared_at: declaredAt }
   return { ...next, active: next.future_interest === true && next.contact_consent === true
     && !!text(next.purchase_horizon).trim() && !!text(next.evidence).trim() && !!text(next.contact_evidence).trim() }

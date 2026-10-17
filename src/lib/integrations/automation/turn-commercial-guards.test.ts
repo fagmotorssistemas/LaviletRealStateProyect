@@ -1,8 +1,9 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import Ajv from 'ajv'
 import { completeTurnReply } from './turn-completeness'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { object, text, type Row } from './data'
 import { factualReviewObligations } from './reviewer-authority'
 import { LOCATION_DISCLOSURE_RULES } from './location-policy'
@@ -42,9 +43,9 @@ function harness(reply: string, inspect: (context: Row, task: string) => void, q
     try { inspect(context, task) } catch (error) { contextErrors.push(error) }
     const reference = rows(context.referencias_solicitud)[0]
     const answer = task === 'review'
-      ? { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
-      : { reply, requests: [{ fragment: reference?.id, intent: 'Atender la consulta vigente', request_type: 'general_information',
-        status: 'answered', evidence: 'La respuesta atiende la solicitud actual.', fact_key: null }], question }
+      ? { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
+      : writerFixture({ reply, requests: [{ fragment: reference?.id, intent: 'Atender la consulta vigente', request_type: 'general_information',
+        status: 'answered', evidence: 'La respuesta atiende la solicitud actual.', fact_key: null }], question })
     assert.ok(schema)
     const validate = ajv.compile(schema)
     assert.ok(validate(answer), ajv.errorsText(validate.errors))
@@ -100,7 +101,9 @@ test('an explicit direction request preserves the exact authorized facts in both
     assert.ok(JSON.stringify(authority).includes(map), `${task} lost the requested map`)
     if (task === 'review') assert.equal(rows(context.obligaciones_del_turno).some(row => row.id === 'current_request'), false)
   }))
-  const result = await completeTurnReply({ current, baseReply: reply, verified, audit: { ...audit, source: 'location' } }, mock.generate)
+  const result = await completeTurnReply({ current, baseReply: reply, verified: { ...verified, semantica_turno: {
+    routing: { location_target: 'project', location_kind: 'request', address_preference: 'include', map_preference: 'include',
+      evidence: current, confidence: 'high' } } }, audit: { ...audit, source: 'location' } }, mock.generate)
   mock.assertContexts()
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])

@@ -1,0 +1,933 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-16",
+  "timezone": "America/Bogota",
+  "code_version": "36ecc00b19b8c3407f63bbd2836ea5cf93971be0",
+  "production_snapshot_at": "2026-10-16T17:17:47.624Z",
+  "report": "auditoria-integral-2026-10-16.md",
+  "mode": {
+    "audit_only": true,
+    "source_changes": false,
+    "production_mutations": false,
+    "customer_messages": false,
+    "real_model_calls": false,
+    "production_workers_executed": false,
+    "local_tests_network_blocked": true
+  },
+  "counting": {
+    "unit": "finding_family",
+    "total": 20,
+    "confirmed_current": 16,
+    "production_observation_cause_unverified": 1,
+    "instruction_alignment_risk": 2,
+    "structural_risk": 1,
+    "priority": {
+      "P1": 10,
+      "P2": 9,
+      "P3": 1
+    },
+    "not_additive_to_historical_inventory": true,
+    "note": "Las familias no equivalen a mensajes equivocados observados, reglas individuales, líneas depuradas ni defectos productivos deducidos de cada fallo de test."
+  },
+  "findings": [
+    {
+      "id": "A-01",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Aclaraciones borran selección y alternativas aceptadas",
+      "evidence": [
+        "src/lib/integrations/automation/property-context.ts:1097",
+        "tmp/audit-reservation-20261016.json"
+      ],
+      "method": "Traza histórica y reproducción pura con la versión actual.",
+      "correction": "Conservar decisiones y separar suspensión de revocación explícita."
+    },
+    {
+      "id": "A-02",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Contexto de operación fragmentado entre componentes",
+      "evidence": [
+        "src/lib/integrations/automation/commercial-journey.ts:123",
+        "tmp/audit-reservation-20261016.json"
+      ],
+      "method": "Comparación de contexto de inmuebles, recorrido, plan y fuentes de revisión del turno.",
+      "correction": "Compartir solicitud vigente y reconciliar memoria con evidencia de decisiones del cliente."
+    },
+    {
+      "id": "A-03",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "Primera consulta confundida con primera bienvenida",
+      "evidence": [
+        "src/lib/inmobiliaria/conversationTone.ts:17",
+        "src/lib/integrations/automation/ai.ts:46",
+        "tmp/suite-failed-execution-trace.json"
+      ],
+      "method": "Respuesta observada, historial presente y conflicto de instrucciones.",
+      "limit": "No se atribuye una causa interna única al modelo.",
+      "correction": "Condicionar todas las instrucciones de saludo al estado de inicio de conversación."
+    },
+    {
+      "id": "A-04",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "Apertura prohíbe y exige categorías",
+      "evidence": [
+        "src/lib/integrations/automation/dialogue-writing-rules.ts:8",
+        "src/lib/integrations/automation/response-plan.ts:191",
+        "src/lib/integrations/automation/turn-completeness.ts:430"
+      ],
+      "method": "Inspección de instrucciones que se componen juntas.",
+      "correction": "Una única política de presentación, con restricción solo cuando presentacion_sin_tipos sea verdadero."
+    },
+    {
+      "id": "A-05",
+      "priority": "P3",
+      "kind": "instruction_alignment_risk",
+      "title": "Secuencia del brochure y excepciones descritas con ambigüedad",
+      "evidence": [
+        "src/lib/integrations/automation/lead-introduction.ts:472",
+        "src/lib/integrations/automation/response-plan.ts:190"
+      ],
+      "limit": "No se reprodujo una nueva entrega equivocada por esta formulación; las excepciones son autorizadas.",
+      "correction": "Unificar objetivo de ofrecimiento y datos pendientes preservando excepciones y redacción libre."
+    },
+    {
+      "id": "A-06",
+      "priority": "P2",
+      "kind": "instruction_alignment_risk",
+      "title": "Prompts atribuyen al revisor responsabilidades excluidas por su autoridad",
+      "evidence": [
+        "src/lib/integrations/automation/reviewer-authority.ts:4",
+        "src/lib/integrations/automation/writer-content-review.ts:37",
+        "src/lib/integrations/automation/response-content-scope.ts:16",
+        "src/lib/integrations/automation/lead-introduction.ts:474"
+      ],
+      "limit": "Revisor desactivado globalmente; no demuestra bloqueo productivo actual.",
+      "correction": "Alinear responsabilidades; continuidad se evalúa aparte sin reactivar revisión de envío."
+    },
+    {
+      "id": "A-07",
+      "priority": "P1",
+      "kind": "production_observation_cause_unverified",
+      "title": "No hay registro reciente de mantenimiento global",
+      "evidence": [
+        "tmp/audit-live-snapshot-20261016.json",
+        "vercel.json",
+        "supabase/migrations/20260910041000_automation_cloud_scheduler.sql"
+      ],
+      "last_recorded_completion": "2026-10-15T16:50:02.399727Z",
+      "limit": "Sin acceso a cron.job y registros privados no se confirma causa ni estado activo del planificador.",
+      "correction": "Verificar cron y errores; supervisar ausencia de ciclos y comprobar audiencia antes de reactivar."
+    },
+    {
+      "id": "A-08",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Ficha e historial del embudo no disponibles en la API",
+      "evidence": [
+        "tmp/audit-live-modules-20261016.json",
+        "supabase/migrations/20261015210000_lead_commercial_pipeline.sql"
+      ],
+      "error": "PGRST205",
+      "tables": [
+        "lead_commercial_profiles",
+        "lead_commercial_stage_observations"
+      ],
+      "limit": "El error no distingue por sí solo migración pendiente de caché de esquema desactualizada.",
+      "correction": "Contrastar migraciones, tablas, permisos y refresco de esquema."
+    },
+    {
+      "id": "A-09",
+      "priority": "P1",
+      "kind": "structural_risk",
+      "title": "La recuperación depende de una derivación exitosa",
+      "evidence": [
+        "src/lib/integrations/automation/generation-recovery.ts:163",
+        "tmp/audit-reservation-20261016.json"
+      ],
+      "limit": "Antecedente histórico real; parche SQL específico no elimina todos los futuros fallos de derivación.",
+      "correction": "Persistir y alertar fallos de recuperación de forma independiente, sin promesas falsas ni reenvíos inciertos."
+    },
+    {
+      "id": "A-10",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Seguimiento reabre presupuesto o crédito pospuesto o negado",
+      "evidence": [
+        "src/lib/integrations/automation/nutrition-context.ts:9",
+        "src/lib/integrations/automation/nutrition-week-one-rules.ts:20",
+        "tmp/audit-prompts-tests-20261016.json"
+      ],
+      "method": "Reproducciones puras del selector de tema.",
+      "limit": "24 horas desactivado, siete días habilitado; no prueba envío real y quedan otros controles de envío.",
+      "correction": "Compartir modo informativo, negativas y preferencias persistentes con seguimiento."
+    },
+    {
+      "id": "A-11",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Fecha y permiso de retoma no gobiernan los seguimientos",
+      "evidence": [
+        "src/lib/integrations/automation/lead-nurture-state.ts:24",
+        "src/lib/integrations/automation/nutrition-context.ts:41",
+        "tmp/audit-operations-20261016.json"
+      ],
+      "method": "Rastreo de resume_at y reproducción de elegibilidad con retoma futura.",
+      "correction": "Conectar contacto futuro acordado con calendario y permiso específicos."
+    },
+    {
+      "id": "A-12",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "Penthouse etiquetado como departamento en seguimiento",
+      "evidence": [
+        "src/lib/integrations/automation/nutrition-context.ts:28",
+        "src/lib/integrations/automation/nutrition-week-one-rules.ts:36",
+        "tmp/audit-prompts-tests-20261016.json"
+      ],
+      "method": "Reproducción con unidad 605, category=penthouse.",
+      "correction": "Propagar categoría verificada completa a referencias y objetivos de seguimiento."
+    },
+    {
+      "id": "A-13",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Navegación del showroom convertida en preferencia declarada",
+      "evidence": [
+        "src/lib/tour/enrichTourLead.ts:186",
+        "src/app/api/tour/lead/route.ts:240"
+      ],
+      "method": "Fuente actual y llamador alcanzable.",
+      "correction": "Separar observación y solicitud expresa de preferencias y selección de compra."
+    },
+    {
+      "id": "A-14",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "Rutas de citas aún comparan la prosa con listas literales",
+      "evidence": [
+        "src/lib/integrations/automation/visit-rules.ts:35",
+        "src/lib/integrations/automation/visit-rules.ts:58",
+        "src/lib/integrations/automation/visit-rules.ts:95"
+      ],
+      "limit": "Fuera del redactor principal; distinguir borradores libres de plantillas operativas aprobadas.",
+      "correction": "Conservar controles estructurados de acciones sin juzgar cómo se expresa el borrador libre."
+    },
+    {
+      "id": "A-15",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "Actividad reciente borra un rechazo explícito en el análisis",
+      "evidence": [
+        "src/lib/integrations/automation/conversation-analysis.ts:41",
+        "tmp/audit-analysis-reproducer-20261016.json"
+      ],
+      "method": "Reproducción con modelo simulado, rechazo explícito y cita válida.",
+      "correction": "Separar actividad, objeción, intención de continuar y motivo de cierre."
+    },
+    {
+      "id": "A-16",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "Análisis omite cancelaciones técnicas que requieren atención",
+      "evidence": [
+        "src/lib/integrations/automation/conversation-analysis.ts:32",
+        "tmp/audit-future-inbound-sample-20261016.json"
+      ],
+      "method": "Comparación de filtro de eventos y resultado del incidente de suites.",
+      "correction": "Incluir resultados técnicos pertinentes y distinguir cancelación normal por nueva entrada."
+    },
+    {
+      "id": "A-17",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "Embudo con refresco periódico bloqueante",
+      "evidence": [
+        "src/hooks/inmobiliaria/useLeadPipeline.ts:130",
+        "src/components/inmobiliaria/leads/LeadPipelineBoard.tsx:105"
+      ],
+      "limit": "No se verificó desplazamiento ni experiencia en navegador autenticado.",
+      "correction": "Sincronizar en segundo plano conservando interacción y datos visibles."
+    },
+    {
+      "id": "A-18",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Batería general no aprobada y contratos de pruebas desalineados",
+      "evidence": [
+        "tmp/audit-full-regression-20261016.tap",
+        "tmp/audit-test-classification-20261016.json",
+        "tmp/audit-baseline-regression-20261016.tap"
+      ],
+      "limit": "Mismo título fallido en ambas versiones no acredita la misma causa; fallos de tests no equivalen a fallos productivos.",
+      "correction": "Migrar contratos preservando escenarios, diagnosticar causas y añadir evaluación independiente de secuencias."
+    },
+    {
+      "id": "A-19",
+      "priority": "P2",
+      "kind": "confirmed_current",
+      "title": "El ensamblado reincorpora catálogo excluido y contradice su instrumentación",
+      "evidence": [
+        "src/lib/integrations/automation/turn-completeness.ts:289",
+        "src/lib/integrations/automation/turn-completeness.ts:309",
+        "src/lib/integrations/automation/task-context.ts:160",
+        "tmp/audit-unresolved-context-capture-20261016.json"
+      ],
+      "method": "Captura aislada del contexto final con redactor simulado: selección 65 disponibles/0 incluidos termina en 65 fichas y 10 grupos.",
+      "limit": "No demuestra por sí solo una respuesta errónea del modelo ni que el volumen cause cada incidente.",
+      "correction": "Aplicar una selección final coherente, reconciliar métricas y retirar duplicaciones sin perder fuentes."
+    },
+    {
+      "id": "A-20",
+      "priority": "P1",
+      "kind": "confirmed_current",
+      "title": "Consentimiento financiero depende del vocabulario de la invitación del redactor",
+      "evidence": [
+        "src/lib/integrations/automation/financing.ts:59",
+        "src/lib/integrations/automation/financing-invitation.ts:17",
+        "tmp/audit-test-unresolved-triage-20261016.json",
+        "tmp/audit-consent-paraphrase-triage-20261016.json",
+        "src/lib/integrations/automation/conversation.ts:693"
+      ],
+      "method": "Reproducción aislada: invitación explícita con 'procedemos' y respuesta afirmativa vinculada termina sin consentimiento por reconocimiento léxico.",
+      "limit": "Es un falso negativo reproducido; no se afirma aprobación indebida de un trámite real.",
+      "correction": "Reconocer la invitación desde recibo estructurado, manteniendo aceptación inequívoca del cliente y autorización independiente."
+    }
+  ],
+  "historical_inventory": {
+    "source": "auditoria-reglas-2026-10-15.json",
+    "baseline": "17615fc",
+    "counts": {
+      "total": 29,
+      "corrected_in_code": 18,
+      "partial": 4,
+      "pending": 6,
+      "deferred_by_owner": 1
+    },
+    "currently_reconfirmed_open": [
+      "RC-20",
+      "RC-21",
+      "RC-22",
+      "RC-23",
+      "RC-26"
+    ],
+    "requires_specific_test": [
+      "RC-25"
+    ],
+    "production_recertification_of_18_historical_corrections": false
+  },
+  "tests": {
+    "current": {
+      "commit": "36ecc00",
+      "files": 157,
+      "tests": 2019,
+      "pass": 1583,
+      "fail": 436
+    },
+    "comparison": {
+      "commit": "ce3c212",
+      "files": 151,
+      "tests": 1969,
+      "pass": 1655,
+      "fail": 314,
+      "source_substitution": "in_memory",
+      "whole_old_release_build": false
+    },
+    "same_failed_title_in_both": 312,
+    "baseline_pass_current_fail": 124,
+    "new_failure_groups": {
+      "missing_writer_question_metadata": 29,
+      "retired_review_and_prose_gates": 58,
+      "old_reviewer_response_contract": 29,
+      "schema": 6,
+      "retired_code_rewrite": 2
+    },
+    "initial_unclassified_inherited": 19,
+    "additional_operations": {
+      "tests": 137,
+      "pass": 137,
+      "overlaps_general_suite": true
+    },
+    "scenario_corpus": 118,
+    "real_models_evaluated": false,
+    "full_suite_approved": false,
+    "initial_failure_classification": {
+      "fixture_dependency_missing": {
+        "label": "Dependencias nuevas no incluidas en mocks",
+        "confidence": "confirmed_from_error_and_test_harness",
+        "count": 28,
+        "baseline_also_failed": 28,
+        "baseline_pass_current_fail": 0,
+        "files": [
+          "scripts/business-scope.test.cjs"
+        ]
+      },
+      "fixture_transitive_service_or_network": {
+        "label": "Aislamiento incompleto de servicios/credenciales/red en integraciones",
+        "confidence": "probable_per_group; exact inner cause not unwrapped for every PRE_REPLY_SEND_FAILED",
+        "count": 162,
+        "baseline_also_failed": 162,
+        "baseline_pass_current_fail": 0,
+        "files": [
+          "scripts/integrations.test.cjs"
+        ]
+      },
+      "fixture_schema_outdated": {
+        "label": "Fixtures incumplen esquema requerido del extractor o redactor",
+        "confidence": "confirmed_schema_error",
+        "count": 35,
+        "baseline_also_failed": 29,
+        "baseline_pass_current_fail": 6,
+        "files": [
+          "scripts/integrations.test.cjs",
+          "src/lib/integrations/automation/business-facts.test.ts",
+          "src/lib/integrations/automation/catalog-result.test.ts",
+          "src/lib/integrations/automation/conversation-budget-regression.test.ts",
+          "src/lib/integrations/automation/focused-review-pipeline.test.ts",
+          "src/lib/integrations/automation/interpretation-memory.test.ts",
+          "src/lib/integrations/automation/interpretation-neutral.test.ts",
+          "src/lib/integrations/automation/turn-commercial-guards.test.ts"
+        ]
+      },
+      "writer_metadata_contract_removed_prose_inference": {
+        "label": "Tests siguen deduciendo la pregunta desde prosa sin recibo estructurado del redactor",
+        "confidence": "confirmed_source_and_baseline",
+        "count": 29,
+        "baseline_also_failed": 0,
+        "baseline_pass_current_fail": 29,
+        "files": [
+          "scripts/fixtures/prompt-compaction-oracle.test.cjs",
+          "src/lib/integrations/automation/commercial-journey.test.ts",
+          "src/lib/integrations/automation/progressive-options.test.ts",
+          "src/lib/integrations/automation/proposed-option-followup.test.ts",
+          "src/lib/integrations/automation/requirement-consent.test.ts",
+          "src/lib/integrations/automation/turn-continuation.test.ts"
+        ]
+      },
+      "legacy_review_or_code_prose_expectation": {
+        "label": "Pruebas de contrato de revisión anterior o vetos de prosa retirados",
+        "confidence": "confirmed_contract_family; each test still needs migration preserving business intent",
+        "count": 119,
+        "baseline_also_failed": 61,
+        "baseline_pass_current_fail": 58,
+        "files": [
+          "scripts/question-review.test.cjs",
+          "scripts/residential-continuity.test.cjs",
+          "scripts/turn-completeness.test.cjs",
+          "scripts/turn-review-freedom.test.cjs",
+          "src/lib/integrations/automation/focused-review.test.ts"
+        ]
+      },
+      "reviewer_contract_outdated": {
+        "label": "Mocks del revisor anterior incompatibles con content-review-v1",
+        "confidence": "confirmed_source_and_current_contract",
+        "count": 31,
+        "baseline_also_failed": 2,
+        "baseline_pass_current_fail": 29,
+        "files": [
+          "src/lib/integrations/automation/business-facts.test.ts",
+          "src/lib/integrations/automation/catalog-result.test.ts",
+          "src/lib/integrations/automation/catalog-turn-regression.test.ts",
+          "src/lib/integrations/automation/category-overview.test.ts",
+          "src/lib/integrations/automation/commercial-journey.test.ts",
+          "src/lib/integrations/automation/conversation-budget-regression.test.ts",
+          "src/lib/integrations/automation/financing-stage-regression.test.ts",
+          "src/lib/integrations/automation/launch-price-policy.test.ts",
+          "src/lib/integrations/automation/prompt-assembly.test.ts",
+          "src/lib/integrations/automation/retrieval-context-regression.test.ts",
+          "src/lib/integrations/automation/semantic-catalog-context.test.ts",
+          "src/lib/integrations/automation/turn-continuation.test.ts",
+          "src/lib/integrations/automation/unit-tour-link.test.ts"
+        ]
+      },
+      "old_writer_context_contract": {
+        "label": "Expectativas antiguas de propósito, pregunta literal o contexto",
+        "confidence": "confirmed_assertion_and_current_source",
+        "count": 5,
+        "baseline_also_failed": 5,
+        "baseline_pass_current_fail": 0,
+        "files": [
+          "scripts/writer-context-contract.test.cjs"
+        ]
+      },
+      "removed_code_prose_rewrite": {
+        "label": "Tests esperan una corrección de texto por código retirada expresamente",
+        "confidence": "confirmed_source_and_baseline",
+        "count": 2,
+        "baseline_also_failed": 0,
+        "baseline_pass_current_fail": 2,
+        "files": [
+          "scripts/visit-turn-routing.test.cjs"
+        ]
+      },
+      "literal_commercial_copy_expectation": {
+        "label": "Tests exigen palabras comerciales concretas en vez de significado",
+        "confidence": "confirmed_literal_regex_assertion",
+        "count": 3,
+        "baseline_also_failed": 3,
+        "baseline_pass_current_fail": 0,
+        "files": [
+          "scripts/integrations.test.cjs"
+        ]
+      },
+      "sdk_retry_behavior": {
+        "label": "Número de peticiones difiere por reintentos predeterminados del SDK",
+        "confidence": "confirmed_test_and_installed_sdk_source",
+        "count": 2,
+        "baseline_also_failed": 2,
+        "baseline_pass_current_fail": 0,
+        "files": [
+          "src/services/visitInbox.service.test.ts"
+        ]
+      },
+      "fixture_transport_expectation": {
+        "label": "Expectativa de transporte PATCH/maybeSingle requiere revisión",
+        "confidence": "probable; inherited failure, not demonstrated product defect",
+        "count": 1,
+        "baseline_also_failed": 1,
+        "baseline_pass_current_fail": 0,
+        "files": [
+          "scripts/financing-review-action.test.cjs"
+        ]
+      },
+      "untriaged_inherited_behavior": {
+        "label": "Diferencias heredadas de comportamiento o contratos aún por diagnosticar",
+        "confidence": "unresolved; do not dismiss as fixture or count as product bug",
+        "count": 19,
+        "baseline_also_failed": 19,
+        "baseline_pass_current_fail": 0,
+        "files": [
+          "scripts/integrations.test.cjs",
+          "src/lib/integrations/automation/ai-output.test.ts",
+          "src/lib/integrations/automation/business-facts.test.ts",
+          "src/lib/integrations/automation/category-overview.test.ts",
+          "src/lib/integrations/automation/cost-optimization.test.ts",
+          "src/lib/integrations/automation/focused-review-pipeline.test.ts",
+          "src/lib/integrations/automation/project-information-context.test.ts",
+          "src/lib/integrations/automation/proposal-followup-pipeline.test.ts",
+          "src/lib/integrations/automation/selection-intake-regression.test.ts",
+          "src/lib/integrations/automation/turn-recovery.test.ts"
+        ]
+      }
+    },
+    "final_individual_triage": {
+      "count": 19,
+      "classified": 19,
+      "findings": {
+        "exact_test_product_defect": 1,
+        "additional_reproduced_operational_vocabulary_risk": 1,
+        "remaining_test_or_contract_expectations": 17,
+        "note": "El riesgo de vocabulario aparece al investigar una expectativa insegura del test1; no se considera que ese test original por sí mismo demostrara el defecto. Clasificar no significa reparar ni aprobar la batería."
+      },
+      "rows": [
+        {
+          "id": "TRIAGE-01",
+          "file": "scripts/integrations.test.cjs",
+          "title": "financing consent follows the verified step after a natural AI rewrite",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_unsafe_consent_expectation_with_additional_product_risk",
+          "cause": "El test espera consent=true tras una oferta de explorar alternativas y pregunta genérica Desea avanzar. La rutina actual exige invitación operativa inequívoca; ese resultado null no demuestra pérdida de consentimiento. La investigación adicional sí reproduce una oferta formal más procedemos rechazada pese a recibo y respuesta afirmativa tipados.",
+          "certainty": "confirmed_source_and_pure_reproduction",
+          "evidence": [
+            "scripts/integrations.test.cjs:189",
+            "src/lib/integrations/automation/financing.ts:59",
+            "src/lib/integrations/automation/financing.ts:68",
+            "src/lib/integrations/automation/financing-invitation.ts:17",
+            "src/lib/integrations/automation/conversation.ts:693",
+            "src/lib/integrations/automation/conversation.ts:1861"
+          ],
+          "proposal": "Actualizar expectativa de oferta informativa y quitar dependencia léxica de la invitación operativa usando el recibo del redactor, conservando controles sobre la autorización actual.",
+          "limits": "El contraejemplo demuestra fragilidad de código; no acredita que un lead real haya sufrido este caso.",
+          "tap_line": 1413
+        },
+        {
+          "id": "TRIAGE-02",
+          "file": "scripts/integrations.test.cjs",
+          "title": "accepted nutrition records the actual approved message; timeouts never auto-retry",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_mock_api_argument_expectation",
+          "cause": "La función ahora llama launchSalesbot con tercer argumento de audiencia y ancla temporal. El mock registró correctamente ese argumento; el assert todavía exige solo dos.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "scripts/integrations.test.cjs:482",
+            "src/lib/integrations/automation/nutrition.ts:126",
+            "src/lib/integrations/automation/kommo.ts:89"
+          ],
+          "proposal": "Adaptar el mock a la evidencia de audiencia y verificar su valor; conservar comprobación de no reenvío incierto.",
+          "limits": "El fallo no prueba texto errado ni envío duplicado.",
+          "tap_line": 1651
+        },
+        {
+          "id": "TRIAGE-03",
+          "file": "scripts/integrations.test.cjs",
+          "title": "a changed appointment after PATCH prevents Salesbot launch",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "missing_activation_policy_fixture",
+          "cause": "El mock de projects devuelve data vacía y el contexto productivo exige automation_audience cuando test_only=false. Falla antes de probar el cambio de cita.",
+          "certainty": "confirmed_source_and_fixture",
+          "evidence": [
+            "scripts/integrations.test.cjs:1235",
+            "src/lib/integrations/automation/visits.ts:61",
+            "src/lib/integrations/automation/visits.ts:62"
+          ],
+          "proposal": "Proveer política y ancla temporal de prueba para alcanzar la revalidación posterior al PATCH; conservar el rechazo de audiencia ausente.",
+          "limits": "No demuestra un recordatorio real omitido por la aplicación.",
+          "tap_line": 2228
+        },
+        {
+          "id": "TRIAGE-04",
+          "file": "scripts/integrations.test.cjs",
+          "title": "the two-hour reminder fills all three Kommo fields before launching Salesbot 22246",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "missing_activation_policy_fixture",
+          "cause": "Misma configuración incompleta del mock: projects sin automation_audience impide alcanzar la preparación de campos del recordatorio.",
+          "certainty": "confirmed_source_and_fixture",
+          "evidence": [
+            "scripts/integrations.test.cjs:1258",
+            "src/lib/integrations/automation/visits.ts:61",
+            "src/lib/integrations/automation/visits.ts:62"
+          ],
+          "proposal": "Añadir audiencia vigente sintética y comprobar los tres campos y el Salesbot con su evidencia.",
+          "limits": "No certifica ejecución de cron ni recordatorios en producción.",
+          "tap_line": 2244
+        },
+        {
+          "id": "TRIAGE-05",
+          "file": "scripts/integrations.test.cjs",
+          "title": "semantic visit intent requires high confidence and literal evidence from the current message",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_confidence_policy_expectation",
+          "cause": "El assert exige rechazar confidence=medium. acceptedExtractorConfidence acepta high y medium con evidencia literal. normalizedVisitIntent mantiene comprobaciones de evidencia, negación y propósito.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "scripts/integrations.test.cjs:2053",
+            "src/lib/integrations/automation/extractor-confidence.ts:5",
+            "src/lib/integrations/automation/conversation-rules.ts:55"
+          ],
+          "proposal": "Alinear test con confianza admitida y mantener negativos de evidencia inexistente o negada; no cambiar la política solo para hacer pasar el assert.",
+          "limits": "Admitir intención de solicitar visita no confirma una cita ni omite la autorización operativa.",
+          "tap_line": 2566
+        },
+        {
+          "id": "TRIAGE-06",
+          "file": "scripts/integrations.test.cjs",
+          "title": "Kommo transient reads retry, permanent credentials errors and writes do not",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_patch_retry_expectation",
+          "cause": "El GET transitorio se reintenta y el401 se rechaza una vez como espera el test. El fallo3vs1 está en PATCH: la implementación permite hasta tres intentos de asignar los mismos valores; el test espera que ninguna escritura se repita.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "scripts/integrations.test.cjs:2324",
+            "src/lib/integrations/automation/kommo.ts:31",
+            "src/lib/integrations/automation/kommo.ts:34",
+            "src/lib/integrations/automation/kommo.ts:92"
+          ],
+          "proposal": "Separar pruebas de PATCH repetible y lanzamiento POST: este último solo se repite ante429 explícito, nunca ante respuesta perdida.",
+          "limits": "No hay evidencia de tres WhatsApps enviados. Repetir PATCH puede tener carreras con cambios externos; esa condición necesita una prueba aparte.",
+          "tap_line": 2855
+        },
+        {
+          "id": "TRIAGE-07",
+          "file": "src/lib/integrations/automation/ai-output.test.ts",
+          "title": "real requests and traces isolate extractor and writer defaults and independent rollbacks",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_writer_input_projection_expectation",
+          "cause": "La prueba exige entrada byte a byte idéntica para todos los roles. aiJson aplica projectFinancialContextForWriter al redactor y agrega alcance_financiero_turno; el diff muestra ese campo con allowed=false.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "src/lib/integrations/automation/ai-output.test.ts:59",
+            "src/lib/integrations/automation/ai.ts:49",
+            "src/lib/integrations/automation/writer-financial-context.ts:47"
+          ],
+          "proposal": "Verificar modelo, límites y trazas por separado de la proyección financiera intencionada.",
+          "limits": "La proyección cambia entrada al modelo, no estado canónico guardado. No prueba pérdida de memoria.",
+          "tap_line": 11627
+        },
+        {
+          "id": "TRIAGE-08",
+          "file": "src/lib/integrations/automation/business-facts.test.ts",
+          "title": "financing requirements reach writer and reviewer without confusing explanation and collection",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_reviewer_workflow_authority_expectation",
+          "cause": "El test exige FINANCING_PROCESS_RULES también en el revisor. La autoridad actual excluye instrucciones de captura y siguiente paso; el assert falla con mensaje review.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "src/lib/integrations/automation/business-facts.test.ts:152",
+            "src/lib/integrations/automation/reviewer-authority.ts:4",
+            "src/lib/integrations/automation/turn-completeness.ts:482"
+          ],
+          "proposal": "Comprobar que el redactor recibe procedimiento y el revisor recibe solo hechos y promesas financieras.",
+          "limits": "No demuestra ausencia de requisitos en la respuesta al cliente.",
+          "tap_line": 11951
+        },
+        {
+          "id": "TRIAGE-09",
+          "file": "src/lib/integrations/automation/category-overview.test.ts",
+          "title": "first information request receives courtesy before review without adding a model call or repeating it later",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_server_courtesy_insertion_expectation",
+          "cause": "El escritor simulado entrega draft sin cortesía y el test espera que el sistema anteponga Con mucho gusto le comparto información. Esa adición automática fue retirada.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "src/lib/integrations/automation/category-overview.test.ts:100",
+            "src/lib/integrations/automation/turn-completeness.ts:474"
+          ],
+          "proposal": "Evaluar instrucciones y conducta del redactor sin exigir inserción de prosa por código.",
+          "limits": "El fallo no demuestra saludo repetido; hay conflicto de saludo separado ya documentado.",
+          "tap_line": 12350
+        },
+        {
+          "id": "TRIAGE-10",
+          "file": "src/lib/integrations/automation/cost-optimization.test.ts",
+          "title": "unavailable requirements preserve an approximate budget and ask for flexibility before choosing floors",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_ambiguous_budget_status_fixture",
+          "cause": "El fixture usa budget.status=amount. La implementación distingue importe de papel desconocido de maximum_total; amount produce not_comparable/clarify_budget antes de comparar dinero. La prueba espera no_matching_features desde un importe ambiguo.",
+          "certainty": "confirmed_source_and_fixture",
+          "evidence": [
+            "src/lib/integrations/automation/cost-optimization.test.ts:22",
+            "src/lib/integrations/automation/turn-budget.ts:91"
+          ],
+          "proposal": "Usar maximum_total cuando el fixture declare realmente presupuesto de compra, y mantener caso amount que exige aclaración. Verificar aparte que requisitos físicos siguen conservados.",
+          "limits": "No demuestra olvido de dormitorios ni cambio del importe. La política separa papel monetario de aproximación de la cifra.",
+          "tap_line": 13298
+        },
+        {
+          "id": "TRIAGE-11",
+          "file": "src/lib/integrations/automation/focused-review-pipeline.test.ts",
+          "title": "residence clarification shares the guide purpose with the real reviewer without promising another brochure (shared=true)",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_literal_guide_instruction_assertion",
+          "cause": "El test exige texto exacto no prometa enviarlo después en la instrucción de captura. La instrucción actual expresa captura autorizada y entrega independiente, sin justificación de guía personalizada.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "src/lib/integrations/automation/focused-review-pipeline.test.ts:80",
+            "src/lib/integrations/automation/focused-review.ts:72",
+            "src/lib/integrations/automation/response-plan.ts:190"
+          ],
+          "proposal": "Reemplazar el assert de frase por casos de brochure already_shared/share_now y metadatos de perfil permitidos.",
+          "limits": "Todavía debe ejecutarse la parte posterior del test con contrato actual; este primer fallo no prueba que se reenvíe el brochure.",
+          "tap_line": 14121
+        },
+        {
+          "id": "TRIAGE-12",
+          "file": "src/lib/integrations/automation/focused-review-pipeline.test.ts",
+          "title": "residence clarification shares the guide purpose with the real reviewer without promising another brochure (shared=false)",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_literal_guide_instruction_assertion",
+          "cause": "Misma frase literal obsoleta en variante sin brochure previamente compartido.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "src/lib/integrations/automation/focused-review-pipeline.test.ts:80",
+            "src/lib/integrations/automation/focused-review.ts:72",
+            "src/lib/integrations/automation/response-plan.ts:190"
+          ],
+          "proposal": "Probar significado y la acción share_now con contrato actual, sin exigir esa frase en el prompt.",
+          "limits": "Este fallo se produce antes de observar respuesta final.",
+          "tap_line": 14150
+        },
+        {
+          "id": "TRIAGE-13",
+          "file": "src/lib/integrations/automation/project-information-context.test.ts",
+          "title": "the same compact context reaches writer and reviewer while the commercial next question and review switch remain effective",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "confirmed_product_context_projection_defect",
+          "cause": "Reproducción del recorrido completo: taskVerifiedContext selecciona project_overview y65disponibles/0incluidas, pero completeTurnReply reconstruye sharedEvidence desde canonicalVerified y taskModelEvidence no excluye project_overview. El redactor recibe65fichas y10grupos para aclarar para qué sirve la guía.",
+          "certainty": "confirmed_pure_pipeline_capture",
+          "evidence": [
+            "src/lib/integrations/automation/project-information-context.test.ts:115",
+            "src/lib/integrations/automation/task-context.ts:125",
+            "src/lib/integrations/automation/task-context.ts:160",
+            "src/lib/integrations/automation/task-context.ts:170",
+            "src/lib/integrations/automation/task-context.ts:280",
+            "src/lib/integrations/automation/turn-completeness.ts:308"
+          ],
+          "proposal": "Respetar project_overview al proyectar modelEvidence sin tocar evidencia canónica ni estado del lead; mantener diferentes tareas para consultas compuestas.",
+          "limits": "Defecto de pertinencia/tamaño del contexto confirmado. No demuestra que el modelo necesariamente responda mal ni que este causara los incidentes anteriores.",
+          "tap_line": 16168
+        },
+        {
+          "id": "TRIAGE-14",
+          "file": "src/lib/integrations/automation/proposal-followup-pipeline.test.ts",
+          "title": "price follow-up keeps the proposed subject through retrieval, writing, review and memory",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_proposal_receipt_fixture_and_coverage_gap",
+          "cause": "El setup crea pending mediante journeyPendingQuestion sin recibo de redactor: hoy devuelve{}. Con recibo pero sin catálogo, ese helper no conserva candidate_ids. La ruta real llama deliveredPendingQuestion con turnCatalog. El baseline fallaba después, al guardar la pregunta final: mismo título fallido no equivale a misma causa.",
+          "certainty": "confirmed_current_and_baseline_pure_reproduction",
+          "evidence": [
+            "src/lib/integrations/automation/proposal-followup-pipeline.test.ts:34",
+            "src/lib/integrations/automation/commercial-journey.ts:645",
+            "src/lib/integrations/automation/continuation-question.ts:60",
+            "src/lib/integrations/automation/conversation.ts:1768"
+          ],
+          "proposal": "Actualizar fixture con recibo estructurado y catálogo como la ruta real; luego verificar continuidad de propuesta durante precio y guardado final.",
+          "limits": "No se ha probado pérdida de referentes en la ruta productiva con ese test. Sí queda una prueba de continuidad inutilizada y sin cobertura efectiva.",
+          "tap_line": 17785
+        },
+        {
+          "id": "TRIAGE-15",
+          "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+          "title": "a floor with a single compatible unit shows its features and protected 360 link without selecting it",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_financing_sequence_fixture",
+          "cause": "El fixture declara financiamiento aceptado y presupuesto status=amount, pero no define su papel ni entrada contestada. financingStage devuelve aclarar papel antes de confirmar unidad; el test espera confirm_unit.",
+          "certainty": "confirmed_source_and_fixture",
+          "evidence": [
+            "src/lib/integrations/automation/selection-intake-regression.test.ts:59",
+            "src/lib/integrations/automation/selection-intake-regression.test.ts:33",
+            "src/lib/integrations/automation/financing-stage.ts:63"
+          ],
+          "proposal": "Preparar estado consistente: presupuesto total confirmado y entrada atendida para verificar confirmación de unidad; probar por separado importe ambiguo y entrada pendiente sin perder la preferencia.",
+          "limits": "La respuesta base del catálogo ya incluye504 y su360 antes del assert. No demuestra omisión de ese material en producción.",
+          "tap_line": 18746
+        },
+        {
+          "id": "TRIAGE-16",
+          "file": "src/lib/integrations/automation/selection-intake-regression.test.ts",
+          "title": "invalid identity remains a clarification with all basic pending fields, never a business-gap handoff",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_reviewer_next_step_expectation_not_lender_loss",
+          "cause": "El fallo exige selected_partner en obligación financing_collection del revisor. Esa obligación se elimina por limitar al revisor a hechos/promesas. El intake anterior conserva selected_partner=JEP y el redactor recibe el procedimiento.",
+          "certainty": "confirmed_source_and_assertion",
+          "evidence": [
+            "src/lib/integrations/automation/selection-intake-regression.test.ts:115",
+            "src/lib/integrations/automation/selection-intake-regression.test.ts:139",
+            "src/lib/integrations/automation/focused-review.ts:96",
+            "src/lib/integrations/automation/reviewer-authority.ts:38"
+          ],
+          "proposal": "Comprobar conservación de entidad en estado y contexto del redactor, y evidencias factuales apropiadas para el revisor.",
+          "limits": "No prueba pérdida del prestamista ni que vuelva a preguntarlo al lead.",
+          "tap_line": 18786
+        },
+        {
+          "id": "TRIAGE-17",
+          "file": "src/lib/integrations/automation/turn-recovery.test.ts",
+          "title": "budget continuation prioritizes affordable units, then alternatives, then authorized financing",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_ambiguous_budget_status_fixture",
+          "cause": "Contexto construido directamente con budget.status=amount; turnBudgetAssessment lo trata como papel monetario ambiguo y devuelve clarify_budget, no offer_financing.",
+          "certainty": "confirmed_source_and_fixture",
+          "evidence": [
+            "src/lib/integrations/automation/turn-recovery.test.ts:19",
+            "src/lib/integrations/automation/turn-recovery.test.ts:96",
+            "src/lib/integrations/automation/turn-budget.ts:91"
+          ],
+          "proposal": "Usar maximum_total y evidencia de compra para comparación; conservar test amount que no autoriza asumir entrada o total.",
+          "limits": "El fixture evita la interpretación real y no demuestra que un presupuesto total correctamente interpretado se pierda.",
+          "tap_line": 19783
+        },
+        {
+          "id": "TRIAGE-18",
+          "file": "src/lib/integrations/automation/turn-recovery.test.ts",
+          "title": "missing prices, partial catalog and unauthorized finance cannot support global affordability claims",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_ambiguous_budget_status_fixture",
+          "cause": "Mismo status amount: la rutina aclara el papel monetario antes de evaluar falta de precios y devolver clarify_available_information.",
+          "certainty": "confirmed_source_and_fixture",
+          "evidence": [
+            "src/lib/integrations/automation/turn-recovery.test.ts:112",
+            "src/lib/integrations/automation/turn-budget.ts:91"
+          ],
+          "proposal": "Separar pruebas de papel desconocido y disponibilidad de precios con papel total ya declarado.",
+          "limits": "No demuestra una afirmación falsa de disponibilidad ni pérdida de importe.",
+          "tap_line": 19811
+        },
+        {
+          "id": "TRIAGE-19",
+          "file": "src/lib/integrations/automation/turn-recovery.test.ts",
+          "title": "writer and reviewer receive the same budget and financing obligation; a supported first response passes",
+          "baseline_result": "failed_in_both; same outcome, not necessarily same cause",
+          "classification": "obsolete_ambiguous_budget_status_fixture",
+          "cause": "El callback del redactor exige offer_financing desde el mismo fixture amount. Antes de llegar al revisor ya falla ese assert; la respuesta simulada y el revisor usan además el contrato anterior.",
+          "certainty": "confirmed_source_and_fixture",
+          "evidence": [
+            "src/lib/integrations/automation/turn-recovery.test.ts:129",
+            "src/lib/integrations/automation/turn-budget.ts:91"
+          ],
+          "proposal": "Actualizar el estado monetario y el contrato reviewer manteniendo la intención de orientar cuando una compra verificada excede el total declarado.",
+          "limits": "No acredita que el bot real omita financiamiento ante un presupuesto total inequívoco.",
+          "tap_line": 19840
+        }
+      ]
+    }
+  },
+  "production_observations": {
+    "automation": {
+      "enabled": true,
+      "dry_run": false,
+      "test_only": false,
+      "audience_mode": "future_messages",
+      "activated_at": "2026-10-16T14:18:28.183Z"
+    },
+    "reviewer": {
+      "enabled": false,
+      "observation_only": false
+    },
+    "analysis_model": "gpt-4.1",
+    "followups": {
+      "24h": false,
+      "7d": true,
+      "14d": true,
+      "21d": true
+    },
+    "future_inbound_sample": {
+      "events": 6,
+      "provider_accepted": 4,
+      "superseded": 1,
+      "cancelled_historical_error": 1,
+      "current_commit_provider_accepted": 2
+    },
+    "sql_notification_patch_applied": "unverified",
+    "advisor_alert_channel_verified_in_source": "in_app",
+    "external_advisor_push_verified": false
+  },
+  "limits": [
+    "No acceso administrativo a funciones SQL privadas ni cron.job.",
+    "No comprobación visual en sesión de asesor ni prueba real de plantillas Kommo/Meta.",
+    "No se certificó todo el histórico de conversaciones.",
+    "No se ejecutó auditoría de seguridad integral.",
+    "Aceptación del proveedor no acredita entrega o lectura en WhatsApp.",
+    "Renders y presentación abreviada de locales conservan aplazamientos del usuario.",
+    "Los datos del corte pueden cambiar después de la consulta."
+  ],
+  "implementation_updates": [
+    {
+      "date": "2026-10-16",
+      "status": "implemented_locally_pending_deployment",
+      "findings": [
+        "A-01",
+        "A-02"
+      ],
+      "scope": "reservation_continuity_and_shared_request_context",
+      "tests": {
+        "unit_and_pipeline": {
+          "pass": 106,
+          "fail": 0
+        },
+        "real_executor_with_mocked_boundaries": {
+          "pass": 3,
+          "fail": 0
+        },
+        "typescript": "pass",
+        "eslint": "pass",
+        "real_models": false,
+        "production_verified": false
+      },
+      "migrations_added": [],
+      "production_mutations": false,
+      "reviewer_enabled": false,
+      "commands": [
+        "npm run test:reservation-continuity",
+        "npm run test:reservation-continuity-runtime"
+      ],
+      "evidence": [
+        "tmp/reservation-scope-fix-tests-20261016.tap",
+        "tmp/reservation-scope-runtime-20261016.tap",
+        "tmp/reservation-scope-types-20261016.log",
+        "tmp/reservation-scope-lint-20261016.log"
+      ]
+    }
+  ]
+}

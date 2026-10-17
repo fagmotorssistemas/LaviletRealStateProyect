@@ -1,3 +1,5 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
+import { typedTurnFixture } from './fixtures/typed-turn.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -5,7 +7,7 @@ import { conversationLanguage, withConversationLanguage, setConversationLanguage
 import { reconcileInformationalEvidence, informationalEvidenceQuote, currentMessageFragments } from './current-evidence-fragments'
 import { interpretConversationTurn, rememberInterpretedTurn } from './turn-interpretation'
 import { commercialJourneyPlan } from './commercial-journey'
-import { resolvePropertyTurn } from './property-context'
+import { resolvePropertyTurn, rememberPropertyReply } from './property-context'
 import { deliveredPendingQuestion } from './continuation-question'
 import { normalizeTurnSemantics, normalizedPendingQuestion } from './turn-semantics'
 import { contextualReasoningEvidence, contextualCalculationCheck, groundedResultQuantityPresent } from './contextual-reasoning'
@@ -33,9 +35,9 @@ function info(bedrooms = 3): Row {
     financiamiento: { partners: ['Banco Pichincha'], current: {}, journey: {} } }
 }
 function raw(current: string): Row {
-  return { requests: [{ domain: 'property', request: 'Quiere comparar las vistas', topics: ['property_features'], evidence: current, confidence: 'high' }],
+  return typedTurnFixture(current, { requests: [{ domain: 'property', request: 'Quiere comparar las vistas', topics: ['property_features'], evidence: current, confidence: 'high' }],
     turn_semantics: { primary_intent: 'project_information', primary_evidence: current, confidence: 'high',
-      property: { group: 'residential', operation: 'details', reference_kind: 'none', evidence: current, confidence: 'high', filters: {} } } }
+      property: { group: 'residential', operation: 'details', reference_kind: 'none', evidence: current, confidence: 'high', filters: {} } } })
 }
 
 test('English is interpreted once, preserved in memory, and short replies do not reset it', async () => {
@@ -144,10 +146,11 @@ test('many bedrooms can offer an optional larger PH while preserving the origina
 test('choosing an explicitly offered PH accepts exploration, retains 300000, and offers financing without consent', () => {
   const input = info(9), plan = commercialJourneyPlan(input)
   const question = '¿Le gustaría revisar departamentos o penthouses de tres dormitorios?'
-  const pending = normalizedPendingQuestion(deliveredPendingQuestion(question, { plan, metadata: {
-    continuation_id: 'property_requirements', continuation_act: 'explore_alternatives', purpose: 'choose_property' } }, catalog), catalog)
+  const pending = normalizedPendingQuestion(deliveredPendingQuestion(question, { plan, metadata: writerFixture({ reply: question, question: {
+    continuation_id: 'property_requirements', continuation_act: 'explore_alternatives', purpose: 'choose_property' }, requests: [] }).question }, catalog), catalog)
   const current = 'prefiero los penthouses'
   const semantics = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'select_property', primary_evidence: current, confidence: 'high',
+    category_choice: { kind: 'selected', category: 'penthouse', evidence: current, confidence: 'high' },
     property: { group: 'residential', category: 'penthouse', operation: 'search', query_scope: 'catalog', evidence: current, confidence: 'high' } } }, current, pending)
   const summary = { _property_context: { ...object(input.property_context), pending_question: pending }, _pending_question: pending,
     _interpretation_memory: { budget } }
@@ -155,7 +158,9 @@ test('choosing an explicitly offered PH accepts exploration, retains 300000, and
   assert.equal(object(reference.query).category, 'penthouse')
   assert.equal(object(object(reference.query).filters).bedrooms, 3)
   assert.deepEqual(object(reference.context).selected_ids, [])
-  const next = commercialJourneyPlan({ ...input, property_context: reference.context, semantica_turno: semantics })
+  const saved = rememberPropertyReply(catalog, reference.context, 'Revisemos los penthouses.', {
+    catalog_query: reference.query, pending_question: {} })
+  const next = commercialJourneyPlan({ ...input, property_context: saved, semantica_turno: semantics })
   assert.equal(next.action, 'offer_financing')
   assert.equal(object(object(next.readiness).budget).amount, 300000)
   assert.equal(object(next.readiness).financing_accepted, false)
@@ -249,9 +254,9 @@ test('surface operands and approved view descriptions reach the complete writer 
     let observed: Row = {}
     const draft = 'Con gusto le ayudo a comparar esta opción.'
     const generate = async (_instructions: unknown, input: unknown, _schema: unknown, _a: unknown, _b: unknown, _c: unknown, task: unknown) => {
-      if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       observed = object(input)
-      return { reply: draft, requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+      return writerFixture({ reply: draft, requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
     }
     const result = await withResponseReviewPolicy({ ...control, updatedAt: null }, () => completeTurnReply({ current, history: [],
       baseReply: '', verified, audit: { source: 'commercial', semantic_review_enabled: true, business_risk_review_enabled: true } }, generate))
@@ -272,7 +277,7 @@ test('view and geometry questions do not disclose price ratios through the arith
   await withResponseReviewPolicy({ enabled: false, observationOnly: false, updatedAt: null }, () => completeTurnReply({ current, history: [], baseReply: '', verified,
     audit: { source: 'commercial', semantic_review_enabled: true } }, async (_rules, input) => {
       observed = object(input)
-      return { reply: 'Con gusto podemos comparar estas opciones.', requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+      return writerFixture({ reply: 'Con gusto podemos comparar estas opciones.', requests: [], question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
     }))
   const reasoning = object(observed.razonamiento_contextual)
   assert.ok(Array.isArray(reasoning.facts))

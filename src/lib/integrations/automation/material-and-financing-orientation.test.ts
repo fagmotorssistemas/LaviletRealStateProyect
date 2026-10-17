@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { defaultFinancingGuidance } from '@/lib/inmobiliaria/financingGuidance'
@@ -142,11 +143,11 @@ test('the writer and independent reviewer receive the gallery for the visual req
       assert.equal(object(input.capacidades_disponibles).visual_material_links, true)
       assert.equal(object(input.capacidades_disponibles).dynamic_image_attachments, false)
       assert.equal(object(object(input.contrato_redaccion).objetivo_siguiente).action, 'visual_information')
-      return { reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
-        requests: [{ fragment: 'R1', status: 'answered', intent: 'Ver los locales', evidence: reply, fact_key: 'policy', request_type: 'specific_fact' }] }
+      return writerFixture({ reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
+        requests: [{ fragment: 'R1', status: 'answered', intent: 'Ver los locales', evidence: reply, fact_key: 'policy', request_type: 'specific_fact' }] })
     }
     assert.ok(JSON.stringify(input.fuentes_autorizadas).includes('shared_typology_reference'))
-    return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+    return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
   })
   assert.equal(result.reply, reply, JSON.stringify({ calls, snapshots, final_validation: result.audit.final_validation,
     repair_attempts: result.audit.repair_attempts, reason: result.audit.reason, errors: result.audit.errors }))

@@ -1,8 +1,11 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const ts = require('typescript')
+require('./test-typescript.cjs')
+const localRequire = require('node:module').createRequire(__filename)
 const root = path.resolve(__dirname, '..')
 const data = {
   object: value => value && typeof value === 'object' && !Array.isArray(value) ? value : {},
@@ -13,15 +16,18 @@ function load(file, mocks) {
   const source = ts.transpileModule(fs.readFileSync(path.join(root, file), 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText
-  const module = { exports: {} }
+  const loadedModule = { exports: {} }
   new Function('require', 'module', 'exports', source)(id => {
     if (id in mocks) return mocks[id]
+    if (id === './commercial-engagement' || id === './turn-communication' || id === './extractor-confidence')
+      return localRequire('../src/lib/integrations/automation/' + id.slice(2) + '.ts')
     throw Error(`Unexpected dependency: ${id}`)
-  }, module, module.exports)
-  return module.exports
+  }, loadedModule, loadedModule.exports)
+  return loadedModule.exports
 }
 const subjects = load('src/lib/integrations/automation/sales-subject.ts', { './data': data, './sdr-rules': { normalized } })
 const scopeModule = aiJson => load('src/lib/integrations/automation/business-scope.ts', {
+  './extractor-confidence': load('src/lib/integrations/automation/extractor-confidence.ts', {}),
   'server-only': {}, './ai': { aiJson }, './data': data, './sales-subject': subjects,
   './conversation-tone': { CURRENT_TONE: { outsideTone: '' } },
   './openai-request': { OpenAIRequestError: class OpenAIRequestError extends Error {} },
@@ -34,7 +40,7 @@ test('residence continuation with a historical mixed fragment is arbitrated once
   const current = 'soy David Villa y ahora mismo vivo en portugal. hay algun inconveniente?'
   const pending = { act: 'profile', question: '¿Cuál es su nombre y dónde reside?' }
   const calls = []
-  const module = scopeModule(async (_rules, input) => {
+  const loadedModule = scopeModule(async (_rules, input) => {
     calls.push(input)
     if (calls.length === 1) return { kind: 'mixed', confidence: 'medium', outside_subject: current,
       outside_source: 'current', property_fragments: ['que precio tienen los departamentos?'] }
@@ -43,9 +49,9 @@ test('residence continuation with a historical mixed fragment is arbitrated once
     return { kind: 'property', confidence: 'high', outside_subject: '', outside_source: 'none', property_fragments: [] }
   })
   const history = [{ role: 'bot', content: pending.question }]
-  const initial = await module.classifyBusinessScope(current, history, false, {}, pending)
+  const initial = await loadedModule.classifyBusinessScope(current, history, false, {}, pending)
   assert.equal(initial.uncertain, true)
-  const result = await module.reconcileConversationScope(initial, current,
+  const result = await loadedModule.reconcileConversationScope(initial, current,
     [{ domain: 'property', confidence: 'high', evidence: 'hay algun inconveniente?' }], history, pending)
   assert.equal(result.kind, 'property')
   assert.equal(result.uncertain, false)
@@ -61,9 +67,9 @@ test('scope arbitration preserves a genuine outside request and never retries an
     { domain: 'other', confidence: 'high', evidence: 'cambiar mi vuelo' }]
   for (const valid of [true, false]) {
     let calls = 0
-    const module = scopeModule(async () => { calls++; return { kind: 'mixed', confidence: 'high',
+    const loadedModule = scopeModule(async () => { calls++; return { kind: 'mixed', confidence: 'high',
       outside_subject: 'vuelo', outside_source: 'current', property_fragments: [valid ? 'También quiero ver una suite.' : 'Un mensaje anterior'] } })
-    const result = await module.reconcileConversationScope(decision, current, requests, [], {})
+    const result = await loadedModule.reconcileConversationScope(decision, current, requests, [], {})
     assert.equal(calls, 1)
     if (valid) { assert.equal(result.kind, 'mixed'); assert.doesNotMatch(result.property_message, /vuelo/) }
     else { assert.equal(result.uncertain, true); assert.equal(result.reason, 'scope_reconciliation_unresolved') }
@@ -84,7 +90,7 @@ test('uncertain scope keeps published commercial evidence without importing unre
 
 test('classifier receives recent conversation as data and preserves a property follow-up verbatim', async () => {
   let request
-  const module = scopeModule(async (instructions, input, schema, _image, _file, _tone, task) => {
+  const loadedModule = scopeModule(async (instructions, input, schema, _image, _file, _tone, task) => {
     request = { instructions, input, schema, task }
     return { kind: 'property', confidence: 'high', property_fragments: [], outside_subject: '', outside_source: 'none' }
   })
@@ -94,7 +100,7 @@ test('classifier receives recent conversation as data and preserves a property f
     { role: 'bot', content: validReply },
     { role: 'cliente', content: 'Oh entiendo' },
   ]
-  const result = await module.classifyBusinessScope('Y qué precios tienen?', history)
+  const result = await loadedModule.classifyBusinessScope('Y qué precios tienen?', history)
   assert.deepEqual(result, { kind: 'property', property_message: 'Y qué precios tienen?', reply: '', uncertain: false, confidence: 'high' })
   assert.equal(request.input.pista_de_continuidad.subject, 'property')
   assert.equal(request.input.historial.length, 3)
@@ -106,10 +112,10 @@ test('classifier receives recent conversation as data and preserves a property f
 })
 
 test('mixed extraction keeps property date and excludes the flight date', async () => {
-  const module = scopeModule(async () => ({ kind: 'mixed',
+  const loadedModule = scopeModule(async () => ({ kind: 'mixed',
     confidence: 'high', property_fragments: ['También quiero visitar la oficina el viernes a las diez.'],
     outside_subject: 'vuelo', outside_source: 'current' }))
-  const result = await module.classifyBusinessScope('Cambie mi vuelo al martes a las ocho. También quiero visitar la oficina el viernes a las diez.')
+  const result = await loadedModule.classifyBusinessScope('Cambie mi vuelo al martes a las ocho. También quiero visitar la oficina el viernes a las diez.')
   assert.equal(result.kind, 'mixed')
   assert.equal(result.property_message, 'También quiero visitar la oficina el viernes a las diez.')
   assert.doesNotMatch(result.property_message, /martes|ocho|vuelo/)
@@ -199,16 +205,16 @@ test('a grounded property request repairs uncertain scope despite spelling mista
 
 test('low-confidence labels remain provisional while grounded conflicting requests prevent promotion', async () => {
   const current = 'cual es el costo de los departametnos?'
-  const module = scopeModule(async () => ({ kind: 'out_of_scope', confidence: 'low',
+  const loadedModule = scopeModule(async () => ({ kind: 'out_of_scope', confidence: 'low',
     property_fragments: [], outside_subject: 'departametnos', outside_source: 'current' }))
-  const result = await module.classifyBusinessScope(current)
+  const result = await loadedModule.classifyBusinessScope(current)
   assert.equal(result.uncertain, true)
   assert.equal(result.confidence, 'low')
   const grounded = { domain: 'property', confidence: 'high', evidence: current }
-  assert.equal(module.reconcilePropertyScope(result, current, [grounded]).kind, 'property')
-  assert.equal(module.reconcilePropertyScope(result, current, [grounded,
+  assert.equal(loadedModule.reconcilePropertyScope(result, current, [grounded]).kind, 'property')
+  assert.equal(loadedModule.reconcilePropertyScope(result, current, [grounded,
     { domain: 'other', confidence: 'high', evidence: current }]).uncertain, true)
-  assert.equal(module.reconcilePropertyScope(result, current,
+  assert.equal(loadedModule.reconcilePropertyScope(result, current,
     [{ ...grounded, evidence: 'un mensaje anterior' }]).uncertain, true)
 })
 
@@ -243,7 +249,7 @@ test('singular valor identifies a property price question after a scope correcti
 test('bare price after an unrelated request is clarified instead of opening the property catalogue', async () => {
   const desired = 'Si se refiere al precio de las papas, como le indiqué, lamentablemente no gestionamos la venta de alimentos. Sin embargo, si desea conocer los precios de La Vilet, le comento que contamos con suites, departamentos y locales comerciales. Si su consulta es sobre alguna de estas opciones, indíqueme cuál le interesa y con gusto le comparto los precios disponibles.'
   let request
-  const module = scopeModule(async (_instructions, input) => {
+  const loadedModule = scopeModule(async (_instructions, input) => {
     request = input
     return { kind: 'out_of_scope', property_fragments: [], reply: desired }
   })
@@ -251,7 +257,7 @@ test('bare price after an unrelated request is clarified instead of opening the 
     { role: 'cliente', content: 'Quiero papas' },
     { role: 'bot', content: 'Lo siento, solo le puedo ayudar con información sobre nuestro proyecto inmobiliario en Cuenca. No gestionamos la compra ni venta de alimentos.' },
   ]
-  const result = await module.classifyBusinessScope('¿Y qué precio tiene?', history, true, previousOutsideScope('papas'))
+  const result = await loadedModule.classifyBusinessScope('¿Y qué precio tiene?', history, true, previousOutsideScope('papas'))
   assert.equal(request.referencia_de_precio_ambigua, true)
   assert.equal(result.kind, 'out_of_scope')
   assert.equal(result.reply, '')
@@ -260,12 +266,12 @@ test('bare price after an unrelated request is clarified instead of opening the 
 })
 
 test('ambiguous price fails safe even if the model tries to open the property catalogue', async () => {
-  const module = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
+  const loadedModule = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
   const history = [
     { role: 'cliente', content: 'Necesito comprar una bicicleta' },
     { role: 'bot', content: 'No gestionamos la venta de bicicletas. Somos La Vilet, un proyecto inmobiliario con suites, departamentos y locales comerciales.' },
   ]
-  const result = await module.classifyBusinessScope('¿Y cuánto cuesta?', history, true, previousOutsideScope('bicicleta'))
+  const result = await loadedModule.classifyBusinessScope('¿Y cuánto cuesta?', history, true, previousOutsideScope('bicicleta'))
   assert.equal(result.kind, 'out_of_scope')
   assert.equal(result.reply, '')
   assert.match(scopeFallbackReply(result), /solicitud anterior/)
@@ -281,8 +287,8 @@ test('an unresolved outside price cannot fall through neutral or mixed classifie
     { role: 'cliente', content: '¿Y qué precio tiene?' },
   ]
   for (const kind of ['property', 'neutral', 'mixed']) {
-    const module = scopeModule(async () => ({ kind, property_fragments: kind === 'mixed' ? ['qué precio tiene'] : [], reply: '' }))
-    const result = await module.classifyBusinessScope('¿Y qué precio tiene?', history, false, previousOutsideScope('papas'))
+    const loadedModule = scopeModule(async () => ({ kind, property_fragments: kind === 'mixed' ? ['qué precio tiene'] : [], reply: '' }))
+    const result = await loadedModule.classifyBusinessScope('¿Y qué precio tiene?', history, false, previousOutsideScope('papas'))
     assert.equal(result.kind, 'out_of_scope', kind)
     assert.equal(result.property_message, '', kind)
     assert.doesNotMatch(result.reply, /202|\d|https?:/, kind)
@@ -291,19 +297,19 @@ test('an unresolved outside price cannot fall through neutral or mixed classifie
 })
 
 test('scope boundary survives consecutive client messages and repeated price questions', () => {
-  const module = scopeModule(async () => { throw Error('not used') })
+  const loadedModule = scopeModule(async () => { throw Error('not used') })
   const history = [
     { role: 'cliente', content: 'Quiero reparar mi teléfono' },
     { role: 'bot', content: 'Lo siento, no prestamos ese servicio. Somos un proyecto inmobiliario.' },
     { role: 'cliente', content: 'Es urgente' },
     { role: 'cliente', content: 'Cuánto cuesta?' },
   ]
-  assert.equal(module.hasAmbiguousPriceReference('Cuánto cuesta?', history, previousOutsideScope('reparar mi teléfono')), true)
+  assert.equal(loadedModule.hasAmbiguousPriceReference('Cuánto cuesta?', history, previousOutsideScope('reparar mi teléfono')), true)
   const repeated = [...history,
     { role: 'bot', content: 'Si se refiere al precio de la reparación, no gestionamos ese servicio. Si su consulta es sobre La Vilet, indíqueme qué opción le interesa.' },
     { role: 'cliente', content: 'Y el valor?' },
   ]
-  assert.equal(module.hasAmbiguousPriceReference('Y el valor?', repeated, previousOutsideScope('reparar mi teléfono')), true)
+  assert.equal(loadedModule.hasAmbiguousPriceReference('Y el valor?', repeated, previousOutsideScope('reparar mi teléfono')), true)
 })
 
 test('explicit acknowledgement or a real property reference releases the scope boundary', async () => {
@@ -311,22 +317,22 @@ test('explicit acknowledgement or a real property reference releases the scope b
     { role: 'cliente', content: 'Quiero papas' },
     { role: 'bot', content: 'No gestionamos la venta de alimentos. Somos La Vilet, un proyecto inmobiliario.' },
   ]
-  const module = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
+  const loadedModule = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
   for (const current of ['Oh entiendo. ¿Cuánto valen?', 'Me refiero a sus departamentos, ¿qué precios tienen?', '¿Cuánto cuestan los que sí venden?']) {
-    assert.equal(module.hasAmbiguousPriceReference(current, history, previousOutsideScope('papas')), false, current)
-    assert.equal((await module.classifyBusinessScope(current, [...history, { role: 'cliente', content: current }], false, previousOutsideScope('papas'))).kind, 'property', current)
+    assert.equal(loadedModule.hasAmbiguousPriceReference(current, history, previousOutsideScope('papas')), false, current)
+    assert.equal((await loadedModule.classifyBusinessScope(current, [...history, { role: 'cliente', content: current }], false, previousOutsideScope('papas'))).kind, 'property', current)
   }
-  assert.equal(module.hasAmbiguousPriceReference('¿Y en precio?', [...history,
+  assert.equal(loadedModule.hasAmbiguousPriceReference('¿Y en precio?', [...history,
     { role: 'cliente', content: 'Quiero conocer sus suites' },
     { role: 'bot', content: 'Contamos con suites en varias plantas.' },
   ], previousOutsideScope('papas')), false)
-  assert.equal(module.hasAmbiguousPriceReference('No entiendo, ¿cuánto cuesta?', history, previousOutsideScope('papas')), true)
+  assert.equal(loadedModule.hasAmbiguousPriceReference('No entiendo, ¿cuánto cuesta?', history, previousOutsideScope('papas')), true)
 })
 
 test('contextual clarification carries the verified subject to the writer without classifier prose', async () => {
   const desired = 'Si se refiere al precio de reparar su bicicleta, como le indiqué, lamentablemente no prestamos ese servicio. Sin embargo, si desea conocer los precios de La Vilet, contamos con suites, departamentos y locales comerciales. Si su consulta es sobre alguna de estas opciones, indíqueme cuál le interesa y con gusto le comparto los precios disponibles.'
-  const module = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: desired }))
-  const result = await module.classifyBusinessScope('Y cuánto cuesta?', [
+  const loadedModule = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: desired }))
+  const result = await loadedModule.classifyBusinessScope('Y cuánto cuesta?', [
     { role: 'cliente', content: 'Quiero reparar mi bicicleta' },
     { role: 'bot', content: 'No prestamos servicios de reparación. Somos La Vilet, un proyecto inmobiliario.' },
   ], false, previousOutsideScope('reparar mi bicicleta'))
@@ -336,7 +342,7 @@ test('contextual clarification carries the verified subject to the writer withou
 })
 
 test('property availability and financing restrictions do not create an outside-product boundary', () => {
-  const module = scopeModule(async () => { throw Error('not used') })
+  const loadedModule = scopeModule(async () => { throw Error('not used') })
   for (const reply of [
     'No ofrecemos departamentos de cinco dormitorios. En La Vilet tenemos alternativas de tres dormitorios.',
     'La Vilet no ofrece financiamiento directo. Podemos revisar las opciones bancarias.',
@@ -345,7 +351,7 @@ test('property availability and financing restrictions do not create an outside-
     'No vendemos casas independientes. En La Vilet disponemos de suites y departamentos.',
   ]) {
     assert.equal(subjects.isPropertyScopeRedirect(reply), false, reply)
-    assert.equal(module.hasAmbiguousPriceReference('Y cuánto cuesta?', [
+    assert.equal(loadedModule.hasAmbiguousPriceReference('Y cuánto cuesta?', [
       { role: 'cliente', content: 'Me interesan los departamentos' }, { role: 'bot', content: reply },
     ]), false, reply)
   }
@@ -356,8 +362,8 @@ test('explicit property price remains a property question after an unrelated req
     { role: 'cliente', content: 'Quiero papas' },
     { role: 'bot', content: 'No gestionamos alimentos. Somos La Vilet, un proyecto inmobiliario con suites, departamentos y locales comerciales.' },
   ]
-  const module = scopeModule(async () => { throw Error('not used') })
-  assert.equal(module.hasAmbiguousPriceReference('¿Cuánto cuestan los departamentos?', history), false)
+  const loadedModule = scopeModule(async () => { throw Error('not used') })
+  assert.equal(loadedModule.hasAmbiguousPriceReference('¿Cuánto cuestan los departamentos?', history), false)
   assert.equal(subjects.salesSubject('¿Cuánto cuestan los departamentos?', history).subject, 'property')
 })
 
@@ -371,17 +377,17 @@ test('owned vehicles stay a housing requirement but buying vehicles remains out 
 })
 
 test('empty input does not call the model', async () => {
-  const module = scopeModule(async () => { throw Error('must not call') })
-  assert.equal((await module.classifyBusinessScope(' ')).uncertain, false)
+  const loadedModule = scopeModule(async () => { throw Error('must not call') })
+  assert.equal((await loadedModule.classifyBusinessScope(' ')).uncertain, false)
 })
 
 test('incomplete sales requests are not evidence of a foreign business even with a wrong classifier label', async () => {
   for (const current of ['Precio', 'buenas tardes, cuál es el precio??', '¿Me podría indicar cuánto cuesta?',
     'Quisiera una cotización, por favor', 'Quiero información', 'Qué opciones tienen disponibles?']) {
     for (const kind of ['out_of_scope', 'mixed']) {
-      const module = scopeModule(async () => ({ kind, property_fragments: [], reply: validReply,
+      const loadedModule = scopeModule(async () => ({ kind, property_fragments: [], reply: validReply,
         outside_subject: current, outside_source: 'current' }))
-      const result = await module.classifyBusinessScope(current)
+      const result = await loadedModule.classifyBusinessScope(current)
       assert.equal(result.kind, 'property', current)
       assert.equal(result.property_message, current)
       assert.equal(result.reply, '')
@@ -391,10 +397,10 @@ test('incomplete sales requests are not evidence of a foreign business even with
 })
 
 test('an invented foreign subject cannot justify exclusion, and malformed real foreign requests do not authorize actions', async () => {
-  const module = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
+  const loadedModule = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
     outside_subject: 'vuelo', outside_source: 'current' }))
-  assert.equal((await module.classifyBusinessScope('Precio')).kind, 'property')
-  const uncertain = await module.classifyBusinessScope('Agende mi cita médica mañana')
+  assert.equal((await loadedModule.classifyBusinessScope('Precio')).kind, 'property')
+  const uncertain = await loadedModule.classifyBusinessScope('Agende mi cita médica mañana')
   assert.equal(uncertain.uncertain, true)
   assert.equal(uncertain.property_message, '')
   const mixed = await scopeModule(async () => ({ kind: 'mixed', property_fragments: ['Quiero visitar un departamento.'],
@@ -409,9 +415,9 @@ test('literal foreign subjects remain excluded across unrelated sectors', async 
     ['Cuál es el precio del auto?', 'auto'], ['Cuánto cuesta reparar mi teléfono?', 'reparar mi teléfono'],
     ['Reserve un vuelo para mañana', 'vuelo'], ['Tienen clases de piano?', 'clases de piano'],
   ]) {
-    const module = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
+    const loadedModule = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
       outside_subject: subject, outside_source: 'current' }))
-    const result = await module.classifyBusinessScope(current)
+    const result = await loadedModule.classifyBusinessScope(current)
     assert.equal(result.kind, 'out_of_scope', current)
     assert.equal(result.property_message, '')
     assert.deepEqual(result.outside_evidence, { fragment: subject, source: 'current' })
@@ -423,41 +429,41 @@ test('a bot rejection cannot bootstrap an outside topic from an earlier generic 
     { role: 'cliente', content: 'precio' },
     { role: 'bot', content: 'Somos La Vilet, un proyecto inmobiliario. No gestionamos precios de otros sectores.' },
   ]
-  const module = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
+  const loadedModule = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
     outside_subject: 'otros sectores', outside_source: 'history' }))
-  assert.equal(module.hasAmbiguousPriceReference('buenas tardes, cuál es el precio??', history), false)
-  assert.equal((await module.classifyBusinessScope('buenas tardes, cuál es el precio??', history)).kind, 'property')
+  assert.equal(loadedModule.hasAmbiguousPriceReference('buenas tardes, cuál es el precio??', history), false)
+  assert.equal((await loadedModule.classifyBusinessScope('buenas tardes, cuál es el precio??', history)).kind, 'property')
 })
 
 test('historical foreign evidence must come from the customer and remain the current subject', async () => {
-  const module = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
+  const loadedModule = scopeModule(async () => ({ kind: 'out_of_scope', property_fragments: [], reply: validReply,
     outside_subject: 'vuelo', outside_source: 'history' }))
   const history = [{ role: 'cliente', content: 'Revise mi vuelo' }, { role: 'bot', content: validReply }]
-  const transitioned = await module.classifyBusinessScope('Me interesan los departamentos', history)
+  const transitioned = await loadedModule.classifyBusinessScope('Me interesan los departamentos', history)
   assert.equal(transitioned.kind, 'property')
   assert.equal(transitioned.reason, 'outside_subject_not_grounded')
-  assert.equal((await module.classifyBusinessScope('Revíselo, por favor', history)).kind, 'out_of_scope')
-  const onlyBot = await module.classifyBusinessScope('Revíselo, por favor', [{ role: 'bot', content: 'Su vuelo está confirmado.' }])
+  assert.equal((await loadedModule.classifyBusinessScope('Revíselo, por favor', history)).kind, 'out_of_scope')
+  const onlyBot = await loadedModule.classifyBusinessScope('Revíselo, por favor', [{ role: 'bot', content: 'Su vuelo está confirmado.' }])
   assert.equal(onlyBot.uncertain, true)
 })
 
 test('names and residence statements before a mistaken bot rejection do not create durable foreign evidence', async () => {
-  const module = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
+  const loadedModule = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
   for (const profile of ['Soy Carlos', 'Mi nombre es Amalia', 'Resido en Madrid', 'Vivo en Cuenca con mi familia']) {
     const history = [{ role: 'cliente', content: profile }, { role: 'cliente', content: 'Precio' },
       { role: 'bot', content: 'Somos La Vilet, un proyecto inmobiliario. No gestionamos precios de otros sectores.' }]
-    assert.equal(module.hasAmbiguousPriceReference('Y el precio?', history), false, profile)
-    assert.equal((await module.classifyBusinessScope('Y el precio?', history)).kind, 'property', profile)
+    assert.equal(loadedModule.hasAmbiguousPriceReference('Y el precio?', history), false, profile)
+    assert.equal((await loadedModule.classifyBusinessScope('Y el precio?', history)).kind, 'property', profile)
   }
 })
 
 test('legacy exclusions are re-evaluated semantically and cannot override the current classification', async () => {
   const history = [{ role: 'cliente', content: 'Necesito reparar mi bicicleta' }, { role: 'bot', content: validReply }]
-  const module = scopeModule(async (_rules, input) => {
+  const loadedModule = scopeModule(async (_rules, input) => {
     assert.equal(input.referencia_de_precio_ambigua, false)
     return { kind: 'out_of_scope', property_fragments: [], reply: validReply, outside_subject: 'reparar mi bicicleta', outside_source: 'history' }
   })
-  const result = await module.classifyBusinessScope('Y cuánto cuesta?', history)
+  const result = await loadedModule.classifyBusinessScope('Y cuánto cuesta?', history)
   assert.equal(result.kind, 'out_of_scope')
   assert.deepEqual(result.outside_evidence, { fragment: 'reparar mi bicicleta', source: 'history' })
   const inScopeModel = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
@@ -465,8 +471,8 @@ test('legacy exclusions are re-evaluated semantically and cannot override the cu
 })
 
 test('durable outside evidence must still exist in customer history and cannot come from the bot alone', async () => {
-  const module = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
+  const loadedModule = scopeModule(async () => ({ kind: 'property', property_fragments: [], reply: '' }))
   const history = [{ role: 'cliente', content: 'Precio' }, { role: 'bot', content: validReply }]
-  assert.equal(module.hasAmbiguousPriceReference('Cuánto cuesta?', history, previousOutsideScope('vuelo')), false)
-  assert.equal((await module.classifyBusinessScope('Cuánto cuesta?', history, false, previousOutsideScope('vuelo'))).kind, 'property')
+  assert.equal(loadedModule.hasAmbiguousPriceReference('Cuánto cuesta?', history, previousOutsideScope('vuelo')), false)
+  assert.equal((await loadedModule.classifyBusinessScope('Cuánto cuesta?', history, false, previousOutsideScope('vuelo'))).kind, 'property')
 })

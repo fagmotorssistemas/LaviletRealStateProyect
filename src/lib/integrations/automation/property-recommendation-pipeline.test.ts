@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { object, text, type Row } from './data'
@@ -61,10 +62,10 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) for (const 
           assert.equal(obligation?.question_id, task === 'writing' ? plan.question_id : undefined)
           if (task === 'writing') {
             if (floor) assert.ok(rows(object(context.contexto_verificado).instalaciones).some(f => /2 ascensores/.test(text(f.amenity_name))))
-            return { reply, question: metadata, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,
-              intent: 'Responder y conservar la propuesta', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
+            return writerFixture({ reply, question: metadata, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id,
+              intent: 'Responder y conservar la propuesta', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) })
           }
-          return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: { ...metadata, offered_action: 'none' } }
+          return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         }))
     assert.equal(result.reply, reply, JSON.stringify(result.audit.final_validation))
     assert.equal(result.needsAdvisor, false)

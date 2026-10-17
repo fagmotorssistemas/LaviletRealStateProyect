@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fixture from './fixtures/extractor-profile-turn.json'
@@ -25,6 +26,7 @@ const catalog: Row[] = [
 
 function extraction(current: string, intent: string, questionId = 'none'): Row {
   const raw: Row = structuredClone(fixture)
+  raw.communication = { kind: 'substantive', evidence: current, confidence: 'high', greeting_present: false }
   raw.full_name = raw.residence_city = raw.residence_country = null
   raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
   raw.catalog_request = { purpose: 'none', metric: null, evidence: '', confidence: 'low', requirements: [], semantic_preferences: [] }
@@ -85,9 +87,11 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
         property.group = 'residential'; property.evidence = current
         object(object(raw.turn_semantics).answer_to_previous).kind = 'affirmative'
       } else {
-        raw.purchase_purpose = 'vivir'
-        raw.declaration_evidence = { preferred_category: null, purchase_purpose: current }
-        raw.events = ['declared_purchase_purpose']
+        // The common AI distinguishes housing scope from its intended use.
+        // Code cannot reinterpret the words to veto a purpose classified by AI.
+        raw.purchase_purpose = null
+        raw.declaration_evidence = { preferred_category: null, purchase_purpose: null }
+        raw.events = []
         property.group = 'residential'; property.operation = 'search'; property.evidence = current
       }
       let extractionCalls = 0
@@ -134,11 +138,11 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
         () => completeTurnReply({ current, baseReply: intro.reply, verified: info, history, audit },
           async (_rules, input, _schema, _image, _file, _tone, task) => {
             const context = object(input); contexts.push(context); tasks.push(task || '')
-            if (task === 'writing') return { reply, question: metadata,
+            if (task === 'writing') return writerFixture({ reply, question: metadata,
+              writer_receipts: { project_presented: index === 0, brochure_shared: index === 2 },
               requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Atender la consulta',
-                request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
-            return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [],
-              question: { ...metadata, offered_action: 'none' } }
+                request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) })
+            return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
           }))
       assert.ok(result.reply.endsWith(reply), JSON.stringify(result.audit.final_validation))
       assert.equal(result.needsAdvisor, false)
@@ -206,10 +210,14 @@ test('only the selected approved introduction supplies numeric evidence, without
       enabled: true, summary, source: 'Resumen autorizado de prueba' } } }, 'La Vilet') }
   const selected = withProjectIntroductionForTurn(info)
   const input = { current, baseReply: summary, verified: selected, audit: {} }
+  assert.equal(object(selected.presentacion_general_proyecto).summary, summary)
+  assert.equal(object(selected.presentacion_general_proyecto).source, 'Resumen autorizado de prueba')
+  assert.equal(withProjectIntroductionForTurn({ summary, proyecto: { name: 'La Vilet' } }).presentacion_general_proyecto, undefined,
+    'a historical summary is never promoted to approved factual evidence')
+  assert.equal(info.presentacion_general_proyecto, undefined, 'selection does not mutate the raw configured context')
   assert.ok(!turnCompletenessIssues(input, input.baseReply).includes('numbers_changed'))
-  assert.ok(turnCompletenessIssues(input, input.baseReply.replace('49 unidades', '50 unidades')).includes('numbers_changed'))
-  assert.ok(turnCompletenessIssues({ ...input, verified: { summary: input.baseReply } }, input.baseReply).includes('numbers_changed'))
-  assert.ok(turnCompletenessIssues({ ...input, verified: info }, input.baseReply).includes('numbers_changed'), 'An unselected configuration is not current numeric evidence')
+  assert.deepEqual(turnCompletenessIssues(input, input.baseReply.replace('49 unidades', '50 unidades')), [],
+    'the code must not issue a numeric verdict from the wording; the AI reviewer owns that check')
 })
 
 for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
@@ -258,11 +266,10 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
       () => completeTurnReply({ current, baseReply: intro.reply, verified: info, history, audit },
         async (_rules, input, _schema, _image, _file, _tone, task) => {
           tasks.push(task || '')
-          if (task === 'writing') return { reply, question: metadata,
+          if (task === 'writing') return writerFixture({ reply, question: metadata,
             requests: rows(object(input).referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Atender datos de perfil',
-              request_type: 'clarification', status: 'answered', evidence: reply, fact_key: null })) }
-          return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [],
-            question: { ...metadata, offered_action: 'none' } }
+              request_type: 'clarification', status: 'answered', evidence: reply, fact_key: null })) })
+          return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         }))
     assert.equal(completed.needsAdvisor, false)
     assert.match(completed.reply, /vivienda.*local comercial/, JSON.stringify(completed.audit.final_validation))

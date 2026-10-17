@@ -90,7 +90,9 @@ function extractionFixture(input, invalid = false) {
 // Only external boundaries are replaced: no HTTP, paid inference, or live DB.
 async function conversationHarness({ current, messages, extractionFails = false, reviewFails = false, reviewRejects = true,
   observationOnly = true, permittedAtDelivery = true, startedAt = Date.now(), storedSummary = {}, history = [],
-  financeState = { partners: [], current: {} }, visitDraft = null, proposals = [] }) {
+  financeState = { partners: [], current: {} }, visitDraft = null, proposals = [],
+  reservationRows = [], catalogOverride, leadFields = {}, extractorFixture, writerFixture,
+  reviewContractV1 = false, reviewEnabled = true, scopeFixture }) {
   const replacements = []
   const replace = (module, key, value) => { const previous = module[key]; module[key] = value; replacements.push(() => { module[key] = previous }) }
   const data = lib('data'), ai = lib('ai'), config = lib('config'), kommo = lib('kommo'), sdr = lib('sdr')
@@ -99,9 +101,9 @@ async function conversationHarness({ current, messages, extractionFails = false,
   const tracing = lib('execution-trace'), tone = lib('tone-settings'), settings = lib('response-review-settings')
   const rpcCalls = [], dbWrites = [], sent = [], tasks = [], steps = [], writerInputs = [], extractorInputs = [], turns = []
   const lead = { ...data.scope, id: '00000000-0000-4000-8000-000000000001', kommo_id: 101, bot_enabled: true, tracking_opt_out_at: null,
-    name: 'Carlos', preferred_category: 'departamento', behavior_signals: {} }
+    name: 'Carlos', preferred_category: 'departamento', behavior_signals: {}, ...leadFields }
   const conversation = { ...data.scope, id: '00000000-0000-4000-8000-000000000002', lead_id: lead.id, summary: JSON.stringify(storedSummary) }
-  const catalog = [{ id: '00000000-0000-4000-8000-000000000202', category: 'departamento', unit_number: '202', floor_number: 2,
+  const catalog = catalogOverride || [{ id: '00000000-0000-4000-8000-000000000202', category: 'departamento', unit_number: '202', floor_number: 2,
     bedrooms: 3, is_published: true, status: 'disponible', area_internal_m2: 120.83 },
     { id: '00000000-0000-4000-8000-000000000602', category: 'penthouse', unit_number: '602', floor_number: 6,
       bedrooms: 3, is_published: true, status: 'disponible', area_internal_m2: 140.53 }]
@@ -115,6 +117,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
     let update
     const execute = single => {
       let rows = table === 'lv_integration_events' ? journals : table === 'conversations' ? [conversation]
+        : table === 'lead_reservation_requests' ? reservationRows
         : table === 'messages' && filters.some(filter => filter.key === 'tool_calls->>source_message_id') ? registeredMessages : []
       rows = rows.filter(row => filters.every(filter => filter.test(value(row, filter.key))))
       if (update) {
@@ -127,8 +130,9 @@ async function conversationHarness({ current, messages, extractionFails = false,
     }
     const builder = new Proxy({}, { get(_target, property) {
       if (property === 'then') return (resolve, reject) => Promise.resolve(execute(false)).then(resolve, reject)
-      if (property === 'eq' || property === 'gt' || property === 'is' || property === 'in') return (key, expected) => {
+      if (property === 'eq' || property === 'gt' || property === 'lte' || property === 'is' || property === 'in') return (key, expected) => {
         filters.push({ key, test: actual => property === 'eq' ? actual === expected : property === 'gt' ? actual > expected
+          : property === 'lte' ? actual <= expected
           : property === 'is' ? (actual ?? null) === expected : expected.includes(actual) })
         return builder
       }
@@ -183,7 +187,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
     replace(kommo, 'launchSalesbot', async () => sent.push({ launched: true }))
     replace(tone, 'withConversationTone', work => work())
     replace(tone, 'conversationToneAudit', () => ({ source: 'fixture' }))
-    replace(settings, 'loadResponseReviewPolicy', async () => ({ enabled: true, observationOnly, updatedAt: null }))
+    replace(settings, 'loadResponseReviewPolicy', async () => ({ enabled: reviewEnabled, observationOnly, updatedAt: null }))
     replace(sdr, 'publishedUnitCatalog', async () => catalog)
     replace(sdr, 'catalogSearchConfiguration', async () => ({ embeddingsEnabled: false }))
     replace(sdr, 'commercialContext', async (_lead, historical, profile) => ({ lead: structuredClone(_lead), catalogo: catalog, proyecto: { name: 'La Vilet' }, historial: historical || [],
@@ -191,7 +195,8 @@ async function conversationHarness({ current, messages, extractionFails = false,
       politica_comercial: { precios_autorizados: false }, perfil_lead: profile || {}, catalog_read: { complete: true }, financiamiento: { partners: [], current: {} } }))
     replace(sdr, 'commercialReply', async () => ({ reply: 'Podemos revisar las opciones del proyecto. ¿Cuántos dormitorios necesita?', audit: { source: 'commercial' } }))
     replace(finance, 'financingContext', async () => financeState)
-    replace(scope, 'classifyBusinessScope', async message => ({ kind: 'property', property_message: message, reply: '', uncertain: false }))
+    replace(scope, 'classifyBusinessScope', async message => scopeFixture ? scopeFixture(message)
+      : ({ kind: 'property', property_message: message, reply: '', uncertain: false }))
     replace(scope, 'reconcileConversationScope', async previous => previous)
     replace(tracing, 'traceForEvents', () => ({
       start: (...args) => { const id = steps.length+1; steps.push({ id, args }); return id },
@@ -209,7 +214,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
           full_name: 'Carlos', profile_evidence: { full_name: 'Me llamo Carlos' },
           name_response: { status: 'declared', evidence: 'Me llamo Carlos', confidence: 'high' },
         }
-        return extractionFixture(input, extractionFails)
+        return extractorFixture ? extractorFixture(input) : extractionFixture(input, extractionFails)
       },
     }))
     replace(ai, 'activePrompt', async name => name === 'saludo_inicial' ? 'Hola, un gusto saludarle. ¿En qué podemos ayudarle?' : 'Fixture del prompt publicado')
@@ -223,6 +228,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
       tasks.push(task)
       if (task === 'review') {
         if (reviewFails) throw Error('OPENAI_INVALID_JSON')
+        if (reviewContractV1) return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         return { review_contract: 'business-risk-v2', verdict: reviewRejects ? 'block' : 'pass',
           findings: reviewRejects ? [{ category: 'hard_fact', statement: 'tres dormitorios',
             reason: 'Hallazgo de demostración', authoritative_fact: 'Catálogo actual' }] : [],
@@ -232,6 +238,7 @@ async function conversationHarness({ current, messages, extractionFails = false,
       writerInputs.push(structuredClone(raw))
       assert.equal(raw.mensaje_actual, activeCurrent)
       assert.ok(raw.evidencia_turno || raw.contexto_verificado)
+      if (writerFixture) return writerFixture(raw)
       let proposed = reply
       lastQuestion = noQuestion
       if (messages) {
@@ -302,6 +309,104 @@ async function conversationHarness({ current, messages, extractionFails = false,
 }
 
 const outbound = execution => execution.rpcCalls.find(call => call.name === 'register_outbound_message')
+
+const runtime605 = '00000000-0000-4000-8000-000000000605'
+const runtimeRequest605 = [{ id: '00000000-0000-4000-8000-000000000905',
+  lead_id: '00000000-0000-4000-8000-000000000001', unit_ids: [runtime605], request_status: 'requested',
+  source_message_id: 'prior-reservation', source_sent_at: '2026-10-16T05:48:00.000Z', created_at: '2026-10-16T05:49:00.000Z' }]
+const runtimeCatalog605 = [{ id: runtime605, unit_number: '605', category: 'penthouse', bedrooms: 3,
+  floor_number: 6, area_internal_m2: 140.53, published_commercial_price: 337272, is_published: true, status: 'disponible' }]
+function runtimeReservationSummary() {
+  return { _lead_profile: { full_name: 'Carlos', residence_city: 'Cuenca',
+    sources: { full_name: { source: 'lead_declaration', evidence: 'Soy Carlos' },
+      residence_city: { source: 'lead_declaration', evidence: 'Vivo en Cuenca' } } },
+  _lead_introduction: { status: 'complete', brochure_sent: true, presentation_sent: true }, _brand_introduced: true,
+  _commercial_journey: { selected_unit_id: runtime605, last_action: 'current_operation', reservation_offered_ids: [runtime605] },
+  _property_context: { version: 2, selected_ids: [], offered_ids: [], focused_ids: [], comparison_ids: [], query: {}, pending_question: {} },
+  _interpretation_memory: { property: { group: 'residential', filters: { bedrooms: 5 },
+    evidence: 'Quiero cinco dormitorios', confidence: 'high' } } }
+}
+function runtimeReservationExtraction(input) {
+  const current = input.mensaje_actual, raw = structuredClone(profileFixture)
+  raw.full_name = raw.residence_city = raw.residence_country = null
+  raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
+  raw.turn_semantics.primary_intent = 'answer_previous'
+  raw.turn_semantics.primary_evidence = current
+  raw.turn_semantics.answer_to_previous = { question_id: 'none', kind: 'none', evidence: '', confidence: 'high' }
+  raw.requests = [{ request: current, domain: 'tracking', topics: [], evidence: current, confidence: 'high' }]
+  if (current === 'No quiero continuar con la reserva del 605') {
+    raw.turn_semantics.primary_intent = 'ask_reservation'
+    raw.turn_semantics.reservation = { kind: 'declined', evidence: current, unit_numbers: ['605'], confidence: 'high' }
+    raw.requests[0].domain = 'property'
+  } else if (current === '¿Qué requisitos faltan para continuar con la reserva del 605?') {
+    raw.turn_semantics.primary_intent = 'ask_reservation'
+    raw.turn_semantics.reservation = { kind: 'information', evidence: current, unit_numbers: ['605'], confidence: 'high' }
+    raw.requests[0].domain = 'property'
+  }
+  return raw
+}
+function runtimeReservationWriter(raw) {
+  const journey = raw.contexto_verificado?.siguiente_paso_comercial || {}
+  const operation = raw.contexto_verificado?.reservation_context || {}
+  if (operation.active) {
+    assert.equal(journey.action, 'current_operation')
+    assert.equal(journey.question_id || '', '')
+    assert.equal(operation.request_id, runtimeRequest605[0].id)
+  }
+  return { reply: operation.active ? 'La solicitud de reserva del 605 sigue pendiente de atención.'
+    : 'Podemos continuar con sus consultas sobre el proyecto.',
+  question: { ...noQuestion, text: '' }, requests: raw.referencias_solicitud.map(reference => ({
+    fragment: reference.id, intent: 'Atender la consulta actual', request_type: 'general_information',
+    status: 'answered', evidence: 'Respuesta del redactor', fact_key: null })), writer_receipts: { presented_unit_ids: [] } }
+}
+const reservationRuntimeOptions = () => ({ startedAt: Date.parse('2026-10-16T14:19:00.000Z'),
+  storedSummary: runtimeReservationSummary(), reservationRows: structuredClone(runtimeRequest605), catalogOverride: runtimeCatalog605,
+  leadFields: { preferred_category: 'penthouse', handoff_status: 'queued', purchase_purpose: 'vivir' },
+  extractorFixture: runtimeReservationExtraction, writerFixture: runtimeReservationWriter,
+  reviewContractV1: true, reviewRejects: false, observationOnly: false, reviewEnabled: false,
+  history: [{ role: 'cliente', content: 'Sí, quiero iniciar la reserva del 605', sent_at: '2026-10-16T05:48:00.000Z' },
+    { role: 'bot', content: 'Su solicitud de reserva del 605 quedó registrada.', sent_at: '2026-10-16T05:49:00.000Z' }] })
+
+test('reservation scope runtime restores legacy 605 before extraction and retains it through neutral clarification', async () => {
+  const current = 'Oh no, disculpe: aún nadie se ha comunicado conmigo. Lo que fue un error es el mensaje que envié antes.'
+  const execution = await conversationHarness({ ...reservationRuntimeOptions(), current,
+    scopeFixture: message => ({ kind: 'neutral', property_message: message, reply: '', uncertain: true }) })
+  assert.equal(execution.result?.action, 'accepted', execution.failure?.original?.stack || execution.failure?.stack)
+  assert.ok(execution.extractorInputs.length)
+  assert.deepEqual(execution.extractorInputs[0].contexto_propiedades.selected_ids, [runtime605])
+  assert.equal(execution.extractorInputs[0].reservation_context.request_id, runtimeRequest605[0].id)
+  assert.deepEqual(execution.summary._property_context.selected_ids, [runtime605])
+  assert.equal(execution.summary._reservation_operation.active, true)
+  assert.equal(execution.receipt.args.p_tool_calls.commercial_journey.action, 'current_operation')
+  assert.equal(execution.receipt.args.p_tool_calls.commercial_journey.question_id || '', '')
+  assert.equal(execution.rpcCalls.some(call => call.name === 'lv_request_reservation_handoff'), false)
+})
+
+test('reservation scope runtime preserves a declined marker across a minimal greeting and following message', async () => {
+  const execution = await conversationHarness({ ...reservationRuntimeOptions(), messages: [
+    'No quiero continuar con la reserva del 605', 'Hola', 'Gracias, por ahora quiero seguir conversando por aquí' ] })
+  for (const turn of execution.turns) {
+    assert.equal(turn.result?.action, 'accepted', turn.failure?.original?.stack || turn.failure?.stack)
+    assert.equal(turn.summary._reservation_operation.active, false, turn.current)
+    assert.equal(turn.summary._reservation_operation.disposition, 'declined_in_conversation', turn.current)
+  }
+  assert.equal(execution.turns[1].receipt.args.p_tool_calls.source, 'minimal_greeting')
+  assert.equal(execution.turns[2].summary._reservation_operation.cancellation_recorded, false)
+  assert.notEqual(execution.turns[2].receipt.args.p_tool_calls.commercial_journey.action, 'current_operation')
+})
+
+test('reservation scope runtime requirements information keeps the pending 605 request and sends no new invitation', async () => {
+  const execution = await conversationHarness({ ...reservationRuntimeOptions(),
+    current: '¿Qué requisitos faltan para continuar con la reserva del 605?', reviewEnabled: true })
+  assert.equal(execution.result?.delivery_status, 'accepted', execution.failure?.original?.stack || execution.failure?.stack)
+  assert.equal(execution.result?.memory_saved, true)
+  assert.equal(execution.receipt.args.p_tool_calls.source, 'reservation_information')
+  assert.equal(execution.receipt.args.p_tool_calls.commercial_journey.action, 'current_operation')
+  assert.equal(execution.receipt.args.p_tool_calls.commercial_journey.question_id || '', '')
+  assert.equal(execution.receipt.args.p_tool_calls.turn_completeness.status, 'checked')
+  assert.equal(execution.summary._reservation_operation.request_id, runtimeRequest605[0].id)
+  assert.equal(execution.rpcCalls.some(call => call.name === 'lv_request_reservation_handoff'), false)
+})
 
 test('consecutive financial doubts deliver answer-only messages and preserve the previously sent entry question in both modes', async () => {
   for (const observationOnly of [false, true]) {

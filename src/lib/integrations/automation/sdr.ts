@@ -1,62 +1,44 @@
-import { informationOnly } from './interaction-mode'
-import { withProjectObjectionContext, PROJECT_OBJECTION_WRITER_RULES } from './project-objections'
-import { configuredResponseReviewEnabled, responseReviewEnabled, responseReviewObservationOnly, responseReviewControl, writerTransportReply, unreviewedWriterReply } from './response-review-policy'
-import { SEMANTIC_POLICY_REVIEW_RULES } from './semantic-policy-review'
-import 'server-only'
-import { confirmedInterpretationMemory } from './interpretation-memory'
-import { activePrompt, aiJson, draftReply } from './ai'
-import { projectPublicName, PROJECT_NAME_WRITING_RULES } from './conversation-tone'
-import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
-import { poolAccessContext } from '@/lib/inmobiliaria/poolAccess'
-import { deliveryContext, PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
-import { projectIntroductionContext } from '@/lib/inmobiliaria/projectIntroduction'
-import { withProjectIntroductionForTurn } from './project-introduction-context'
-import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
-import { earlyPurchaseDiscountSettings } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
-import { earlyPurchaseDiscountContext } from './early-purchase-discount-context'
-import { cashPaymentContext } from '@/lib/inmobiliaria/cashPaymentRules'
-import { financingPolicyContext } from './financing-quote'
-import { priceNoticeForConversation } from './price-conditions'
-import { recordDraftDecision } from './ai-execution-trace'
-import { db, object, scope, text, type Row } from './data'
-import { nextDiscoveryQuestion, reviewReasons, reviewSchema, sdrState } from './sdr-rules'
-import type { Guard } from './visits'
-import { NATURAL_CONVERSATION_RULES, conversationalFirstName } from './conversation-style'
-import { commercialMemory, commercialFallback, COMMERCIAL_EXPERIENCE_RULES, experienceContext, PROJECT_POSITIONING, turnWritingRules, unresolvedCommercialReply, projectInformationChoiceReply, projectInformationReply, RESIDENTIAL_CONTINUITY_RULES } from './commercial-experience'
-import { catalogReferenceReply, resolveCatalogReference } from './catalog-reference'
-import { fabricatedActionRequest, mediaClarificationReply } from './clarification'
-import { unitModelRequestReply } from './unit-model'
-import { salesPlan, salesTopicReply, mentionsFinancing } from './sales-policy'
-import { openingWritingRules } from './response-openings'
-import { MAX_REPLY_CHARACTERS } from './response-plan'
-import { responseContentScope, projectContentForWriter, RESPONSE_CONTENT_SCOPE_RULES } from './response-content-scope'
-import { botPricingPolicy, launchPricesVisible, referentialPriceNoticeEnabled } from '@/lib/inmobiliaria/unitPrices'
-import { acceptedPriceOption, asksUnitPrice, budgetOptionsReply, PRICE_REPLY_RULES, statedBudget, unitPriceQuote } from './price-reply'
-import { TURN_INTENT_RULES } from './turn-intent'
-import { priceFinancingReply } from './financing'
-import { FINANCING_PROCESS_RULES, ASSISTANCE_CONTINUATION_RULES } from './financing-guidance'
 import { botVisitPolicy } from '@/lib/inmobiliaria/botVisits'
-import { brochureReply, brochureDeliveryIntent, BROCHURE_URL, LAUNCH_PROJECT_RULES, vehicleScopeReply } from './project-material'
-import { projectReadiness, readinessRules, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
-import { salesSubject } from './sales-subject'
-import { unitRecommendation } from './unit-recommendation'
-import { recommendationClarification } from './commercial-accuracy'
-import { withVisitLocation } from './visit-location'
-import { locationDisclosurePolicy, projectLocationForPrompt } from './location-policy'
-import { completeTurnAnswer, turnAnswerFacts } from './turn-answer'
-import { houseProductReply, PRODUCT_FIT_RULES } from './product-fit'
-import { acceptedUnitAlternative, continueUnitAlternative, unitAlternative } from './unit-alternatives'
-import { readCommercialContext } from './context-read'
-import { commercialLocationBudgetRecommendation } from './commercial-location-recommendation'
-import { propertySelectionReply } from './property-selection'
-import { resolvePropertyTurn } from './property-context'
-import { catalogDialogueReply, catalogQuery, partitionCatalog } from './catalog-dialogue'
-import { preferenceOptionsReply } from './progressive-options'
-import { confirmedLeadProfile } from './lead-profile'
+import { publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
+import { cashPaymentContext } from '@/lib/inmobiliaria/cashPaymentRules'
 import { catalogSearchSettings } from '@/lib/inmobiliaria/catalogSearch'
-import { retrieveCatalogByEmbeddings, semanticCatalogScope } from './catalog-embeddings'
+import { earlyPurchaseDiscountSettings } from '@/lib/inmobiliaria/earlyPurchaseDiscounts'
+import { financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
+import { poolAccessContext } from '@/lib/inmobiliaria/poolAccess'
+import { deliveryContext } from '@/lib/inmobiliaria/projectDelivery'
+import { projectIntroductionContext } from '@/lib/inmobiliaria/projectIntroduction'
+import { projectReadiness } from '@/lib/inmobiliaria/projectReadiness'
+import { botPricingPolicy,launchPricesVisible,referentialPriceNoticeEnabled } from '@/lib/inmobiliaria/unitPrices'
+import 'server-only'
+
 import { recordCatalogRetrieval } from './ai-execution-trace'
+import { catalogDialogueReply,catalogQuery,partitionCatalog } from './catalog-dialogue'
+import { retrieveCatalogByEmbeddings,semanticCatalogScope } from './catalog-embeddings'
+
+import { PROJECT_POSITIONING } from './commercial-experience'
+
+import { readCommercialContext } from './context-read'
+import { conversationalFirstName } from './conversation-style'
+import { projectPublicName } from './conversation-tone'
+import { db,object,scope,text,type Row } from './data'
+import { earlyPurchaseDiscountContext } from './early-purchase-discount-context'
+
+import { financingPolicyContext } from './financing-quote'
+import { informationOnly } from './interaction-mode'
+import { confirmedInterpretationMemory } from './interpretation-memory'
+import { confirmedLeadProfile } from './lead-profile'
+import { locationDisclosurePolicy,projectLocationForPrompt } from './location-policy'
 import { optimizedCatalogReply } from './optimized-catalog-reply'
+import { priceNoticeForConversation } from './price-conditions'
+import { unitPriceQuote } from './price-reply'
+
+import { withProjectObjectionContext } from './project-objections'
+
+import { responseContentScope } from './response-content-scope'
+
+import { nextDiscoveryQuestion, sdrState } from './sdr-rules'
+
+import type { Guard } from './visits'
 
 export async function catalogSearchConfiguration() {
   try {
@@ -181,241 +163,22 @@ export async function commercialReply(info: Row, current: string, summary: Row, 
         catalog_excluded_categories: [...excluded],
         catalog_results: { units, unit_ids: units.map(unit => unit.id), complete: object(info.catalog_read).complete === true && !unknown.length, unknown_unit_ids: unknown.map(unit => unit.id) } } : {}) } }
   }
-  // Explicit project information wins over an inferred or remembered catalogue query.
-  const overview = informationOnly(info) ? null : projectInformationReply(info, current, BROCHURE_URL)
-  if (overview) return { reply: overview, audit: { source: 'project_overview', brochure_sent: true, fallback: false } }
-  info = { ...info, catalogue_price_requested: object(info.contrato_turno).objective === 'ask_price' || asksUnitPrice(current, info.alcance_negocio === 'property') }
-  if (!text(object(info.referencia_unidad).reason)) {
-    const reference = resolvePropertyTurn((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary, info.historial, info.semantica_turno)
-    info = { ...info, referencia_unidad: reference, property_context: reference.context }
-  }
-  {
+  { // Every caller uses typed facts and the shared final writer.
+    // The common interpretation and final writer own the conversation. Legacy
+    // text shortcuts below cannot overrule its objective or rewrite its prose.
     await guard()
     const retrieval = await retrieveCatalogByEmbeddings(info, current)
     recordCatalogRetrieval(retrieval.audit)
-    const operation = text(object(retrieval.audit.resolved_query).operation)
-    // Details, comparisons and selections keep their existing operational
-    // contract (including the selected unit and 360 link). Retrieval selects
-    // facts, never an action or the next commercial decision.
-    const optimized = operation === 'search' ? optimizedCatalogReply(retrieval) : null
+    const optimized = object(retrieval.audit.resolved_query).operation === 'search' ? optimizedCatalogReply(retrieval) : null
     if (optimized) return optimized
-    if (retrieval.units) {
-      const selectedInfo = { ...info, catalogo: retrieval.units, catalog_retrieval: retrieval.audit,
-        catalog_summary: retrieval.audit.catalog_summary,
-        catalog_context_scope: semanticCatalogScope(retrieval.audit) }
-      const answer = catalogDialogueReply(selectedInfo, current)
-      if (answer) return { ...answer, audit: { ...answer.audit, catalog_retrieval: retrieval.audit,
-        catalog_summary: retrieval.audit.catalog_summary, catalog_aggregate_groups: retrieval.audit.catalog_aggregate_groups,
-        catalog_context_scope: semanticCatalogScope(retrieval.audit) } }
-    }
+    const retrievalInfo = retrieval.units ? { ...info, catalogo: retrieval.units, catalog_retrieval: retrieval.audit,
+      catalog_summary: retrieval.audit.catalog_summary, catalog_context_scope: semanticCatalogScope(retrieval.audit) } : info
+    const catalogue = catalogDialogueReply(retrievalInfo, current)
+    if (catalogue) return catalogue
+    const quote = unitPriceQuote(info, current, summary)
+    return { reply: quote?.reply || '', audit: { source: quote ? 'unit_price' : 'commercial',
+      drafting_deferred_to_final_writer: true, verified_price_only: quote?.quoted === true,
+      ...(quote?.units?.length ? { unit_reference: { ids: quote.units.map(unit => unit.id), numbers: quote.units.map(unit => unit.unit_number) } } : {}),
+      ...(quote?.needsAdvisor ? { requires_advisor: true, handoff_reason: 'precio por verificar' } : {}) } }
   }
-  const preferenceAnswer = preferenceOptionsReply(info)
-  if (preferenceAnswer) return preferenceAnswer
-  const catalogueAnswer = catalogDialogueReply(info, current)
-  if (catalogueAnswer) return catalogueAnswer
-  const clarification=recommendationClarification(info,current)
-  if(clarification)return {reply:clarification,audit:{source:'recommendation_clarification',fallback:false}}
-  const house = houseProductReply(current, text(object(info.conversacion).ultima_respuesta))
-  if (house) {
-    const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
-    return { reply: house + (mentionsFinancing(current) ? ' ' + priceFinancingReply(current, { partners, current: object(finance.current) }) : ''), audit: { source: 'product_clarification', fallback: false } }
-  }
-  const offTopic = ['property', 'mixed'].includes(text(info.alcance_negocio)) ? '' : vehicleScopeReply(current, info.historial)
-  if (offTopic) return { reply: offTopic, audit: { source: 'vehicle_out_of_scope', fallback: false } }
-  const informationChoice = projectInformationChoiceReply(current, info.historial)
-  if (informationChoice) return { reply: informationChoice, audit: { source: 'project_information_choice', fallback: false } }
-  const materialIntent = info.brochure_intent ? object(info.brochure_intent) : brochureDeliveryIntent(current, info.historial,
-    { ...(Object.hasOwn(info, 'material_request') ? { material_request: info.material_request } : {}), turn_semantics: info.semantica_turno }, object(info.pregunta_pendiente))
-  const material = brochureReply(current, info.historial, text(info.modo_comercial),!!info.estado_proyecto, materialIntent.requested === true)
-  if (material) return { reply: material, audit: { source: 'brochure', brochure_sent: true, fallback: false } }
-  const resolvedReference = object(info.referencia_unidad)
-  if (resolvedReference.needsClarification === true) return {
-    reply: text(resolvedReference.clarification),
-    audit: { source: 'property_reference_clarification', fallback: false, reference_reason: resolvedReference.reason,
-      catalog_query: resolvedReference.query, reference_resolution: object(resolvedReference.context).reference_resolution,
-      filter_resolution: object(resolvedReference.context).filter_resolution },
-  }
-  const acceptedOption = info.catalogue_price_requested ? null : acceptedPriceOption(info, current, summary)
-  if (acceptedOption) return acceptedOption
-  const alternativeJourney = info.catalogue_price_requested ? null : continueUnitAlternative(info, current)
-  if (alternativeJourney) {
-    const journeyUnits = alternativeJourney.units?.length ? alternativeJourney.units
-      : alternativeJourney.unit ? [alternativeJourney.unit] : []
-    return {
-      reply: alternativeJourney.reply,
-      audit: {
-        source: 'unit_alternative_journey',
-        fallback: false,
-        alternative_phase: alternativeJourney.phase,
-        alternative_unit_id: alternativeJourney.unit?.id || null,
-        offered_unit_ids: alternativeJourney.offered_unit_ids || [],
-        selected_unit_ids: alternativeJourney.selected_unit_ids || [],
-        ...(alternativeJourney.selected_unit_ids?.length && journeyUnits.length ? {
-          unit_reference: { ids: journeyUnits.map(unit => unit.id), numbers: journeyUnits.map(unit => unit.unit_number) },
-        } : {}),
-      },
-    }
-  }
-  const acceptedAlternative = info.catalogue_price_requested ? null : acceptedUnitAlternative(info, current)
-  if (acceptedAlternative) return {
-    reply: acceptedAlternative.reply,
-    audit: {
-      source: 'accepted_unit_alternative',
-      fallback: false,
-      alternative_unit_id: acceptedAlternative.unit.id,
-      selected_unit_ids: [acceptedAlternative.unit.id],
-      unit_reference: { ids: [acceptedAlternative.unit.id], numbers: [acceptedAlternative.unit.unit_number] },
-    },
-  }
-  const locationBudget = commercialLocationBudgetRecommendation(info, current)
-  if (locationBudget) return { reply: locationBudget, audit: { source: 'commercial_location_budget', fallback: false } }
-  const selection = info.catalogue_price_requested ? null : propertySelectionReply(info, current)
-  if (selection) return { ...selection, audit: { ...selection.audit,
-    ...(selection.audit.source === 'property_unit_selected' && Array.isArray(resolvedReference.matches)
-      ? { selected_unit_ids: resolvedReference.matches.map(unit => object(unit).id) } : {}),
-  } }
-  const memory = commercialMemory(info.memoria_comercial || summary._commercial_memory, info.historial, current)
-  const attachBrochure = materialIntent.requested === true
-  const quote = unitPriceQuote(info, current, summary)
-  const alternative = !quote ? unitAlternative(info,current,statedBudget(current)) : null
-  if(alternative)return {reply:alternative.reply,audit:{source:'unit_alternative',fallback:false,
-    ...(object(alternative).pending_question ? { pending_question: object(alternative).pending_question } : {}),
-    alternative_phase: text(object(alternative).phase) || null, alternative_unit_id:alternative.unit?.id||null}}
-  const budgetOptions=budgetOptionsReply(info,current)
-  if(budgetOptions && !quote)return {reply:budgetOptions,audit:{source:'budget_options',fallback:false}}
-  const turnAnswers = turnAnswerFacts(info, current, summary)
-  const plan = salesPlan({ ...info, precio_cotizado: quote?.quoted === true, unidades_cotizadas: quote?.units }, current, summary)
-  const finish = (reply: string, audit: Row) => {
-    // Writer output is delivered as authored. Coverage, facts, questions and links
-    // belong to the AI review; deterministic completion applies only to base copy.
-    if (audit.ai_draft_preserved) return { reply: writerTransportReply(reply), audit: { ...audit,
-      sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
-    if (quote?.needsAdvisor) return { reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'precio por verificar' } }
-    // Safe fallbacks must obey the same stopping rule as generated drafts.
-    const completed = completeTurnAnswer(reply, turnAnswers)
-    if (unresolvedCommercialReply(completed.reply)) return { reply: completed.reply, audit: { ...audit, requires_advisor: true, handoff_reason: 'consulta sin respuesta verificada' } }
-    if (completed.missing.length) return { reply: completed.reply, audit: { ...audit, requires_advisor: true,
-      handoff_reason: 'resolver las consultas pendientes: ' + completed.missing.join(', '), unanswered_topics: completed.missing } }
-    let answer = !audit.ai_draft_preserved && plan.action !== 'discover' && !quote?.followUp ? completed.reply.replace(/\s*¿[^?]+\?\s*$/, '').trim() || completed.reply : completed.reply
-    if (quote?.financingOffer && !mentionsFinancing(answer)) answer += ' ' + quote.financingOffer
-    const shareMaterial = attachBrochure
-    if (shareMaterial && !answer.includes(BROCHURE_URL)) answer += `\n\nLe comparto el brochure para que pueda explorar la propuesta${info.modo_comercial === 'lanzamiento' ? '; las imágenes ilustran cómo está previsto el proyecto' : ''}: ${BROCHURE_URL}`
-    answer += !audit.ai_draft_preserved && plan.closing && !/[¿?]/.test(answer) ? ' ' + plan.closing : ''
-    return { reply: withVisitLocation(answer, info, object(info.location_disclosure).exact_location_allowed === true), audit: { ...audit, ...(shareMaterial ? { brochure_sent: true } : {}), sales_action: plan.action, sales_topics: plan.topics, answered_topics: turnAnswers.topics } }
-  }
-  const mediaExplanation = mediaClarificationReply(current)
-  if (mediaExplanation) return {reply:mediaExplanation,audit:{source:'media_clarification',rewritten:false,review_reasons:[],fallback:false}}
-  if (fabricatedActionRequest(current)) return {reply:'Para confirmarle una cita o una reserva, primero debe quedar registrada y aprobada en el sistema. Puedo ayudarle a coordinarla.',audit:{source:'action_not_recorded',rewritten:false,review_reasons:[],fallback:false}}
-  if (quote && turnAnswers.topics.every(topic => ['price', 'options', 'affordability', 'financing'].includes(topic)) && !/qu[eé] (?:incluye|ofrece|tiene)|cu[aá]ntos dormitorios|c[oó]mo|por qu[eé]|ubicaci[oó]n|d[oó]nde|sector|jard[ií]n|distribuci[oó]n|constructora|due[nñ]o|foto|imagen|modelo|plano|descuento|negocia|cuota|entrada/i.test(current.replace(/jard[ií]n\s*(?:azuayo|zauayo)/gi, ''))) {
-    const finance = object(info.financiamiento), partners = Array.isArray(finance.partners) ? finance.partners.map(text) : []
-    const financing = mentionsFinancing(current) ? priceFinancingReply(current, { partners, current: object(finance.current) }) : ''
-    return finish(quote.reply + (financing ? ' ' + financing : ''), { source: 'unit_price',
-      verified_price_only: quote.quoted === true && turnAnswers.topics.every(topic => ['price', 'options'].includes(topic)),
-      passive_sales: plan.engagement.passive,
-      ...(quote.comparison ? { price_comparison: quote.comparison } : {}),
-      ...(quote.followUp ? { offered_unit_ids: quote.followUp.candidate_ids,
-        pending_question: { id: 'unit_choice', act: 'explore_quoted_options', question: quote.followUp.question, candidate_ids: quote.followUp.candidate_ids, target_ids: [] },
-        progressive_selection: { stage: 'offer_details', question: quote.followUp.question, candidate_ids: quote.followUp.candidate_ids,
-          criteria: { category: quote.followUp.category, bedrooms: quote.followUp.bedrooms }, reason: 'explain_current_quoted_options' } } : {}),
-      ...(quote.units?.length ? { comparison_unit_ids: quote.comparison && !quote.followUp && quote.units.length > 1 ? quote.units.map(unit => unit.id) : [],
-        unit_reference: { ids: quote.units.map(unit => unit.id), numbers: quote.units.map(unit => unit.unit_number) } } : {}),
-      approximate: object(info.politica_comercial).precios_aproximados === true, fallback: false })
-  }
-  if (!quote && info.posicionamiento_proyecto && !/precio|metros|tama[nñ]o|qu[eé] (?:ofrece|incluye)|[mM]²/i.test(current) && /constructora|qui[eé]n(?:es)?[^?\n]*(?:constru|hizo|hace|hicieron|hacen)/i.test(current)) {
-    const ownerToo = /due[nñ]o|propietario/i.test(current)
-    return {reply:'La constructora del proyecto es Agmen.' + (ownerToo ? ' El nombre del propietario no lo tengo confirmado.' : ''), audit:{source:'project_builder',rewritten:false,review_reasons:[],fallback:false, ...(ownerToo ? { requires_advisor: true, handoff_reason: 'confirmar propietario' } : {})}}
-  }
-  const reference = object(info.referencia_unidad)
-  const matches = Array.isArray(reference.matches) ? reference.matches.map(object)
-    : resolveCatalogReference((Array.isArray(info.catalogo) ? info.catalogo : []).map(object), current, summary._unit_reference).matches
-  const modelReply = unitModelRequestReply(matches, current, object(info.modelo_3d).se_adjunta_en_esta_respuesta === true)
-  if (modelReply && !quote) return finish(modelReply, { source: 'unit_model_request', rewritten: false, review_reasons: [], fallback: false })
-  if (plan.positive_after_model) return finish(plan.memory.visit_declined ? 'Me alegra que le haya gustado. Puede explorar los espacios a su ritmo en el recorrido.' : 'Me alegra que le haya gustado. El recorrido le permite explorar la distribución y ver cómo encaja con lo que busca.', { source: 'interest_after_model', fallback: false })
-  const unitReply = catalogReferenceReply(matches, current)
-  if (unitReply && !quote) return finish(unitReply, {source:'catalog_reference',rewritten:false,review_reasons:[],fallback:false})
-  const recommendation = !quote ? unitRecommendation(info, current, summary) : null
-  if (recommendation) return finish(recommendation.reply, recommendation.audit)
-  if (info.posicionamiento_proyecto && /asegur|garanti/i.test(current) && /precio|rentab|subir|plusval|valori/i.test(current)) {
-    return { reply: 'La ubicación en Puertas del Sol es parte del atractivo para invertir. Podemos comparar las opciones según sus objetivos, pero no podemos garantizar que el precio suba ni una rentabilidad futura.', audit: { source: 'investment_expectations', rewritten: false, review_reasons: [], fallback: false } }
-  }
-  // The opt-in route already has a final writer and review with selected facts.
-  // Do not pay for an earlier full-catalogue draft of the same response.
-  if (info.final_review_follows === true && (object(info.catalog_search).embeddingsEnabled === true || !configuredResponseReviewEnabled()))
-    return { reply: '', audit: { source: 'commercial', rewritten: false, fallback: false,
-      drafting_deferred_to_final_writer: true, sales_action: plan.action, sales_topics: plan.topics } }
-  const [prompt, reviewer] = await Promise.all([activePrompt('respuesta_comercial'),
-    info.final_review_follows === true || !responseReviewEnabled() ? Promise.resolve('') : activePrompt('revisor_respuesta')])
-  const writerInfo = withProjectIntroductionForTurn(info)
-  delete writerInfo.final_review_follows
-  const input = { response_content_scope: info.alcance_contenido_turno, ...experienceContext(writerInfo, current, memory), consultas_del_turno: turnAnswers.topics, respuestas_verificadas: turnAnswers.facts, tema_actual: salesSubject(current, info.historial), respuesta_precio_verificada: quote?.reply || null, siguiente_pregunta: plan.action === 'discover' ? info.siguiente_pregunta : null, plan_comercial: plan, resumen: summary, mensaje_actual: current }
-  const rules = RESPONSE_CONTENT_SCOPE_RULES + '\n' + NATURAL_CONVERSATION_RULES + '\n' + TURN_INTENT_RULES + '\n' + COMMERCIAL_EXPERIENCE_RULES + RESIDENTIAL_CONTINUITY_RULES + turnWritingRules(current, memory) + openingWritingRules(info.historial) + '\n' + PRICE_REPLY_RULES + '\n' + PRODUCT_FIT_RULES
-    + (info.objeciones_proyecto ? '\n' + PROJECT_OBJECTION_WRITER_RULES : '')
-    + '\n' + FINANCING_PROCESS_RULES + '\n' + ASSISTANCE_CONTINUATION_RULES
-    + '\nResponda cada tema de consultas_del_turno y cualquier otra solicitud del turno, incluso si llegó en otro mensaje consecutivo o no tiene signo de pregunta. La lista de temas es orientativa, no exhaustiva. Integre respuestas_verificadas con naturalidad; una duda de si le alcanza merece orientación financiera, no otra pregunta de presupuesto. La cantidad de vehículos propios es una necesidad de estacionamiento, no una compra de vehículos. No omita dudas por brevedad ni por una respuesta de financiamiento. El mapa se añade solo si el cliente lo pidió o al confirmar realmente la cita; no lo incluya en invitaciones, propuestas, precios ni modelos. Ante opciones ambiguas, dé alternativas breves según los referentes plausibles sin repetir una negativa anterior.'
-    + (attachBrochure ? `\nIncluya el brochure solicitado en esta respuesta: ${BROCHURE_URL}. Responda las demás consultas sin prometer enviarlo después, preguntar si desea recibirlo o afirmar que no está disponible.` : '')
-    + (info.estado_proyecto ? '\n' + readinessRules(info.estado_proyecto as ProjectReadiness) : info.modo_comercial === 'lanzamiento' ? '\n' + LAUNCH_PROJECT_RULES : '')
-    + '\n' + PROJECT_DELIVERY_RULES
-    + '\n' + PROJECT_NAME_WRITING_RULES
-    + '\nEl tema_actual separa el producto del tipo de pregunta. Si subject es property, responda sobre inmuebles; no vuelva a corregir consultas anteriores sobre vehículos que el cliente ya dejó atrás. Una pregunta de crédito sobre una moto no cuenta como orientación financiera para una vivienda.'
-    + '\nEstas decisiones del turno prevalecen sobre preguntas o cierres genéricos del guion: ' + plan.rules
-    + '\nLa referencia_unidad y property_context resuelven el tema de ESTE turno. Una categoría descartada no es una preferencia. Si hay comparación activa, responda sobre todas esas unidades; no las sustituya por el rango general ni la categoría antigua del lead. Una lista de opciones no es una elección del cliente. Al presentar opciones cierre con una pregunta para conocer la opción de interés; el tour corresponde a una unidad elegida o a una solicitud del cliente. No repita preguntas cuyos datos ya constan en contexto.'
-    + '\nEl campo modelo_3d indica el tour que corresponde incluir en ESTA respuesta. Si contiene una unidad, el enlace abre esa unidad; si unidad es null, abre el tour general. Integre texto_de_entrega y su enlace autorizado con naturalidad. Procure brevedad sin omitir solicitudes. No ofrezca enviarlo después ni invente otro enlace. No prometa fotos o archivos individuales del inventario y no confunda el tour con una cita presencial.'
-    + `\nLas indicaciones de tono, longitud sugerida, saludo, cantidad de preguntas y continuación comercial son recomendaciones editoriales: no rechace una respuesta por variar esas formas. El límite técnico de entrega es ${MAX_REPLY_CHARACTERS} caracteres. Compruebe los hechos, las acciones autorizadas, la selección y la cobertura de la solicitud actual. Una pregunta tiene que ser pertinente y útil; no depende de copiar la propuesta del guion.`
-  const writingInput = projectContentForWriter(input, object(info.alcance_contenido_turno))
-  // Conversation always runs completeTurnReply after this draft. Its one
-  // business-risk review owns approval; this older gate serves direct callers.
-  if (info.final_review_follows === true) {
-    await guard()
-    return finish(await draftReply(prompt + rules, writingInput), { rewritten: false, review_reasons: [], fallback: false, ai_draft_preserved: true })
-  }
-  const reasons: string[] = []
-  const editorialCodes = new Set(['style', 'repeated_greeting', 'repeated_question', 'missing_next_step'])
-  let reply = await draftReply(prompt + rules, writingInput)
-  if (responseReviewObservationOnly()) {
-    reply = writerTransportReply(reply)
-    await guard()
-    let review: Row = {}, reviewFailure = ''
-    try {
-      review = await aiJson(reviewer + rules + SEMANTIC_POLICY_REVIEW_RULES, { ...input, respuesta: reply }, reviewSchema, undefined, undefined, undefined, 'review')
-    } catch (error) { reviewFailure = error instanceof Error ? error.message : 'REVIEW_UNAVAILABLE' }
-    const approved = !reviewFailure && review.aprobada === true && review.requiere_asesor !== true
-    recordDraftDecision(reply, 0, approved, review, [])
-    return { reply, audit: { source: 'commercial', status: 'review_observed',
-      observation: { status: reviewFailure ? 'unavailable' : !approved ? 'rejected_review' : 'checked', enforcement: false }, review_control: responseReviewControl(),
-      review_enforcement: { blocking: false, mode: 'observation_only' }, independent_review: true,
-      semantic_review: { status: reviewFailure ? 'unavailable' : approved ? 'checked' : 'rejected',
-        review, ...(reviewFailure ? { error_code: reviewFailure } : {}), acceptance: { content_approved: approved } },
-      final_validation: { passed: approved, policy: 'observation_only', issues: [], enforcement: false },
-      transport_validation: { passed: true, policy: 'nonempty_and_length' },
-      follow_up: { usable: false, source: 'legacy_writer_without_question_metadata' }, repair_attempts: [],
-      recovery: { pending: false, strategy: 'observation_only' }, needs_advisor: false, unresolved: [],
-      rewritten: false, fallback: false, ai_draft_preserved: true,
-    } }
-  }
-  if (!responseReviewEnabled()) {
-    const unreviewed = unreviewedWriterReply(reply)
-    return { reply: unreviewed.reply, audit: { source: 'commercial', ...unreviewed.audit } }
-  }
-  // One bounded rewrite; rejected drafts never reach Kommo.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await guard()
-    const review = await aiJson(reviewer + rules + SEMANTIC_POLICY_REVIEW_RULES + '\nDevuelva además requiere_asesor=true SOLO si una pregunta inmobiliaria concreta no puede resolverse con los hechos del contexto y debe verificarla el equipo. No lo active por estilo, una preferencia aún sin elegir, preguntas sobre otros negocios, ni enlaces o agenda que el sistema adjunta/procesa. Tampoco por falta de una fecha de entrega: puede explicar que aún no se ha definido. Si hay datos suficientes, corrija el borrador en vez de derivar.', { ...input, respuesta: reply }, reviewSchema, undefined, undefined, undefined, 'review')
-    if (review.requiere_asesor === true) return { reply: '', audit: { source: 'verified_information_gap', requires_advisor: true, handoff_reason: 'consulta inmobiliaria que requiere información del equipo', fallback: false } }
-    const issues: string[] = [] // Final structured review validates business facts.
-    if (!reply.trim()) issues.push('empty_reply')
-    if (reply.length > MAX_REPLY_CHARACTERS) issues.push('transport_length')
-    const reviewIssues = Array.isArray(review.motivos) ? review.motivos.map(text) : []
-    const onlyStyle = reviewIssues.length > 0 && reviewIssues.every(reason => editorialCodes.has(reason))
-    const approved = !issues.length && (review.aprobada === true || onlyStyle)
-    recordDraftDecision(reply, attempt, approved, review, issues)
-    if (approved) return finish(reply, { rewritten: attempt > 0, review_reasons: reasons, fallback: false, ai_draft_preserved: true,
-      editorial_observations: [...new Set(reviewIssues.filter(issue => editorialCodes.has(issue)))], ...(onlyStyle ? { style_review_only: true } : {}) })
-    reasons.push(...issues, ...(Array.isArray(review.motivos) ? review.motivos.filter(v => reviewReasons.includes(v as typeof reviewReasons[number]) && !editorialCodes.has(text(v))) as string[] : []))
-    if (!attempt) {
-      await guard()
-      reply = await draftReply(prompt + rules, { ...writingInput, borrador_rechazado: reply, correcciones_requeridas: reasons,
-        tarea: 'Corrija los hechos, acciones o solicitudes pendientes indicados y conserve el resto de la redacción. Una pregunta útil es opcional, sin inventar hechos.' })
-    }
-  }
-  return finish(quote?.reply || salesTopicReply(info, current) || commercialFallback(info, current, memory), { rewritten: true, review_reasons: [...new Set(reasons)], fallback: true })
 }

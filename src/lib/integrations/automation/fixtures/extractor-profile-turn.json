@@ -1,29 +1,56 @@
 {
   "evidence_sources": [],
-  "conversation_language": { "kind": "unchanged", "tag": null, "evidence": "", "confidence": "high" },
-  "recommendation_request": { "requested": false, "evidence": "", "confidence": "high" },
+  "conversation_language": {
+    "kind": "unchanged",
+    "tag": null,
+    "evidence": "",
+    "confidence": "high"
+  },
+  "recommendation_request": {
+    "requested": false,
+    "evidence": "",
+    "confidence": "high"
+  },
   "financing_identity": null,
   "financing_amounts": [],
-  "financing_quote": { "requested": false, "before_application": false, "evidence": "", "years": null, "years_evidence": "" },
+  "financing_quote": {
+    "requested": false,
+    "before_application": false,
+    "evidence": "",
+    "years": null,
+    "years_evidence": ""
+  },
   "events": [],
   "preferred_category": null,
   "purchase_purpose": null,
-  "declaration_evidence": { "preferred_category": null, "purchase_purpose": null },
-  "action_evidence": { "requested_advisor": null, "opt_out": null, "consent_granted": null },
+  "declaration_evidence": {
+    "preferred_category": null,
+    "purchase_purpose": null
+  },
   "qualification": {
-    "actividad_comercial": null, "area_buscada": null, "prioridad": null,
-    "plazo_compra": null, "presupuesto_texto": null, "dormitorios_texto": null
+    "actividad_comercial": null,
+    "area_buscada": null,
+    "prioridad": null,
+    "plazo_compra": null,
+    "presupuesto_texto": null,
+    "dormitorios_texto": null
   },
   "unit_id": null,
   "preferred_visit_time_text": null,
   "visit_needs_help": false,
-  "requested_advisor": false,
-  "opt_out": false,
-  "consent_granted": false,
-  "financing_consent": null,
   "financing_partner": null,
-  "financing_partner_choice": { "kind": "none", "name": null, "evidence": "", "confidence": "high" },
-  "material_request": { "kind": "none", "evidence": "", "confidence": "high" },
+  "financing_partner_choice": {
+    "kind": "none",
+    "name": null,
+    "evidence": "",
+    "confidence": "high",
+    "reference_kind": "none"
+  },
+  "material_request": {
+    "kind": "none",
+    "evidence": "",
+    "confidence": "high"
+  },
   "full_name": "Elena Diaz",
   "name_response": null,
   "residence_city": "Loja",
@@ -31,20 +58,67 @@
   "declared_location": null,
   "residence_response": null,
   "residence_confirmation": null,
-  "profile_evidence": { "full_name": "mi nombre es Elena Diaz", "residence_city": "vivo en Loja", "residence_country": null },
+  "profile_evidence": {
+    "full_name": "mi nombre es Elena Diaz",
+    "residence_city": "vivo en Loja",
+    "residence_country": null
+  },
   "applicant_type": null,
   "national_id": null,
   "employment_stability_months": null,
   "job_title": null,
   "monthly_income": null,
   "ruc": null,
-  "visit_preference": null,
-  "visit_intent": { "kind": "none", "purpose": "none", "target": "unspecified", "destination": null, "evidence": "", "confidence": "high" },
+  "visit_preference": {
+    "version": "visit-preference-v2",
+    "decision": "none",
+    "uncertain_fields": [],
+    "location_type": null,
+    "evidence": "",
+    "confidence": "low",
+    "date": {
+      "kind": "none",
+      "year": null,
+      "month": null,
+      "day": null,
+      "offset_days": null,
+      "weekday": null,
+      "week_offset": null,
+      "occurrence": null
+    },
+    "time": {
+      "kind": "none",
+      "hour": null,
+      "minute": null,
+      "meridiem": null,
+      "period": null
+    },
+    "source": {
+      "kind": "current",
+      "message_id": null
+    }
+  },
+  "visit_intent": {
+    "kind": "none",
+    "purpose": "none",
+    "target": "unspecified",
+    "destination": null,
+    "evidence": "",
+    "confidence": "high"
+  },
   "requests": [],
   "turn_semantics": {
     "selection_preferences": {
-      "bedrooms": { "kind": "unchanged", "evidence": "", "confidence": "high" },
-      "priority": { "kind": "unchanged", "evidence": "", "confidence": "high" }
+      "bedrooms": {
+        "kind": "unchanged",
+        "evidence": "",
+        "confidence": "high"
+      },
+      "priority": {
+        "kind": "unchanged",
+        "evidence": "",
+        "confidence": "high"
+      }
     },
     "discount_request": null,
     "primary_intent": "answer_previous",
@@ -52,23 +126,165 @@
     "confidence": "high",
     "housing_quantities": [],
     "answer_to_previous": {
-      "question_id": "lead_profile", "kind": "value",
-      "evidence": "claro, mi nombre es Elena Diaz y vivo en Loja", "confidence": "high"
+      "question_id": "lead_profile",
+      "kind": "value",
+      "evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
+      "confidence": "high"
     },
-    "reservation": { "kind": "none", "evidence": "", "unit_numbers": [], "confidence": "high" },
+    "reservation": {
+      "kind": "none",
+      "evidence": "",
+      "unit_numbers": [],
+      "confidence": "high",
+      "reference_kind": "none"
+    },
     "property": {
-      "group": null, "category": null, "excluded_categories": [], "operation": "none",
-      "reference_kind": "none", "unit_numbers": [], "selector": null, "query_scope": null,
+      "group": null,
+      "category": null,
+      "excluded_categories": [],
+      "operation": "none",
+      "reference_kind": "none",
+      "unit_numbers": [],
+      "selector": null,
+      "query_scope": null,
       "filters": {
-        "floor_number": null, "bedrooms": null, "bedrooms_any": [], "bedrooms_operator": null,
-        "bedrooms_upper": null, "bedrooms_required": null, "min_area_m2": null, "max_area_m2": null
+        "floor_number": null,
+        "bedrooms": null,
+        "bedrooms_any": [],
+        "bedrooms_operator": null,
+        "bedrooms_upper": null,
+        "bedrooms_required": null,
+        "min_area_m2": null,
+        "max_area_m2": null
       },
       "filter_evidence": {
-        "floor_number": "", "bedrooms": "", "bedrooms_any": "", "bedrooms_operator": "",
-        "bedrooms_upper": "", "bedrooms_required": "", "min_area_m2": "", "max_area_m2": ""
+        "floor_number": "",
+        "bedrooms": "",
+        "bedrooms_any": "",
+        "bedrooms_operator": "",
+        "bedrooms_upper": "",
+        "bedrooms_required": "",
+        "min_area_m2": "",
+        "max_area_m2": ""
       },
-      "evidence": "", "confidence": "high"
+      "evidence": "",
+      "confidence": "high"
     },
-    "budget": { "status": "not_discussed", "subject": "unspecified", "amount": null, "amount_reference_id": null, "evidence": "", "confidence": "high" }
-  }
+    "budget": {
+      "status": "not_discussed",
+      "subject": "unspecified",
+      "amount": null,
+      "amount_reference_id": null,
+      "evidence": "",
+      "confidence": "high"
+    },
+    "interaction_goal": {
+      "mode": "unchanged",
+      "qualification_decision": "unchanged",
+      "mode_evidence": "",
+      "catalog_scope": "current",
+      "scope_evidence": "",
+      "excluded_categories": [],
+      "specific_topic": false,
+      "topic_evidence": "",
+      "confidence": "low"
+    },
+    "nurture_request": {
+      "decision": "unchanged",
+      "evidence": "",
+      "contact_permission": "unchanged",
+      "contact_evidence": "",
+      "purchase_horizon": "",
+      "confidence": "high"
+    },
+    "unit_choice": {
+      "kind": "none",
+      "unit_numbers": [],
+      "evidence": "",
+      "confidence": "high"
+    },
+    "category_choice": {
+      "kind": "none",
+      "category": null,
+      "evidence": "",
+      "confidence": "high"
+    },
+    "preference_change": {
+      "kind": "none",
+      "bedrooms": null,
+      "bedroom_decision": "unspecified",
+      "evidence": "",
+      "confidence": "low"
+    }
+  },
+  "communication": {
+    "kind": "substantive",
+    "evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
+    "confidence": "high",
+    "greeting_present": false
+  },
+  "action_authority": {
+    "version": "action-authority-v1",
+    "advisor": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "visit": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "financing": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "reservation": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "tracking": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    }
+  },
+  "routing": {
+    "repair_requested": false,
+    "team_attendance": false,
+    "visit_help": false,
+    "visit_response": "none",
+    "proposal_id": null,
+    "option_index": null,
+    "all_options_declined": false,
+    "location_target": "none",
+    "visual_target": "none",
+    "visual_only": false,
+    "house_request": false,
+    "evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
+    "confidence": "high",
+    "location_kind": "none",
+    "address_preference": "unspecified",
+    "map_preference": "unspecified",
+    "visual_preference": "unspecified",
+    "photo_requested": false
+  },
+  "visit_preferences": []
 }

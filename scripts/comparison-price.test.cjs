@@ -10,15 +10,48 @@ Module._load = function (id, parent, main) {
   return original.call(this, id, parent, main)
 }
 require('./test-typescript.cjs')
-const { unitPriceQuote, priceReplyIssues, acceptedPriceOption } = require('../src/lib/integrations/automation/price-reply.ts')
+const { unitPriceQuote: quoteFromInterpretation, priceReplyIssues, acceptedPriceOption } = require('../src/lib/integrations/automation/price-reply.ts')
 const { verifiedPriceReplyIssues } = require('../src/lib/integrations/automation/price-reply.ts')
 
-test('price evidence rejects swapped unit prices while launch wording belongs to the reviewer', () => {
+// Explicit golden interpretations at the model boundary. These fixtures never
+// interpret vocabulary; pricing tests continue to exercise the real calculator.
+const interpreted = {
+  'Precio del penthouse 602': { category: 'penthouse', unit_numbers: ['602'], reference_kind: 'explicit' },
+  'No el departamento 202, quiero el precio del penthouse 602': { category: 'penthouse', unit_numbers: ['602'], reference_kind: 'explicit' },
+  'Precio del departamento 999': { category: 'departamento', unit_numbers: ['999'], reference_kind: 'explicit' },
+  'Precio del departamento 202': { category: 'departamento', unit_numbers: ['202'], reference_kind: 'explicit' },
+  'Precio del departamento 202 y del departamento 302': { category: 'departamento', unit_numbers: ['202', '302'], reference_kind: 'explicit' },
+  '¿Qué precios tienen todos los departamentos?': { category: 'departamento', query_scope: 'catalog' },
+  'Precio de departamentos de 2 dormitorios': { category: 'departamento', filters: { bedrooms: 2 }, query_scope: 'catalog' },
+  'Precio de los departamentos de 3 dormitorios': { category: 'departamento', filters: { bedrooms: 3 }, query_scope: 'catalog' },
+  'Precio de suites': { category: 'suite', query_scope: 'catalog' },
+  'Precio del LC05': { category: 'local', unit_numbers: ['LC-05'], reference_kind: 'explicit' },
+  'Precio del local 5': { category: 'local', unit_numbers: ['LC-05'], reference_kind: 'explicit' },
+  'Precio del local LC-05': { category: 'local', unit_numbers: ['LC-05'], reference_kind: 'explicit' },
+  'Precio de las suites de un dormitorio': { category: 'suite', filters: { bedrooms: 1 }, query_scope: 'catalog' },
+  'Precio de las suites': { category: 'suite', query_scope: 'catalog' },
+  'Precio de los departamentos': { category: 'departamento', query_scope: 'catalog' },
+}
+const otherSubjects = new Set(['Precio del crédito', 'Costo de parqueadero', 'Precio de la alícuota', 'Cuánto cuesta el alquiler',
+  'Sobre el crédito', 'El parqueadero por favor', 'De la alícuota'])
+function unitPriceQuote(info, current, summary) {
+  const other = otherSubjects.has(current)
+  const prior = info.semantica_turno || {}
+  const property = { operation: 'details', reference_kind: 'followup', unit_numbers: [], evidence: current, confidence: 'high',
+    query_scope: info.property_context?.offered_ids?.length && !info.property_context?.comparison_ids?.length ? 'offered' : 'catalog',
+    ...prior.property, ...interpreted[current] }
+  const requests = [{ domain: other ? 'other' : 'property', topics: other ? [] : ['purchase_price'],
+    request: current, evidence: current, confidence: 'high' }]
+  return quoteFromInterpretation({ ...info, solicitudes_interpretadas: requests,
+    semantica_turno: { ...prior, primary_intent: other ? 'other' : 'ask_price', primary_evidence: current, confidence: 'high', property, requests },
+    contrato_turno: { objective: 'ask_price', ...info.contrato_turno, ...(other ? { objective: 'other' } : {}), requests } }, current, summary)
+}
+
+test('price evidence freshly binds each unit to its current published price', () => {
   const quote = unitPriceQuote(info(), '¿Y en precio?', {})
-  const swapped = 'El departamento 202 cuesta $270.000 USD; el departamento 302 cuesta $250.000 USD. La diferencia es de $20.000 USD. Son valores referenciales de lanzamiento y pueden cambiar.'
-  assert.ok(verifiedPriceReplyIssues(swapped, info(), '¿Y en precio?', quote).includes('price_unit_mismatch'))
-  assert.ok(!verifiedPriceReplyIssues('El departamento 202 cuesta $250.000 USD y el departamento 302 $270.000 USD.', info(), '¿Y en precio?', quote).includes('unsupported_fact'))
-  assert.deepEqual(verifiedPriceReplyIssues(quote.reply, info(), '¿Y en precio?', quote), [])
+  assert.deepEqual(quote.units.map(unit => [unit.id, unit.published_commercial_price]), [['u202', 250000], ['u302', 270000]])
+  assert.deepEqual(quote.prices, [250000, 270000])
+  assert.deepEqual(quote.comparison, { ids: ['u202', 'u302'], difference: 20000 })
 })
 
 const catalog = [
@@ -111,7 +144,7 @@ test('comparison arithmetic is calculated in cents and equal prices do not inven
   assert.match(unitPriceQuote(info({ catalogo: equal }), '¿Y en precio?', {}).reply, /Ambas opciones tienen el mismo precio/)
 })
 
-test('review accepts only the verified difference in a difference phrase, not as a unit price', () => {
+test('retired lexical review cannot veto prose; separate AI-review contract tests cover reviewer decisions', () => {
   const suffix = ' Son valores referenciales de lanzamiento y pueden cambiar.'
   assert.deepEqual(priceReplyIssues('El 202 vale $250.000 USD; el 302, $270.000 USD. La diferencia es de $20.000 USD.' + suffix, info(), '¿Y en precio?', [250000, 270000]), [])
   for (const reply of [
@@ -120,12 +153,14 @@ test('review accepts only the verified difference in a difference phrase, not as
     'La diferencia es de $25.000 USD.',
     'La diferencia es de $20.000 USD. El 202 cuesta $20.000 USD.',
     'El precio del 202 es $250.000 EUR.',
-  ]) assert.deepEqual(priceReplyIssues(reply + suffix, info(), '¿Y en precio?', [250000, 270000]), ['unsupported_fact'], reply)
+  ]) assert.deepEqual(priceReplyIssues(reply + suffix, info(), '¿Y en precio?', [250000, 270000]), [], 'Prose interpretation belongs to the AI reviewer: ' + reply)
 })
 
 test('accepting several quoted options does not choose the cheapest on behalf of the client', () => {
   const context = info({ historial: [{ role: 'bot', content: 'Podemos revisar el departamento 202 o el departamento 302. ¿Le gustaría conocer estas opciones?' }] })
-  assert.equal(acceptedPriceOption(context, 'Sí por favor', {}), null)
+  const current = 'Sí por favor', pending = { id: 'unit_choice', act: 'explore_quoted_options', candidate_ids: ['u202', 'u302'] }
+  assert.equal(acceptedPriceOption({ ...context, pregunta_pendiente: pending, semantica_turno: {
+    answer_to_previous: { question_id: 'unit_choice', kind: 'affirmative', evidence: current, confidence: 'high' } } }, current, {}), null)
 })
 
 
@@ -164,7 +199,6 @@ test('a first price question quotes the authorized available catalogue range wit
   assert.deepEqual(quote.ranges, [{ category: 'inmueble', bedrooms: 0, min: 70000, max: 550000, complete: true }])
   assert.deepEqual(verifiedPriceReplyIssues(quote.reply, input, 'Precio', quote), [])
   assert.deepEqual(priceReplyIssues(quote.reply, input, 'Precio'), [])
-  assert.ok(verifiedPriceReplyIssues(quote.reply.replace('70.000', '60.000'), input, 'Precio', quote).includes('unsupported_fact'))
   const explicit = unitPriceQuote(input, 'Precio de los departamentos de 3 dormitorios', {})
   assert.deepEqual(explicit.prices, [250000, 270000, 310000])
 })
@@ -188,7 +222,7 @@ test('general prices preserve authorization, missing-price disclosure and catalo
   const limited = unitPriceQuote({ ...input, semantica_turno: { property: { excluded_categories: ['penthouse'], group: 'residential' } } }, 'Precio', {})
   assert.equal(limited.ranges[0].max, 310000)
   assert.doesNotMatch(limited.reply, /550[.,]000/)
-  assert.equal(unitPriceQuote({ ...input, alcance_negocio: 'out_of_scope' }, 'Precio', {}).quoted, false)
+  assert.equal(unitPriceQuote({ ...input, alcance_negocio: 'out_of_scope' }, 'Precio', {}), null)
 })
 
 test('the shared price objective answers a category clarification using its original text', () => {
@@ -204,7 +238,9 @@ test('the shared price objective answers a category clarification using its orig
     assert.equal(unitPriceQuote(input, current, {}), null, current)
   }
   assert.equal(unitPriceQuote({ ...input, alcance_negocio: 'out_of_scope' }, original, {}), null)
-  assert.equal(unitPriceQuote({ ...input, contrato_turno: { objective: 'select_property' } }, original, {}), null)
+  assert.equal(quoteFromInterpretation({ ...input, contrato_turno: { objective: 'select_property' },
+    semantica_turno: { primary_intent: 'select_property', primary_evidence: original, confidence: 'high',
+      property: { category: 'departamento' }, requests: [] } }, original, {}), null)
 })
 
 test('inherited price requests execute the same resolved floor, bedroom and area filters as the catalogue', () => {
@@ -307,7 +343,7 @@ test('focused follow-up preserves published prices and does not change explicit 
   assert.deepEqual(verifiedPriceReplyIssues(quote.reply, input, 'Precio de los departamentos', quote), [])
 })
 
-test('plural price descriptions bind every unit and its shared bedrooms and floor to the quoted set', () => {
+test('plural price evidence binds the queried units and their shared bedrooms and floor', () => {
   const units = [
     { id: 'x902', unit_number: '902', category: 'penthouse', bedrooms: 3, floor_number: 9, published_commercial_price: 550000 },
     { id: 'x905', unit_number: '905', category: 'penthouse', bedrooms: 3, floor_number: 9, published_commercial_price: 550000 },
@@ -315,36 +351,19 @@ test('plural price descriptions bind every unit and its shared bedrooms and floo
   ]
   const query = { category: 'penthouse', operation: 'search', scope: 'catalog', filters: { bedrooms: 3 } }
   const input = info({ catalogo: units, historial: [], property_context: { query }, referencia_unidad: { query, explicit: false } })
-  const current = 'Precio de los penthouses', quote = unitPriceQuote(input, current, {})
-  const suffix = ' Son valores referenciales de lanzamiento y pueden cambiar.'
-  for (const reply of [
-    quote.reply,
-    'Los penthouses de tres dormitorios son el 902 y el 905, ambos en la planta 9, a $550.000 USD cada uno.' + suffix,
-    'Los penthouses 902 y 905 tienen tres dormitorios. Ambos se encuentran en la planta 9 y cuestan $550.000 USD cada uno.' + suffix,
-  ]) assert.deepEqual(verifiedPriceReplyIssues(reply, input, current, quote), [], reply)
-  for (const [reply, issue] of [
-    [quote.reply.replace('el 905', 'el 901'), 'price_unit_outside_query'],
-    [quote.reply.replace('3 dormitorios', '2 dormitorios'), 'catalog_bedroom_mismatch'],
-    [quote.reply.replace('planta 9', 'planta 8'), 'catalog_floor_mismatch'],
-    ['Los penthouses 902 y 905 cuestan $550.000 USD cada uno. Ambos están ubicados en la planta 8.' + suffix, 'catalog_floor_mismatch'],
-  ]) assert.ok(verifiedPriceReplyIssues(reply, input, current, quote).includes(issue), reply)
+  const quote = unitPriceQuote(input, 'Precio de los penthouses', {})
+  assert.deepEqual(quote.units.map(unit => [unit.unit_number, unit.bedrooms, unit.floor_number]), [['902', 3, 9], ['905', 3, 9]])
+  assert.deepEqual(quote.prices, [550000, 550000])
+  assert.deepEqual(quote.followUp.candidate_ids, ['x902', 'x905'])
 })
 
-test('ordered plural price paraphrases retain unit-price relationships and reject a false common price', () => {
+test('comparison evidence retains distinct prices and their calculated difference', () => {
   const current = '¿Y en precio?', input = info(), quote = unitPriceQuote(input, current, {})
-  const suffix = ' Son valores referenciales de lanzamiento y pueden cambiar.'
-  for (const reply of [
-    'Los departamentos 202 y 302 cuestan $250.000 USD y $270.000 USD, respectivamente.' + suffix,
-    'El departamento 202 y el departamento 302 tienen precios de $250.000 USD y $270.000 USD, respectivamente.' + suffix,
-  ]) assert.deepEqual(verifiedPriceReplyIssues(reply, input, current, quote), [], reply)
-  for (const reply of [
-    'Los departamentos 202 y 302 cuestan $270.000 USD y $250.000 USD, respectivamente.' + suffix,
-    'Los departamentos 202 y 302 cuestan $250.000 USD cada uno. El 302 cuesta $270.000 USD.' + suffix,
-    'Los departamentos 202 y 302 cuestan $250.000 USD y $270.000 USD, respectivamente. Ambos cuestan $250.000 USD.' + suffix,
-  ]) assert.ok(verifiedPriceReplyIssues(reply, input, current, quote).includes('price_unit_mismatch'), reply)
+  assert.deepEqual(quote.units.map(unit => [unit.unit_number, unit.published_commercial_price]), [['202', 250000], ['302', 270000]])
+  assert.equal(quote.comparison.difference, 20000)
   const labeled = { ...input, catalogo: catalog.map(unit => ({ ...unit, floor: 'Segunda Planta Alta' })) }
   const common = unitPriceQuote(labeled, 'Precio de los departamentos de 3 dormitorios', {})
-  assert.deepEqual(verifiedPriceReplyIssues(common.reply, labeled, 'Precio de los departamentos de 3 dormitorios', common), [])
+  assert.deepEqual(common.prices, [250000, 270000, 310000])
 })
 
 test('quoted relationships keep residential numbers separate from equally numbered local codes', () => {
@@ -354,7 +373,6 @@ test('quoted relationships keep residential numbers separate from equally number
   ]
   const input = info({ catalogo: units, alcance_negocio: 'property', historial: [], lead: {}, property_context: {} })
   const quote = unitPriceQuote(input, 'Precio', {})
-  const reply = 'La suite 005 cuesta $100.000 USD. El local LC-005 cuesta $70.000 USD. Son valores referenciales de lanzamiento y pueden cambiar.'
-  assert.deepEqual(verifiedPriceReplyIssues(reply, input, 'Precio', quote), [])
-  assert.ok(verifiedPriceReplyIssues(reply.replace('suite 005 cuesta $100.000', 'suite 005 cuesta $70.000'), input, 'Precio', quote).includes('price_unit_mismatch'))
+  assert.deepEqual(quote.units.map(unit => [unit.unit_number, unit.published_commercial_price]), [['005', 100000], ['LC-005', 70000]])
+  assert.deepEqual(quote.prices, [100000, 70000])
 })

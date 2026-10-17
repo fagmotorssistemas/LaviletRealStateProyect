@@ -1,3 +1,5 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
+import { financingInvitationReceipt } from './financing-invitation'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { defaultFinancingGuidance, validateFinancingGuidance, changeFinancingGuidance, financingGuidanceSettings } from '@/lib/inmobiliaria/financingGuidance'
@@ -163,7 +165,8 @@ test('the reported simple acceptance is not turned into quotation orientation by
     assert.equal(result.years, null)
     const previous = '¿Desea que continuemos con el proceso de financiamiento por este chat?'
     assert.equal(financingInputs(extracted, current, previous, { partners, current: {} },
-      { kind: 'unverified_offer', reply: previous }).consent, true, current)
+      { kind: 'financing_consent', reply: previous, invitation: financingInvitationReceipt({ text: previous,
+        purpose: 'permission_to_continue', continuation_id: 'financing_invitation', continuation_act: 'financing' }) }).consent, true, current)
   }
 })
 
@@ -228,9 +231,9 @@ test('writer receives the orientation objective and reviewer receives the same c
       assert.equal(quote.orientation_only, true)
       assert.equal((quote.estimates as Row[])[0].maximum_loan_reference, 150000)
       if (task === 'writing') assert.equal(object(object(input.contrato_redaccion).objetivo_siguiente).action, 'financing_orientation')
-      if (task === 'writing') return { reply, requests: [{ fragment: 'R1', status: 'answered', intent: 'Entrada y cuota', evidence: reply, fact_key: 'policy', request_type: 'general_information' }],
-        question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' } }
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      if (task === 'writing') return writerFixture({ reply, requests: [{ fragment: 'R1', status: 'answered', intent: 'Entrada y cuota', evidence: reply, fact_key: 'policy', request_type: 'general_information' }],
+        question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' } })
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     } catch (error) { errors.push(String(error)); throw error }
   })
   assert.deepEqual(errors, [])

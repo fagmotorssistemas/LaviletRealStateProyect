@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
@@ -8,9 +9,10 @@ import { resolvePropertyTurn, rememberPropertyReply } from './property-context'
 import { normalizeTurnSemantics } from './turn-semantics'
 import { commercialJourneyPlan } from './commercial-journey'
 import { OpenAIRequestError } from './openai-request'
+import { requireReviewedResponse, ResponseReviewRecoveryError } from './response-review-recovery'
 
-const pass = { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-const writer = (reply: string, question: Row) => ({ reply, question, requests: [{ fragment: 'R1', intent: 'Atender consulta', request_type: 'general_information', status: 'answered', evidence: 'Respuesta contextual', fact_key: null }] })
+const pass = { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
+const writer = (reply: string, question: Row) => (writerFixture({ reply, question, requests: [{ fragment: 'R1', intent: 'Atender consulta', request_type: 'general_information', status: 'answered', evidence: 'Respuesta contextual', fact_key: null }] }))
 const profileQuestion = { purpose: 'collect_lead_profile', role: 'required_collection', missing_datum: 'Nombre y residencia', next_decision: 'Orientar necesidades', continuation_id: 'lead_profile', continuation_act: 'profile' }
 const audit = { semantic_review_enabled: true, business_risk_review_enabled: true }
 const profileAudit = { ...audit, profile_introduction: { question_purpose: 'collect_profile', generic_introduction: false, brochure_deferred: false } }
@@ -32,14 +34,15 @@ for (const scenario of [
     const context = object(raw)
     if (task === 'writing') return writer(reply, question)
     assert.equal(context.borrador, reply)
-    if (++reviews === 1) return { ...pass, question: { ...question, continuation_act: 'choose_unit', offered_action: 'none' } }
+    if (++reviews === 1) return { ...pass }
     assert.ok(Array.isArray(context.comprobaciones_a_revisar))
-    return { ...pass, question: { ...question, offered_action: 'none' } }
+    return { ...pass }
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
   assert.deepEqual(tasks, ['writing', 'review'])
-  assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 0 }, review_metadata: { limit: 1, used: 0 } })
+  assert.equal(object(result.audit.semantic_review).metadata_retries, 0)
+  assert.deepEqual(result.audit.repair_attempts, [])
   assert.equal(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }).id, scenario.id)
 })
 
@@ -54,12 +57,13 @@ test('a repaired writer preserves its profile metadata without another reviewer 
     if (task === 'writing') return writer(++writes === 1 ? wrong : correct, profileQuestion)
     if (++reviews === 1) return { ...pass, verdict: 'block', findings: [{ category: 'hard_fact', statement: '$999', reason: 'Precio inventado', authoritative_fact: 'No hay precio verificado' }] }
     assert.equal(context.borrador, correct)
-    return { ...pass, question: { ...profileQuestion, continuation_act: reviews === 2 ? 'choose_unit' : 'profile', offered_action: 'none' } }
+    return { ...pass }
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, correct)
   assert.deepEqual(tasks, ['writing', 'review', 'writing', 'review'])
-  assert.deepEqual(result.audit.repair_budget, { writer: { limit: 1, used: 1 }, review_metadata: { limit: 1, used: 0 } })
+  assert.equal(object(result.audit.semantic_review).metadata_retries, 0)
+  assert.equal((result.audit.repair_attempts as Row[]).length, 1)
   assert.equal(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }).id, 'lead_profile')
 })
 
@@ -69,11 +73,12 @@ test('an approved draft keeps validated writer metadata if optional reviewer met
   const result = await completeTurnReply({ current: 'Necesito información', baseReply: reply, verified: {}, audit: profileAudit }, async (_rules, _raw, _schema, _image, _file, _tone, task) => {
     if (task === 'writing') return writer(reply, profileQuestion)
     if (++reviews > 1) throw new OpenAIRequestError(504, true, 1, 'timeout')
-    return { ...pass, question: { ...profileQuestion, continuation_act: 'choose_unit', offered_action: 'none' } }
+    return { ...pass }
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
-  assert.equal(object(object(result.audit.semantic_review).question_metadata).owner, 'writer_and_system')
+  assert.equal(object(result.audit.question).continuation_id, 'lead_profile')
+  assert.equal(object(result.audit.semantic_review).metadata_retries, 0)
   assert.equal(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }).id, 'lead_profile')
 })
 
@@ -81,10 +86,12 @@ test('a concrete commercial block survives reviewer metadata repair', async () =
   const reply = 'Su unidad ya está reservada. ¿Cuál es su nombre y en qué ciudad vive actualmente?'
   const result = await completeTurnReply({ current: 'Quiero saber de la unidad', baseReply: reply, verified: {}, audit }, async (_rules, _raw, _schema, _image, _file, _tone, task) => {
     if (task === 'writing') return writer(reply, profileQuestion)
-    return { ...pass, verdict: 'block', findings: [{ category: 'business_guardrail', statement: 'ya está reservada', reason: 'No existe reserva', authoritative_fact: 'Ninguna reserva confirmada' }], question: { ...profileQuestion, continuation_act: 'choose_unit', offered_action: 'none' } }
+    return { ...pass, verdict: 'block', findings: [{ category: 'business_guardrail', statement: 'ya está reservada', reason: 'No existe reserva', authoritative_fact: 'Ninguna reserva confirmada' }] }
   })
   assert.notEqual(result.audit.status, 'checked')
-  assert.notEqual(result.reply, reply)
+  assert.equal(result.reply, reply, 'a blocked internal draft is not rewritten or replaced by server prose')
+  assert.equal(object(result.audit.recovery).pending, true)
+  assert.throws(() => requireReviewedResponse(result.audit), ResponseReviewRecoveryError)
 })
 
 test('the server does not veto writer questions through lexical inference when the factual reviewer passes', async () => {
@@ -101,7 +108,7 @@ test('the server does not veto writer questions through lexical inference when t
   async (_rules, _raw, _schema, _image, _file, _tone, task) => {
     tasks.push(task!)
     if (task === 'writing') return writer(++writes === 1 ? wrong : correct, question)
-    return { ...pass, question: { ...question, offered_action: 'none' } }
+    return { ...pass }
   })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, wrong)
@@ -123,17 +130,24 @@ for (const [question, id] of [
   ['¿Desea revisar departamentos o penthouses de tres dormitorios?', 'property_category'],
   ['¿Cuál departamento o penthouse de tres dormitorios prefiere?', 'property_category'],
   ['¿Le gustaría que revisemos las alternativas de tres dormitorios en departamentos y penthouses?', 'property_requirements'],
-] as const) test('real question recognition preserves '+id+' in: '+question, () => {
-  assert.equal(actualContinuation(question).id, id)
+] as const) test('a structured delivered question preserves '+id+' for this paraphrase: '+question, () => {
+  const acts = { property_floor: 'choose_floor', budget_amount: 'budget', property_category: 'choose_category', property_requirements: 'explore_alternatives' }
+  assert.deepEqual(actualContinuation(question), {}, 'the retired prose reader must remain inert')
+  const saved = deliveredPendingQuestion(question, { metadata: { text: question, continuation_id: id,
+    continuation_act: acts[id], purpose: 'choose_property' } })
+  assert.equal(saved.id, id)
+  assert.equal(saved.question, question)
 })
 
 test('writer metadata cannot be reclassified by a lexical system veto or by the factual reviewer', async () => {
   const reply = '¿Cuál es su nombre y dónde vive actualmente?'
   const wrong = { purpose: 'choose_property', role: 'optional_continuation', missing_datum: 'Unidad', next_decision: 'Continuar', continuation_id: 'unit_choice', continuation_act: 'choose_unit' }
-  const result = await completeTurnReply({ current: 'No quiero dar datos, quiero información', baseReply: reply, verified: {}, audit }, async (_rules, _raw, _schema, _image, _file, _tone, task) => task === 'writing' ? writer(reply, wrong) : { ...pass, question: { ...wrong, offered_action: 'none' } })
+  const result = await completeTurnReply({ current: 'No quiero dar datos, quiero información', baseReply: reply, verified: {}, audit }, async (_rules, _raw, _schema, _image, _file, _tone, task) => task === 'writing' ? writer(reply, wrong) : { ...pass })
   assert.equal(result.audit.status, 'checked')
   assert.equal(result.reply, reply)
-  assert.deepEqual(deliveredPendingQuestion(result.reply, { metadata: result.audit.question }), {})
+  const pending = deliveredPendingQuestion(result.reply, { metadata: result.audit.question })
+  assert.equal(pending.id, 'unit_choice', 'the server cannot lexically replace the writer meaning')
+  assert.equal(pending.question, reply)
 })
 
 test('the full completion route retains the proposal through 360, then a yes asks type and a department preference asks floor', async () => {
@@ -170,7 +184,7 @@ test('the full completion route retains the proposal through 360, then a yes ask
     async (_rules, raw, _schema, _image, _file, _tone, task) => {
       if (task === 'writing') assert.equal(object(object(object(raw).contrato_redaccion).continuacion_del_turno).question_id, turn.expected)
       else assert.equal(object(object(raw).fuentes_autorizadas).siguiente_paso_comercial, undefined)
-      return task === 'writing' ? writer(reply, question) : { ...pass, question: { ...question, offered_action: 'information' } }
+      return task === 'writing' ? writer(reply, question) : { ...pass }
     })
     assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
     assert.equal(object(result.audit.question).continuation_id, turn.expected)

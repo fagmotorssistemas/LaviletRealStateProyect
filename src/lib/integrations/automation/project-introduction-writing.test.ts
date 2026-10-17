@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
@@ -37,14 +38,14 @@ test('the system preserves the writer presentation and profile question without 
       assert.equal(object(object(context.contexto_verificado).presentacion_general_proyecto).summary, summary)
       assert.equal(object(object(object(context.contrato_redaccion).estado_comercial).presentacion_proyecto).approved_summary, summary)
       if (writingCalls === 2) assert.ok(context.reparacion)
-      return { reply: draft, question, requests: (context.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id,
-        intent: 'Información general del proyecto', request_type: 'general_information', status: 'answered', evidence: draft, fact_key: null })) }
+      return writerFixture({ reply: draft, question, requests: (context.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id,
+        intent: 'Información general del proyecto', request_type: 'general_information', status: 'answered', evidence: draft, fact_key: null })) })
     }
     reviewCalls++
-    return { review_contract: 'business-risk-v2', verdict: reviewCalls === 1 ? 'block' : 'pass', facts: [],
-      findings: reviewCalls === 1 ? [{ category: 'turn_goal', statement: 'Con gusto le orientamos.',
-        reason: 'Se omitió opening_presentation: ofrecer brochure y solicitar perfil no describe el proyecto.',
-        authoritative_fact: summary }] : [], question: { ...question, offered_action: 'none' } }
+    const categories = object(object(object(object(_schema).properties).findings).items).properties as Row
+    assert.equal((object(categories.category).enum as string[]).includes('turn_goal'), false,
+      'the reviewer protocol cannot express a presentation omission veto')
+    return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
   }))
   assert.equal(writingCalls, 1)
   assert.equal(reviewCalls, 1)
@@ -65,9 +66,9 @@ for (const observation of [false, true]) for (const specific of [false, true]) {
     }, async (rules, input, _schema, _image, _file, _tone, task) => {
       if (task === 'writing') {
         instructions = String(rules); context = object(input)
-        return { reply, question: null, requests: [{ fragment: 'R1', intent: 'Información', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null }] }
+        return writerFixture({ reply, question: null, requests: [{ fragment: 'R1', intent: 'Información', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null }] })
       }
-      return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: null }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     }))
     assert.ok(instructions, 'writer was called')
     const selected = object(context.contexto_verificado)

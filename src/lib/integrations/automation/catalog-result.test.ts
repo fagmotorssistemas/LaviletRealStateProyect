@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import Ajv from 'ajv'
@@ -31,7 +32,7 @@ const exteriorMessage = 'Cómo está, busco un local con espacio exterior'
 const countMessage = 'Y cuantos departamos de 3 dormitorios tiene?'
 const requirement = (field: string, operator: string, value: number | string, extra: Row = {}): Row => ({field,operator,value,upper_value:null,strength:'required',evidence:'espacio exterior',...extra})
 const request = (purpose='search', requirements=[requirement('area_exterior_m2','gt',0)], extra: Row = {}): Row => ({
-  version:'catalog-request-v1',purpose,metric:purpose === 'count' ? 'unit_count' : null, requirements, semantic_preferences:[],
+  version:'catalog-request-v1',surface_basis:'none',price_comparison:null,purpose,metric:purpose === 'count' ? 'unit_count' : null, requirements, semantic_preferences:[],
   evidence:exteriorMessage,confidence:'high',...extra })
 const info = (req=request(), category='local'): Row => ({
   catalogo:[...locals,...apartments,...others], catalogo_verificacion:[...locals,...apartments,...others], catalog_read:{complete:true},
@@ -197,10 +198,8 @@ test('count pipeline gives both agents the same four units and full summary, wit
   const result=await completeTurnReply({current:countMessage,baseReply:base.reply,verified,costBaseline:input,
     audit:{...base.audit,semantic_review_enabled:true,business_risk_review_enabled:true}},async (rules,data,schema,_i,_f,_t,task)=>{
       const context=object(data);calls.push({task:task!,data:context});comparisons.push(object(promptCostComparison(rules,data,schema)))
-      if(task==='writing')return {reply,question:{role:'none',purpose:'none',missing_datum:'',next_decision:''},requests:[{fragment:'R1',intent:countMessage,status:'answered',evidence:reply,fact_key:null,request_type:'general_information'}]}
-      return {review_contract:'business-risk-v2',verdict:'pass',findings:[],question:null,facts:[
-        {kind:'catalog_value',subject_id:'group:catalog_query:all:range',field:'unit_count',value:4,upper_value:null,unit:'count',relation:'eq',statement:'4 departamentos'},
-        {kind:'catalog_value',subject_id:'group:catalog_query:all:range',field:'floor_number',value:2,upper_value:5,unit:'other',relation:'range',statement:'plantas 2 a 5'}]}
+      if(task==='writing')return writerFixture({reply,question:{role:'none',purpose:'none',missing_datum:'',next_decision:''},requests:[{fragment:'R1',intent:countMessage,status:'answered',evidence:reply,fact_key:null,request_type:'general_information'}]})
+      return { review_contract:'content-review-v1', verdict:'pass', findings:[] }
     })
   assert.equal(result.audit.status,'checked',JSON.stringify(result.audit))
   assert.deepEqual(calls.map(c=>c.task),['writing','review'])
@@ -208,7 +207,8 @@ test('count pipeline gives both agents the same four units and full summary, wit
   assert.equal((object(calls[1].data.fuentes_autorizadas).unidades as Row[]).length,4)
   assert.equal(object(object(calls[0].data.evidencia_turno).catalog_summary).matching_count,4)
   assert.equal(object(object(calls[1].data.fuentes_autorizadas).resumen_catalogo).matching_count,4)
-  assert.deepEqual(object(calls[0].data.contexto_verificado).instalaciones,[])
+  assert.deepEqual(object(calls[0].data.contexto_verificado).instalaciones,input.instalaciones,
+    'the interpreted property-features request retains the complete published facilities')
   assert.ok(comparisons.every(c=>Number(c.normal_prompt_characters)>Number(c.actual_prompt_characters)),JSON.stringify(comparisons))
 })
 
@@ -224,14 +224,9 @@ test('exterior search removes duplicate prompts while keeping every confirmed lo
     async (rules, data, schema, _image, _file, _tone, task) => {
       const context = object(data); calls.push({ task: task!, data: context, rules })
       comparisons.push(object(promptCostComparison(rules, data, schema)))
-      if (task === 'writing') return { reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
-        requests: [{ fragment: 'R1', intent: exteriorMessage, status: 'answered', evidence: reply, fact_key: null, request_type: 'general_information' }] }
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], question: null, facts: [
-        { kind: 'catalog_value', subject_id: 'group:catalog_query:all:range', scope: null, field: 'area_internal_m2', value: 46.65,
-          upper_value: 137.98, unit: 'm2', relation: 'range', statement: 'superficies interiores de 46,65 a 137,98 m²' },
-        { kind: 'catalog_value', subject_id: 'group:catalog_query:all:range', scope: null, field: 'area_exterior_m2', value: 8.87,
-          upper_value: 153.21, unit: 'm2', relation: 'range', statement: 'exteriores de 8,87 a 153,21 m²' },
-      ] }
+      if (task === 'writing') return writerFixture({ reply, question: { role: 'none', purpose: 'none', missing_datum: '', next_decision: '' },
+        requests: [{ fragment: 'R1', intent: exteriorMessage, status: 'answered', evidence: reply, fact_key: null, request_type: 'general_information' }] })
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     })
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.deepEqual(calls.map(c => c.task), ['writing', 'review'])

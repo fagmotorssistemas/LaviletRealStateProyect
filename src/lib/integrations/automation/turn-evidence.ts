@@ -318,6 +318,8 @@ export function verifiedClaimSources(verified: Row, audit: Row, evidence: Row, c
     add('catalog_evidence.catalog_results', 'project_fact', { query, complete: true, units: [] }, { scope: 'catalog_no_results' })
   for (const key of ['reservation', 'visit_result', 'visit_draft', 'visit', 'handoff_result', 'advisor_assignment', 'action_result'])
     add(`estado_operativo.${key}`, 'operational_fact', audit[key])
+  if (object(verified.reservation_context).read_status === 'available' && text(object(verified.reservation_context).request_id))
+    add('contexto_verificado.reservation_context', 'operational_fact', verified.reservation_context)
   if (typeof audit.action === 'string' || typeof audit.registration_verified === 'boolean')
     add('estado_operativo.resultado_accion', 'operational_fact', Object.fromEntries(
       ['source', 'action', 'registration_verified', 'request_id', 'assigned_advisor_id', 'preference', 'selected_option', 'selected_partner']

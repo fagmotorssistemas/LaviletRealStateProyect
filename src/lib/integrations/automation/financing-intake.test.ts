@@ -1,3 +1,5 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
+import { financingInvitationReceipt } from './financing-invitation'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { financingCollection, financingReadyForHandoff } from './financing-intake'
@@ -57,8 +59,12 @@ for (const partner of partners) test(`choosing ${partner} before consent preserv
   assert.equal(personalFields.some(field => intake.collection.requested_fields.includes(field)), false)
   assert.deepEqual(financingPendingQuestion(intake.reply, { financing_collection: intake.collection }), {})
 
-  const acceptance = financingInputs({}, 'Sí, por favor', intake.reply, { partners,
-    current: { explicit_consent: false, selected_partner_name: partner } })
+  const acceptance = financingInputs({ turn_semantics: { answer_to_previous: { question_id: 'financing_invitation',
+    kind: 'affirmative', evidence: 'Sí, por favor', confidence: 'high' } } }, 'Sí, por favor', intake.reply, { partners,
+    current: { explicit_consent: false, selected_partner_name: partner } }, {
+      kind: 'financing_consent', reply: intake.reply, invitation: financingInvitationReceipt({ text: intake.reply,
+        purpose: 'permission_to_continue', continuation_id: 'financing_invitation', continuation_act: 'financing' }),
+    })
   assert.equal(acceptance.consent, true)
   const accepted = financingJourney(preference, acceptance, 'acceptance')
   assert.equal(accepted.accepted, true)
@@ -160,10 +166,9 @@ test('the real final writer and review contracts preserve the consent invitation
         if (task === 'writing') assert.equal(obligation.selected_partner, partner)
         if (task === 'writing') assert.match(String(obligation.instruction), /antes de la aceptación/)
         else assert.equal(obligation, undefined)
-        return task === 'writing' ? { reply: intake.reply, requests: [{ fragment: 'R1', intent: 'Elegir entidad',
-          request_type: 'action', status: 'answered', evidence: `Conserva ${partner} y pide aceptación`, fact_key: 'none' }], question }
-          : { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [],
-            question: { ...question, offered_action: 'financing_review' } }
+        return task === 'writing' ? writerFixture({ reply: intake.reply, requests: [{ fragment: 'R1', intent: 'Elegir entidad',
+          request_type: 'action', status: 'answered', evidence: `Conserva ${partner} y pide aceptación`, fact_key: 'none' }], question })
+          : { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       } catch (error) { failures.push(String(error)); throw error }
     }))
     assert.deepEqual(failures, [])

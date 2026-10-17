@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { changeBusinessPolicy, publishedBusinessPolicies } from '@/lib/inmobiliaria/businessPolicies'
@@ -7,7 +8,7 @@ import { unitPriceQuote } from './price-reply'
 import { LAUNCH_PRICE_COMPARISON_RULE } from './launch-price-policy'
 import { factualReviewObligations } from './reviewer-authority'
 import { object, type Row } from './data'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 
 const now = '2026-10-06T14:00:00.000Z'
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
@@ -36,9 +37,12 @@ test('a future comparison policy is editable and applies only after publication,
 })
 
 test('current quotes stay exact without an authorized future-price comparison', () => {
+  const current = 'Quisiera saber los precios de departamentos de 2 dormitorios'
   const quote = unitPriceQuote({ catalogo: catalog, alcance_negocio: 'property',
+    semantica_turno: { primary_intent: 'ask_price', confidence: 'high', primary_evidence: current, property: { category: 'departamento', operation: 'search',
+      filters: { bedrooms: 2 }, reference_kind: 'none', evidence: current, confidence: 'high' } },
     politica_comercial: { precios_autorizados: true, precios_aproximados: true },
-    lead: { preferred_category: 'departamento', preferred_bedrooms: 2 } }, 'Quisiera saber los precios de departamentos de 2 dormitorios', {})
+    lead: { preferred_category: 'departamento', preferred_bedrooms: 2 } }, current, {})
   assert.equal(quote?.quoted, true)
   assert.deepEqual(quote?.prices, [270000, 310000])
   assert.deepEqual(quote?.units?.map(unit => unit.id), ['d304', 'd504'])
@@ -81,14 +85,14 @@ for (const approximate of [true, false, undefined]) for (const withPublishedPoli
       assert.deepEqual(rows(object(context.contexto_verificado).politicas_negocio), published)
       const refs = rows(context.referencias_solicitud)
       for (const request of requests) assert.ok(refs.some(ref => ref.text === request.evidence), request.evidence)
-      return { reply: response, requests: refs.map(ref => ({ fragment: ref.id, intent: 'Informar condiciones y precios', request_type: 'general_information', status: 'answered', evidence: 'Valores actuales y alcance de las condiciones, sin gestión de reserva.', fact_key: null })),
-        question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' } }
+      return writerFixture({ reply: response, requests: refs.map(ref => ({ fragment: ref.id, intent: 'Informar condiciones y precios', request_type: 'general_information', status: 'answered', evidence: 'Valores actuales y alcance de las condiciones, sin gestión de reserva.', fact_key: null })),
+        question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '' } })
     }
     reviewed = true
     assert.deepEqual(context.obligaciones_del_turno, factualReviewObligations(writerObligations))
     const otherSources = rows(object(context.fuentes_autorizadas).otros_hechos_y_politicas)
     assert.equal(otherSources.some(source => String(source.path).includes('politicas_negocio')), withPublishedPolicy)
-    return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+    return { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
     } catch (error) { callbackErrors.push(String(error)); throw error }
   })
   assert.deepEqual(callbackErrors, [])

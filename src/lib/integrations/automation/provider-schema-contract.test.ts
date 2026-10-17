@@ -1,8 +1,9 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
 import { continuationQuestionProperties } from './continuation-question'
-import { BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { object, type Row } from './data'
 
 // Validate the strict object contract of the actual schemas sent by the flow.
@@ -38,10 +39,10 @@ for (const current of ['¿Cómo es la zona?', '¿Cómo es la zona?\nclaro'])
       audit: { semantic_review_enabled: true, business_risk_review_enabled: true } },
     async (_instructions, _input, schema, _image, _file, _tone, task) => {
       captured.push({ task: String(task), schema: object(schema) })
-      if (task === 'writing') return { reply: 'Podemos orientarle sobre el proyecto.', requests: [],
+      if (task === 'writing') return writerFixture({ reply: 'Podemos orientarle sobre el proyecto.', requests: [],
         question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none',
-          continuation_act: 'other', comparison_categories: [], comparison_bedrooms: null } }
-      return { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
+          continuation_act: 'other', comparison_categories: [], comparison_bedrooms: null } })
+      return { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
     })
     assert.ok(captured.some(call => call.task === 'writing'), 'The real writer request must be exercised')
     assert.ok(captured.some(call => call.task === 'review'), 'The real reviewer request must be exercised')

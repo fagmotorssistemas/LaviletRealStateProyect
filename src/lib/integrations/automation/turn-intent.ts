@@ -1,9 +1,8 @@
+import { object,text,type Row } from './data'
 import { acceptedExtractorConfidence } from './extractor-confidence'
-import { object, text, type Row } from './data'
-import { asksUnitPrice } from './price-reply'
 import { normalizedRequestTopics } from './request-topics'
-import { normalizedReservation } from './turn-semantics'
 import { reservationPermission } from './reservation-action'
+import { normalizedReservation } from './turn-semantics'
 
 const rows = (value: unknown) => (Array.isArray(value) ? value : []).map(object)
 const normalizedLiteral = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
@@ -32,10 +31,10 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
   const previous = object(input.previous), property = object(input.semantics.property)
   const answer = object(input.semantics.answer_to_previous), pending = object(input.pendingQuestion)
   const confidentIntent = acceptedExtractorConfidence(input.semantics.confidence) && !['', 'other'].includes(text(input.semantics.primary_intent))
-  const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current, pending, answer), input.current)
+  const reservation = reservationPermission(normalizedReservation(input.semantics.reservation, input.current, pending, answer, input.semantics.action_authority), input.current, input.semantics.action_authority)
   const reconciledRequest = reconciledInformationRequest(input, reservation)
   const interaction = object(input.semantics.interaction_goal)
-  const modeDeclarationOnly = interaction.mode === 'information_only' && interaction.specific_topic !== true
+  const modeDeclarationOnly = interaction.mode === 'information_only' && interaction.qualification_decision === 'pause' && interaction.specific_topic !== true
     && acceptedExtractorConfidence(interaction.confidence) && !!text(interaction.mode_evidence)
   const requests = (reconciledRequest ? [reconciledRequest] : input.requests).filter(request =>
     // Declaring a conversational goal is not a request for a project recital.
@@ -49,12 +48,12 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
     // evidenced request to speak with a person retains its separate action.
     return reservation.request_deferred === true && request.domain === 'advisor' && proof && permission
       && (proof.includes(permission) || permission.includes(proof))
-      && !/\b(?:asesor|asesora|humano|persona|equipo)\b/i.test(proof)
+      && object(input.semantics.action_authority).advisor == null
       ? { ...request, domain: 'property', action_deferred: true } : request
   })
   const reservationObjective = reservation.kind === 'request' ? 'request_reservation' : reservation.kind === 'information' ? 'ask_reservation' : null
-  const lexicalPrice = asksUnitPrice(input.current, true)
-  const propertyPriceFallback = !confidentIntent && lexicalPrice && /\b(?:suites?|departamentos?|apartamentos?|penthouses?|local(?:es)?(?: comerciales?)?)\b/i.test(input.current)
+  const lexicalPrice = false
+  const propertyPriceFallback = false
   const interpretedProperty = acceptedExtractorConfidence(input.semantics.confidence) && (reservationObjective
     || requests.some(request => request.domain === 'property' && acceptedExtractorConfidence(request.confidence)))
   const inScope = !input.scope.uncertain && (['property', 'mixed'].includes(text(input.scope.kind))
@@ -69,14 +68,13 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
       ? normalizedRequestTopics(request.topics)?.includes('purchase_price')
         && (request.source === 'pending' ? !!text(request.evidence).trim() : currentEvidence(request, input.current))
       : !currentTyped.length && (!text(request.evidence).trim() || request.source === 'pending' || currentEvidence(request, input.current))
-        && asksUnitPrice(text(request.request), true)))
+        && input.semantics.primary_intent === 'ask_price'))
   const categoryAnswer = ['select_property', 'answer_previous'].includes(text(input.semantics.primary_intent))
     && acceptedExtractorConfidence(property.confidence) && (text(property.category) || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0)
     && !requests.some(request => acceptedExtractorConfidence(request.confidence) && !['property', 'courtesy'].includes(text(request.domain)))
   // A legacy conversation may predate the durable contract. Require both the
   // current interpreted price request and a recent customer's price request.
-  const recentClients = rows(input.history).filter(row => ['cliente', 'user'].includes(text(row.role)) && text(row.content) !== input.current).slice(-2)
-  const historicalPrice = requestsPrice && recentClients.some(row => asksUnitPrice(text(row.content)))
+  const historicalPrice = false
   const answersPropertyReference = answer.kind === 'value' && answer.question_id === pending.id
     && (!currentTyped.length || acceptedExtractorConfidence(answer.confidence) && currentEvidence(answer, input.current))
     && ['property_category', 'unit_choice', 'property_floor', 'property_bedrooms', 'property_area'].includes(text(pending.id))
@@ -136,16 +134,8 @@ export function resolveTurnIntent(input: { current: string; history?: unknown; s
 
 export const TURN_INTENT_RULES = `CONTRATO COMPARTIDO DEL TURNO: contrato_turno conserva el objetivo y TODAS las solicitudes actuales. Su interpretación canónica prevalece sobre palabras sueltas y plantillas de una etapa anterior. Una negativa a la propuesta previa puede coexistir con una acción nueva; responda ambas sin convertir «por ahora no» en negativa global. request_reservation solicita iniciar separación con un asesor, ask_reservation solo pide información del proceso; la selección identifica el inmueble y no obliga a volver a presentar el tour. Describa únicamente el resultado operativo comprobado: no afirme asignación, disponibilidad ni reserva confirmada solo porque se solicitó. Una categoría o unidad que aclara una consulta de precio sigue solicitando ese precio. Responda los required_facts y las demás solicitudes antes de proponer la siguiente pregunta. El catálogo de medidas no sustituye una respuesta de precio. Si no hay un precio autorizado, explique esa limitación o pida la referencia necesaria; no invente valores. Una pregunta incompleta no demuestra un negocio ajeno. La captura inicial de nombre y residencia se agrega después de atender la consulta. Ninguna intención inferida acredita consentimiento para una cita o revisión financiera.`
 
-export function turnIntentIssues(reply: string, contract: unknown, verifiedPrice: unknown): string[] {
-  const intent = object(contract)
-  if (!Array.isArray(intent.required_facts) || !intent.required_facts.includes('price')) return []
-  // The price provider is the authority on whether a value was actually found.
-  // Without it, do not force invented amounts or turn uncertainty into a handoff.
-  const price = text(verifiedPrice)
-  const amount = /(?:\$|USD)\s*\d|\d[\d.,]*\s*(?:USD|d[oó]lares)\b/i
-  if (!amount.test(price)) return []
-  return amount.test(reply) ? [] : ['turn_price_unanswered']
-}
+/** Legacy content inspection is disabled; the writer/reviewer own wording. */
+export function turnIntentIssues(_reply: string, _contract: unknown, _verifiedPrice: unknown): string[] { void _reply; void _contract; void _verifiedPrice;  return [] }
 
 /** Called only after provider acceptance. A delivered clarification or recovery
  * never closes the unanswered price request; independent content validation
@@ -157,7 +147,7 @@ export function rememberTurnIntentAfterReply(contract: unknown, audit: unknown, 
     || validation.passed !== true || object(review.recovery).pending === true) return intent
   const priceRequests = rows(intent.requests).filter(request => request.domain === 'property'
     && (Array.isArray(request.topics) ? normalizedRequestTopics(request.topics)?.includes('purchase_price')
-      : asksUnitPrice(text(request.request), true)))
+      : intent.objective === 'ask_price'))
   const fragments = priceRequests.map(request => text(request.evidence).trim()).filter(Boolean)
   const referenceOnly = !fragments.length
   if (!fragments.length && Array.isArray(intent.required_facts) && intent.required_facts.includes('price'))

@@ -1,36 +1,47 @@
-'use server';
-import { assertCanAccessCrmPath, getSessionUser } from '@/lib/auth/session';
-import { tryCreateAdminClient } from '@/lib/supabase/admin';
-import { getAccessibleTenantIds } from '@/lib/inmobiliaria/tenants';
-import { readPipelinePages, readPipelineRelated } from '@/services/leadPipelineSources.service';
-import { analyzeLeadConversation } from '@/lib/integrations/automation/conversation-analysis';
-import { object, text } from '@/lib/integrations/automation/data';
+'use server'
+import { assertCanAccessCrmPath, getSessionUser } from '@/lib/auth/session'
+import { analyzeLeadConversation } from '@/lib/integrations/automation/conversation-analysis'
+import { loadConversationAnalysisDashboard } from '@/services/conversationAnalysis.service'
+
+const path = '/inmobiliaria/analisis-conversaciones'
+const validId = (id: string) => /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(id)
+async function context() {
+  const session = await assertCanAccessCrmPath(path)
+  const { supabase } = await getSessionUser()
+  return { supabase, actor: { id: session.user.id, role: session.profile.role } }
+}
 export async function getConversationAnalysisDashboard() {
-    await assertCanAccessCrmPath('/inmobiliaria/analisis-conversaciones');
-    const { supabase } = await getSessionUser(), tenants = await getAccessibleTenantIds(supabase);
-    const leads = await readPipelinePages((from, to) => supabase.from('leads').select('id,name,source,project_id,temperature,assigned_to,project:projects(name)').in('tenant_id', tenants).order('id').range(from, to));
-    const ids = leads.map(row => text(row.id)), admin = tryCreateAdminClient();
-    if (!admin)
-        throw Error('No está disponible el análisis en el servidor.');
-    const [conversations, reviews] = await Promise.all([
-        readPipelineRelated(ids, (chunk, from, to) => supabase.from('conversations').select('id,lead_id,summary,last_message_at').in('lead_id', chunk).order('id').range(from, to)),
-        readPipelineRelated(ids, (chunk, from, to) => admin.from('lead_conversation_analyses').select('id,lead_id,analysis,created_at,source_last_message_at').in('lead_id', chunk).order('id').range(from, to)),
-    ]);
-    return leads.map(lead => {
-        const conversation = conversations.filter(row => row.lead_id === lead.id).sort((a, b) => text(b.last_message_at).localeCompare(text(a.last_message_at)))[0];
-        const summary = object(conversation?.summary), profile = object(summary._lead_profile), property = object(object(summary._interpretation_memory).property);
-        const review = reviews.filter(row => row.lead_id === lead.id).sort((a, b) => text(b.created_at).localeCompare(text(a.created_at)))[0];
-        return { id: text(lead.id), name: text(lead.name) || 'Contacto sin nombre', projectId: text(lead.project_id), projectName: text(object(lead.project).name) || 'Proyecto sin nombre', source: ({ waba: 'WhatsApp', whatsapp: 'WhatsApp', showroom_360: 'Showroom 360' } as Record<string, string>)[text(lead.source)] || text(lead.source) || 'Sin origen', temperature: text(lead.temperature),
-            residence: text(profile.residence_city || profile.residence_country) || 'Sin residencia declarada', category: text(property.category) || 'Sin tipo declarado',
-            lastMessageAt: text(conversation?.last_message_at), analysis: review ? object(review.analysis) : null, reviewAt: text(review?.created_at), stale: !!review && Date.parse(text(conversation?.last_message_at)) > Date.parse(text(review.source_last_message_at)) + 1000 };
-    });
+  const { supabase, actor } = await context()
+  return loadConversationAnalysisDashboard(supabase, actor)
+}
+export async function getConversationAnalysisDetail(leadId: string) {
+  if (!validId(leadId)) throw Error('Identificador inválido.')
+  const { supabase, actor } = await context()
+  const result = await loadConversationAnalysisDashboard(supabase, actor, [leadId], true)
+  if (!result.items[0]) throw Error('No tiene acceso al lead solicitado.')
+  return result.items[0]
 }
 export async function evaluateConversation(leadId: string) {
-    await assertCanAccessCrmPath('/inmobiliaria/analisis-conversaciones');
-    const { supabase } = await getSessionUser();
-    const lead = await supabase.from('leads').select('id,project_id').eq('id', leadId).maybeSingle();
-    if (lead.error || !lead.data?.project_id)
-        throw Error('No tiene acceso al lead solicitado.');
-    await analyzeLeadConversation(lead.data.id, lead.data.project_id);
-    return { ok: true };
+  if (!validId(leadId)) throw Error('Identificador inválido.')
+  const { supabase } = await context()
+  const lead = await supabase.from('leads').select('id,project_id').eq('id', leadId).maybeSingle()
+  if (lead.error || !lead.data?.project_id) throw Error('No tiene acceso al lead solicitado.')
+  await analyzeLeadConversation(lead.data.id, lead.data.project_id)
+  return { ok: true }
+}
+export async function saveConversationAnalysisReview(input: { leadId: string; signature: string; status: string; note: string }) {
+  if (!validId(input.leadId) || !['reviewing', 'actioned', 'resolved', 'dismissed'].includes(input.status)
+    || typeof input.note !== 'string' || input.note.trim().length < 10 || input.note.length > 1500) throw Error('Escriba una observación de entre 10 y 1500 caracteres.')
+  const { supabase, actor } = await context()
+  const data = await loadConversationAnalysisDashboard(supabase, actor, [input.leadId])
+  const item = data.items[0]
+  if (!item?.canReview) throw Error('Solo el responsable o un administrador puede registrar esta revisión.')
+  if (item.signature !== input.signature) throw Error('El caso cambió. Actualice su diagnóstico antes de guardar.')
+  const { data: lead, error: readError } = await supabase.from('leads').select('tenant_id,project_id').eq('id', item.id).single()
+  if (readError || !lead) throw Error('No se pudo comprobar el acceso al caso.')
+  const { error } = await supabase.from('lead_conversation_analysis_reviews').insert({ lead_id: item.id, tenant_id: lead.tenant_id,
+    project_id: lead.project_id, actor_id: actor.id, status: input.status, note: input.note.trim(), issue_signature: item.signature,
+    baseline: { last_customer_at: item.lastCustomerAt, stage: item.stage, signal_keys: item.signals.map(s => s.key) } })
+  if (error) throw Error('No se pudo guardar la revisión. Compruebe los permisos y la migración del panel.')
+  return { ok: true }
 }

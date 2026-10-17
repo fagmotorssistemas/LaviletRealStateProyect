@@ -551,11 +551,13 @@ test('semantic explicit selection must be grounded in this turn and available ca
   assert.deepEqual(bad.matches,[])
 })
 
-test('switch to another subject clears active references and actual reply stores offers separately from selections',()=>{
+test('switch to another subject suspends active references without erasing selection and stores offers separately',()=>{
   const selected={selected_ids:['u602'],comparison_ids:['u202','u302']}
   const memory=rememberPropertyReply(catalog,selected,'Si se refiere a las papas, no gestionamos la venta de alimentos.',{source:'business_out_of_scope'})
-  assert.deepEqual(memory.selected_ids,[])
+  assert.deepEqual(memory.selected_ids,['u602'])
   assert.deepEqual(memory.comparison_ids,[])
+  assert.deepEqual(memory.pending_question,{})
+  assert.equal(memory.query.operation,'none')
   const offered=rememberPropertyReply(catalog,{},penthouses[0].content,{source:'unit_alternative_journey',alternative_phase:'choose_unit',offered_unit_ids:['u602','u605']})
   assert.deepEqual(offered.offered_ids,['u602','u605'])
   assert.equal(offered.selected_ids,undefined)

@@ -1,26 +1,13 @@
-import { normalized } from './sdr-rules'
+import { object } from './data'
 
 /** A house is not interchangeable with an apartment in a sales quote. A generic
  * «mi hogar»/«vivienda» is fine; correct a literal request for a house. */
-export function asksForHouse(current: string) {
-  return current.split(/[.!?;\n]+|\bpero\b/iu).some(clause => {
-    const value = normalized(clause)
-    if (!/\bcasas?\b/.test(value)) return false
-    if (/\b(?:no (?:quiero|busco|necesito|me refiero a)|vender mi|vendo mi|mi casa actual|salir de casa|trabajo (?:en|desde) casa|desde mi casa)\b/.test(value)) return false
-    return /\b(?:una?|la|las|esas?|venden|ofrecen|tienen|comprar|busco) casas?\b/.test(value)
-      && /\b(?:quiero|quisiera|busco|comprar|compro|financiar|cuanto|valor|vale|valen|cuesta|precio|pisos?|tiene|tienen|ofrecen|venden|necesito)\b/.test(value)
-  })
+export function asksForHouse(_current: string, interpreted: unknown = {}) {
+  const row = object(interpreted), semantics = object(row.semantica_turno || row.turn_semantics || row)
+  return object(semantics.routing).house_request === true
 }
-
-export function houseProductReply(current: string, lastReply = '') {
-  if (!asksForHouse(current)) return ''
-  const repeated = /no (?:ofrecemos|vendemos|contamos con).*casas|no son casas/.test(normalized(lastReply))
-  const base = repeated
-    ? 'Las viviendas que ofrecemos son suites y departamentos dentro del edificio La Vilet; no son casas independientes.'
-    : 'Para evitar una confusión, en La Vilet ofrecemos suites, departamentos y locales comerciales en Cuenca; no vendemos casas independientes.'
-  return base + (/\bpisos?\b/.test(normalized(current))
-    ? ' Por eso no puedo indicarle los pisos de una casa; sí podemos revisar en qué planta está cada departamento y su distribución.'
-    : '')
+export function houseProductReply(current: string, _lastReply = '', interpreted: unknown = {}) { void _lastReply;
+  return asksForHouse(current, interpreted) ? 'La Vilet ofrece suites, departamentos, penthouses y locales comerciales. Podemos ayudarle a revisar las viviendas del proyecto; no disponemos de casas independientes.' : ''
 }
 
 export const PRODUCT_FIT_RULES = `Somos La Vilet, un proyecto inmobiliario en Cuenca con suites, departamentos y locales comerciales. No vendemos casas independientes ni inmuebles de otras ciudades. No use «nuestra especialidad» para explicar este límite.

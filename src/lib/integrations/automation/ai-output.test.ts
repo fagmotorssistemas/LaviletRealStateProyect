@@ -68,7 +68,12 @@ test('real requests and traces isolate extractor and writer defaults and indepen
     const request = requests[index]
     assert.ok(String(request.instructions).startsWith('Conserve las reglas del turno.'))
     assert.ok(String(request.instructions).includes('No invente acciones ni hechos'))
-    assert.deepEqual(request.input, [{ role: 'user', content: [{ type: 'input_text', text: 'Responda en JSON. Datos de entrada:\n' + JSON.stringify(input) }] }])
+    const actualInput = request.input as { role: string; content: { type: string; text: string }[] }[]
+    assert.equal(actualInput[0].role, 'user')
+    assert.equal(actualInput[0].content[0].type, 'input_text')
+    const payload = JSON.parse(actualInput[0].content[0].text.replace('Responda en JSON. Datos de entrada:\n', ''))
+    assert.deepEqual({ ...payload, alcance_financiero_turno: undefined }, { ...input, alcance_financiero_turno: undefined })
+    if (tasks[index] === 'writing') assert.equal(payload.alcance_financiero_turno.allowed, false)
     assert.deepEqual((request.text as Record<string, unknown>).format, {
       type: 'json_schema', name: 'lavilet_result', strict: true, schema: contracts[index],
     })

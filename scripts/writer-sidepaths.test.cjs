@@ -5,7 +5,7 @@ const fs = require('node:fs'), path = require('node:path'), Module = require('no
 require('./test-typescript.cjs')
 const root = path.resolve(__dirname, '..')
 const { withResponseReviewPolicy } = require('../src/lib/integrations/automation/response-review-policy.ts')
-const approved = { fiel_a_los_hechos: true, conserva_estado_y_objetivo: true, no_pide_datos_conocidos: true, tono_natural: true }
+const approved = { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
 
 function load(file, mocks) {
   const filename = path.join(root, file), loaded = { exports: {} }
@@ -28,7 +28,7 @@ for (const enabled of [false, true]) test(`operational prose reaches ${enabled ?
   }, async (_rules, input, _schema, _image, _file, _tone, task) => {
     calls.push(task)
     if (task === 'writing') return { mensaje: draft }
-    assert.equal(input.redaccion_propuesta, draft)
+    assert.equal(input.borrador, draft)
     return approved
   }))
   assert.equal(result.reply, draft)

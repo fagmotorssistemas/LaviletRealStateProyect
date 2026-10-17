@@ -1,17 +1,16 @@
-import { acceptedExtractorConfidence } from './extractor-confidence'
-import { object, text, type Row } from './data'
-import { FINANCING_PROCESS_RULES, ASSISTANCE_CONTINUATION_RULES } from './financing-guidance'
-import { isCategoryOverview } from './catalog-dialogue'
-import { BROCHURE_URL, brochureDeliveryIntent } from './project-material'
-import { confirmedLeadProfile } from './lead-profile'
-import { leadProfileCollectionDecision } from './lead-introduction'
-import { declinesUnitTour, unitTourPreviouslySent } from './unit-model'
-import { turnContinuation, TURN_CONTINUATION_RULES } from './turn-continuation'
 import { PROJECT_DELIVERY_RULES } from '@/lib/inmobiliaria/projectDelivery'
-import { CONTINUATION_QUESTION_RULE } from './continuation-question'
-import { CONTEXTUAL_NEEDS_WRITER_RULES } from './needs-guidance'
 import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
-import { informationRequestOpening } from './response-openings'
+import { isCategoryOverview } from './catalog-dialogue'
+import { CONTINUATION_QUESTION_RULE } from './continuation-question'
+import { object,text,type Row } from './data'
+import { ASSISTANCE_CONTINUATION_RULES,FINANCING_PROCESS_RULES } from './financing-guidance'
+import { leadProfileCollectionDecision } from './lead-introduction'
+import { confirmedLeadProfile } from './lead-profile'
+import { CONTEXTUAL_NEEDS_WRITER_RULES } from './needs-guidance'
+import { BROCHURE_URL,brochureDeliveryIntent } from './project-material'
+import { TURN_CONTINUATION_RULES,turnContinuation } from './turn-continuation'
+import { declinesUnitTour,unitTourPreviouslySent } from './unit-model'
+import { VISIT_INTAKE_STATE_RULES,visitIntakePlan } from './visit-intake-plan'
 import { conversationObjective } from './writer-objectives'
 
 /** Application delivery limit, independent of the preferred conversational length. */
@@ -19,7 +18,6 @@ export const MAX_REPLY_CHARACTERS = 3000
 const urls = (value: string) => value.match(/https?:\/\/[^\s<>]+/g)?.map(url => url.replace(/[),.;!?]+$/, '')) || []
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
-const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 function sourceUrls(value: unknown): string[] {
   if (typeof value === 'string') return urls(value)
@@ -42,9 +40,7 @@ function verifiedUrls(verified: Row = {}): string[] {
 /** Material authority comes from configured sources, never from a draft/fallback. */
 export function replyLinkContract(_baseReply: string, audit: Row = {}, context: { current?: string; verified?: Row } = {}) {
   const explicit = object(audit.link_contract), profile = object(audit.profile_introduction)
-  const intent = object(audit.resolved_turn_intent || context.verified?.contrato_turno)
-  const requests = rows(intent.requests).filter(request => acceptedExtractorConfidence(request.confidence))
-  const requested = normalized([context.current || '', ...requests.map(request => text(request.request))].join('\n'))
+  const routing = object(object(context.verified?.semantica_turno).routing)
   const tour = object(audit.unit_model)
   const property = object(context.verified?.property_context)
   const selectedTour = !!text(tour.unit_id) && (tour.delivery_required === true
@@ -52,7 +48,7 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
     || object(property.query).operation === 'select' && strings(property.selected_ids).includes(text(tour.unit_id)))
   const tourSent = unitTourPreviouslySent(tour, context.verified?.historial,
     object(context.verified?.estado_conversacion).unit_models_sent)
-  const tourDeclined = declinesUnitTour(context.current || '')
+  const tourDeclined = declinesUnitTour(context.current || '', context.verified)
   const showroom = object(audit.showroom_continuation)
   const required = strings(explicit.required_links)
   if (object(audit.material_visual).available === true)
@@ -63,13 +59,9 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
       object(context.verified?.pregunta_pendiente))
   if (material.requested === true) required.push(text(profile.brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL)
   if (profile.brochure_required === true && text(profile.brochure_url)) required.push(text(profile.brochure_url))
-  const asksToReceive = /\b(?:envie(?:me|nos)?|envi[ae]r|manda(?:me|nos)?|mande(?:me|nos)?|comparta(?:me|nos)?|compartir|muestra(?:me|nos)?|muestre(?:me|nos)?|mostrar|pas[ae](?:me|nos)?|quiero ver|quisiera ver|puedo ver|ver|explorar)\b[^.!?\n]{0,70}\b/
   if (text(tour.url) && !tourDeclined && (selectedTour && !tourSent || showroom.reason === 'requested_visualization'
-    || new RegExp(asksToReceive.source + '(?:recorrido|showroom|tour|360|modelo virtual)\\b').test(requested)
-      && !/\bno\s+(?:me\s+)?(?:quiero|necesito|interesa|envie|mande|comparta).{0,45}(?:recorrido|showroom|tour|360|modelo)/.test(requested))) required.push(text(tour.url))
-  if (audit.source === 'brochure' || !Object.hasOwn(context.verified || {}, 'material_request') && !Object.hasOwn(audit, 'brochure_intent')
-    && new RegExp(asksToReceive.source + '(?:brochure|folleto|brochur|pdf)\\b').test(requested)
-    && !/\bno\s+(?:me\s+)?(?:quiero|necesito|interesa|envie|mande|comparta).{0,45}(?:brochure|folleto|brochur|pdf)/.test(requested)) {
+    || ['unit', 'project', 'both'].includes(text(routing.visual_target)))) required.push(text(tour.url))
+  if (audit.source === 'brochure') {
     required.push(text(profile.brochure_url) || text(context.verified?.brochure_url) || BROCHURE_URL)
   }
   const allowed = [BROCHURE_URL, ...verifiedUrls(context.verified), ...strings(explicit.allowed_links),
@@ -78,7 +70,10 @@ export function replyLinkContract(_baseReply: string, audit: Row = {}, context: 
   const shared = profile.brochure_previously_sent === true || object(context.verified?.estado_conversacion).brochure_sent === true
   const resend = required.some(url => brochureLinks.includes(url))
   const tourOmitted = tourDeclined || tourSent && !required.includes(text(tour.url))
-  return { allowed_links: [...new Set(allowed.filter(url => (!shared || resend || !brochureLinks.includes(url))
+  const materialHeld = profile.brochure_decision_pending === true || profile.brochure_delivery_postponed === true || profile.material_question === true
+    || ['content_inquiry', 'delivery_deferred'].includes(text(material.reason))
+  return { allowed_links: [...new Set(allowed.filter(url => (!materialHeld || resend || !brochureLinks.includes(url))
+    && (!shared || resend || !brochureLinks.includes(url))
     && (!tourOmitted || url !== text(tour.url))))], required_links: [...new Set(required)] }
 }
 
@@ -114,25 +109,13 @@ export function protectInitialProjectPresentation(reply: string, audit: Row = {}
   const question = text(responsePlan(reply, audit, context).next_question)
   // Greetings are added by the shared delivery preparation, once, also when a
   // verified handoff notice is prepended to this recovery template.
-  const protectedReply = [informationRequestOpening(summary), brochure, question]
+  const protectedReply = [summary, brochure, question]
     .filter(part => part.trim()).join('\n\n')
   return protectedReply.length <= MAX_REPLY_CHARACTERS ? protectedReply : reply
 }
 
-/** A reservation request/handoff does not reserve inventory or confirm payment. */
-export function reservationOperationalIssues(reply: string, audit: Row = {}): string[] {
-  const receipt = object(audit.reservation)
-  if (!Object.keys(receipt).length && audit.source !== 'reservation_handoff') return []
-  const sentences = normalized(reply).split(/(?<=[.!?])\s+|\n+/)
-    .filter(sentence => !/\bno\s+(?:se\s+)?(?:ha\s+|hemos\s+)?(?:confirmad|reservad|separad|asignad)|\bno\s+(?:esta|queda|quedo)\s+(?:reservad|separad|confirmad)|\b(?:no|aun no|todavia no) (?:puedo|podemos) confirmar/.test(sentence))
-  const value = sentences.join(' '), issues: string[] = []
-  const confirmsStock = /\b(?:esta|queda|quedo|ha quedado|hemos|he|ya)\s+(?:ya\s+)?(?:reservad[oa]|separad[oa])\b|\b(?:reserva|separacion)\s+(?:esta\s+|ha quedado\s+)?confirmada\b|\b(?:reservamos|separamos)\s+(?:su|el|la)\s+(?:unidad|departamento|penthouse|suite|local)\b/.test(value)
-  if (confirmsStock && receipt.request_status !== 'confirmed') issues.push('reservation_not_confirmed')
-  const claimsAssigned = /\basesor[a]?\s+(?:ya\s+)?asignad[oa]\b|\b(?:he|hemos|ya)\s+(?:le\s+)?asignado\b|\b(?:le|se le)\s+asigno\b/.test(value)
-  if (claimsAssigned && !(receipt.handoff_verified === true && ['assigned', 'acknowledged'].includes(text(receipt.status)) && receipt.advisor_assigned === true)) issues.push('advisor_assignment_not_verified')
-  // Handoff meaning and its matching receipt are checked by the semantic reviewer.
-  return issues
-}
+/** Compatibility API: the independent AI reviewer checks commercial claims. */
+export function reservationOperationalIssues(_reply: string, _audit: Row = {}): string[] { void _audit;  return [] }
 
 export const commercialContinuationSources = new Set([
   'property_unit_selected', 'property_budget_deferred', 'property_budget_confirmed',
@@ -154,7 +137,12 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
   const intent = object(audit.resolved_turn_intent || context.verified?.contrato_turno)
   const explicit = object(audit.response_contract)
   const pending = object(audit.pending_question)
-  const continuation = turnContinuation(audit, context.verified)
+  const visit = visitIntakePlan(audit)
+  const continuation = visit.requires_question === true ? {
+    required: true, action: 'collect_visit_preference', question_id: visit.question_id,
+    suggested_question: visit.question, instruction: visit.instruction,
+    selection_scope: null, response_connection: null,
+  } : turnContinuation(audit, context.verified)
   const uncovered = Array.isArray(audit.uncovered_requests) ? audit.uncovered_requests : []
   const presentation = object(object(audit.profile_introduction).presentation)
   const approvedOpening = presentation.required === true && !!text(presentation.approved_summary).trim()
@@ -174,20 +162,22 @@ export function responsePlan(baseReply: string, audit: Row, context: { current?:
     ...replyLinkContract(baseReply, audit, context),
     required_numbers: strings(explicit.required_numbers),
     continuation,
-    next_question: text(object(audit.profile_introduction).question || object(audit.financing_collection).next_question
+    next_question: text(visit.requires_question === true ? visit.question : object(audit.profile_introduction).question || object(audit.financing_collection).next_question
       || continuation.suggested_question || (['leave_open', 'answer_current_question', 'information_only', 'answer_project_categories'].includes(text(continuation.action)) ? '' : pending.question
         || object(audit.progressive_selection).question || object(audit.post_tour_continuation).question)) || null,
     operational_state: { source, action: text(audit.action) || null, reservation: object(audit.reservation),
       registration_verified: audit.registration_verified === true, request_id: text(audit.request_id) || null,
-      preference: object(audit.preference), pending_question: pending },
+      preference: object(audit.preference), pending_question: pending, coordination: visit },
   }
 }
 
 export const FINAL_WRITER_RULES = `Actúe como redactor final de todas las rutas conversacionales de La Vilet, no solo de la presentación del proyecto.
 ${CONTINUATION_QUESTION_RULE}
 ${TURN_CONTINUATION_RULES}
+${VISIT_INTAKE_STATE_RULES}
 ${PROJECT_DELIVERY_RULES}
-estado_comercial es el estado del intercambio, compartido con el revisor. Atienda primero la consulta actual. profile_collection_decision decide si puede solicitar datos de presentación: capture, remind y confirm autorizan únicamente allowed_fields; defer, declined y complete prohíben volver a pedir nombre o residencia, aunque datos_pendientes todavía los incluya. Aportar el nombre tras la captura inicial permite un único recordatorio de residencia, también si adjunta una consulta comercial: responda esa consulta primero y después haga solamente la pregunta de residencia autorizada. Conserve la identificación de necesidades para los siguientes turnos y no reinicie categorías o dormitorios conocidos. Una consulta sin aportar perfil nuevo o una respuesta evasiva tras ese recordatorio no autoriza insistir. Las operaciones de reserva, visita y financiamiento aceptado conservan su prioridad; los datos exigidos para un trámite financiero expresamente aceptado se rigen por su propia etapa. Si requiere_captura=true, atienda primero la consulta y solicite únicamente datos_a_pedir. objetivo_presentacion indica si corresponde ofrecer el brochure con información del proyecto. Integre la invitación y los datos pendientes con naturalidad; no existe una justificación obligatoria ni una fórmula sobre guía personalizada. La entrega autorizada del brochure no queda condicionada a esos datos. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble si presentacion_sin_tipos=true. Si requiere_captura=false, continúe con el objetivo comercial vigente sin solicitar datos de presentación pospuestos, rechazados o ya confirmados. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
+Con brochure.accion=explain_content responda qué contiene usando la descripción autorizada, sin enviar enlace ni cerrar con petición, recordatorio o invitación a compartir datos. Con wait_for_decision responda la consulta actual y deje que el cliente decida sobre el material o sus datos. Estas decisiones no significan rechazo ni pausa comercial. Una pregunta intermedia no activa la excepción de captura omitida. En una captura autorizada, la frase de ofrecimiento explica el beneficio del brochure sin enumerar los datos; la única pregunta solicita los datos pendientes. Evite anteponer una condición que ya enumera nombre o residencia y después repetirlos en la pregunta.
+estado_comercial guía la redacción del intercambio; el revisor solo contrasta hechos y promesas con las fuentes. Atienda primero la consulta actual. profile_collection_decision decide si puede solicitar datos de presentación: capture, remind y confirm autorizan únicamente allowed_fields; defer, declined y complete prohíben volver a pedir nombre o residencia, aunque datos_pendientes todavía los incluya. Aportar el nombre tras la captura inicial permite un único recordatorio de residencia, también si adjunta una consulta comercial: responda esa consulta primero y después haga solamente la pregunta de residencia autorizada. Conserve la identificación de necesidades para los siguientes turnos y no reinicie categorías o dormitorios conocidos. Una consulta sin aportar perfil nuevo o una respuesta evasiva tras ese recordatorio no autoriza insistir. Las operaciones de reserva, visita y financiamiento aceptado conservan su prioridad; los datos exigidos para un trámite financiero expresamente aceptado se rigen por su propia etapa. Si requiere_captura=true, atienda primero la consulta y solicite únicamente datos_a_pedir. objetivo_presentacion indica si corresponde ofrecer el brochure con información del proyecto. Si brochure.accion=offer_after_profile, conecte claramente el ofrecimiento con los datos pendientes como paso previo para enviarlo, con redacción propia y sin una fórmula sobre guía personalizada. Esa es la secuencia inicial, no una prohibición absoluta de entrega: conserve share_now cuando el contrato autoriza el envío por petición directa, continuidad tras la captura omitida, negativa a aportar datos u otra excepción vigente. No exija datos como condición nueva para una entrega ya autorizada. No adelante preferencias secundarias en lugar de esos datos. Respete la restricción de tipos de inmueble solo si presentacion_sin_tipos=true. Si requiere_captura=false, continúe con el objetivo comercial vigente sin solicitar datos de presentación pospuestos, rechazados o ya confirmados. Un cambio de tema o una disculpa no borra la identidad declarada. brochure.accion distingue ofrecer para después, compartir ahora y material ya compartido; no confunda el envío planificado con un envío anterior. Con already_shared omita el enlace y la oferta de reenviarlo; solo vuelva a compartirlo si el lead lo solicita y el contrato indica share_now. El siguiente objetivo se conserva, con libertad de expresión; no amplíe una solicitud general con todas las amenidades y cifras disponibles por costumbre.
 Si estado_comercial.presentacion_proyecto.required=true, incluya una presentación breve basada en approved_summary antes de la pregunta de perfil. Ese resumen aprobado autoriza explicar el uso mixto y los tipos que contiene, aunque todavía no se haya entregado el brochure; no autoriza desplegar el catálogo, precios, estado de obra o fechas ajenos a la consulta. Ofrecer el brochure y pedir datos sin presentar el proyecto no cumple esta apertura. Mantenga la redacción natural y no repita la presentación en las respuestas posteriores.
 Una decisión operativa protegida conserva hechos, consentimiento y estado de trámites; no exige repetir literalmente su pregunta. Puede formular las preguntas pertinentes, con propósito explícito, que mantengan el próximo paso autorizado. Prefiera una pregunta breve; su número es una recomendación editorial y no una condición de aprobación. Nunca convierta una consulta de disponibilidad de inmuebles en una cita. Atienda la solicitud actual completa.
 ${COMMERCIAL_CONTINUATION_RULES}
@@ -198,13 +188,13 @@ Redacte desde solicitud_actual, los hechos disponibles y el estado operativo. La
 ${CONTEXTUAL_NEEDS_WRITER_RULES}
 No narre su procesamiento interno ni las operaciones que realiza para preparar la respuesta: evite «descarto los penthouses», «me concentro en los departamentos», «he interpretado su intención» o «aplico el filtro». Exprese directamente la información útil para el cliente; por ejemplo, «Los departamentos de 3 dormitorios comparten estas características…». Puede reconocer brevemente su preferencia sin describir el trabajo interno. Esto no impide informar una acción real solicitada por el cliente cuando su resultado esté confirmado en el contexto operativo; nunca la invente.
 Responda datos_requeridos con los hechos verificados y conserve las condiciones operativas y enlaces obligatorios. No es obligatorio enumerar todas las cifras, atributos, unidades o frases de una respuesta anterior. cifras_obligatorias solo contiene obligaciones explícitas del contrato operativo, nunca números extraídos de una plantilla. Si menciona una cifra del inmueble o su precio, conserve exactamente el valor de la evidencia verificada, incluidos sus decimales: 142,09 m² puede expresarse como 142.09 m² o en palabras equivalentes, pero nunca como 142 m², ni siquiera diciendo «aproximadamente». Puede omitir una cifra que no sea necesaria; no la redondee, trunque ni calcule otra sin evidencia. Cuando continuacion_del_turno.required=true, atender la consulta no sustituye la pregunta necesaria para continuar.
-Si apertura_decidida.policy=first_information_request, abra con una disposición amable a compartir información, por ejemplo «Con mucho gusto le comparto información». En otros turnos apertura_decidida es orientación de tono: puede cambiarla u omitirla. Prefiera una cortesía breve pertinente, sin repetir aperturas recientes. No agregue una fórmula en todos los turnos.
-El contrato indica si este turno necesita un saludo inicial. Respete esa necesidad con un único saludo natural. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado. objetivo_siguiente y objetivo_conversacion describen lo que sigue pendiente; no son preguntas literales ni exigen palabras fijas. Formule una continuación cercana cuando sea útil y omita requisitos indiferentes o ya resueltos. Responda primero la solicitud actual. El sistema conservará su mensaje completo, sin añadir saludos, preguntas, avisos o enlaces después: incluya usted lo pertinente y los materiales que corresponde compartir.
+apertura_decidida es orientación de tono, también cuando policy=first_information_request: puede expresar disposición para ayudar con sus propias palabras u omitir la cortesía. La primera consulta de información no reinicia la conversación ni exige una fórmula. Prefiera una cortesía breve pertinente, sin repetir aperturas recientes.
+contrato_redaccion.saludo.requerido es la autoridad del saludo inicial. Con true dé una única bienvenida natural; con false continúe directamente, sin otro saludo ni presentación. La hora verificada, la primera consulta de información y el nivel de calidez no autorizan repetir la bienvenida. Si decisiones_protegidas=true, conserve los datos y el estado operativo, con libertad para explicar su significado. objetivo_siguiente y objetivo_conversacion describen lo que sigue pendiente; no son preguntas literales ni exigen palabras fijas. Formule una continuación cercana cuando sea útil y omita requisitos indiferentes o ya resueltos. Responda primero la solicitud actual. El sistema conservará su mensaje completo, sin añadir saludos, preguntas, avisos o enlaces después: incluya usted lo pertinente y los materiales que corresponde compartir.
 Nunca invente datos para embellecer una explicación.`
 
 export const CATALOG_WRITER_RULES = FINAL_WRITER_RULES.replace(FINANCING_PROCESS_RULES, '').replace(ASSISTANCE_CONTINUATION_RULES, '')
 
-/** A single state contract for writer and reviewer, independent of base wording. */
+/** Writer workflow state, independent of base wording; not reviewer authority. */
 export function commercialStageContract(audit: Row, verified: Row = {}, requiredLinks: string[] = []) {
   const introduction = object(audit.profile_introduction), conversation = object(verified.estado_conversacion)
   const profile = confirmedLeadProfile(verified.perfil_lead || introduction.profile_state)
@@ -222,7 +212,8 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
   const brochureUrl = text(introduction.brochure_url) || text(verified.brochure_url) || BROCHURE_URL
   const share = introduction.brochure_required === true || audit.source === 'brochure' || requiredLinks.includes(brochureUrl)
   const sharedBefore = introduction.brochure_previously_sent === true || conversation.brochure_sent === true
-  const brochureAction = share ? 'share_now' : sharedBefore ? 'already_shared'
+  const brochureAction = share ? 'share_now' : introduction.material_question === true ? 'explain_content'
+    : introduction.brochure_decision_pending === true || introduction.brochure_delivery_postponed === true ? 'wait_for_decision' : sharedBefore ? 'already_shared'
     : introduction.brochure_deferred === true ? 'offer_after_profile' : 'available_if_relevant'
   return { version: 'commercial-stage-v1',
     etapa: collect ? purpose === 'confirm_residence' ? 'confirm_profile' : 'collect_profile'
@@ -234,13 +225,14 @@ export function commercialStageContract(audit: Row, verified: Row = {}, required
     datos_pendientes: missing, datos_a_pedir: collect ? collectionDecision.allowed_fields : [],
     residencia_por_confirmar: purpose === 'confirm_residence' ? object(introduction.candidate || profile.residence_candidate) : null,
     objetivo_presentacion: collect ? { offer_project_brochure: brochureAction === 'offer_after_profile',
+      link_offer_to_profile_request: brochureAction === 'offer_after_profile',
       requested_fields: collectionDecision.allowed_fields, mandatory_justification: false } : null,
     presentacion_proyecto: presentation,
     presentacion_sin_tipos: introduction.generic_introduction === true && introduction.brochure_deferred === true
       && !approvedPresentation,
     brochure: { compartido_previamente: sharedBefore,
       accion: brochureAction,
-      url: sharedBefore && !share ? null : brochureUrl },
+      url: ['explain_content', 'wait_for_decision'].includes(brochureAction) || sharedBefore && !share ? null : brochureUrl },
     siguiente_objetivo: collect ? purpose : text(object(audit.pending_question).act)
       || text(object(audit.resolved_turn_intent || verified.contrato_turno).objective) || 'answer_current_request',
   }

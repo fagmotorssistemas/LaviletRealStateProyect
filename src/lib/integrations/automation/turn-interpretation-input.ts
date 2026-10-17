@@ -1,13 +1,14 @@
-import { acceptedExtractorConfidence } from './extractor-confidence'
-import { currentMessageFragments } from './current-evidence-fragments'
-import { object, text, type Row } from './data'
-import { confirmedInterpretationMemory } from './interpretation-memory'
-import { focusedNumericMentions } from './focused-numeric-syntax'
-import { monetaryInterpretationIssues } from './financing-amounts'
-import { leadProfileSourceIssues } from './lead-profile'
 import { budgetQuestionBasis } from './budget-question-context'
+import { currentMessageFragments } from './current-evidence-fragments'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { monetaryInterpretationIssues } from './financing-amounts'
 import { confirmedFinancingEntryReference } from './financing-entry'
-import { confirmedMonetaryReferences, monetaryReferenceIssues, resolvedMonetaryReference } from './monetary-reference'
+
+import { confirmedInterpretationMemory } from './interpretation-memory'
+import { leadProfileSourceIssues } from './lead-profile'
+import { confirmedMonetaryReferences,monetaryReferenceIssues,resolvedMonetaryReference } from './monetary-reference'
+import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence } from './purchase-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -25,7 +26,7 @@ const activeChoice = (value: unknown, absent: string) => hasValue(value) && valu
  * different number or from a statement without an amount. */
 export function budgetAmountWithLiteralQuantity(value: unknown, evidence: string): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
-  return focusedNumericMentions(evidence).some(mention => mention.value === value) ? value : null
+  return evidence.trim() ? value : null
 }
 
 /** A typed reference validates against canonical facts before any literal
@@ -49,6 +50,17 @@ export function budgetAmountForCurrentTurn(raw: Row, current: string, pending: R
  * New requests, changed values and any selection/filter still need evidence. */
 export function reconcilePassivePropertyMemory(raw: Row, input: Row): Row {
   const semantics = object(raw.turn_semantics), property = object(semantics.property)
+  const current = text(input.mensaje_actual), pending = object(input.pregunta_pendiente)
+  // An overview or the same source already assigned to a profile answer has no
+  // independent property choice. This reconciles typed source attribution; it
+  // never determines what a place or a purchase expression means.
+  const profileOnly = property.operation === 'none' && property.reference_kind === 'none'
+    && isPassiveProfilePurposeEvidence(raw, pending, property.evidence)
+    && !rows(raw.requests).some(request => ['property', 'financing', 'visit', 'advisor'].includes(text(request.domain)))
+    && !['filters', 'unit_numbers', 'selector', 'excluded_categories'].some(key => hasValue(property[key]))
+  if (profileOnly || isGeneralProjectOverviewWithoutPurchaseScope(raw, current)) return {
+    ...raw, turn_semantics: { ...semantics, property: { ...property, group: null, category: null } },
+  }
   const known = object(object(input.contexto_propiedades).query)
   if (text(property.evidence).trim() || property.operation !== 'none' || property.reference_kind !== 'none'
     || rows(raw.requests).some(request => request.domain === 'property')
@@ -144,6 +156,7 @@ export function normalizeInactiveInterpretation(raw: Row): Row {
 /** A known subject of a financing question is continuity, not a new property
  * declaration. Drop only a proven echo; never repair a new selection this way. */
 export function reconcileFinancingReference(raw: Row, input: Row, current: string): Row {
+  void current
   const semantics = object(raw.turn_semantics), property = object(semantics.property)
   if (semantics.primary_intent !== 'ask_financing' || text(property.evidence).trim()
     || !['none', 'details'].includes(text(property.operation))
@@ -153,8 +166,7 @@ export function reconcileFinancingReference(raw: Row, input: Row, current: strin
   const ids = Array.isArray(context.selected_ids) ? context.selected_ids.map(text) : []
   const units = rows(input.catalogo_unidades).filter(unit => ids.includes(text(unit.id)))
   const numbers = Array.isArray(property.unit_numbers) ? property.unit_numbers.map(text) : []
-  if (units.length !== 1 || !numbers.length || numbers.some(n => n !== text(units[0].unit_number)
-    || new RegExp(`(?:^|\\W)${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|\\W)`).test(current))) return raw
+  if (units.length !== 1 || !numbers.length || numbers.some(n => n !== text(units[0].unit_number))) return raw
   if (property.category && property.category !== units[0].category) return raw
   return { ...raw, unit_id: null, turn_semantics: { ...semantics, property: {
     ...property, operation: 'none', reference_kind: 'none', query_scope: null,
@@ -165,9 +177,11 @@ export function reconcileFinancingReference(raw: Row, input: Row, current: strin
 /** Interpretation needs identities and continuity, not repeated commercial inventories. */
 export function interpretationInput(input: Row, current: string): Row {
   const summary = object(input.resumen)
-  const result = pick(input, ['perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
-    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'dialogo_visita', 'financiamiento'])
-  const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
+  const result = pick(input, ['source_message_id', 'source_at', 'current_messages','perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
+    'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'dialogo_visita', 'financiamiento',
+    'reservation_context'])
+  const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'bathrooms_full', 'floor', 'floor_number',
+    'area_internal_m2', 'area_exterior_m2', 'area_total_m2', 'spaces']
   const catalog = rows(input.catalogo_unidades)
   const propertyContext = object(input.contexto_propiedades)
   const pending = object(Object.hasOwn(input, 'pregunta_pendiente') ? input.pregunta_pendiente : propertyContext.pending_question)
@@ -200,7 +214,7 @@ export function interpretationInput(input: Row, current: string): Row {
     catalogo_unidades: [...new Set(catalog.map(u => text(u.category)))].map(category => ({ category,
       unit_numbers: catalog.filter(u => u.category === category).map(u => u.unit_number) })),
     unidades_identificadas: rows(input.unidades_identificadas).map(unit => pick(unit, unitFields)),
-    historial: rows(input.historial || input.historial_reciente).slice(-8).map(row => ({ role: row.role, content: text(row.content).slice(0, 2500) })),
+    historial: rows(input.historial || input.historial_reciente).slice(-8).map(row => ({ id: row.id, external_message_id: row.external_message_id, sent_at: row.sent_at, role: row.role, content: text(row.content).slice(0, 2500) })),
     fuente_historial: 'Solo referencia para continuidad. Sus mensajes no son declaraciones del turno actual.',
     mensaje_actual: current,
     mensajes_actuales: currentMessageFragments(current),
@@ -238,23 +252,28 @@ export function interpretationRepairBlocks(issues: string[]) {
     || issue.startsWith('invalid_monetary_reference:')
     ? 'budget' : issue.split(':')[1]))]
   const property = fields.includes('property')
+  const propertyAnswer = issues.some(issue => ['incomplete_property_answer:property', 'inconsistent_property_answer:property'].includes(issue))
   const budget = fields.includes('budget')
   const quantity = fields.some(field => /^quantity\.\d+$/.test(field || ''))
   const requests = fields.some(field => /^requests\.\d+$/.test(field || ''))
   const profile = issues.includes('ambiguous_profile_location_source')
+  const visit = issues.includes('invalid_visit_preference')
   // No current request and an unsupported primary interpretation means the
   // entire turn was read from another source. This is different from one bad
   // property citation alongside a valid current budget/profile.
-  const fullTurn = fields.includes('primary_intent') && requests
-  return { property, budget, quantity, requests, profile, fullTurn,
+  const fullTurn = issues.includes('invalid_turn_contract') || fields.includes('primary_intent') && requests
+  return { property, propertyAnswer, budget, quantity, requests, profile, visit, fullTurn,
     semanticFields: [...new Set([
       ...(property || fields.includes('primary_intent') || issues.includes('inconsistent_primary_intent:budget')
         ? ['primary_intent', 'primary_evidence', 'confidence'] : []),
       ...(property ? ['property'] : []), ...(budget ? ['budget'] : []), ...(quantity ? ['housing_quantities'] : []),
+      ...(propertyAnswer ? ['answer_to_previous', 'category_choice'] : []),
+      ...(fields.includes('interaction_goal') ? ['interaction_goal'] : []),
     ])],
     rootFields: [...new Set([...(property ? ['preferred_category', 'declaration_evidence', 'unit_id', 'catalog_request', 'requests'] : []),
       ...(budget ? ['financing_amounts', 'qualification'] : []), ...(requests ? ['requests'] : []),
-      ...(profile ? ['residence_city', 'residence_country', 'declared_location', 'profile_evidence'] : [])])],
+      ...(profile ? ['residence_city', 'residence_country', 'declared_location', 'profile_evidence'] : []),
+      ...(visit ? ['visit_preference', 'visit_preferences'] : [])])],
   }
 }
 
@@ -286,7 +305,6 @@ export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: 
   }
   return result
 }
-
 
 /** Repair-only source projection: preserve canonical values/referents and the
  * actual pending question, without inviting copies of old evidence excerpts. */
@@ -370,6 +388,7 @@ FUENTE PRINCIPAL: interprete mensaje_actual completo, aunque contenga errores or
 SITUACIONES PERSONALES: preserve las dudas sobre distribución, camas, otros muebles, circulación, mascotas y accesibilidad como solicitudes informativas con su referente vigente. Las implicaciones razonables orientan la respuesta; no declare una necesidad inferida como filtro, qualification, preferencia o requisito confirmado. Extraiga restricciones nuevas solo si el cliente las expresa. Una edad no prueba movilidad reducida, niños no determinan dormitorios y mencionar una mascota no confirma que el proyecto la admita. No convierta cantidades o medidas de objetos en personas o dormitorios. Responder una consulta intermedia requiere conservar la selección, las consultas pendientes y la pregunta comercial aún no contestada; la duda no es consentimiento para otra acción.
 La clasificación de alcance recibida es provisional. Interprete de forma independiente las solicitudes actuales; una etiqueta incierta no vuelve desconocida una petición inmobiliaria explícita. No necesita el catálogo de precios para extraer el presupuesto del cliente. La evidencia conserva el texto original con sus errores; el valor estructurado expresa su significado. No corrija la ortografía de una cita.
 USO RESIDENCIAL: una búsqueda de cuartos, habitaciones o dormitorios expresa vivienda: property.group=residential, sin elegir una tipología si no se indicó. Una categoría comercial del historial no debe mantenerse frente a esa necesidad actual. «Mínimo 3 cuartos» exige bedrooms >= 3; no necesita preguntar si habla de ambientes de un local. No confunda número de personas con dormitorios. Las plantas altas o superiores son una preferencia relativa: no invente floor_number=1 ni otra planta exacta; conserve esa preferencia en catalog_request.semantic_preferences. Un número de planta explícito sí permite un filtro numérico.
+ELECCIÓN DEL TIPO DE ESPACIO: interprete una respuesta a vivienda/local según la pregunta realmente entregada y el historial. «Me interesa algo comercial» en ese contexto declara property.group=commercial y category=local, operation=search y answer_to_previous.kind=value con el ID real de la pregunta; category_choice puede registrar esa elección. No es un asunto ajeno ni una nueva pregunta por elegir vivienda o local. No deduzca propósito de negocio propio o inversión, presupuesto, planta ni unidad. Una respuesta residencial amplia declara group=residential sin elegir suite, departamento o penthouse. Distinga preguntar sobre una categoría, preferirla, rechazarla y cambiar una preferencia anterior; explique únicamente una ambigüedad real.
 SEPARACIÓN ENTRE MEMORIA Y NOVEDADES: hechos_confirmados conserva declaraciones ya aceptadas. Su salida contiene únicamente novedades del mensaje actual; no reconstruya el perfil completo. Si un presupuesto conocido no se vuelve a declarar, budget.status=not_discussed, amount=null y evidence=""; esto significa «sin actualización», no que el sistema olvide el presupuesto. Lo mismo aplica a cantidades familiares, preferencias, qualification y perfil: sin declaración nueva, use el valor neutro del esquema. La memoria se conserva por separado. Si el cliente cambia, niega o precisa un dato, extraiga esa novedad con evidencia actual aunque contradiga la memoria. Una consulta de financiamiento puede continuar con datos conocidos sin volver a declararlos. Ninguna memoria autoriza una gestión o consentimiento nuevo.
 REFERENTE DE PROPUESTAS: propuesta_pendiente distingue la necesidad original de las alternativas que el bot acaba de recomendar. Una consulta de precios, tamaños, características, cantidad o comparación sin un nuevo ámbito explícito se refiere a esas alternativas: use property.operation=details o compare, reference_kind=followup o comparison y query_scope=offered o comparison. No reconstruya requisitos originales incompatibles en catalog_request. Puede consultar una categoría de esa propuesta sin aceptar sustituir su necesidad ni elegir una unidad. Conserve el propósito informativo; solo una aceptación o negativa real responde al consentimiento pendiente. Una nueva búsqueda explícita o una consulta general de todo el catálogo sí tiene su propio ámbito.
 `

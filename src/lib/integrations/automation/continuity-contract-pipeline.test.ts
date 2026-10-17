@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
@@ -18,9 +19,9 @@ for (const enabled of [true, false]) test(`the final question receipt survives t
     if (task === 'writing') {
       assert.ok(object(object(object(schema).properties).question).required instanceof Array)
       assert.ok((object(object(object(schema).properties).question).required as string[]).includes('continuation_id'))
-      return { reply, question, requests: [{ fragment: 'R1', intent: 'Opciones', request_type: 'general_information', status: 'answered', evidence: 'Presenta categorías', fact_key: null }] }
+      return writerFixture({ reply, question, requests: [{ fragment: 'R1', intent: 'Opciones', request_type: 'general_information', status: 'answered', evidence: 'Presenta categorías', fact_key: null }] })
     }
-    return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: { ...question, offered_action: 'information' } }
+    return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
   }))
   assert.equal(result.reply, reply)
   const pending = deliveredPendingQuestion(result.reply, { metadata: result.audit.question,

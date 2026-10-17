@@ -1,15 +1,15 @@
-import { CURRENT_TONE } from './conversation-tone'
-import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 import { ecuadorYmd } from '@/lib/inmobiliaria/agendaTime'
-import { object, text, type Row } from './data'
-import { normalized } from './sdr-rules'
+import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
+import { CURRENT_TONE } from './conversation-tone'
+import { object,text,type Row } from './data'
+import { turnCommunicationKind } from './turn-communication'
+import { CLIENT_FACING_WRITING_RULES } from './client-facing-writing'
 
 export function conversationalFirstName(name: string) {
   return name.trim().split(/\s+/)[0] || ''
 }
-export function isCourtesyOnly(message: string) {
-  // «Está bien», «de acuerdo» u «ok» también pueden autorizar una propuesta.
-  return /^(?:(?:perfecto|muchas gracias|muchisimas gracias|gracias|con mucho gusto|muy amable|muy bien|excelente|entendido|hasta luego|igualmente|estare puntual|ahi estare|alli estare|nos vemos|le esperamos|hasta entonces)\s*)+$/.test(normalized(message))
+export function isCourtesyOnly(_message: string, interpreted: unknown = {}) {
+  return turnCommunicationKind(interpreted) === 'courtesy_only'
 }
 function previousReplies(history: unknown): Row[] {
   return (Array.isArray(history) ? history : []).map(object).filter(row => {
@@ -17,52 +17,36 @@ function previousReplies(history: unknown): Row[] {
     return ['bot', 'asesor'].includes(text(row.role)) && !['rejected', 'failed', 'cancelled', 'not_sent', 'pending', 'queued'].includes(status)
   })
 }
-export function greetingForTurn(current: string, history: unknown, lastBotAt: unknown, at: string) {
-  const match = current.trim().match(/^(hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas tardes\b|buenas noches\b|buenas\b)/i)
+export function greetingForTurn(_current: string, history: unknown, lastBotAt: unknown, at: string, interpreted: unknown = {}) {
   const replies = previousReplies(history)
-  const hasPreviousReply = replies.length > 0 || Number.isFinite(Date.parse(text(lastBotAt)))
-  // Greeting belongs to the first allowed reply, irrespective of route or intent.
-  if (!match) return !hasPreviousReply ? 'Hola' : ''
-  const previous = replies.map(r => Date.parse(text(r.sent_at)))
-  const last = Math.max(0, Date.parse(text(lastBotAt)) || 0, ...previous.filter(Number.isFinite))
+  const last = Math.max(0, Date.parse(text(lastBotAt)) || 0, ...replies.map(row => Date.parse(text(row.sent_at)) || 0))
   const now = Date.parse(at)
-  if (last && ecuadorYmd(new Date(last)) === ecuadorYmd(new Date(now)) && now - last < 15 * 60_000) return ''
-  const value = match[0].toLocaleLowerCase('es')
-  if (value === 'buenas' || /buen[oa]s? (?:dias|días|tardes|noches)/.test(value)) return localGreeting(at)
-  return value[0].toLocaleUpperCase('es') + value.slice(1)
+  if (!last) return localGreeting(at)
+  if (ecuadorYmd(new Date(last)) === ecuadorYmd(new Date(now)) && now - last < 15 * 60_000) return ''
+  return object(interpreted).greeting_present === true ? localGreeting(at) : ''
 }
 export function localGreeting(at: string) {
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Guayaquil', hour: '2-digit', hourCycle: 'h23' }).format(new Date(at)))
   return hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'
 }
-export function applyTurnGreeting(reply: string, greeting: string): string {
-  const body = reply.trim()
-  if (!body || !greeting || /^(?:hola\b|buenos d[ií]as\b|buen d[ií]a\b|buenas(?: tardes| noches)?\b)/i.test(body)) return body
-  return `${greeting}. ${body}`
-}
-export function naturalConversationReply(reply: string, name: string, greeting: string, at?: string) {
-  const full = name.trim(), first = conversationalFirstName(full)
-  let result = reply.trim().replace(/\\n/g, '\n').replace(/\bamenidades\b/gi, 'instalaciones').replace(/p\. m\.\.|a\. m\.\./g, value => value.slice(0, -1))
-  result = result.replace(/^buenas(?=\s*[,!.:;]|$)/i, at ? localGreeting(at) : 'Hola')
-  if (at) result = result.replace(/^(hola[, .!]*\s*)?buen(?:os días|as tardes|as noches)/i, (_, hola: string) => (hola || '') + localGreeting(at))
-  if (full && full !== first) result = result.replace(new RegExp(full.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&'), 'gi'), first)
-  return applyTurnGreeting(result, greeting)
-}
+/** Writer prose is delivered as authored. These APIs remain non-mutating. */
+export function applyTurnGreeting(reply: string, _greeting: string): string { void _greeting;  return reply }
+export function naturalConversationReply(reply: string, _name: string, _greeting: string, _at?: string) { void _name; void _greeting; void _at;  return reply }
+
 export function minimalGreeting(greeting: string) {
   return `${greeting || 'Hola'}, un gusto saludarle. ¿En qué podemos ayudarle?`
 }
 export function visitCoordinationReply(slot: Row, counterproposal = false) {
-  if (slot.start_time && slot.confidence === 'exact') {
-    return (counterproposal ? 'Claro' : 'Perfecto') + ', revisaremos la disponibilidad para ' + formatVisitWhen(text(slot.start_time)) + ' Le confirmaremos por aquí en cuanto el equipo revise ese horario.'
-  }
-  if (slot.requested_date && slot.has_time) return 'Claro, solo para coordinar bien: ¿se refiere a ese horario en la mañana o en la tarde?'
-  if (slot.requested_date) return 'Claro, con gusto. ¿A qué hora le gustaría visitarnos ese día?'
-  if (slot.has_time) return 'Con gusto. ¿Qué día le gustaría visitarnos a esa hora?'
-  return counterproposal
-    ? 'No se preocupe, buscamos otra opción. ¿Qué día y hora le vendrían mejor?'
-    : 'Con gusto coordinamos su visita. ¿Qué día y a qué hora le gustaría venir?'
+  if (slot.start_time && slot.confidence === 'exact') return `Ya tengo su preferencia para ${formatVisitWhen(text(slot.start_time))}`
+  if (slot.requested_date && slot.has_time) return 'Para coordinar ese día, ¿prefiere ese horario por la mañana o por la tarde?'
+  if (slot.requested_date) return '¿A qué hora le gustaría visitarnos ese día?'
+  if (slot.has_time) return '¿Qué día le gustaría visitarnos a esa hora?'
+  return counterproposal ? 'Podemos buscar otra opción. ¿Qué día y hora le vendrían mejor?'
+    : 'Podemos coordinar su visita. ¿Qué día y a qué hora le gustaría venir?'
 }
+
 export const CONVERSATION_WRITING_STYLE_RULES = [
+  CLIENT_FACING_WRITING_RULES,
   'Use solo el primer nombre del cliente de forma ocasional; no lo repita al inicio de respuestas consecutivas.',
   CURRENT_TONE.address,
   CURRENT_TONE.vocabulary,
@@ -86,7 +70,7 @@ export const NATURAL_CONVERSATION_RULES = [
   'Responda al saludo al retomar la conversación en un nuevo día o después de una pausa. No vuelva a presentarse en mensajes consecutivos.',
   'Para agendar, conserve el día y la hora que el cliente ya dio dentro de la misma coordinación. Pregunte únicamente el dato que falta.',
   'Si rechaza un horario, muestre comprensión y pregunte su alternativa. Si ya la dijo, reconózcala sin pedirla de nuevo.',
-  'No afirme reserva, confirmación ni cancelación salvo que el resultado del sistema las respalde. Puede explicar que el asesor revisará la agenda y enviará opciones cuando la solicitud haya quedado en su bandeja; eso todavía no confirma una cita.',
+  'No afirme reserva, confirmación ni cancelación salvo que el resultado del sistema las respalde. En visitas, comunique positivamente la acción realizada y el siguiente paso: pida solo el dato pendiente, informe el registro real de la solicitud o comunique la cita confirmada según corresponda. Explique que el equipo revisará la agenda cuando la solicitud haya quedado en su bandeja, sin añadir una advertencia negativa rutinaria.',
   'Sin emojis, sin fingir identidad humana.',
   'Un saludo o puntuación aislada solo merece saludo y ofrecer ayuda; no asuma intención de compra ni presente el catálogo.',
   CURRENT_TONE.neutralGreeting,
@@ -98,5 +82,5 @@ export const NATURAL_CONVERSATION_RULES = [
   'Aproveche descripciones positivas verificadas de vistas y entorno con su alcance real. Una amenidad con vistas privilegiadas a la ciudad permite describir esas áreas comunes, sin atribuir esa vista a todas las viviendas ni certificar cuál tiene la mejor. Ante una prioridad por vistas, acompañe con una opción útil para comparar y material disponible; no convierta la falta de una clasificación de vistas por unidad en una negativa general sobre el proyecto.',
   'Superficies del catálogo: area_internal_m2 es área interior, area_exterior_m2 es área exterior y area_total_m2 es el total registrado; todas están en m². Conteste con las superficies disponibles de la unidad consultada aunque area_total_m2 sea null. Distinga interior y exterior; no llame total al área interior ni invente un total oficial sumando campos. Un área exterior null significa sin registrar, no cero ni ausencia de exterior. No describa el exterior como terraza, jardín o área exclusiva sin datos que lo confirmen. Ejemplo: LC-02 con interior 95.37 y exterior 46.74 se describe como «95,37 m² interiores y 46,74 m² exteriores».',
   'Ejemplo de precisión: si solo consta balcón para el 202, diga «En el 202 consta balcón; para las demás opciones falta verificarlo». No diga «No todos tienen balcón» ni «El 301 no lo incluye» a partir de un campo ausente.',
-  'Al iniciar una coordinación de visita, muestre primero los días y horas de atención configurados y después pida la preferencia. Esos rangos describen cuándo se atiende, no garantizan disponibilidad. No invente una fecha u hora libre; si pide sugerencia o expresa incertidumbre, vuelva a ofrecer los rangos configurados sin repetir una fecha ya rechazada.',
+  'Al iniciar una coordinación de visita, use los días y horas de atención configurados para ayudarle a elegir cuando haga falta. Si ya dio una preferencia válida, continúe sin repetir los horarios ni añadir un descargo sobre cupos. No invente una fecha u hora libre; si pide sugerencia o expresa incertidumbre, ofrezca los rangos configurados sin repetir una fecha ya rechazada.',
 ].join('\n')

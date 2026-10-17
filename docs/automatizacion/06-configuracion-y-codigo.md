@@ -50,6 +50,10 @@ Regresiones: paráfrasis del caso de suites, callbacks de prosa que nunca se inv
 | `KOMMO_WEBHOOK_SECRET` | Autoriza el webhook. |
 | `AUTOMATION_CRON_SECRET` / `CRON_SECRET` | Autoriza el worker. |
 | `OPENAI_MODEL` | Modelo del análisis de conversaciones y otras llamadas de interpretación general. Los modelos específicos de redacción, extracción y revisión tienen variables propias. |
+| `OPENAI_MODEL_MEDIA` | Lectura de imágenes y PDF de la automatización; `gpt-6-luna` por defecto, independiente de `OPENAI_MODEL`. |
+| `OPENAI_MODEL_SCOPE` | Clasificación y conciliación del alcance; `gpt-6-luna` por defecto. |
+| `OPENAI_MEDIA_REASONING_EFFORT` / `OPENAI_SCOPE_REASONING_EFFORT` | Esfuerzo independiente para esos roles de Luna; `low` por defecto. |
+| `OPENAI_TRANSCRIPTION_MODEL` | Transcripción de voz; conserva `whisper-1` por defecto y los modelos de transcripción admitidos. Luna interpreta el texto resultante, pero no admite audio directo. |
 
 ### Base de datos
 

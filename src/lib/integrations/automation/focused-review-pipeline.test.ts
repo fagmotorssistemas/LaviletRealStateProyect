@@ -1,9 +1,10 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import Ajv from 'ajv'
 import { completeTurnReply } from './turn-completeness'
 import { object, type Row } from './data'
-import { BUSINESS_RISK_REVIEW_VERSION, businessRiskDecision } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { AIRequestGuardError, OpenAIRequestError } from './openai-request'
 import { requireReviewedResponse, ResponseReviewRecoveryError } from './response-review-recovery'
 import { validateCatalogReply } from './catalog-dialogue'
@@ -14,17 +15,13 @@ const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object)
 const unit = { id: 'd202', unit_number: '202', category: 'departamento', status: 'disponible', is_published: true,
   area_internal_m2: 120.83, bedrooms: 3, floor_number: 2, published_commercial_price: 245123 }
 const noQuestion = { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other', comparison_categories: [], comparison_bedrooms: null }
-const pass = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'pass', findings: [], facts: [], question: null }
-const block = (category: string, statement: string, reason: string, authoritative_fact: string) => ({
-  review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block',
-  facts: [], question: null,
-  findings: [{ category, statement, reason, authoritative_fact }],
-})
+const pass = { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'pass', findings: [] }
+const block = (category: string, statement: string, reason: string, authoritative_fact: string) => ({ review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'block', findings: [{ category, statement, reason, authoritative_fact }] })
 function writer(context: Row, reply: string): Row {
   const reference = rows(context.referencias_solicitud)[0]
   assert.ok(reference?.id)
-  return { reply, requests: [{ fragment: reference.id, intent: 'Atender la consulta actual', request_type: 'general_information',
-    status: 'answered', evidence: 'El mensaje responde a la consulta.', fact_key: null }], question: noQuestion }
+  return writerFixture({ reply, requests: [{ fragment: reference.id, intent: 'Atender la consulta actual', request_type: 'general_information',
+    status: 'answered', evidence: 'El mensaje responde a la consulta.', fact_key: null }], question: noQuestion })
 }
 function harness(handle: (context: Row, task: string) => Row) {
   const calls: { context: Row; task: string }[] = []
@@ -32,7 +29,8 @@ function harness(handle: (context: Row, task: string) => Row) {
   const generate: NonNullable<Parameters<typeof completeTurnReply>[1]> = async (_instructions, input, schema, _image, _file, _tone, task = 'data') => {
     const context = object(input)
     calls.push({ context, task })
-    const answer = handle(context, task)
+    const rawAnswer = handle(context, task)
+    const answer = task === 'writing' ? writerFixture(rawAnswer) : rawAnswer
     assert.ok(schema)
     const validate = ajv.compile(schema)
     assert.ok(validate(answer), ajv.errorsText(validate.errors))
@@ -89,7 +87,7 @@ for (const previouslyShared of [true, false]) test(`residence clarification shar
     const collection = rows(context.obligaciones_del_turno).find(row => row.id === 'profile_collection')
     if (task === 'writing') assert.equal(object(collection?.purpose).mandatory_justification, false)
     if (task === 'writing') assert.deepEqual(collection?.required_data, ['current_residence'])
-    if (task === 'writing') assert.match(String(collection?.instruction), /no prometa enviarlo después/)
+    if (task === 'writing') assert.match(String(collection?.instruction), /conserve la entrega autorizada y sus excepciones/)
     if (task === 'review') {
       assert.equal(collection, undefined)
       assert.ok(collectionInstruction)
@@ -134,7 +132,7 @@ test('a valid commercial draft passes the first review without sentence or numer
   assert.equal(result.reply, reply)
   assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review'])
   assert.deepEqual(result.audit.repair_attempts, [])
-  assert.equal(object(result.audit.semantic_review).review_contract, BUSINESS_RISK_REVIEW_VERSION)
+  assert.equal(object(result.audit.semantic_review).review_contract, WRITER_CONTENT_REVIEW_VERSION)
   assert.equal(validateCatalogReply(reply, { semantic_review: result.audit.semantic_review }).valid, true)
 })
 
@@ -160,20 +158,19 @@ test('an invented price is blocked, corrected against the catalogue and reviewed
   assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'writing', 'review'])
 })
 
-test('an approved model verdict cannot send a rounded surface absent from authorized facts', async () => {
+test('the AI reviewer corrects a rounded surface using the exact authorized fact', async () => {
   const rounded = 'El departamento 202 tiene 121 m² interiores.'
   const exact = 'El departamento 202 tiene 120,83 m² interiores.'
   let writes = 0
   const mock = harness((context, task) => task === 'writing' ? writer(context, ++writes === 1 ? rounded : exact)
-    : { ...pass, facts: [{ statement: context.borrador, kind: 'catalog_value', subject_id: unit.id, scope: null,
-      field: 'area_internal_m2', value: writes === 1 ? 121 : 120.83, upper_value: null, relation: 'eq', unit: 'm2' }] })
+    : writes === 1 ? block('hard_fact', rounded, 'La superficie fue redondeada.', '120,83 m² interiores') : pass)
   const result = await completeTurnReply({ current: '¿Qué superficie tiene el departamento 202?', baseReply: exact,
     verified: { catalogo: [unit] }, audit: { semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)
   assert.equal(result.audit.status, 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, exact)
-  assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'review', 'writing', 'review'])
-  assert.equal(rows(result.audit.repair_attempts)[0].target, 'review_metadata')
-  assert.equal(rows(rows(result.audit.repair_attempts)[1].issues)[0].owner, 'system')
+  assert.deepEqual(mock.calls.map(call => call.task), ['writing', 'review', 'writing', 'review'])
+  assert.equal(rows(result.audit.repair_attempts)[0].target, 'commercial_draft')
+  assert.equal(rows(result.audit.repair_attempts)[0].authority, 'ai_reviewer')
 })
 
 test('a material price error that remains unchanged is never sent', async () => {
@@ -184,7 +181,8 @@ test('a material price error that remains unchanged is never sent', async () => 
     verified: { catalogo: [unit], politica_comercial: { precios_autorizados: true } },
     audit: { semantic_review_enabled: true, business_risk_review_enabled: true } }, mock.generate)
   assert.notEqual(result.audit.status, 'checked')
-  assert.notEqual(result.reply, wrong)
+  assert.equal(result.reply, wrong, 'the internal blocked draft remains intact for diagnostics')
+  assert.equal(object(result.audit.recovery).pending, true)
   assert.throws(() => requireReviewedResponse(result.audit), ResponseReviewRecoveryError)
 })
 
@@ -213,11 +211,14 @@ test('the same review gate catches unverified promises and missing turn obligati
   }
 })
 
-test('the short reviewer contract cannot veto style or invent cross-reference requirements', () => {
-  assert.deepEqual(businessRiskDecision(pass), { valid: true, approved: true, findings: [], ignoredFindings: [] })
-  assert.equal(businessRiskDecision({ review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block',
-    findings: [{ category: 'style', statement: 'Cambiar el saludo', reason: 'Suena mejor', authoritative_fact: '' }] }).valid, false)
-  assert.equal(businessRiskDecision({ review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block', findings: [] }).valid, false)
+test('the short reviewer contract cannot veto style or invent cross-reference requirements', async () => {
+  const { reviewWriterContent } = await import('./writer-content-review')
+  for (const response of [pass, { ...pass, verdict: 'block', findings: [{ category: 'style', statement: 'Cambiar el saludo', reason: 'Suena mejor', authoritative_fact: '' }] },
+    { ...pass, verdict: 'block', findings: [] }]) {
+    const result = await reviewWriterContent('Respuesta intacta.', {}, async () => response)
+    assert.equal(result.approved, response === pass)
+    assert.equal(result.audit.status, response === pass ? 'checked' : 'invalid_review')
+  }
 })
 
 test('a reviewer transport failure propagates to operational recovery without rewriting the draft', async () => {

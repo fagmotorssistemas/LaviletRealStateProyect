@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -17,10 +18,10 @@ const audit = { source: 'project_overview', semantic_review_enabled: true, busin
   profile_introduction: { stage: 'deliver', question_purpose: 'none', brochure_previously_sent: true } }
 const fresh = (): Row => ({ recorrido_comercial: {}, lead: {}, perfil_lead: {}, property_context: { query: {} },
   financiamiento: {}, catalogo: [], semantica_turno: { primary_intent: 'project_information' } })
-const reviewPass = { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+const reviewPass = { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
 const compatibleCatalog = { catalogo: [{ id: 'd304', unit_number: '304', category: 'departamento', bedrooms: 2, floor_number: 3 }],
   catalog_read: { complete: true } }
-function draft(reply: string) { return { reply, requests: [], question: null } }
+function draft(reply: string, question: Row | null = null) { return writerFixture({ reply, requests: [], question }) }
 
 test('the same pending decision applies across information topics, without a keyword-specific reply patch', async () => {
   for (const [current, answer, source] of [
@@ -40,8 +41,8 @@ test('the same pending decision applies across information topics, without a key
           assert.equal(step.continuation_required, true); assert.equal(step.question_id, 'property_category')
           assert.equal(task, 'writing')
         } catch (error) { errors.push(error); throw error }
-        return { ...draft(source === 'brochure' ? reply + '\n\nhttps://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' : reply), question: { purpose: 'choose_property', role: 'necessary_clarification',
-          missing_datum: 'vivienda o local', next_decision: 'Mostrar opciones', continuation_id: 'property_category', continuation_act: 'choose_category' } }
+        return draft(source === 'brochure' ? reply + '\n\nhttps://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' : reply, { purpose: 'choose_property', role: 'necessary_clarification',
+          missing_datum: 'vivienda o local', next_decision: 'Mostrar opciones', continuation_id: 'property_category', continuation_act: 'choose_category' })
       }))
     assert.deepEqual(errors, [])
     assert.equal(result.reply, source === 'brochure' ? reply + '\n\nhttps://www.lavilett.com/materiales/brochure-la-vilet-v5.pdf' : reply)
@@ -121,17 +122,10 @@ test('the factual reviewer cannot force an editorial transition rewrite with a v
         const step = (data.obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
         assert.equal(step?.response_connection, task === 'writing' ? 'answer_to_pending_decision' : undefined)
         assert.equal(rules.split(CONVERSATION_BRIDGE_RULES).length - 1, task === 'writing' ? 1 : 0)
-        if (calls.length === 3) {
-          const repair = object(data.reparacion)
-          assert.ok(JSON.stringify(repair.correcciones_concretas).includes('commercial_next_step.response_connection'))
-          assert.ok(String(repair.instruccion).includes('Conserve literalmente las demás frases'))
-        }
       } catch (error) { errors.push(error); throw error }
       if (task === 'writing') return draft(calls.length === 1 ? disconnected : connected)
-      return calls.length === 2 ? { ...reviewPass, verdict: 'block', findings: [{ category: 'turn_goal',
-        statement: 'El proyecto tendrá viviendas y locales. ¿Busca vivienda o un local?',
-        reason: 'commercial_next_step.response_connection exige retomar la decisión tras responder la fecha; el borrador reinicia la presentación y no enlaza ambas partes.',
-        authoritative_fact: 'Conserve la respuesta de entrega y enlace la decisión pendiente sin reiniciar la presentación.' }] } : reviewPass
+      assert.equal((data.obligaciones_del_turno as Row[]).some(item => item.id === 'commercial_next_step'), false)
+      return reviewPass
     })
   assert.deepEqual(errors, [])
   assert.deepEqual(calls, ['writing', 'review'])
@@ -156,11 +150,11 @@ test('a delivery inquiry preserves known preferences and carries the same timeli
         if(task==='writing')assert.deepEqual(object(input.contexto_verificado).entrega_proyecto,entrega_proyecto)
         else assert.deepEqual(object(input.fuentes_autorizadas).entrega_proyecto,entrega_proyecto)
       }catch(error){errors.push(error);throw error}
-      return task==='writing'?draft(reply):reviewPass
+      return task==='writing'?draft(reply,{purpose:'choose_property',role:'optional_continuation',missing_datum:'Presupuesto',next_decision:'Orientar opciones',continuation_id:'budget_amount',continuation_act:'budget'}):reviewPass
     })
   assert.deepEqual(errors,[]);assert.deepEqual(calls,['writing','review'])
   assert.equal(result.reply,reply);assert.equal(result.needsAdvisor,false)
-  assert.equal(journeyPendingQuestion(reply,object(result.audit.commercial_journey),true).id,'budget_amount')
+  assert.equal(journeyPendingQuestion(reply,object(result.audit.commercial_journey),true,result.audit.question).id,'budget_amount')
 })
 
 test('reviewed pipeline completes a missing canonical CTA without a second writer call', async () => {
@@ -192,7 +186,8 @@ test('completion of a CTA cannot bypass an unavailable or invalid factual review
   assert.equal(result.audit.status, 'rejected_review')
   assert.equal(calls[0], 'writing')
   assert.ok(calls.includes('review'))
-  assert.equal(object(result.audit.final_validation).passed, false)
+  assert.equal(object(result.audit.recovery).pending, true)
+  assert.equal(object(object(result.audit.semantic_review).acceptance).content_approved, false)
 })
 
 test('a reviewer cannot veto a generic CTA; continuation instructions belong to the writer and system', async () => {
@@ -208,9 +203,7 @@ test('a reviewer cannot veto a generic CTA; continuation instructions belong to 
         const next = (object(raw).obligaciones_del_turno as Row[]).find(item => item.id === 'commercial_next_step')!
         assert.equal(next, undefined)
       } catch (error) { errors.push(error); throw error }
-      return calls.length === 2 ? { ...reviewPass, verdict: 'block', findings: [{ category: 'turn_goal', statement: generic,
-        reason: 'commercial_next_step exige identificar vivienda o comercio; ofrecer más información no recoge esa decisión.',
-        authoritative_fact: specific }] } : reviewPass
+      return reviewPass
     })
   assert.deepEqual(errors, [])
   assert.equal(result.audit.status, 'checked')
@@ -237,7 +230,7 @@ test('a material link after the question cannot erase the pending decision', () 
   for (const reply of [question, `${question}\n\nBrochure: https://www.lavilett.com/materiales/brochure.pdf`,
     'https://www.lavilett.com/?next=ignored\n' + question + '\nCon mucho gusto.']) {
     assert.deepEqual(turnContinuationIssues(reply, { commercial_journey: plan }), [])
-    assert.equal(journeyPendingQuestion(reply, plan, true, { purpose: 'choose_property',
+    assert.equal(journeyPendingQuestion(reply, plan, true, { text: question, purpose: 'choose_property',
       continuation_id: 'property_category', continuation_act: 'choose_category' }).question, question)
   }
   assert.deepEqual(turnContinuationIssues('https://www.lavilett.com/?next=ignored', { commercial_journey: plan }), ['required_continuation_missing'])

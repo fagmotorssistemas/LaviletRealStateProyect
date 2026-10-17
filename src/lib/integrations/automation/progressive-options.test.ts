@@ -118,7 +118,7 @@ test('the current budget question supersedes a legacy unit/details suggestion an
   const audit = { progressive_selection: { stage: 'choose_unit', question: '¿Cuál unidad desea conocer?', candidate_ids: ['p1', 'p2'] },
     pending_question: { id: 'unit_choice', act: 'choose_unit', question: '¿Cuál unidad desea conocer?', candidate_ids: ['p1', 'p2'] },
     commercial_journey: { action: 'ask_budget', question_id: 'budget_amount', question: budgetQuestion },
-    turn_completeness: { question: { purpose: 'clarify_request', continuation_id: 'budget_amount', continuation_act: 'budget' } } }
+    turn_completeness: { question: { text: budgetQuestion, purpose: 'clarify_request', continuation_id: 'budget_amount', continuation_act: 'budget' } } }
   const reply = 'Podemos revisar opciones de vivienda. ' + budgetQuestion
   assert.deepEqual(progressiveQuestionObservations(reply, audit, 'clarify_request'), [])
   const receipt = progressivePendingQuestion(reply, audit)
@@ -134,7 +134,7 @@ test('the next needs question replaces an obsolete post-tour budget question wit
   const audit = { post_tour_continuation: { question: '¿Cuál es su presupuesto?' },
     pending_question: { id: 'budget_amount', act: 'budget', question: '¿Cuál es su presupuesto?' },
     commercial_journey: { action: 'ask_bedrooms', question_id: 'property_bedrooms', question },
-    turn_completeness: { question: { purpose: 'choose_property', continuation_id: 'property_bedrooms', continuation_act: 'other' } } }
+    turn_completeness: { question: { text: question, purpose: 'choose_property', continuation_id: 'property_bedrooms', continuation_act: 'other' } } }
   assert.deepEqual(progressiveQuestionObservations(question, audit), [])
   const receipt = progressivePendingQuestion(question, audit)
   assert.equal(receipt.id, 'property_bedrooms')

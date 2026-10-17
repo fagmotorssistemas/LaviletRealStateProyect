@@ -9,7 +9,8 @@ const response = (body: unknown, status = 200) => new Response(JSON.stringify(bo
 })
 function client(fetcher: typeof fetch) {
   return createClient('https://example.supabase.co', 'test-key', {
-    auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: fetcher },
+    // Isolate application retry behavior from the SDK's independent retries.
+    auth: { persistSession: false, autoRefreshToken: false }, db: { retry: false }, global: { fetch: fetcher },
   })
 }
 

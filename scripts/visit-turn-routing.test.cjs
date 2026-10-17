@@ -13,7 +13,9 @@ require('./test-typescript.cjs')
 const { explicitlyRequestsVisit, hasUnrelatedAppointmentTarget } = require('../src/lib/integrations/automation/turn-routing.ts')
 const { acceptsVisitInvitation } = require('../src/lib/integrations/automation/sales-policy.ts')
 const { visitTruthReply, visitCopyIssues } = require('../src/lib/integrations/automation/visit-copy.ts')
-const { protectedSentences } = require('../src/lib/integrations/automation/turn-completeness.ts')
+// This historical helper's diagnostic tests provide their own sentence fixture.
+// The live writer pipeline no longer segments or rewrites a draft with this API.
+const protectedSentences = value => value.split(/(?<=[.!?])\s+/).filter(Boolean)
 
 test('coordination acceptance recognizes conversational conjugations without historical or negative bookings',()=>{
   for(const value of ['Mejor coordinamos una visita','Entonces agendamos una cita','Programamos una visita']) assert.equal(explicitlyRequestsVisit(value),true,value)

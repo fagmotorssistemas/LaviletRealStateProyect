@@ -168,7 +168,6 @@ test('a short answer to the purpose question keeps its declared use', async () =
   assert.equal(result.extracted.purchase_purpose, 'vivir')
 })
 
-
 for (const question of ['¿Desea iniciar la revisión financiera?', '¿Desea reservar esta unidad?', '¿Desea visitar la oficina?', '']) {
   test('accepting financing does not authorize unrelated tracking: ' + question, async () => {
     const message = 'Sí, deseo iniciar la revisión de financiamiento', raw = extraction(message)
@@ -284,7 +283,6 @@ for (const boundary of ['search', 'advisor', 'historical', 'short_answer']) {
   })
 }
 
-
 for (const message of ['Está bien', 'Bueno está bien', 'Sí, me interesa', 'Me parece bien', 'De acuerdo']) {
   test('valid current tracking acceptance preserves its meaning: ' + message, async () => {
     const raw = extraction(message)
@@ -396,7 +394,6 @@ test('a budget answer with an independent price question preserves both actual s
   assert.equal(object(result.semantics.budget).amount, 400000)
 })
 
-
 for (const [message, evidence] of [
   ['No agendar una visita por ahora', 'agendar una visita'],
   ['No programar una cita', 'programar una cita'],
@@ -425,7 +422,6 @@ test('a genuinely independent positive visit survives an earlier refusal', async
   assert.equal(object(result.extracted.visit_intent).kind, 'request_visit')
   assert.ok((result.extracted.events as string[]).includes('requested_visit'))
 })
-
 
 test('a visit quoted from another person cannot become the current lead request', async () => {
   const quoted = 'quiero agendar una visita', price = 'Yo sólo quiero saber los precios'
@@ -462,7 +458,6 @@ test('quotation marks used for emphasis do not remove an actual visit permission
   assert.equal(object(result.extracted.visit_intent).kind, 'request_visit')
   assert.ok((result.extracted.events as string[]).includes('requested_visit'))
 })
-
 
 for (const operation of ['details', 'compare']) {
   test('exclusive current evaluation overrides an unsupported price label: ' + operation, async () => {
@@ -504,7 +499,6 @@ for (const boundary of ['actual_price', 'price_metric', 'multiple_requests', 'ne
     assert.ok(!decisions.some(d => d.code === 'current_evaluation_recovers_exclusive_informational_scope'))
   })
 }
-
 
 for (const message of ['No quiero iniciar ese trámite', 'No quiero un asesor ni una visita', 'No quiero dar mi nombre',
   'No quiero decir mi residencia', 'No deseo iniciar financiamiento', 'No', 'Por ahora no', 'No quiero llamadas, sólo mensajes']) {
@@ -556,7 +550,6 @@ test('scope rebinding retains global contact refusal from the full current messa
   const result = await interpret(message, raw, { mensaje_accion: price })
   assert.equal(result.extracted.opt_out, true)
 })
-
 
 for (const quote of [
   ['Mi amigo escribió «No me escriban más». Yo sólo quiero saber los precios', 'No me escriban más'],
@@ -633,7 +626,6 @@ test('a clipped refusal from a reported quote cannot reactivate opt-out after sc
   const result = await interpret(message, raw, { mensaje_accion: price })
   assert.equal(result.extracted.opt_out, false)
 })
-
 
 const lenderChoiceContext = { pregunta_pendiente: { id: 'financing_partner', act: 'financing', question: '¿Con qué entidad prefiere continuar?' },
   financiamiento: { partners: ['Cooperativa JEP', 'Banco Pichincha'], current: { explicit_consent: true } } }
@@ -732,6 +724,56 @@ test('a current affirmative answer to a visit invitation permits its typed coord
   assert.equal(object(result.extracted.visit_intent).kind, 'request_visit')
   assert.ok((result.extracted.events as string[]).includes('requested_visit'))
 })
+
+test('the preference purpose cannot borrow permission from an advisor request', async () => {
+  const message = 'Prefiero que me atienda un asesor', raw = extraction(message)
+  raw.requested_advisor = true
+  raw.action_evidence = { requested_advisor: message, opt_out: null, consent_granted: null }
+  raw.visit_intent = { ...visit(message), purpose: 'preference' }
+  raw.events = ['requested_visit']
+  raw.requests = [request('advisor', message)]
+  const result = await interpret(message, raw)
+  assert.equal(result.extracted.requested_advisor, true)
+  assert.equal(result.extracted.visit_intent, null)
+  assert.ok(!(result.extracted.events as string[]).includes('requested_visit'))
+})
+
+test('the preference purpose cannot borrow an answer to a different pending object', async () => {
+  const message = 'Sí', raw = extraction(message)
+  raw.visit_intent = { ...visit(message), purpose: 'preference' }
+  raw.events = ['requested_visit']
+  object(raw.turn_semantics).answer_to_previous = { question_id: 'property_requirements', kind: 'affirmative', evidence: message, confidence: 'high' }
+  const result = await interpret(message, raw, { pregunta_pendiente: { id: 'property_requirements', act: 'explore_alternatives', question: '¿Desea revisar esas opciones?' } })
+  assert.equal(result.extracted.visit_intent, null)
+  assert.ok(!(result.extracted.events as string[]).includes('requested_visit'))
+  assert.equal(object(result.semantics.answer_to_previous).question_id, 'property_requirements')
+})
+
+test('the preference purpose preserves a current date answer for the collecting visit', async () => {
+  const message = 'El miércoles a las 3 de la tarde', raw = extraction(message)
+  raw.visit_intent = { ...visit(message), purpose: 'preference' }
+  raw.visit_preference = { evidence: message, date_text: 'miércoles', time_text: 'a las 3 de la tarde', confidence: 'high' }
+  raw.events = ['requested_visit']
+  raw.requests = [request('visit', message)]
+  object(raw.turn_semantics).answer_to_previous = { question_id: 'visit_date_time', kind: 'value', evidence: message, confidence: 'high' }
+  const result = await interpret(message, raw, { pregunta_pendiente: { id: 'visit_date_time', act: 'visit', question: '¿Qué día y a qué hora le gustaría venir?' },
+    coordinacion_visita: { status: 'collecting', preferred_location_type: 'office' } })
+  assert.equal(object(result.extracted.visit_intent).purpose, 'preference')
+  assert.equal(object(result.extracted.visit_preference).time_text, 'a las 3 pm')
+  assert.ok((result.extracted.events as string[]).includes('requested_visit'))
+})
+
+test('the preference purpose preserves an independent date request beside a different answer', async () => {
+  const date = 'El miércoles a las 3 de la tarde', message = 'Sí. ' + date, raw = extraction(message)
+  raw.visit_intent = { ...visit(date), purpose: 'preference' }
+  raw.events = ['requested_visit']
+  raw.requests = [request('visit', date)]
+  object(raw.turn_semantics).answer_to_previous = { question_id: 'property_requirements', kind: 'affirmative', evidence: 'Sí', confidence: 'high' }
+  const result = await interpret(message, raw, { pregunta_pendiente: { id: 'property_requirements', act: 'explore_alternatives', question: '¿Desea revisar esas opciones?' },
+    coordinacion_visita: { status: 'collecting', preferred_location_type: 'office' } })
+  assert.equal(object(result.extracted.visit_intent).purpose, 'preference')
+  assert.ok((result.extracted.events as string[]).includes('requested_visit'))
+})
 test('visit availability information retains its informational intent without operational permission', async () => {
   const message = '¿Qué días tienen citas disponibles?', raw = extraction(message)
   raw.visit_intent = { ...visit(message, 'visit_information'), purpose: 'availability_information' }
@@ -754,7 +796,6 @@ test('an advisor request and an independent physical visit preserve both permiss
   assert.equal(object(result.extracted.visit_intent).kind, 'request_visit')
   assert.ok((result.extracted.events as string[]).includes('requested_visit'))
 })
-
 
 function householdInquiry(message: string, currentRequest: string, peopleEvidence: string, count = 6, primary = 'other'): Row {
   const raw = extraction(message), semantics = object(raw.turn_semantics)
@@ -828,7 +869,6 @@ for (const boundary of ['no_known_options', 'no_current_reference', 'new_group',
     assert.ok(!(result.semantics.normalization_issues as string[]).includes('current_household_reference_restores_known_property_information'))
   })
 }
-
 
 for (const [domain, quote] of [['advisor', 'quiero un asesor'], ['tracking', 'quiero recibir novedades']] as const) {
   test('a positive command attributed to another person cannot authorize the lead: ' + domain, async () => {

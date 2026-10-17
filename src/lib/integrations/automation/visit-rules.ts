@@ -3,11 +3,18 @@ import { testLeadAllowed } from '@/lib/inmobiliaria/testResponseMode'
 import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 import { LAVILET_MESSAGE_ROUTES, LAVILET_PROJECT_ID, LAVILET_TENANT_ID } from '../lavilet'
 import { withVisitLocation } from './visit-location'
-import { visitOptionsList } from '@/lib/inmobiliaria/visitProposalOptions'
 import { readinessPlacePhrase, type ProjectReadiness } from '@/lib/inmobiliaria/projectReadiness'
 
 const HOUR = 3_600_000
 const ms = (v: unknown) => Date.parse(text(v))
+// Delivery authorization is based on appointment data, never on how a writer
+// happened to express an address, a map or a list of available hours.
+function locationSnapshot(context: Row) {
+  const a = object(context.appointment), p = object(object(context.job).payload)
+  return { address: text(context.address || p.address),
+    map_url: text(!a.location_type || a.location_type === 'proyecto' ? context.location || p.location : p.location),
+    location_type: text(a.location_type), office_id: text(a.office_id) }
+}
 export type Decision = { action: 'send' | 'cancel' | 'defer'; reasons: string[] }
 export function validateVisit(context: Row, now = Date.now()): Decision {
   const j = object(context.job), l = object(context.lead), c = object(context.config)
@@ -29,10 +36,13 @@ export function validateVisit(context: Row, now = Date.now()): Decision {
   if (route.enabled !== true || route.approved !== true || !text(route.body_template)
     || route.bot_id !== expected?.botId || route.detail_field_id !== expected?.fieldId) deferred.push('route_not_configured')
   if (!text(p.detail).trim() || text(p.detail).length > 1500) deferred.push('invalid_detail')
-  const meetingMap = !a.location_type || a.location_type === 'proyecto' ? context.location || p.location : p.location
   const confirmsVisit = j.kind === 'visit_confirm' || j.kind === 'visit_reschedule_confirm'
-  if (confirmsVisit && context.address && !text(p.detail).toLowerCase().includes(text(context.address).toLowerCase())) invalid.push('address_changed_or_missing')
-  if (confirmsVisit && meetingMap && !text(p.detail).includes(text(meetingMap))) invalid.push('map_changed_or_missing')
+  if (confirmsVisit) {
+    const preparedLocation = object(p.location_snapshot), currentLocation = locationSnapshot(context)
+    if (preparedLocation.address !== currentLocation.address) invalid.push('address_changed_or_missing')
+    if (preparedLocation.map_url !== currentLocation.map_url) invalid.push('map_changed_or_missing')
+    if (preparedLocation.location_type !== currentLocation.location_type || preparedLocation.office_id !== currentLocation.office_id) invalid.push('meeting_location_changed')
+  }
   const last = ms(context.last_client_message_at)
   // visit_2h uses the approved reminder Salesbot template, so it can be sent
   // outside the free-form 24-hour conversation window.
@@ -60,7 +70,6 @@ export function validateVisit(context: Row, now = Date.now()): Decision {
           ms(slot.start_time) === ms(offered[i]?.start_time) && ms(slot.end_time) === ms(offered[i]?.end_time)
           && ms(slot.start_time) > now && ms(slot.end_time) - ms(slot.start_time) === HOUR)
         if (!same) invalid.push('options_changed')
-        if (same && !text(p.detail).includes(visitOptionsList(options.map(o => ({ start_time: text(o.start_time), end_time: text(o.end_time) }))))) invalid.push('options_missing_from_message')
       }
     } else if (r.status !== 'confirmed' || !r.advisor_accepted_at || !r.client_accepted_at
       || !['aceptado', 'reprogramado'].includes(text(a.status)) || context.reminders_paused === true
@@ -95,10 +104,10 @@ export function prepareVisit(context: Row): Row {
     : 'La Vilet'
   let detail: string
   if (j.kind === 'visit_propose' && options.length) {
-    const list = visitOptionsList(options)
     // The advisor approved this exact preview; never generate different copy
-    // after approval. Dates must still match the current request on every check.
-    detail = text(p.message_draft).includes(list) && text(p.message_draft).length <= 1500 ? text(p.message_draft) : ''
+    // after approval. Structured dates must still match the current request on
+    // every check; the approved wording may describe them in any natural form.
+    detail = text(p.message_draft).trim() && text(p.message_draft).length <= 1500 ? text(p.message_draft) : ''
     return { ...context, job: { ...j, payload: { ...p, detail } } }
   } else if (j.kind === 'visit_propose') detail = `Podemos recibirle ${when} en ${place}. ¿Le queda bien este horario? Si prefiere otro, puede indicárnoslo para que el equipo lo verifique.`
   else if (j.kind === 'visit_2h') detail = `Recordatorio de cita ${when}`
@@ -106,5 +115,6 @@ export function prepareVisit(context: Row): Row {
   if (j.kind === 'visit_confirm' || j.kind === 'visit_reschedule_confirm') {
     detail = withVisitLocation(detail, { address: context.address || p.address, map_url: location }, true)
   }
-  return { ...context, job: { ...j, payload: { ...p, detail } } }
+  return { ...context, job: { ...j, payload: { ...p, detail,
+    ...((j.kind === 'visit_confirm' || j.kind === 'visit_reschedule_confirm') ? { location_snapshot: locationSnapshot(context) } : {}) } } }
 }

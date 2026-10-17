@@ -1,3 +1,5 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
+import { financingInvitationReceipt } from './financing-invitation'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -11,9 +13,10 @@ import { commercialJourneyPlan } from './commercial-journey'
 import { financingStage, rememberedFinancingPartner } from './financing-stage'
 import { normalizedPendingQuestion } from './turn-semantics'
 import profileFixture from './fixtures/extractor-profile-turn.json'
+import { typedTurnFixture, authorityFixture } from './fixtures/typed-turn.fixture'
 
 const demo = { enabled: true, observationOnly: true, updatedAt: null }
-const pass = { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: null }
+const pass = { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
 const units = [
   { id: 'ph602', unit_number: '602', category: 'penthouse', unit_type: 'penthouse', bedrooms: 3,
     floor_number: 6, bathrooms_full: 2, published_commercial_price: 550000, is_published: true, status: 'disponible' },
@@ -44,8 +47,8 @@ test('accepted JEP with known entry plans property selection with canonical inve
   }, async (_rules, raw, _schema, _image, _file, _tone, task) => {
     if (task === 'review') return pass
     writer = object(raw)
-    return { reply, question: wrong, requests: [{ fragment: 'R1', intent: 'Continuar con JEP', request_type: 'general_information',
-      status: 'answered', evidence: 'Podemos continuar con JEP.', fact_key: null }] }
+    return writerFixture({ reply, question: wrong, requests: [{ fragment: 'R1', intent: 'Continuar con JEP', request_type: 'general_information',
+      status: 'answered', evidence: 'Podemos continuar con JEP.', fact_key: null }] })
   }))
   const plan = object(result.audit.commercial_journey)
   assert.equal(plan.action, 'select_property')
@@ -82,10 +85,10 @@ for (const [mode, policy] of [
   const reply = String(planned.question)
   const result = await withResponseReviewPolicy(policy, () => completeTurnReply({ current: 'Sí, continuemos con JEP',
     baseReply: reply, verified: data, audit: { source: 'financing_question', semantic_review_enabled: true, business_risk_review_enabled: true },
-  }, async (_rules, _raw, _schema, _image, _file, _tone, task) => task === 'review' ? pass : {
+  }, async (_rules, _raw, _schema, _image, _file, _tone, task) => task === 'review' ? pass : writerFixture({
     reply, question: { purpose: 'collect_financing_required', role: 'necessary_clarification', missing_datum: 'Entrada inicial',
       next_decision: 'Definir entrada', continuation_id: 'financing_down_payment', continuation_act: 'financing' }, requests: [],
-  }))
+  })))
   const receipt = deliveredPendingQuestion(result.reply, { metadata: result.audit.question, plan: result.audit.commercial_journey })
   assert.equal(receipt.id, 'financing_down_payment')
   assert.equal(object(receipt.amount_reference).amount, 400000, JSON.stringify({ phase: 'first receipt', receipt, plan: result.audit.commercial_journey, reply: result.reply }))
@@ -93,7 +96,7 @@ for (const [mode, policy] of [
   const receiptAgain = deliveredPendingQuestion(result.reply, { metadata: result.audit.question, candidates: [receipt] })
   assert.equal(object(receiptAgain.amount_reference).amount, 400000, JSON.stringify({ receiptAgain, receipt, metadata: result.audit.question }))
   const current = 'Sí, ese monto'
-  const raw: Row = structuredClone(profileFixture)
+  const raw: Row = { ...structuredClone(profileFixture), communication: typedTurnFixture(current).communication }
   raw.full_name = raw.residence_city = raw.residence_country = null
   raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
   raw.requests = [{ domain: 'financing', request: 'Confirmar entrada', evidence: current, confidence: 'high' }]
@@ -137,19 +140,21 @@ for (const verdict of ['block', 'unavailable']) test('demonstration preserves an
       return { ...pass, verdict: 'block', findings: [{ category: 'commercial_next_step', statement: reply,
         reason: 'Observación del contenido', authoritative_fact: 'Seguimiento independiente' }] }
     }
-    return { reply, question: wrong, requests: [{ fragment: 'R1', intent: 'Penthouses', request_type: 'general_information',
-      status: 'answered', evidence: 'Podemos ayudarle', fact_key: null }] }
+    return writerFixture({ reply, question: { ...wrong, purpose: 'permission_to_continue', continuation_id: 'financing_invitation', continuation_act: 'financing' }, requests: [{ fragment: 'R1', intent: 'Penthouses', request_type: 'general_information',
+      status: 'answered', evidence: 'Podemos ayudarle', fact_key: null }] })
   }))
   assert.equal(result.audit.status, 'review_observed')
-  assert.equal(object(result.audit.final_validation).passed, false)
+  assert.equal(object(result.audit.final_validation).passed, true)
+  assert.equal(object(object(result.audit.semantic_review).acceptance).content_approved, false)
   assert.equal(result.reply, reply)
   assert.equal(object(result.audit.follow_up).usable, true)
   const receipt = deliveredPendingQuestion(reply, { metadata: result.audit.question, plan: result.audit.commercial_journey })
   assert.equal(receipt.id, 'financing_invitation')
-  const acceptance = financingInputs({ financing_consent: true, turn_semantics: {
+  const acceptance = financingInputs({ action_authority: authorityFixture('Sí, continuemos con JEP', 'financing', 'accept'), turn_semantics: {
     answer_to_previous: { question_id: receipt.id, kind: 'affirmative', confidence: 'high', evidence: 'Sí, continuemos con JEP' },
-  }, financing_partner_choice: { kind: 'select', name: 'Cooperativa JEP', evidence: 'Sí, continuemos con JEP', confidence: 'high' } },
-  'Sí, continuemos con JEP', reply, { partners: ['Cooperativa JEP'], current: {} }, { kind: 'financing_consent', reply })
+  }, financing_partner_choice: { kind: 'select', reference_kind: 'explicit', name: 'Cooperativa JEP', evidence: 'Sí, continuemos con JEP', confidence: 'high' } },
+  'Sí, continuemos con JEP', reply, { partners: ['Cooperativa JEP'], current: {} }, { kind: 'financing_consent', reply,
+    invitation: financingInvitationReceipt(result.audit.question) })
   assert.equal(acceptance.consent, true)
   assert.equal(acceptance.partner, 'Cooperativa JEP')
 })
@@ -159,7 +164,7 @@ test('a rejected demonstration answer without a question has no next action to l
   const result = await withResponseReviewPolicy(demo, () => completeTurnReply({ current: 'Gracias', baseReply: reply, verified: {},
     audit: { semantic_review_enabled: true, business_risk_review_enabled: true } }, async (_rules, _raw, _schema, _image, _file, _tone, task) =>
     task === 'review' ? { ...pass, verdict: 'block', findings: [{ category: 'style', statement: reply, reason: 'Observación', authoritative_fact: '' }] }
-      : { reply, question: wrong, requests: [] }))
+      : writerFixture({ reply, question: wrong, requests: [] })))
   assert.equal(result.reply, reply)
   assert.equal(object(result.audit.follow_up).usable, true)
   assert.deepEqual(deliveredPendingQuestion(reply, { metadata: result.audit.question }), {})

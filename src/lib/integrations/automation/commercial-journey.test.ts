@@ -1,3 +1,5 @@
+import { plannedQuestionFixture, writerFixture } from './fixtures/writer-response.fixture'
+import { financingInvitationReceipt } from './financing-invitation'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { commercialJourneyPlan, interpretCommercialJourney, journeyPendingQuestion, purchaseReadiness, rememberCommercialJourney } from './commercial-journey'
@@ -62,7 +64,7 @@ test('accepted financing with an answered entry keeps both compatible residentia
   assert.equal(next.financing_offer_allowed, false)
   assert.equal(financingStage(data).collection_allowed, false)
   assert.match(financingPrerequisiteReply(data, 'bueno si esta bien'), /departamentos.*penthouses/)
-  const pending = normalizedPendingQuestion(journeyPendingQuestion(String(next.question), next, true), data.catalogo as Row[])
+  const pending = normalizedPendingQuestion(journeyPendingQuestion(String(next.question), next, true, plannedQuestionFixture(next)), data.catalogo as Row[])
   assert.equal(pending.act, 'choose_category')
   assert.deepEqual(pending.candidate_ids, object(next.selection_scope).unit_ids)
 })
@@ -118,7 +120,7 @@ test('cash buyer selects a unit: reserve first, then office on refusal, then lea
   const data = info(), reserve = commercialJourneyPlan(data)
   assert.equal(reserve.action, 'offer_reservation')
   assert.equal(reserve.visit_offer_allowed, false)
-  const pending = normalizedPendingQuestion(journeyPendingQuestion(String(reserve.question), reserve, true), [unit])
+  const pending = normalizedPendingQuestion(journeyPendingQuestion(String(reserve.question), reserve, true, plannedQuestionFixture(reserve)), [unit])
   assert.equal(pending.id, 'reservation_invitation')
   let state = rememberCommercialJourney({}, reserve, pending, true)
   assert.equal(commercialJourneyPlan({ ...data, recorrido_comercial: state }).action, 'await_reservation')
@@ -126,7 +128,7 @@ test('cash buyer selects a unit: reserve first, then office on refusal, then lea
   const visit = commercialJourneyPlan({ ...data, recorrido_comercial: state })
   assert.equal(visit.action, 'offer_visit')
   assert.match(String(visit.question), /oficina/)
-  const visitPending = journeyPendingQuestion(String(visit.question), visit, true)
+  const visitPending = journeyPendingQuestion(String(visit.question), visit, true, plannedQuestionFixture(visit))
   state = rememberCommercialJourney(state, visit, visitPending, true)
   state = interpretCommercialJourney(state, { answer_to_previous: { question_id: 'visit_invitation', confidence: 'high', kind: 'negative' } }, visitPending, [unit.id])
   const close = commercialJourneyPlan({ ...data, recorrido_comercial: state })
@@ -134,7 +136,7 @@ test('cash buyer selects a unit: reserve first, then office on refusal, then lea
 })
 
 test('a yes to the actual reservation question requests that unit, not a visit or an inventory reservation', () => {
-  const plan = commercialJourneyPlan(info()), pending = journeyPendingQuestion(String(plan.question), plan, true)
+  const plan = commercialJourneyPlan(info()), pending = journeyPendingQuestion(String(plan.question), plan, true, plannedQuestionFixture(plan))
   const semantics = normalizeTurnSemantics({ turn_semantics: { primary_intent: 'request_reservation', primary_evidence: 'si claro', confidence: 'high',
     answer_to_previous: { question_id: 'reservation_invitation', kind: 'affirmative', evidence: 'si claro', confidence: 'high' },
     reservation: { kind: 'request', confidence: 'high', evidence: 'si claro', unit_numbers: ['502'] } } }, 'si claro', pending)
@@ -170,10 +172,12 @@ test('50k family case asks entry after acceptance then resumes property selectio
   data.presupuesto_del_turno = turnBudgetAssessment(data, {})
   const offer = commercialJourneyPlan(data)
   assert.equal(offer.action, 'offer_financing')
-  const pending = journeyPendingQuestion(String(offer.question), offer, true)
-  const inputs = financingInputs({ turn_semantics: { answer_to_previous: { question_id: pending.id, kind: 'affirmative', confidence: 'high' } } },
-    'bueno continuemos', String(offer.question), { partners: ['Banco Pichincha'], current: {} }, { kind: 'financing_consent', reply: offer.question })
-  assert.equal(inputs.consent, true)
+  const pending = journeyPendingQuestion(String(offer.question), offer, true, plannedQuestionFixture(offer))
+  const inputs = financingInputs({ turn_semantics: { answer_to_previous: { question_id: pending.id, kind: 'affirmative', confidence: 'high', evidence: 'bueno continuemos' } } },
+    'bueno continuemos', String(offer.question), { partners: ['Banco Pichincha'], current: {} }, { kind: 'financing_consent', reply: offer.question,
+      invitation: financingInvitationReceipt(plannedQuestionFixture(offer)) })
+  assert.equal(inputs.consent, true, JSON.stringify({ offer: { id: offer.question_id, act: offer.question_act, question: offer.question },
+    receipt: financingInvitationReceipt(plannedQuestionFixture(offer)), pending }))
   data.financiamiento = { ...object(data.financiamiento), journey: { accepted: true } }
   data.etapa_financiamiento = financingStage(data)
   delete data.presupuesto_del_turno
@@ -252,11 +256,11 @@ test('writer retains the reservation step while factual review receives only ope
     try {
       const obligations = (input.obligaciones_del_turno as Row[])
       assert.equal(obligations.find(o => o.id === 'commercial_next_step')?.action, task === 'writing' ? 'offer_reservation' : undefined)
-      if (task === 'writing') return { reply: '¿Le gustaría que le ayudemos a iniciar la reserva del departamento 502?',
+      if (task === 'writing') return writerFixture({ reply: '¿Le gustaría que le ayudemos a iniciar la reserva del departamento 502?',
         requests: [{ fragment: 'R1', intent: 'Elegir unidad', status: 'answered', evidence: 'Continúa con la unidad elegida', fact_key: null, request_type: 'general_information' }],
-        question: { role: 'optional_continuation', purpose: 'permission_to_continue', missing_datum: '', next_decision: 'Solicitar reserva al equipo' } }
+        question: { role: 'optional_continuation', purpose: 'permission_to_continue', missing_datum: '', next_decision: 'Solicitar reserva al equipo' } })
       assert.equal(object(input.estado_del_turno).siguiente_paso_comercial, undefined)
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     } catch (error) { assertions.push(String(error)); throw error }
   })
   assert.deepEqual(assertions, [])
@@ -277,10 +281,10 @@ test('financing continuation keeps the type choice in writer and receipt without
       const next = (input.obligaciones_del_turno as Row[]).find(o => o.id === 'commercial_next_step')
       assert.deepEqual(object(next?.selection_scope).categories, task === 'writing' ? categories : undefined)
       assert.equal(next?.question_id, task === 'writing' ? 'property_category' : undefined)
-      if (task === 'writing') return { reply, requests: [],
-        question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'tipo de vivienda', next_decision: 'Presentar las plantas del tipo elegido' } }
+      if (task === 'writing') return writerFixture({ reply, requests: [],
+        question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'tipo de vivienda', next_decision: 'Presentar las plantas del tipo elegido' } })
       assert.equal(object(input.estado_del_turno).siguiente_paso_comercial, undefined)
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     } catch (error) { assertions.push(String(error)); throw error }
   })
   assert.deepEqual(assertions, [])
@@ -306,13 +310,13 @@ test('the early total-budget step stays in the writer and delivered question, ou
       if (task === 'writing') assert.equal(next.question_id, 'budget_amount')
       if (task === 'writing') assert.equal(Boolean(next.requires_unit_presentation), false)
       if (task === 'writing') { assert.equal(next.question, undefined); assert.match(String(object(next.objetivo_conversacion).objective), /presupuesto/i) }
-      if (task === 'writing') return { reply,
+      if (task === 'writing') return writerFixture({ reply,
         requests: [{ fragment: 'R1', intent: 'Busca vivienda', status: 'answered', evidence: reply,
           fact_key: null, request_type: 'general_information' }],
         question: { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: 'presupuesto total',
-          next_decision: 'Conocer los dormitorios que necesita', continuation_id: 'budget_amount', continuation_act: 'budget' } }
+          next_decision: 'Conocer los dormitorios que necesita', continuation_id: 'budget_amount', continuation_act: 'budget' } })
       assert.equal(object(input.estado_del_turno).siguiente_paso_comercial, undefined)
-      return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
+      return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
     } catch (error) { failures.push(String(error)); throw error }
   })
   assert.deepEqual(failures, [])
@@ -320,7 +324,7 @@ test('the early total-budget step stays in the writer and delivered question, ou
   assert.equal(result.reply, reply)
   assert.equal(result.audit.status, 'checked')
   const plan = object(result.audit.commercial_journey)
-  const pending = journeyPendingQuestion(result.reply, plan, true)
+  const pending = journeyPendingQuestion(result.reply, plan, true, result.audit.question)
   assert.equal(pending.id, 'budget_amount')
   assert.equal(pending.act, 'budget')
   assert.equal(plan.financing_offer_allowed, false)
@@ -395,7 +399,7 @@ test('a clarification preserves the actual prior category, floor or unit decisio
     assert.deepEqual(object(plan.selection_scope).unit_ids, pending.candidate_ids)
     assert.equal(plan.financing_offer_allowed, false)
     assert.equal(plan.visit_offer_allowed, false)
-    assert.equal(journeyPendingQuestion(question, plan, true).act, act)
+    assert.equal(journeyPendingQuestion(question, plan, true, plannedQuestionFixture(plan)).act, act)
   }
 })
 

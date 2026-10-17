@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { completeTurnReply } from './turn-completeness'
@@ -47,9 +48,9 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
           selected_unit_ids: ['d502'], commercial_journey: input.siguiente_paso_comercial } },
       async (_rules, raw, _schema, _image, _file, _tone, task) => {
         contexts.push(object(raw)); tasks.push(task || '')
-        if (task === 'writing') return { reply, question: metadata, requests: rows(object(raw).referencias_solicitud).map(ref => ({
-          fragment: ref.id, intent: 'Continuar con la unidad elegida', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
-        return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: { ...metadata, offered_action: 'none' } }
+        if (task === 'writing') return writerFixture({ reply, question: metadata, requests: rows(object(raw).referencias_solicitud).map(ref => ({
+          fragment: ref.id, intent: 'Continuar con la unidad elegida', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) })
+        return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       }))
     assert.equal(result.reply, reply, JSON.stringify(result.audit.final_validation))
     assert.equal(result.needsAdvisor, false)

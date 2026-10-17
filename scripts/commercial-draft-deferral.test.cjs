@@ -17,7 +17,7 @@ Module._load = function(id, parent, main) {
 const { commercialReply } = require('../src/lib/integrations/automation/sdr.ts')
 Module._load = original
 
-test('optimized path skips preliminary draft and legacy path retains its draft', async () => {
+test('all catalogue paths defer preliminary drafting to the single final writer', async () => {
   for (const optimized of [true, false]) {
     drafts = 0
     const info = { final_review_follows: true, catalog_search: { embeddingsEnabled: optimized },
@@ -26,17 +26,17 @@ test('optimized path skips preliminary draft and legacy path retains its draft',
       referencia_unidad: { reason: 'no_reference', matches: [] },
       property_context: { selected_ids: [] }, semantica_turno: { primary_intent: 'other' } }
     const result = await commercialReply(info, 'Ayúdeme a comprender ese detalle por favor', {}, async () => {})
-    assert.equal(drafts, optimized ? 0 : 1)
+    assert.equal(drafts, 0)
     assert.equal(result.audit.requires_advisor, undefined)
-    assert.equal(result.audit.drafting_deferred_to_final_writer === true, optimized)
-    if (optimized) assert.equal(result.reply, '')
+    assert.equal(result.audit.drafting_deferred_to_final_writer, true)
+    assert.equal(result.reply, '')
   }
 })
 
 
 const { withResponseReviewPolicy, configuredResponseReviewEnabled, responseReviewEnabled } = require('../src/lib/integrations/automation/response-review-policy.ts')
 for (const enabled of [false, true]) for (const embeddingsEnabled of [false, true])
-  test('normal/demo preserve preliminary drafting when general review=' + enabled + ' and embeddings=' + embeddingsEnabled, async () => {
+  test('normal/demo use one final writer when general review=' + enabled + ' and embeddings=' + embeddingsEnabled, async () => {
     const results = [], draftCounts = []
     for (const observationOnly of [false, true]) {
       drafts = 0
@@ -52,8 +52,7 @@ for (const enabled of [false, true]) for (const embeddingsEnabled of [false, tru
       }))
       draftCounts.push(drafts)
     }
-    const deferred = embeddingsEnabled || !enabled
-    assert.deepEqual(draftCounts, [deferred ? 0 : 1, deferred ? 0 : 1])
+    assert.deepEqual(draftCounts, [0, 0])
     assert.deepEqual(results[1], results[0])
-    assert.equal(results[1].audit.drafting_deferred_to_final_writer === true, deferred)
+    assert.equal(results[1].audit.drafting_deferred_to_final_writer, true)
   })

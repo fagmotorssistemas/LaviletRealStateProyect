@@ -1,204 +1,154 @@
-import { object, text, type Row } from './data'
-import { acceptedExtractorConfidence } from './extractor-confidence'
-import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
-import { normalized } from './sdr-rules'
-import { isUnitVisualRequest } from './unit-visual-request'
-import { isPropertyScopeRedirect, salesSubject } from './sales-subject'
-import { commercialEngagement, passiveSalesRules, COMMERCIAL_ENGAGEMENT_VERSION, type CommercialEngagementTurn } from './commercial-engagement'
+﻿import { botVisitPolicy,visitInvitation } from '@/lib/inmobiliaria/botVisits'
+import { COMMERCIAL_ENGAGEMENT_VERSION,commercialEngagement,passiveSalesRules,type CommercialEngagementTurn } from './commercial-engagement'
 import { commercialJourneyPlan } from './commercial-journey'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
 import { projectObjectionRequests } from './project-objections'
 
-const rows = (v: unknown) => (Array.isArray(v) ? v : []).map(object)
-const invitation = (v: string) => /[¿?]/.test(v) && /(?:gustaria|desea|quiere|prefiere|animaria|coordinamos|agendamos|podemos coordinar).*(?:visita|conocerlo en persona|verlo en persona)/.test(normalized(v))
-const positive = (v: string) => /^(?:(?:si|claro|perfecto|bueno) )?(?:se ve interesante|me (?:gusta|interesa|encanta)|esta interesante|muy interesante|me parece (?:bien|interesante))$/.test(normalized(v))
-const discovery = (v: string) => /[¿?]/.test(v) && /presupuesto|para vivir|como inversion|para invertir|cuantos dormitorios|que.*prioriz|que.*importante|cuando.*decision/.test(normalized(v))
-
-export function acceptsUnitOptions(current: string, lastReply: string) {
-  return /^(?:si(?: por favor| me gustaria| quiero| claro| gracias)?|claro|de acuerdo|muestr[ae]me(?: una)?|a ver)$/.test(normalized(current))
-    && /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(lastReply))
+const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
+const literal = (current: string, evidence: unknown) => !!text(evidence).trim() && current.includes(text(evidence).trim())
+const semanticsFor = (value: unknown) => {
+  const row = object(value)
+  return object(row.semantics || row.semantica_turno || row.turn_semantics || row)
+}
+const pendingFor = (value: unknown) => {
+  const row = object(value)
+  return object(row.pendingQuestion || row.pregunta_pendiente || object(row.intent || row.contrato_turno).pending_question)
+}
+const currentRequests = (value: unknown, current: string) => {
+  const row = object(value), semantics = semanticsFor(row), intent = object(row.intent || row.contrato_turno)
+  return rows(row.requests || row.solicitudes_interpretadas || intent.requests || semantics.requests)
+    .filter(request => request.source !== 'pending' && acceptedExtractorConfidence(request.confidence) && literal(current, request.evidence))
 }
 
-export function acceptsVisitInvitation(current: string, lastReply: string) {
-  if (/\bo (?:prefiere|desea|quiere|coordinar|agendar)\b/.test(normalized(lastReply)) && /material|imagenes|fotos|detalles/.test(normalized(lastReply))) return false
-  const scheduling = /(?:dia|fecha).*horario|dia.*hora|fecha.*hora/.test(normalized(lastReply)) && /visita|cita|recibirle/.test(normalized(lastReply))
-  if (!invitation(lastReply) && !scheduling) return false
-  const m = normalized(current).replace(/^(?:que tal|le parece|podria ser|puede ser)(?: si)?(?: para)?\s+/, '').replace(/^para\s+/, '').replace(/\s+(?:puede ser|le parece|por favor)$/, '')
-  if (/^(?:listo )?(?:si(?: claro| por favor| me gustaria| quiero| gracias| esta bien| me parece bien)?|claro|de acuerdo|esta bien|me parece bien|perfecto|hagamoslo|listo)$/.test(m)) return true
-  // A proposed day/hour or a request for scheduling help also answers an invitation.
-  // Questions about prices, business hours or other topics do not accept it.
-  if (/precio|presupuesto|financ|credito|cuesta|atienden|horario de atencion|pero|\bno puedo\b/.test(m)) return false
-  if (/\b(?:cuando|a que hora|que dias?)\b.*\b(?:puedo|podria|pueden)\b/.test(m)) return true
-  return /^(?:si )?(?:manana|hoy|pasado manana|(?:el )?(?:lunes|martes|miercoles|jueves|viernes|sabado)|(?:el )?\d{1,2} de \w+|a las \d{1,2})(?:\s+(?:a|las|por|en|la|el|de|tarde|manana|horas|am|pm|\d{1,2}))*$/.test(m)
-    || /^(?:no (?:se|estoy segur[oa])(?: (?:cuando|que dia|a que hora))?|digame (?:usted|ud)|que (?:dia|hora) (?:pueden|tienen)|sugierame (?:un dia|una hora|un horario))$/.test(m)
-}
-export function ambiguousVisitAcceptance(current:string,lastReply:string) {
-  return /^(?:listo )?(?:si|esta bien|de acuerdo|listo|perfecto)$/.test(normalized(current))
-    && !acceptsVisitInvitation(current,lastReply)
-    && /(?:puede|podria) (?:acercarse|visitarnos)|(?:si le interesa|si desea).*(?:visita|oficina)|\bo (?:prefiere|desea|quiere|coordinar|agendar).*visita/.test(normalized(lastReply))
+export function acceptsUnitOptions(current: string, lastReply: string, turn: unknown = {}) {
+  void lastReply
+  const pending = pendingFor(turn), answer = object(semanticsFor(turn).answer_to_previous)
+  return ['unit_choice', 'property_requirements', 'property_comparison'].includes(text(pending.id))
+    && ['explore_quoted_options', 'explore_alternatives', 'compare_properties'].includes(text(pending.act))
+    && answer.question_id === pending.id && answer.kind === 'affirmative'
+    && acceptedExtractorConfidence(answer.confidence) && literal(current, answer.evidence)
 }
 
+export function acceptsVisitInvitation(current: string, lastReply: string, turn: unknown = {}) {
+  void lastReply
+  const pending = pendingFor(turn), semantics = semanticsFor(turn), answer = object(semantics.answer_to_previous)
+  return pending.id === 'visit_invitation' && pending.act === 'visit'
+    && answer.question_id === pending.id && answer.kind === 'affirmative'
+    && acceptedExtractorConfidence(answer.confidence) && literal(current, answer.evidence)
+}
+
+export function ambiguousVisitAcceptance(current: string, lastReply: string, turn: unknown = {}) {
+  void lastReply
+  const pending = pendingFor(turn), answer = object(semanticsFor(turn).answer_to_previous)
+  return pending.id === 'visit_invitation' && pending.act === 'visit'
+    && answer.question_id === pending.id && answer.kind === 'uncertain'
+    && acceptedExtractorConfidence(answer.confidence) && literal(current, answer.evidence)
+}
+
+/** Accepted writer receipts are durable facts. Old prose is never rescanned
+ * for invitations, financial language or evidence of client preference. */
 export function salesMemory(previous: unknown, history: unknown) {
   const saved = object(previous)
-  const messages = rows(history)
-  let invited = saved.visit_invited === true, declined = saved.visit_declined === true, last = ''
-  const unrelatedClientTurn = (row: Row, index: number) => row.role === 'cliente' && (
-    salesSubject(text(row.content), messages.slice(0, index)).subject === 'vehicle'
-    || isPropertyScopeRedirect(text(messages.slice(index + 1).find(next => ['bot', 'asesor'].includes(text(next.role)))?.content)))
-  // Repair older memory that counted credit for another service as mortgage guidance.
-  const wrongScope = messages.some((row, index) => row.role === 'cliente' && mentionsFinancing(text(row.content))
-    && unrelatedClientTurn(row, index))
-  let financingMentioned = saved.financing_mentioned === true && !wrongScope
-  let unitsOffered = saved.unit_options_offered === true
-  for (const [index, row] of messages.entries()) {
-    const content = text(row.content)
-    if (['cliente', 'bot', 'asesor'].includes(text(row.role)) && mentionsFinancing(content)
-      && !unrelatedClientTurn(row, index) && salesSubject(content, messages.slice(0, index)).subject !== 'vehicle') financingMentioned = true
-    if (['bot', 'asesor'].includes(text(row.role))) {
-      last = content
-      if (invitation(content)) invited = true
-      if (/le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(content))) unitsOffered = true
-    } else if (row.role === 'cliente' && invitation(last) && /^(?:no|no gracias|ahora no|por ahora no|solo (?:quiero )?informacion)/.test(normalized(content))) declined = true
+  let invited = saved.visit_invited === true, declined = saved.visit_declined === true
+  let financingMentioned = saved.financing_mentioned === true, unitsOffered = saved.unit_options_offered === true
+  for (const row of rows(history).filter(message => ['bot', 'asesor'].includes(text(message.role)))) {
+    const audit = object(row.tool_calls), review = object(audit.turn_completeness)
+    const receipt = object(review.writer_receipts || audit.writer_receipts)
+    const pending = object(audit.pending_question)
+    invited ||= receipt.visit_invited === true || pending.id === 'visit_invitation' && pending.act === 'visit'
+    declined ||= receipt.visit_declined === true
+    financingMentioned ||= receipt.financing_mentioned === true || receipt.offered_action === 'financing_review'
+      || text(pending.id).startsWith('financing_') && pending.act === 'financing'
+    unitsOffered ||= receipt.unit_options_offered === true || pending.id === 'unit_choice'
+      || pending.id === 'property_requirements' && pending.act === 'explore_alternatives'
   }
-  const engagement = commercialEngagement('', history, saved)
-  return { visit_invited: invited, visit_declined: declined, financing_mentioned: financingMentioned, unit_options_offered: unitsOffered, passive_sales: engagement.passive, property_interest: engagement.interested }
+  return { visit_invited: invited, visit_declined: declined, financing_mentioned: financingMentioned,
+    unit_options_offered: unitsOffered, passive_sales: saved.passive_sales === true, property_interest: saved.property_interest === true }
 }
 
-export function mentionsFinancing(value: string) {
-  return /\b(?:financ\w*|credito\w*|hipotec\w*|pichincha|jep|jardin\s*(?:azuayo|zauayo))\b/.test(normalized(value))
+export function mentionsFinancing(value: string, interpreted: unknown = {}) {
+  const semantics = semanticsFor(interpreted)
+  return currentRequests(interpreted, value).some(request => request.domain === 'financing')
+    || semantics.primary_intent === 'ask_financing' && acceptedExtractorConfidence(semantics.confidence) && literal(value, semantics.primary_evidence)
 }
 
 export function rememberSalesReply(previous: unknown, history: unknown, current: string, reply: string, turn?: CommercialEngagementTurn,
   delivered?: { writerReceipts?: Row; pendingQuestion?: Row }) {
-  if (delivered) {
-    // Only customer messages may be interpreted. The writer supplies typed
-    // receipts for its delivered response; absent receipts never imply an offer.
-    const customerHistory = rows(history).filter(row => row.role === 'cliente')
-    const remembered = salesMemory(previous, [...customerHistory, { role: 'cliente', content: current }])
-    const receipt = object(delivered.writerReceipts), pending = object(delivered.pendingQuestion)
-    const questionId = text(pending.id || pending.continuation_id), act = text(pending.act || pending.continuation_act)
-    const lastPending = object(turn?.pendingQuestion || object(turn?.intent).pending_question)
-    const answer = object(object(turn?.semantics).answer_to_previous)
-    const answerEvidence = normalized(text(answer.evidence)).trim()
-    const declined = lastPending.id === 'visit_invitation' && answer.question_id === lastPending.id
-      && answer.kind === 'negative' && acceptedExtractorConfidence(answer.confidence)
-      && !!answerEvidence && normalized(current).includes(answerEvidence)
-    const engagement = commercialEngagement(current, customerHistory, previous, turn)
-    return { ...remembered,
-      visit_invited: remembered.visit_invited || receipt.visit_invited === true || questionId === 'visit_invitation' && act === 'visit',
-      visit_declined: remembered.visit_declined || declined,
-      financing_mentioned: remembered.financing_mentioned || receipt.financing_mentioned === true
-        || receipt.offered_action === 'financing_review' || questionId.startsWith('financing_') && act === 'financing',
-      unit_options_offered: remembered.unit_options_offered || receipt.unit_options_offered === true
-        || questionId === 'unit_choice' || questionId === 'property_requirements' && act === 'explore_alternatives',
-      passive_sales: engagement.passive, property_interest: engagement.interested,
-      ...(turn ? { engagement_version: COMMERCIAL_ENGAGEMENT_VERSION, interaction_mode: engagement.interaction_mode } : {}),
-    }
-  }
-  const remembered = salesMemory(previous, [...rows(history), { role: 'cliente', content: current }, { role: 'bot', content: reply }])
-  if (!turn) return remembered
+  void reply
+  const remembered = salesMemory(previous, history)
+  const receipt = object(delivered?.writerReceipts), pending = object(delivered?.pendingQuestion)
+  const questionId = text(pending.id || pending.continuation_id), act = text(pending.act || pending.continuation_act)
+  const lastPending = object(turn?.pendingQuestion || object(turn?.intent).pending_question)
+  const answer = object(object(turn?.semantics).answer_to_previous)
+  const declined = lastPending.id === 'visit_invitation' && lastPending.act === 'visit' && answer.question_id === lastPending.id
+    && answer.kind === 'negative' && acceptedExtractorConfidence(answer.confidence) && literal(current, answer.evidence)
   const engagement = commercialEngagement(current, history, previous, turn)
-  return { ...remembered, passive_sales: engagement.passive, property_interest: engagement.interested,
-    engagement_version: COMMERCIAL_ENGAGEMENT_VERSION, interaction_mode: engagement.interaction_mode }
+  return { ...remembered,
+    visit_invited: remembered.visit_invited || receipt.visit_invited === true || questionId === 'visit_invitation' && act === 'visit',
+    visit_declined: remembered.visit_declined || declined,
+    financing_mentioned: remembered.financing_mentioned || receipt.financing_mentioned === true
+      || receipt.offered_action === 'financing_review' || questionId.startsWith('financing_') && act === 'financing'
+      || mentionsFinancing(current, { semantica_turno: object(turn?.semantics), contrato_turno: object(turn?.intent) }),
+    unit_options_offered: remembered.unit_options_offered || receipt.unit_options_offered === true
+      || questionId === 'unit_choice' || questionId === 'property_requirements' && act === 'explore_alternatives',
+    passive_sales: engagement.passive, property_interest: engagement.interested,
+    ...(turn ? { engagement_version: COMMERCIAL_ENGAGEMENT_VERSION, interaction_mode: engagement.interaction_mode } : {}),
+  }
 }
 
-export function salesTopics(current: string) {
-  const m = normalized(current)
-  return [ /jardin|(?:areas|espacios|zonas) verdes/.test(m) && 'jardines',
-    /sector|barrio|entorno|cerca|alrededor/.test(m) && 'sector',
-    /revender|reventa|venderlo|venderla|vender.*futuro|venta futura/.test(m) && 'reventa',
-    /como (?:lo |la )?compro|proceso de compra|pasos.*compr|como.*(?:comprar|adquirir)/.test(m) && 'compra',
-  ].filter((v): v is string => !!v)
+export function salesTopics(current: string, interpreted: unknown = {}) {
+  const topics = currentRequests(interpreted, current).flatMap(request => Array.isArray(request.topics) ? request.topics.map(text) : [])
+  const mapping: Record<string, string> = { gardens: 'jardines', location: 'sector', surroundings: 'sector', resale: 'reventa', purchase_process: 'compra' }
+  return [...new Set(topics.map(topic => mapping[topic]).filter(Boolean))]
 }
 
 export function salesPlan(info: Row, current: string, summary: Row) {
-  const history = rows(info.historial), replies = history.filter(r => ['bot', 'asesor'].includes(text(r.role)))
-  const memory = salesMemory(summary._sales_memory, history)
+  const history = rows(info.historial), memory = salesMemory(summary._sales_memory, history)
   const engagement = commercialEngagement(current, history, summary._sales_memory, {
     semantics: info.semantica_turno, intent: info.contrato_turno,
     scope: object(info.contrato_turno).scope, pendingQuestion: object(info.contrato_turno).pending_question,
   })
-  const last = text(replies.at(-1)?.content), m = normalized(current)
-  const pendingVisit = rows(info.propuestas).some(p => ['confirmed', 'awaiting_advisor', 'awaiting_client'].includes(text(p.status)))
+  const topics = salesTopics(current, info)
+  const pendingVisit = rows(info.propuestas).some(proposal => ['confirmed', 'awaiting_advisor', 'awaiting_client'].includes(text(proposal.status)))
     || object(info.coordinacion_visita).status === 'collecting'
-  const refuses = /\bno (?:quiero|deseo|necesito|me interesa)\b.*(?:visita|cita)|\bsolo (?:quiero )?(?:informacion|ver|saber)\b/.test(m)
-  const model = object(info.modelo_3d).se_adjunta_en_esta_respuesta === true
-  const sawModel = /\/tour\/(?:modelo-3d|unidad)\/|\b3D\b/.test(last)
-  const topics = salesTopics(current)
-  const hasUnit = rows(object(info.referencia_unidad).matches).length === 1
-  const concreteInterest = /(?:me interesa|busco|quiero|quisiera).*(?:departamento|suite|vivienda|local)/.test(m)
-    && (hasUnit || /\b[123] (?:dormitorios|habitaciones|personas)|pisos? altos?|terraza/.test(m))
-  const signal = info.precio_cotizado === true || model || concreteInterest || (positive(current) && (sawModel || hasUnit || /brochure|folleto/i.test(last))) || (topics.includes('reventa') && topics.length > 1)
   const policy = object(info.politica_visitas)
   const visits = botVisitPolicy({ bot_visits: { allow_suggestions: policy.allowSuggestions, launch_destination: policy.launchDestination } }, text(info.modo_comercial))
   if (policy.readiness) visits.readiness = policy.readiness as NonNullable<typeof visits.readiness>
-  const recentInvitation = replies.slice(-3).some(row => invitation(text(row.content)))
   const journey = commercialJourneyPlan({ ...info, mensaje_actual: current, recorrido_comercial: summary._commercial_journey || {}, _sales_memory: memory, commercial_engagement: engagement })
   const answeringObjection = journey.action === 'answer_current_question' && projectObjectionRequests(info, current).length > 0
-  const invite = journey.visit_offer_allowed === true && !engagement.passive && visits.allowSuggestions && signal && !pendingVisit && !refuses && !recentInvitation
-    && (!memory.visit_invited || replies.length >= 3) && !memory.visit_declined
-  // An old offer must not block a useful next step after the client starts a new search.
-  const recentUnitOffer = replies.slice(-2).some(row => /le gustaria (?:revisar la distribucion|que le muestre una opcion)/.test(normalized(text(row.content))))
-  const offerUnits = !answeringObjection && !engagement.passive && !invite && info.precio_cotizado === true && !pendingVisit && !model && (!memory.unit_options_offered || (replies.length >= 3 && !recentUnitOffer))
-    && !/\bsolo (?:quiero )?(?:el )?precio\b|\bno (?:quiero|deseo|necesito)\b.*(?:ver|opcion|modelo|distribucion)/.test(m) && !isUnitVisualRequest(current)
-  const quoted = rows(info.unidades_cotizadas)
-  const unitClosing = quoted.length === 1
-    ? `¿Le gustaría revisar la distribución ${quoted[0].category === 'suite' ? 'de la suite' : quoted[0].category === 'local' ? 'del local' : 'del departamento'} ${text(quoted[0].unit_number)}?`
-    : '¿Le gustaría que le muestre una opción de ese rango?'
-  const twoQuestions = replies.length >= 2 && replies.slice(-2).every(r => discovery(text(r.content)))
-  const shareBrochure = !answeringObjection && !engagement.passive && twoQuestions && !pendingVisit && !invite && !offerUnits
-    && !replies.some(r => /brochure-la-vilet|brochure|folleto/i.test(text(r.content)))
-    && !/\bno (?:quiero|deseo|necesito)\b.*(?:material|brochure|folleto|informacion)/.test(m)
-  const uncertain = /\bno (?:se\b|estoy segur|tengo claro\b|tengo idea\b)|\bno he pensado\b/.test(m)
-  const answerOnly = answeringObjection || engagement.passive || pendingVisit || memory.visit_invited || memory.visit_declined || twoQuestions || topics.length > 0 || isUnitVisualRequest(current) || positive(current) || uncertain
+  const invite = journey.visit_offer_allowed === true && !engagement.passive && visits.allowSuggestions && !pendingVisit && !memory.visit_declined
+  const offerUnits = !answeringObjection && !engagement.passive && !pendingVisit
+    && ['offer_units', 'present_unit_options'].includes(text(journey.action))
+  const shareBrochure = !answeringObjection && !engagement.passive && journey.action === 'offer_brochure'
+    && object(info.estado_conversacion).brochure_sent !== true
+  const answerOnly = answeringObjection || engagement.passive || pendingVisit
+    || !text(journey.question_id) || journey.continuation_optional === true
   return { action: invite ? 'invite_visit' : offerUnits ? 'offer_units' : shareBrochure ? 'share_brochure' : answerOnly ? 'answer_only' : 'discover', topics,
-    question_purpose: invite ? 'Obtener permiso para coordinar la visita, sin confirmarla.' : offerUnits ? 'Elegir una unidad y mostrar su distribución.' : answerOnly ? null : object(info.siguiente_pregunta).purpose || 'Aclarar un dato faltante que cambie la recomendación o el siguiente paso.',
-    max_questions: answeringObjection || invite || offerUnits || !answerOnly ? 1 : 0,
+    question_purpose: invite ? 'Obtener permiso para coordinar la visita, sin confirmarla.'
+      : offerUnits ? 'Comparar las opciones realmente ofrecidas.' : answerOnly ? null : text(journey.instruction),
+    max_questions: invite || offerUnits || !answerOnly ? 1 : 0,
     optional_objection_question: answeringObjection,
-    closing: invite ? visitInvitation(text(info.modo_comercial), visits) : offerUnits ? unitClosing : '',
-    visits_allowed: visits.allowSuggestions,
-    launch: info.modo_comercial === 'lanzamiento',
-    memory, engagement, positive_after_model: positive(current) && (sawModel || hasUnit),
-    rules: `Responda primero todas las dudas del mensaje. No siga una lista obligatoria de calificación.
-Use datos ya conocidos de vivir/invertir, dormitorios y presupuesto; pregunte solo UN dato útil que falte, nunca uno aplazado o ya contestado.
-Cada pregunta debe tener un propósito concreto y un uso para la respuesta: seleccionar una unidad, mostrar material pertinente, coordinar una visita, iniciar una revisión financiera consentida o facilitar atención del asesor. Si no cambia ninguna decisión, omita la pregunta. No pregunte para mantener interacción ni clasifique a alguien como poco interesado por hacer preguntas; use decisiones expresas del cliente y respete su ritmo.
-Preguntar uso propio o inversión sirve para orientar la elección de la unidad. No afirme que alquilar generará ingresos aceptados por el banco ni que respalda o mejora la aprobación: faltan políticas verificadas de la entidad. Si preguntan por qué importa, explique el propósito comercial y que cualquier efecto crediticio debe verificarlo la entidad.
-Ofrezca financiamiento únicamente si lo pide, si su presupuesto no cubre la unidad u opciones pertinentes o si declara no tenerlo definido. No lo ofrezca cuando sí alcanza ni confunda un dato pendiente con no tener presupuesto. No ofrezca otros proyectos. Tras explicar el procedimiento, pregunte si desea continuar. Si ya aceptó, retome la unidad pendiente sin repetir que no alcanza. La reserva va antes de la visita cuando ya puede avanzar; respete siguiente_paso_comercial.
-Presente de uno a tres beneficios relevantes, solo los que ayudan a esta persona; no repita instalaciones ni rellene hasta llegar a tres.
-No suponga que «se ve interesante» acepta una visita. No cree cita ni avise al asesor al ofrecerla.
-${invite ? 'El sistema añadirá una invitación a una visita. El mapa se entrega solo al solicitarlo el cliente o al confirmar realmente la cita, nunca por esta invitación.' : 'No añada una invitación a visita en este turno; si el cliente la solicita expresamente el sistema coordina esa petición.'}
-El plan de este turno es ${invite ? 'responder y ofrecer una visita; el sistema añade la invitación, NO escriba otra pregunta' : offerUnits ? 'responder el precio; el sistema ofrecerá revisar una unidad, NO escriba otra pregunta ni invite a una visita' : answeringObjection ? 'responder la objeción; puede hacer una pregunta útil sobre la inquietud actual, sin capturas comerciales por rutina' : answerOnly ? 'responder sin otra pregunta comercial; no pida requisitos para dar información' : 'responder y opcionalmente aclarar un único dato útil' }.
-No prometa reventa, arriendo, rentabilidad, disponibilidad, aprobación bancaria ni tiempos sin datos. No invente reservas, anticipos ni pasos legales de compra.
-Si hay varias consultas, cubra cada una brevemente. Cerrar sin pregunta también es una respuesta completa.
-${passiveSalesRules(engagement)}
-${answeringObjection ? 'La objeción actual se atiende con argumentos pertinentes y respaldados. En este turno no añada capturas, crédito, reserva, visita ni materiales por rutina; conserve la decisión pendiente internamente y responda las solicitudes independientes.' : ''}` }
+    closing: invite ? visitInvitation(text(info.modo_comercial), visits) : '',
+    visits_allowed: visits.allowSuggestions, launch: info.modo_comercial === 'lanzamiento',
+    memory, engagement, positive_after_model: false,
+    rules: `Responda primero todas las consultas del turno. El siguiente paso procede de la interpretacion actual y del recorrido comercial estructurado, nunca de palabras detectadas en respuestas anteriores.
+No inicie calificacion por faltar categoria, presupuesto, dormitorios o perfil. Ante un saludo ofrezca ayuda abierta; ante una intervencion ambigua aclare que desea consultar. Conserve datos, preferencias y gestiones ya registrados.
+Siga el objetivo comercial autorizado, con redaccion propia. Una consulta informativa no concede permiso para visitas, financiamiento o reserva. No copie ni agregue automaticamente la pregunta de una respuesta anterior.
+El redactor entrega el mensaje completo: el codigo no incorporara una invitacion, despedida ni pregunta despues. Ofrezca solo acciones autorizadas por siguiente_paso_comercial y no anuncie confirmaciones sin un registro operativo que las respalde.
+${passiveSalesRules(engagement)}` }
 }
 
-export function salesIssues(reply: string, plan: ReturnType<typeof salesPlan>) {
-  const r = normalized(reply), issues: string[] = []
-  if (!plan.visits_allowed && /(?:le gustaria|podemos|puede|le invito|coordin|agend|visitenos).{0,50}(?:visita|visitarnos|conocerlo|conocer el lugar|verlo en persona)/.test(r)) issues.push('unsupported_fact')
-  if (plan.launch && /(?:visitar|recorrer|conocer|ver).{0,30}(?:departamento|suite|vivienda).{0,20}(?:persona|presencial|construid)|(?:departamentos|suites) (?:terminados|construidos) disponibles/.test(r)) issues.push('unsupported_fact')
-  if (plan.action !== 'discover' && !plan.optional_objection_question && /[¿?]/.test(reply)) issues.push('repeated_question')
-  if (plan.topics.includes('jardines') && !/jardin|verde/.test(r)) issues.push('ignored_question')
-  if (plan.topics.includes('sector') && !/sector|puertas del sol|barrio|cerca|entorno/.test(r)) issues.push('ignored_question')
-  if (plan.topics.includes('reventa') && !/reventa|vender|venta futura/.test(r)) issues.push('ignored_question')
-  return issues
+/** No deterministic reviewer is allowed to infer business meaning from a draft. */
+export function salesIssues(reply: string, plan: ReturnType<typeof salesPlan>): string[] {
+  void reply
+  void plan
+  return []
 }
 
-// Grounded fallback for the reported multi-question turn. Never substitutes an
-// unrelated qualification question when generation or review fails.
+/** Topic interpretation and writing belong to the existing model call. */
 export function salesTopicReply(info: Row, current: string) {
-  const topics = salesTopics(current), m = normalized(current)
-  if (!topics.length || /precio|presupuesto|financ|credito|foto|modelo|dormitorio|metro|piscina|gimnasio|constructora|dueno/.test(m)) return ''
-  const sentences: string[] = []
-  if (topics.includes('jardines')) {
-    const known = /jardin|verde/.test(normalized(JSON.stringify(info.instalaciones || [])))
-    sentences.push(known ? 'Hay áreas exteriores con jardines para disfrutar al aire libre.' : 'Necesito verificar qué espacios verdes corresponden a esa opción.')
-  }
-  if (topics.includes('sector') && info.posicionamiento_proyecto) {
-    const place = rows(info.lugares_cercanos).find(p => /caffe bianco/i.test(text(p.poi_name)))
-    sentences.push('Está en Puertas del Sol, un sector residencial de Cuenca' + (place ? ` con lugares como ${text(place.poi_name)} en el entorno.` : '.'))
-  }
-  if (topics.includes('reventa')) sentences.push('Para una futura reventa conviene revisar precios de propiedades similares, estado del inmueble y demanda de ese momento; no podemos asegurar una ganancia ni un plazo de venta.')
-  if (topics.includes('compra')) sentences.push('Primero revisamos la opción que le interesa; después, el asesor confirma disponibilidad, precio y condiciones para avanzar. Si necesita financiamiento, podemos orientarle con las entidades habilitadas.')
-  return sentences.length === topics.length ? sentences.join(' ') : ''
+  void info
+  void current
+  return ''
 }

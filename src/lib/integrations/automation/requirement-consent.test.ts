@@ -1,3 +1,4 @@
+import { plannedQuestionFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { commercialJourneyPlan, journeyPendingQuestion } from './commercial-journey'
@@ -27,7 +28,7 @@ function info(budget: Row = { status: 'not_discussed' }): Row {
 function offered(input = info()) {
   const plan = commercialJourneyPlan(input)
   const reply = `No encontramos coincidencias confirmadas con los requisitos actuales. ${String(plan.question)}`
-  const pending = normalizedPendingQuestion(journeyPendingQuestion(reply, plan, true), catalog)
+  const pending = normalizedPendingQuestion(journeyPendingQuestion(reply, plan, true, plannedQuestionFixture(plan)), catalog)
   const context = rememberPropertyReply(catalog, object(input.property_context), reply,
     { pending_question: pending, original_query: plan.requested_query })
   return { plan, pending, context }
@@ -320,7 +321,7 @@ test('a price inquiry about a proposed alternative keeps consent pending while p
       && object(object(object(object(model).model_scope).original_requirement_query).filters).bedrooms, 5)
     assert.equal(object(object(context.query).filters).bedrooms, 5)
     assert.deepEqual(context.selected_ids || [], [])
-    const remembered = normalizedPendingQuestion(journeyPendingQuestion(`Los departamentos cuestan $270.000 y los penthouses $550.000. ${String(plan.question)}`, plan, true), catalog)
+    const remembered = normalizedPendingQuestion(journeyPendingQuestion(`Los departamentos cuestan $270.000 y los penthouses $550.000. ${String(plan.question)}`, plan, true, plannedQuestionFixture(plan)), catalog)
     assert.deepEqual(remembered.candidate_ids, ['d302', 'p602'])
     assert.equal(object(object(remembered.proposed_query).filters).bedrooms, 3)
   }

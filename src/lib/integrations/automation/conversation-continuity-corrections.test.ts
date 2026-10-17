@@ -1,3 +1,5 @@
+import { plannedQuestionFixture, writerFixture } from './fixtures/writer-response.fixture'
+import { financingInvitationReceipt } from './financing-invitation'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { object, type Row } from './data'
@@ -10,6 +12,7 @@ import { deliveredPendingQuestion } from './continuation-question'
 import { financingInputs } from './financing'
 import { financingJourney, financingStage } from './financing-stage'
 import { supportedFindingRechecks, BUSINESS_RISK_REVIEW_VERSION } from './business-risk-review'
+import { WRITER_CONTENT_REVIEW_VERSION } from './writer-content-review'
 import { completeTurnReply } from './turn-completeness'
 import { propertyPurchasePriceLimit } from './budget-state'
 import { withResponseReviewPolicy } from './response-review-policy'
@@ -45,7 +48,7 @@ test('five bedrooms -> accept three -> grouped penthouse choice -> more bathroom
   assert.equal(object(object(plan.proposed_query).filters).bedrooms, 3)
   assert.deepEqual(new Set(plan.alternative_unit_ids as string[]), new Set(['d202', 'p602', 'p605']))
   const offer = `No contamos con cinco dormitorios, pero tenemos departamentos y penthouses de tres que podemos comparar por su amplitud. ${plan.question}`
-  let pending = journeyPendingQuestion(offer, plan, true)
+  let pending = journeyPendingQuestion(offer, plan, true, plannedQuestionFixture(plan))
   let context = rememberPropertyReply(catalog, reference.context, offer, { pending_question: pending, original_query: plan.requested_query })
   let turn = semantic('si me parece bien', pending, { operation: 'none', reference_kind: 'followup' }, 'affirmative')
   reference = resolvePropertyTurn(catalog, 'si me parece bien', { ...summary, _property_context: context, _pending_question: pending }, [], turn)
@@ -54,7 +57,7 @@ test('five bedrooms -> accept three -> grouped penthouse choice -> more bathroom
   plan = commercialJourneyPlan(info(context, {}, turn))
   assert.notEqual(plan.action, 'discover_bedrooms')
   const typeReply = `Podemos revisar departamentos o penthouses de tres dormitorios. ${plan.question}`
-  pending = journeyPendingQuestion(typeReply, plan, true)
+  pending = journeyPendingQuestion(typeReply, plan, true, plannedQuestionFixture(plan))
   context = rememberPropertyReply(catalog, context, typeReply, { pending_question: pending })
   const grouped = 'penthouse\nson mas espaciosos\ny considerando que mi familia es grande es mejor para mi'
   turn = semantic(grouped, pending, { category: 'penthouse', group: 'residential', operation: 'select', reference_kind: 'none', query_scope: 'offered', evidence: 'penthouse' })
@@ -66,7 +69,7 @@ test('five bedrooms -> accept three -> grouped penthouse choice -> more bathroom
   plan = commercialJourneyPlan(info(context, object(summary._interpretation_memory), turn))
   assert.notEqual(plan.action, 'discover_bedrooms')
   const choiceReply = `El penthouse 602 tiene dos baños y el penthouse 605 tiene tres baños. ${plan.question}`
-  pending = journeyPendingQuestion(choiceReply, plan, true)
+  pending = journeyPendingQuestion(choiceReply, plan, true, plannedQuestionFixture(plan))
   context = rememberPropertyReply(catalog, context, choiceReply, { pending_question: pending })
   const relative = 'mmm prefiero el que tiene mas baños mejor\ny que precio tiene?'
   turn = semantic(relative, pending, { operation: 'select', reference_kind: 'relative', query_scope: 'offered', unit_numbers: ['605'], evidence: 'prefiero el que tiene mas baños mejor' }, 'value')
@@ -104,7 +107,7 @@ test('a bedroom confirmation carries its quantity and selected subject, and a ye
   const reply = 'El penthouse 605 tiene tres dormitorios. ¿Le funciona esa cantidad de dormitorios?'
   const plan = { question_id: 'property_bedrooms', question_act: 'confirm_bedrooms', selected_unit_id: 'p605',
     selection_scope: { unit_ids: ['p605'] } }
-  const pending = deliveredPendingQuestion(reply, { plan, metadata: { purpose: 'choose_property', continuation_id: 'property_bedrooms', continuation_act: 'confirm_bedrooms' } }, catalog)
+  const pending = deliveredPendingQuestion(reply, { plan, metadata: writerFixture({ reply: reply, question: { purpose: 'choose_property', continuation_id: 'property_bedrooms', continuation_act: 'confirm_bedrooms' }, requests: [] }).question }, catalog)
   assert.equal(object(object(pending.proposed_query).filters).bedrooms, 3)
   assert.deepEqual(pending.target_ids, ['p605'])
   const turn = semantic('si si esta bien', pending, { operation: 'none', reference_kind: 'followup' }, 'affirmative')
@@ -156,7 +159,10 @@ test('acceptance plus a process question persists consent, while a conditional a
   const current = 'Si esta bien, pero como funciona el financiamiento?'
   const raw = { financing_consent: true, turn_semantics: { primary_intent: 'ask_financing', primary_evidence: current, confidence: 'high',
     answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: 'Si esta bien', confidence: 'high' } } }
-  const input = financingInputs(raw, current, invitation, { partners: finance.partners, current: {} })
+  const receipt = financingInvitationReceipt({ text: invitation, continuation_id: 'financing_invitation',
+    continuation_act: 'financing', purpose: 'permission_to_continue' })
+  const input = financingInputs(raw, current, invitation, { partners: finance.partners, current: {} },
+    { kind: 'financing_consent', reply: invitation, invitation: receipt })
   assert.equal(input.consent, true)
   const saved = financingJourney({}, input, 'yes-process')
   assert.equal(financingJourney(saved, { consent: null }, 'doubt').accepted, true)
@@ -186,14 +192,14 @@ test('consecutive doubts and cash inquiries suspend capture, but the first accep
   assert.equal(cashBeforeAcceptance.question_id, '')
 })
 
-for (const observationOnly of [false, true]) test(`a contradictory review gets one recorded metadata repair on the unchanged draft (observation=${observationOnly})`, async () => {
+for (const observationOnly of [false, true]) test(`an AI verdict stays authoritative without server reinterpretation of its wording (observation=${observationOnly})`, async () => {
   const reply = 'El penthouse 605 tiene 140,53 m² interiores.'
   const fact = { kind: 'catalog_value', unit: 'm2', field: 'area_internal_m2', scope: null, value: 140.53,
     relation: 'eq', statement: reply, subject_id: 'p605', upper_value: null }
-  const rejected = { review_contract: BUSINESS_RISK_REVIEW_VERSION, verdict: 'block', facts: [fact], question: null,
-    findings: [{ category: 'hard_fact', statement: reply, reason: 'La ficha respalda el área. No hay datos falsos.', authoritative_fact: 'p605: 140,53 m²' }] }
-  assert.equal(supportedFindingRechecks(rejected, [{ index: 0, fact, status: 'verified' }]).length, 1)
-  assert.equal(supportedFindingRechecks(rejected, [{ index: 0, fact, status: 'contradiction' }]).length, 0)
+  const rejected = { review_contract: WRITER_CONTENT_REVIEW_VERSION, verdict: 'block', findings: [{ category: 'hard_fact', statement: reply, reason: 'La ficha respalda el área. No hay datos falsos.', authoritative_fact: 'p605: 140,53 m²' }] }
+  const diagnostic = { ...rejected, review_contract: BUSINESS_RISK_REVIEW_VERSION, facts: [fact], question: null }
+  assert.equal(supportedFindingRechecks(diagnostic, [{ index: 0, fact, status: 'verified' }]).length, 1)
+  assert.equal(supportedFindingRechecks(diagnostic, [{ index: 0, fact, status: 'contradiction' }]).length, 0)
   let reviews = 0, writes = 0
   const result = await withResponseReviewPolicy({ enabled: true, observationOnly, updatedAt: null }, () => completeTurnReply({ current: 'Que superficie tiene el 605?', baseReply: reply,
     verified: info({ selected_ids: ['p605'] }), audit: { semantic_review_enabled: true, business_risk_review_enabled: true } },
@@ -202,13 +208,14 @@ for (const observationOnly of [false, true]) test(`a contradictory review gets o
       if (task === 'review') { reviews++; assert.equal(data.borrador, reply)
         return reviews === 1 ? rejected : { ...rejected, verdict: 'pass', findings: [] } }
       writes++
-      return { reply, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' },
-        requests: (data.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id, intent: 'Informar superficie', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) }
+      return writerFixture({ reply, question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' },
+        requests: (data.referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id, intent: 'Informar superficie', request_type: 'general_information', status: 'answered', evidence: reply, fact_key: null })) })
     }))
   assert.equal(result.audit.status, observationOnly ? 'review_observed' : 'checked', JSON.stringify(result.audit))
   assert.equal(result.reply, reply)
-  assert.equal(writes, 1)
-  assert.equal(reviews, 2)
-  assert.equal(object(object(result.audit.repair_budget).review_metadata).used, 1)
-  assert.equal((result.audit.repair_attempts as Row[]).length, 1)
+  assert.equal(writes, observationOnly ? 1 : 2)
+  assert.equal(reviews, observationOnly ? 1 : 2)
+  assert.equal(object(result.audit.semantic_review).metadata_retries, 0)
+  assert.equal((result.audit.repair_attempts as Row[]).length, observationOnly ? 0 : 1)
+  assert.equal(object(object(result.audit.semantic_review).acceptance).content_approved, !observationOnly)
 })

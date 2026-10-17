@@ -1,24 +1,12 @@
 import { object, rpc, text, type Row } from './data'
-import { visitDetailText } from './visit-intake'
+
 import { formatVisitWhen } from '@/lib/inmobiliaria/visitClock'
 
 /** A declined advisor proposal requests another round without pausing the bot. */
-export function declinesAllVisitAlternatives(current: string, proposal: Row | null, intent?: string) {
-  if (!proposal || proposal.status !== 'awaiting_client' || proposal.proposed_by !== 'advisor') return false
-  const options = Array.isArray(proposal.proposed_options) ? proposal.proposed_options : []
-  if (!options.length && !proposal.previous_request_id) return false
-  const value = visitDetailText(current)
-  if (/\b(?:cancel\w*|anular|desisto|dejemoslo|no me contacten|no me escriban)\b|\b(?:ya )?no (?:quiero|deseo|me interesa) (?:una |la |esa )?(?:visita|cita)\b/.test(value)) return false
-  if (/\b(?:departamentos?|suites?|locales?|viviendas?|precios?|creditos?|bancos?|financiamiento|vehiculos?|casas?|motos?|vuelos?)\b/.test(value)
-    && !/\b(?:visita|cita|hora|horas|horario|horarios|fecha|fechas)\b/.test(value)) return false
-  // New timing takes precedence over rejecting old choices. Let the normal
-  // intake collect it, including a partial date such as "mejor mañana".
-  const newPreference = value.replace(/\bno (?:puedo|podria|quiero|me sirve|me queda bien)\b.*?(?=\b(?:pero|mejor|prefiero|para|puedo)\b|$)/g, '')
-  if (/\b(?:manana|hoy|pasado manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxima semana|siguiente semana)\b/.test(newPreference)
-    || /\b(?:a las?|las?|a eso de las?) (?:\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\b/.test(newPreference)
-    || /\b\d{1,2}:\d{2}\b|\b\d{1,2}[/-]\d{1,2}\b/.test(current)) return false
-  const rejection = /\bningun[oa]?\b|\bno (?:puedo|me sirven?|me quedan? bien|me convienen?|quiero)\b.*\b(?:es[oa]s?|horas?|horarios?|opciones|alternativas)\b|\b(?:prefiero|quiero|necesito) otr[oa]s? (?:opcion|hora|horario|alternativa)/.test(value)
-  return rejection || intent === 'reject'
+export function declinesAllVisitAlternatives(_current: string, proposal: Row | null, _intent?: string, interpreted: unknown = {}) {
+  const row = object(interpreted), routing = object(object(row.semantica_turno || row.turn_semantics || row).routing)
+  return proposal?.status === 'awaiting_client' && proposal.proposed_by === 'advisor' && routing.all_options_declined === true
+    && [proposal.id, proposal.request_id].includes(routing.proposal_id)
 }
 
 /** An evidence-based brief, not an AI inference about the lead's intentions. */

@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { object, text, type Row } from './data'
@@ -64,11 +65,11 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const)
         const context = object(raw)
         const question = { role: 'necessary_clarification', purpose: 'choose_property', missing_datum: '',
           next_decision: 'Explorar departamentos', continuation_id: 'property_category', continuation_act: 'choose_category' }
-        if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: { ...question, offered_action: 'none' } }
+        if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
         writer = context
-        return { reply: 'Podemos revisar los departamentos de tres dormitorios. ¿Le gustaría que exploremos los departamentos?',
+        return writerFixture({ reply: 'Podemos revisar los departamentos de tres dormitorios. ¿Le gustaría que exploremos los departamentos?',
           question, requests: rows(context.referencias_solicitud).map(ref => ({ fragment: ref.id, intent: 'Orientar por dormitorios',
-            request_type: 'general_information', status: 'answered', evidence: 'Podemos revisar los departamentos de tres dormitorios.', fact_key: null })) }
+            request_type: 'general_information', status: 'answered', evidence: 'Podemos revisar los departamentos de tres dormitorios.', fact_key: null })) })
       }))
     assert.deepEqual(rows(object(writer.evidencia_turno).units).map(unit => unit.unit_number), ['202', '302', '402', '502'])
     assert.ok(rows(object(writer.evidencia_turno).groups).every(group => group.category !== 'penthouse'))

@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { object, type Row } from './data'
@@ -11,6 +12,7 @@ import { reservationPermission, reservationRequest, requestReservationHandoff, v
 import { operationalReservationInvitation, simpleReservationAcceptance } from './reservation-invitation'
 import { deliveredPendingQuestion } from './continuation-question'
 import { validContinuationMetadata, reconcileContinuationMetadata } from './continuation-validation'
+import { authorityFixture } from './fixtures/typed-turn.fixture'
 
 const unit: Row = { id: 'u502', unit_number: '502', category: 'departamento', bedrooms: 3,
   bathrooms_full: 2, floor_number: 5, area_internal_m2: 120.83, area_exterior_m2: 27.03,
@@ -35,7 +37,8 @@ const incorrectQuestion = { purpose: 'choose_property', role: 'optional_continua
 const correctedQuestion = { ...incorrectQuestion, purpose: 'permission_to_continue', continuation_act: 'reservation', offered_action: 'reservation' }
 
 function answerRaw(current: string, id = 'reservation_invitation', changes: Row = {}): Row {
-  return { turn_semantics: { primary_intent: 'answer_previous', primary_evidence: current, confidence: 'high',
+  return { action_authority: authorityFixture(current, 'reservation', id === 'reservation_invitation' ? 'accept' : 'none'),
+    turn_semantics: { primary_intent: 'answer_previous', primary_evidence: current, confidence: 'high',
     answer_to_previous: { question_id: id, kind: 'affirmative', evidence: current, confidence: 'high' },
     reservation: { kind: 'none', confidence: 'low', evidence: null, unit_numbers: [] },
     property: { group: 'residential', category: 'departamento', operation: 'none', query_scope: 'selected',
@@ -53,10 +56,11 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
         audit: { semantic_review_enabled: true, business_risk_review_enabled: true, commercial_journey: next } },
       async (_rules, context, _schema, _image, _file, _tone, task) => {
         calls.push(task!)
-        if (task === 'writing') return { reply: invitation, question: incorrectQuestion,
+        if (task === 'writing') return writerFixture({ reply: invitation,
+          question: { ...incorrectQuestion, purpose: 'permission_to_continue', continuation_act: 'reservation' },
           requests: (object(context).referencias_solicitud as Row[]).map(ref => ({ fragment: ref.id,
-            intent: 'Continuar con la unidad elegida', request_type: 'general_information', status: 'answered', evidence: invitation, fact_key: null })) }
-        return { review_contract: 'business-risk-v2', verdict: 'pass', facts: [], findings: [], question: correctedQuestion }
+            intent: 'Continuar con la unidad elegida', request_type: 'general_information', status: 'answered', evidence: invitation, fact_key: null })) })
+        return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
       }))
     assert.equal(result.needsAdvisor, false)
     assert.equal(object(result.audit.follow_up).usable, true)
@@ -82,7 +86,7 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
       // back into semantics before executing the action.
       semantics.reservation = intent.reservation
       assert.deepEqual(object(object(semantics.reservation).accepted_invitation).target_ids, ['u502'])
-      const request = reservationRequest(object(semantics.reservation), [{ externalId: 'answer', text: current }], [unit], resolved.matches)
+      const request = reservationRequest(object(semantics.reservation), [{ externalId: 'answer', text: current }], [unit], resolved.matches, semantics.action_authority)
       assert.deepEqual(request?.unit_ids, ['u502'], current)
       const operations: string[] = []
       for (const status of ['assigned', 'queued']) {
@@ -111,7 +115,7 @@ test('reservation information and ambiguous alternatives cannot supply permissio
     const current = 'si esta bien', pending = { id: 'reservation_invitation', act: 'reservation', question, target_ids: ['u502'] }
     assert.equal(object(normalizeTurnSemantics(answerRaw(current), current, pending).reservation).kind, 'none', question)
   }
-  assert.equal(pendingQuestionFromReply(invitation).id, 'reservation_invitation')
+  assert.deepEqual(pendingQuestionFromReply(invitation), {}, 'A sentence cannot recreate an operational receipt')
 })
 
 test('a yes to unit details or selection never initiates reservation, and an invitation needs one verified target', () => {
@@ -125,7 +129,8 @@ test('a yes to unit details or selection never initiates reservation, and an inv
     const semantics = normalizeTurnSemantics(answerRaw(current, pending.id), current, pending)
     assert.equal(object(semantics.reservation).kind, 'none')
   }
-  const pending = { id: 'reservation_invitation', act: 'reservation', question: invitation, target_ids: ['u502'] }
+  const pending = deliveredPendingQuestion(invitation, { plan: commercialJourneyPlan(info()),
+    metadata: { ...correctedQuestion, text: invitation } }, [unit])
   const semantics = normalizeTurnSemantics(answerRaw(current), current, pending)
   const intent = resolveTurnIntent({ current, semantics, requests: [], pendingQuestion: pending,
     scope: { kind: 'property', uncertain: false } })
@@ -139,7 +144,7 @@ test('affirmative spellings do not bypass real prerequisites or negated reservat
     'si esta bien el precio, quiero reservar', 'Quiero reservar si cuesta menos de 300 mil']) {
     assert.equal(simpleReservationAcceptance(current), false, current)
     const raw = { kind: 'request', confidence: 'high', evidence: current, unit_numbers: ['502'] }
-    assert.equal(reservationPermission(raw, current).kind, 'information', current)
+    assert.equal(reservationPermission(raw, current, authorityFixture(current, 'reservation', 'request', 'conditional')).kind, 'none', current)
     assert.equal(reservationRequest(raw, [{ externalId: 'answer', text: current }], [unit], [unit]), null, current)
   }
   const current = 'No quiero reservar la unidad 502'
@@ -147,21 +152,26 @@ test('affirmative spellings do not bypass real prerequisites or negated reservat
     [{ externalId: 'answer', text: current }], [unit], [unit]), null)
 })
 
-test('a reviewer or writer label cannot turn a vague question into a reservation invitation', () => {
+test('a delivered typed invitation does not require particular vocabulary and still needs an independently interpreted current acceptance', () => {
   const next = commercialJourneyPlan(info())
   for (const question of ['¿Qué le parece?', '¿Le gustaría conocer los requisitos para reservar?', '¿Prefiere reservar o agendar una visita?']) {
-    assert.equal(validContinuationMetadata(correctedQuestion, question, next), true, question)
-    assert.equal(reconcileContinuationMetadata(correctedQuestion, question, next).corrected, false, question)
-    assert.deepEqual(deliveredPendingQuestion(question, { metadata: correctedQuestion, plan: next }, [unit]), {}, question)
+    assert.equal(validContinuationMetadata({ ...correctedQuestion, text: question }, question, next), true, question)
+    assert.equal(reconcileContinuationMetadata({ ...correctedQuestion, text: question }, question, next).corrected, false, question)
+    const pending = deliveredPendingQuestion(question, { metadata: { ...correctedQuestion, text: question }, plan: next }, [unit])
+    assert.equal(pending.id, 'reservation_invitation', question)
+    const raw = answerRaw('Sí')
+    raw.action_authority = authorityFixture('Sí', 'reservation', 'information')
+    assert.equal(object(normalizeTurnSemantics(raw, 'Sí', pending).reservation).kind, 'none')
   }
 })
 
-test('the real unit mentioned in the invitation must match its verified target', () => {
+test('the typed unit target must match the verified plan independently of the invitation wording', () => {
   const next = commercialJourneyPlan(info())
   const other = { ...unit, id: 'u601', unit_number: '601' }
   for (const number of ['601', '999']) {
     const question = `¿Le gustaría iniciar la reserva de la unidad ${number}?`
-    assert.deepEqual(deliveredPendingQuestion(question, { metadata: correctedQuestion, plan: next }, [unit, other]), {})
+    const delivered = deliveredPendingQuestion(question, { metadata: { ...correctedQuestion, text: question, target_ids: ['u601'] }, plan: next }, [unit, other])
+    assert.deepEqual(object(delivered.reservation_invitation), {}, 'The receipt cannot substitute another verified unit')
     const current = 'si esta bien', pending = { id: 'reservation_invitation', act: 'reservation', question, target_ids: ['u502'] }
     const semantics = normalizeTurnSemantics(answerRaw(current), current, pending)
     const intent = resolveTurnIntent({ current, semantics, requests: [], pendingQuestion: pending, scope: { kind: 'property', uncertain: false } })

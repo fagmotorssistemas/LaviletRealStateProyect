@@ -39,7 +39,8 @@ test('empty reviewer output cannot approve a greeting and factual project presen
   const result = focusedReviewIssues({}, sentences, obligations)
   assert.ok(result.issues.some(issue => issue.code === 'invalid_focused_review_list'))
   assert.deepEqual(result.coverage.pending_sentence_ids, ['S1', 'S2', 'S3'])
-  assert.equal(result.issues.filter(issue => issue.code === 'invalid_obligation_review').length, 2)
+  assert.equal(result.issues.filter(issue => issue.code === 'invalid_obligation_review').length, 1,
+    'The factual reviewer cannot require a profile-collection review')
   assert.ok(result.issues.every(issue => issue.kind === 'review_metadata' && issue.owner === 'system' && issue.repair_owner === 'reviewer'))
 })
 
@@ -145,15 +146,18 @@ test('reviewer context keeps evidence and commercial state while excluding fallb
   assert.equal('catalogo_completo' in (context.contexto_verificado as Row), false)
   assert.equal('unrelated_writer_hint' in (context.estado_operativo as Row), false)
   assert.deepEqual((context.contexto_verificado as Row).proyecto, { ubicacion: 'Cuenca' })
-  assert.deepEqual(context.obligaciones_aplicables, obligations)
+  const applicable = context.obligaciones_aplicables as Row[]
+  assert.deepEqual(applicable.map(row => row.id), ['business_scope'])
+  assert.match(String(applicable[0].instruction), /no decida rutas ni preguntas/)
+  assert.equal(applicable.some(row => row.id === 'profile_collection'), false)
   assert.deepEqual(context.reparacion_revision, { focused_sentence_ids: ['S2'] })
 })
 
 test('obligations are derived from actual stage, never a generic list applied to every reply', () => {
-  assert.deepEqual(reviewObligations({}, {}, {}).map(item => item.id), ['business_scope', 'current_request'])
+  assert.deepEqual(reviewObligations({}, {}, {}).map(item => item.id), ['business_scope', 'commercial_customer_explanations', 'current_request'])
   const applicable = reviewObligations({ profile_introduction: { generic_introduction: true } }, { politica_comercial: { precios_aproximados: true } },
     { estado_comercial: { requiere_captura: true, datos_a_pedir: ['current_residence'], residencia_por_confirmar: 'Guayaquil' } })
-  assert.deepEqual(applicable.map(item => item.id), ['business_scope', 'current_request', 'profile_collection', 'profile_current_residence', 'opening_scope', 'price_conditions'])
+  assert.deepEqual(applicable.map(item => item.id), ['business_scope', 'commercial_customer_explanations', 'current_request', 'profile_collection', 'profile_current_residence', 'opening_scope', 'price_conditions'])
   assert.deepEqual(applicable.find(item => item.id === 'profile_collection')?.required_data, ['current_residence'])
   assert.equal(applicable.find(item => item.id === 'profile_collection')?.candidate, 'Guayaquil')
   const both = reviewObligations({}, {}, { estado_comercial: { requiere_captura: true, datos_a_pedir: ['full_name', 'current_residence'] } })
@@ -182,23 +186,24 @@ test('targeted repair preserves already checked facts and the unchanged commerci
   assert.deepEqual(rowsForRepair([location, { ...location, fragment: 'S4' }], scope, withPrice), [location])
 })
 
-test('repairing one obligation cannot erase another violation or approve an omitted targeted obligation', () => {
+test('repairing one factual obligation cannot erase another violation or approve an omitted targeted obligation', () => {
+  const factualObligations = [{ id: 'business_scope' }, { id: 'price_conditions' }]
   const previous = review({ claims: [location], obligation_checks: [
     { id: 'business_scope', verdict: 'violated', sentence_ids: ['S2'], reason: 'Ofrece inmuebles fuera del proyecto.' },
-    { id: 'profile_collection', verdict: 'pending', sentence_ids: [], reason: 'Falta revisar los datos solicitados.' },
+    { id: 'price_conditions', verdict: 'pending', sentence_ids: [], reason: 'Falta contrastar la promesa de precio fijo.' },
   ] })
-  const scope = focusedRepairScope([{ code: 'review_obligation_pending', obligation_id: 'profile_collection' }], sentences, obligations)
+  const scope = focusedRepairScope([{ code: 'review_obligation_pending', obligation_id: 'price_conditions' }], sentences, factualObligations)
   assert.deepEqual(scope.focused_sentence_ids, [])
-  assert.deepEqual(scope.obligations.map(item => item.id), ['profile_collection'])
+  assert.deepEqual(scope.obligations.map(item => item.id), ['price_conditions'])
   const fixed = mergeFocusedRepair(previous, review({ non_factual_sentence_ids: [], obligation_checks: [
-    { id: 'profile_collection', verdict: 'met', sentence_ids: ['R1'], reason: '' },
+    { id: 'price_conditions', verdict: 'met', sentence_ids: ['R1'], reason: '' },
   ] }), scope, sentences)
-  const remaining = focusedReviewIssues(fixed, sentences, obligations).issues
+  const remaining = focusedReviewIssues(fixed, sentences, factualObligations).issues
   assert.equal(remaining.length, 1)
   assert.equal(remaining[0].code, 'commercial_obligation_violated')
   assert.equal(remaining[0].repair_owner, 'writer')
   const erased = mergeFocusedRepair(previous, review({ non_factual_sentence_ids: [], obligation_checks: [] }), scope, sentences)
-  assert.ok(focusedReviewIssues(erased, sentences, obligations).issues.some(issue => issue.code === 'invalid_obligation_review' && issue.obligation_id === 'profile_collection'))
+  assert.ok(focusedReviewIssues(erased, sentences, factualObligations).issues.some(issue => issue.code === 'invalid_obligation_review' && issue.obligation_id === 'price_conditions'))
 })
 
 test('unknown and unexplained review references remain technical errors', () => {
@@ -255,7 +260,7 @@ test('historical output is not adapted while modern compatibility preserves clai
   assert.deepEqual((modern.question as Row).clarifies_request_ids, ['R1'])
 })
 
-test('compatibility maps a not-reviewed obligation to pending without confusing it with missing client data', () => {
+test('compatibility keeps historical pending profile metadata outside factual-review authority', () => {
   const raw = review({ claims: [location], obligation_checks: [
     { id: 'business_scope', verdict: 'met', sentence_ids: [], reason: '' },
     { id: 'profile_collection', verdict: 'not_reviewed', sentence_ids: ['R1'], reason: 'El revisor no completó la comprobación.' },
@@ -264,7 +269,10 @@ test('compatibility maps a not-reviewed obligation to pending without confusing 
   assert.equal((adapted.obligation_checks as Row[])[1].verdict, 'pending')
   assert.deepEqual(adapted.missing_fact_fragments, [])
   assert.deepEqual((adapted.question as Row).clarifies_request_ids, ['R2'])
-  assert.deepEqual(focusedReviewIssues(adapted, sentences, obligations).issues.map(issue => issue.code), ['review_obligation_pending'])
+  assert.deepEqual(focusedReviewIssues(adapted, sentences, obligations).issues, [])
+  assert.deepEqual(focusedReviewIssues({ ...adapted, obligation_checks: [
+    { id: 'business_scope', verdict: 'pending', sentence_ids: ['S2'], reason: 'Falta comprobar el servicio afirmado.' },
+  ] }, sentences, obligations).issues.map(issue => issue.code), ['review_obligation_pending'])
 })
 
 test('source routing is derived from canonical evidence and retains historical explicit classifications', () => {
@@ -442,11 +450,12 @@ test('a targeted sentence repair cannot replace other sentences or their commerc
 })
 
 test('an obligation-only repair cannot modify facts or erase an independent violation', () => {
+  const factualObligations = [{ id: 'business_scope' }, { id: 'price_conditions' }]
   const originalViolation = { id: 'business_scope', verdict: 'violated', sentence_ids: ['S3'], reason: 'Promete buscar fuera del proyecto.' }
   const previous = review({ claims: [location], obligation_checks: [originalViolation,
-    { id: 'profile_collection', verdict: 'pending', sentence_ids: ['R1'], reason: 'No se completó la revisión.' }] })
-  const scope = focusedRepairScope([{ code: 'review_obligation_pending', obligation_id: 'profile_collection' }], sentences, obligations)
-  const fixedCheck = { id: 'profile_collection', verdict: 'met', sentence_ids: ['R1'], reason: 'Se solicitaron los datos.' }
+    { id: 'price_conditions', verdict: 'pending', sentence_ids: ['R1'], reason: 'No se contrastó el precio fijo afirmado.' }] })
+  const scope = focusedRepairScope([{ code: 'review_obligation_pending', obligation_id: 'price_conditions' }], sentences, factualObligations)
+  const fixedCheck = { id: 'price_conditions', verdict: 'met', sentence_ids: ['R1'], reason: 'La política respalda la condición afirmada.' }
   const merged = mergeFocusedRepair(previous, review({ claims: [{ ...location, verdict: 'unsupported' }],
     non_factual_sentence_ids: ['S2'], factual_values: [{ fragment: 'S2', value: 1 }],
     obligation_checks: [fixedCheck, { ...originalViolation, verdict: 'met' }, { id: 'unknown', verdict: 'met' }],
@@ -457,7 +466,7 @@ test('an obligation-only repair cannot modify facts or erase an independent viol
   assert.deepEqual(merged.obligation_checks, [originalViolation, fixedCheck])
   const outsideReference = mergeFocusedRepair(previous, review({ obligation_checks: [{ ...fixedCheck, sentence_ids: ['S3'] }] }), scope, sentences)
   assert.deepEqual(outsideReference.obligation_checks, [originalViolation])
-  assert.ok(focusedReviewIssues(outsideReference, sentences, obligations).issues.some(issue => issue.code === 'invalid_obligation_review'))
+  assert.ok(focusedReviewIssues(outsideReference, sentences, factualObligations).issues.some(issue => issue.code === 'invalid_obligation_review'))
 })
 
 test('same-sentence numeric repair preserves checked facts across ID and normalized text references', () => {
@@ -525,17 +534,18 @@ test('an URL number cannot fabricate an observed commercial value or a range end
   assert.equal(observedNumericIssues({ factual_values: [{ fragment: 'S1', operator: 'between', value: 120.83, upper_value: 150 }] }, range)[0].code, 'review_number_not_in_draft')
 })
 
-test('a commercial violation needs a concrete sentence or current-request reference', () => {
-  const violated = { id: 'profile_collection', verdict: 'violated', reason: 'Falta solicitar la residencia actual.' }
+test('a factual commercial violation needs a concrete sentence or current-request reference', () => {
+  const factualObligations = [{ id: 'business_scope' }, { id: 'price_conditions' }]
+  const violated = { id: 'price_conditions', verdict: 'violated', reason: 'Afirma un precio fijo sin respaldo de la política.' }
   for (const reference of [[], ['S999']]) {
     const checks = [{ id: 'business_scope', verdict: 'met', sentence_ids: [], reason: '' }, { ...violated, sentence_ids: reference }]
-    const result = focusedReviewIssues(review({ claims: [location], obligation_checks: checks }), sentences, obligations)
+    const result = focusedReviewIssues(review({ claims: [location], obligation_checks: checks }), sentences, factualObligations)
     assert.ok(result.issues.some(issue => issue.code === 'invalid_obligation_review'))
     assert.equal(result.issues.some(issue => issue.kind === 'commercial_content'), false)
   }
   for (const reference of [['S3'], ['R1']]) {
     const checks = [{ id: 'business_scope', verdict: 'met', sentence_ids: [], reason: '' }, { ...violated, sentence_ids: reference }]
-    const result = focusedReviewIssues(review({ claims: [location], obligation_checks: checks }), sentences, obligations)
+    const result = focusedReviewIssues(review({ claims: [location], obligation_checks: checks }), sentences, factualObligations)
     assert.deepEqual(result.issues.map(issue => issue.code), ['commercial_obligation_violated'])
     assert.equal(result.issues[0].owner, 'reviewer')
     assert.equal(result.issues[0].repair_owner, 'writer')

@@ -1,3 +1,4 @@
+import { writerFixture } from './fixtures/writer-response.fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
@@ -43,11 +44,11 @@ test('the actual selected-unit delivery opens and requires only its verified pri
         assert.equal((object(input.fuentes_autorizadas).unidades as Row[])[0].published_commercial_price, 310000)
       }
     } catch (error) { errors.push(error) }
-    if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-    return { reply: `El departamento 502 tiene un precio de USD 310.000. ${model.caption}`,
+    if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
+    return writerFixture({ reply: `El departamento 502 tiene un precio de USD 310.000. ${model.caption}`,
       requests: (input.referencias_solicitud as Row[]).map(row => ({ fragment: row.id, intent: 'Precio y recorrido de la unidad elegida',
         request_type: 'general_information', status: 'answered', evidence: 'Precio y tour autorizados', fact_key: null })),
-      question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+      question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
   })
   if (errors.length) throw errors[0]
   assert.deepEqual(tasks, ['writing', 'review'])
@@ -124,11 +125,11 @@ test('the migrated editable 10% policy is included once, survives edits and expo
       assert.equal(approved.condition, 'published_price')
       assert.equal(approved.base_mode, 'included_in_catalog')
     } catch (error) { inspectionErrors.push(error) }
-    if (task === 'review') return { review_contract: 'business-risk-v2', verdict: 'pass', findings: [], facts: [], question: null }
-    return { reply: 'El 10 % ya está incluido en los precios publicados de lanzamiento. No hay que restarlo otra vez.',
+    if (task === 'review') return { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
+    return writerFixture({ reply: 'El 10 % ya está incluido en los precios publicados de lanzamiento. No hay que restarlo otra vez.',
       requests: (input.referencias_solicitud as Row[]).map(row => ({ fragment: row.id, intent: 'Explicar el descuento incluido', request_type: 'general_information',
         status: 'answered', evidence: 'Oferta publicada incluida en el precio', fact_key: null })),
-      question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } }
+      question: { purpose: 'none', role: 'none', missing_datum: '', next_decision: '', continuation_id: 'none', continuation_act: 'other' } })
   })
   if (inspectionErrors.length) throw inspectionErrors[0]
   assert.deepEqual(seen, ['writing', 'review'])
