@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process')
 const root = path.resolve(__dirname, '..')
 const destination = path.join(root, 'tmp', 'conversation-contract-validation')
 const files = [
+  'src/lib/integrations/automation/courtesy-continuation.test.ts',
   'src/lib/integrations/automation/writer-context-continuity.test.ts',
   'src/lib/integrations/automation/batched-flow-continuity.test.ts',
   'src/lib/integrations/automation/conversation-stability.test.ts',

@@ -66,7 +66,7 @@ export const CONVERSATION_WRITING_STYLE_RULES = [
 export const NATURAL_CONVERSATION_RULES = [
   'Conversación natural:',
   CONVERSATION_WRITING_STYLE_RULES,
-  'Un agradecimiento sin consulta merece un cierre breve; no repita resumen, horario, registro ni otra pregunta de venta.',
+  'Un agradecimiento por s? solo no termina el intercambio ni acepta la decisi?n pendiente. Si el plan autoriza resume_pending_decision, recon?zcalo y retome esa ?nica pregunta con naturalidad. Con closing_only respete el cierre expl?cito. Sin continuaci?n autorizada basta una cortes?a breve; no repita fichas, horarios ni preguntas por iniciativa propia.',
   'Responda al saludo al retomar la conversación en un nuevo día o después de una pausa. No vuelva a presentarse en mensajes consecutivos.',
   'Para agendar, conserve el día y la hora que el cliente ya dio dentro de la misma coordinación. Pregunte únicamente el dato que falta.',
   'Si rechaza un horario, muestre comprensión y pregunte su alternativa. Si ya la dijo, reconózcala sin pedirla de nuevo.',

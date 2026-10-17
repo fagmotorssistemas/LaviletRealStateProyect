@@ -17,6 +17,8 @@ const executions = [{ id: 'trace', leadGroupId: 'synthetic', conversationId: 'sy
   steps: [step(1, 'message_received'), ...Array.from({ length: 22 }, (_, i) => step(i + 2, 'context_prepared')),
     step(24, 'model_request', { ai_role: 'extractor', prompt_snapshot: { data: { recuperacion_interpretacion: repair } } }),
     step(25, 'model_request', { ai_role: 'writer', prompt_snapshot: { capture_version: 2, data, limited: false, privacy_filtered: false } })] }]
+executions.push({ ...executions[0], id: 'courtesy-without-writer', message: 'Cortesía sin redactor',
+  occurredAt: '2026-10-17T15:00:00Z', receivedAt: '2026-10-17T15:00:00Z', steps: [step(1, 'message_received')] })
 
 async function main() {
   fs.mkdirSync(out, { recursive: true })
@@ -53,6 +55,12 @@ async function main() {
         if (window.rejectCopy) throw Error('Denied'); window.copiedJson = text
       } } }))
       await page.goto(`http://127.0.0.1:${server.address().port}`)
+      const prominent = page.getByRole('region', { name: 'Plan enviado al redactor', exact: true })
+      await prominent.getByLabel('JSON destacado del siguiente paso', { exact: true }).waitFor()
+      assert.deepEqual(JSON.parse(await prominent.getByLabel('JSON destacado del siguiente paso', { exact: true }).innerText()), data.contrato_redaccion.objetivo_siguiente)
+      await prominent.getByRole('button', { name: 'Copiar JSON destacado del siguiente paso', exact: true }).click()
+      assert.deepEqual(JSON.parse(await page.evaluate(() => window.copiedJson)), data.contrato_redaccion.objetivo_siguiente)
+      await page.screenshot({ path: path.join(out, `workflow-plan-${width}.png`), fullPage: false })
       const steps = page.getByRole('list', { name: 'Pasos observados de este mensaje' })
       await steps.getByRole('button').last().click()
       const inspector = page.getByLabel('Contexto exacto del redactor', { exact: true })
@@ -77,6 +85,9 @@ async function main() {
       await steps.getByRole('button').nth(23).click()
       await page.getByText('JSON del motivo y los campos por corregir', { exact: true }).click()
       assert.match(await page.getByLabel('Motivo de la nueva extracción').innerText(), /non_current_evidence:primary_intent/)
+      await page.getByRole('navigation', { name: 'Mensajes de la conversación', exact: true }).getByRole('button', { name: /Cortesía sin redactor/ }).click()
+      await prominent.getByText('Esta ejecución no registra una llamada al redactor. No hay un JSON de redacción que mostrar.').waitFor()
+      assert.equal(await prominent.getByRole('button', { name: 'Copiar JSON destacado del siguiente paso' }).count(), 0)
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), `Horizontal overflow at ${width}`)
       assert.deepEqual(errors, [])
       await page.close()

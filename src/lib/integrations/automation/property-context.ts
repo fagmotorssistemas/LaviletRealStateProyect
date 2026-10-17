@@ -13,6 +13,7 @@ import { showroomRequest } from './virtual-showroom'
 import { groundedCurrentCategoryExclusions } from './purchase-evidence'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { resolveFloorExploration } from './catalog-floor-query'
+import { currentQuote } from './current-quote'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
 const ids = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : []
@@ -36,6 +37,19 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const previous = propertyContext(available(catalogRaw), summary._property_context, history)
   delete previous.information_query
   delete previous.current_floor_query
+  const interpretedReference = object(object(semantics).property)
+  if (interpretedReference.reference_kind === 'ambiguous' && acceptedExtractorConfidence(interpretedReference.confidence)
+    && currentQuote(interpretedReference.evidence, current)) {
+    const known = available(catalogRaw), numbers = ids(interpretedReference.unit_numbers).map(code)
+    const candidates = known.filter(unit => ids(previous.offered_ids).includes(text(unit.id)) || numbers.includes(code(unit.unit_number)))
+    const pending = { id: 'unit_choice', act: 'choose_unit', question: '¿A cuál de las opciones se refiere?',
+      target_ids: [], candidate_ids: unitIds(candidates) }
+    return { matches: candidates, explicit: false, reason: 'unresolved_choice', needsClarification: true,
+      clarification: pending.question, choice_clarification: { kind: 'ambiguous_unit_reference', evidence: interpretedReference.evidence },
+      query: object(previous.query), memory: memory(candidates),
+      context: { ...previous, pending_question: pending,
+        reference_resolution: { source: 'extractor_ambiguous_reference', status: 'ambiguous', resolved_ids: unitIds(candidates) } } as Row }
+  }
   const floor = resolveFloorExploration(available(catalogRaw), current, previous, object(semantics))
   if (floor) {
     const informational = interactionMode(summary._interaction_mode || object(summary._sales_memory).interaction_mode, semantics).mode === 'information_only'

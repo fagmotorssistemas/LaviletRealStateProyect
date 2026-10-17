@@ -16,7 +16,7 @@ import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './Revi
 import { reviewDiagnostics, reviewStepRejected } from './reviewDiagnostics'
 import { CatalogSummarySection } from './CatalogSummaryPanel'
 import { messageReviewMarker } from './messageReviewMarker'
-import { WriterContextPanel } from './WriterContextPanel'
+import { WriterContextPanel, WriterDecisionOverview } from './WriterContextPanel'
 
 const formatUsd = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value)
 
@@ -155,6 +155,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
           {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
           <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
+          {steps.length > 0 && <WriterDecisionOverview key={`writer-plan-${execution.id}`} steps={steps} onStep={selectStep} />}
           {reviewMarker && <p className={styles.reviewSummary} data-tone={reviewMarker.tone}><strong>{reviewMarker.label}.</strong> {reviewMarker.description}</p>}
           {steps.length > 0 && <ExecutionCostPanel key={execution.id} execution={execution} executions={executions} onStep={selectStep} />}
           {steps.length > 0 && <CatalogSummarySection key={`catalog-${execution.id}`} steps={steps} onStep={selectStep} />}

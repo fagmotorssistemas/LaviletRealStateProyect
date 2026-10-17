@@ -19,6 +19,7 @@ import { projectObjectionRequests } from './project-objections'
 import { reconcileReservationOperation,RESERVATION_OPERATION_VERSION } from './reservation-operation-context'
 import { prioritizesInteriorSpace,prioritizesViews,selectionPreferences,spaciousOptions,unrestrictedBedrooms,withoutBedroomConstraint } from './selection-preferences'
 import { communicationPlanForTurn } from './turn-communication'
+import { courtesyPendingPlan } from './courtesy-continuation'
 import { floorExplorationPlan } from './catalog-floor-query'
 import { normalizedPropertyQuery } from './turn-semantics'
 import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
@@ -116,6 +117,11 @@ export function interpretCommercialJourney(previous: Row, semantics: Row, pendin
   const next = { ...previous }, answer = object(semantics.answer_to_previous)
   const selected = ids(selectedIds)
   if (acceptedExtractorConfidence(answer.confidence) && answer.question_id === pending.id) {
+    if (pending.id === 'unit_choice' && pending.act === 'confirm_unit' && answer.kind === 'affirmative') {
+      const targets = ids(pending.target_ids)
+      if (targets.length === 1 && selected.includes(targets[0]))
+        next.continued_unit_ids = [...new Set([...ids(previous.continued_unit_ids), ...targets])]
+    }
     if (pending.id === 'reservation_invitation' && answer.kind === 'negative') {
       const targets = ids(pending.target_ids)
       next.reservation_declined_ids = [...new Set([...ids(previous.reservation_declined_ids), ...targets])]
@@ -149,6 +155,17 @@ export function purchaseReadiness(info: Row): Row {
 
 /** One shared next step for writer, reviewer, memory and the lead card. */
 export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
+  const courtesyPlan = courtesyPendingPlan(info)
+  if (courtesyPlan) return courtesyPlan
+  const reference = object(info.referencia_unidad)
+  if (reference.needsClarification === true && object(reference.choice_clarification).kind === 'ambiguous_unit_reference'
+    && !audit.action && !audit.reservation && !audit.financing_collection) {
+    const pending = object(object(reference.context).pending_question)
+    return { version: 'commercial-journey-v1', action: 'clarify_unit_reference', question_id: 'unit_choice', question_act: 'choose_unit',
+      question: pending.question, continuation_optional: false, selection_scope: { unit_ids: ids(pending.candidate_ids) },
+      financing_offer_allowed: false, visit_offer_allowed: false,
+      instruction: 'Aclare únicamente qué inmueble quiso identificar usando el mensaje y las opciones realmente ofrecidas. La referencia relativa y el número recibido no permiten una elección segura. No cambie el número por su cuenta ni presente una ficha o un tour como si ya hubiera elegido; conserve la búsqueda y la selección previas. Pregunte por las referencias plausibles con naturalidad, respetando las opciones que descartó.' }
+  }
   const communicationPlan = communicationPlanForTurn(info, audit)
   if (communicationPlan) return communicationPlan
   const clarification = object(object(info.semantica_turno).interpretation_clarification)
@@ -598,7 +615,12 @@ function buildCommercialJourneyPlan(info: Row, audit: Row = {}): Row {
     && !informationalOnly && !visitDeclined && state.visit_offered !== true && visitPolicy.allowSuggestions) return {
       ...plan('offer_visit', 'El cliente expresa dificultad para elegir entre opciones compatibles identificadas. Atienda primero su duda y ofrezca atención en el lugar habilitado para orientarle y comparar. No prometa planos disponibles, medidas de dormitorios ni capacidad de camas sin evidencia específica. La oficina en el sitio del proyecto no habilita acceso a la obra ni a unidades terminadas. Pregunte si desea coordinar esa atención; no confirme una cita ni solicite otra elección simultánea.', visitInvitation(text(info.modo_comercial), visitPolicy), 'visit_invitation'), visit_offer_allowed: true,
       comparison_unit_ids: comparedUnits.map(unit => text(unit.id)) }
-  if (selected) return plan('clarify_purchase', 'Responda y aclare únicamente lo necesario para avanzar. Sin cobertura confirmada no ofrezca reserva. Respete la negativa a financiamiento.')
+  if (selected && !ids(state.continued_unit_ids).includes(selected)) return {
+    ...plan('confirm_selected_option', 'Atienda la consulta actual y conserve la unidad identificada. Pregunte si le gustaría continuar con esta opción antes de avanzar a condiciones de compra. No repita la ficha, el tour, la bienvenida ni el presupuesto pospuesto. Esta confirmación de continuidad no inicia financiamiento, visita ni reserva.',
+      `¿Le gustaría continuar con la unidad ${text(readiness.selected_unit_number)}?`, 'unit_choice'),
+    question_act: 'confirm_unit', selection_scope: { unit_ids: [selected] },
+  }
+  if (selected) return plan('clarify_purchase', 'Atienda la consulta sobre la unidad cuya continuidad ya confirmó. Conserve la decisión sin volver a preguntar si desea continuar. Respete el presupuesto pospuesto y los trámites no autorizados; no afirme cobertura suficiente ni ofrezca reserva sin sus requisitos.')
   // Intended use is independent of the asset. Preserve a volunteered purpose,
   // but its absence must not interrupt asset -> budget -> physical needs.
   // Investment alone still reaches discover_use above until the asset is known.
@@ -712,6 +734,8 @@ export function rememberCommercialJourney(previous: Row, plan: Row, pending: Row
   if (['information_only', 'answer_project_categories'].includes(text(plan.action)))
     return { ...previous, interaction_stage: plan.action }
   const next: Row = { ...previous, stage: plan.action, next_step: plan.instruction, selected_unit_id: plan.selected_unit_id || null }
+  if (plan.courtesy_question_key && pending.id === plan.question_id && pending.act === plan.question_act)
+    next.courtesy_resumed_question_keys = [...new Set([...ids(previous.courtesy_resumed_question_keys), text(plan.courtesy_question_key)])].slice(-20)
   if (object(plan.budget_guidance).scope_key) next.budget_scope_key = object(plan.budget_guidance).scope_key
   const authorized = new Set([...ids(object(plan.selection_scope).unit_ids), text(plan.selected_unit_id)].filter(Boolean))
   const presented = ids(presentedUnitIds).filter(id => authorized.has(id))

@@ -40,6 +40,7 @@ import { qualifiedFacts,sdrState } from './sdr-rules'
 import { applyShowroomEntry } from './showroom-contact'
 import { conversationToneAudit,withConversationTone } from './tone-settings'
 import { turnCommunicationKind } from './turn-communication'
+import { courtesyContinuationCandidate } from './courtesy-continuation'
 import { appendUnitModel,selectedUnitModelDelivery,unitModelDelivery } from './unit-model'
 import { asksConstructionStatus,showroomRequest } from './virtual-showroom'
 import { reconcileVisitDialogueScope,rememberVisitDialogue,visitDialogueBaseReply,visitDialogueIntakeSnapshot,visitDialoguePendingQuestion,visitDialogueTurn } from './visit-dialogue'
@@ -656,7 +657,7 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   memory = commercialMemory(previousSummary._commercial_memory, context.historial, current, { semantics: turnSemantics, pendingQuestion })
   turnGreeting = greetingForTurn(current, pendingRead.data || context.historial, lead.last_bot_message_at, activeLast.sentAt, turnSemantics.communication)
   greeting = turnCommunicationKind(turnSemantics) === 'greeting_only'
-  courtesy = turnCommunicationKind(turnSemantics) === 'courtesy_only'
+  courtesy = ['courtesy_only', 'closing_only'].includes(text(turnCommunicationKind(turnSemantics)))
   repair = object(turnSemantics.routing).repair_requested === true && !!state.ultima_respuesta
   modelOnly = object(turnSemantics.routing).visual_only === true && !actionAuthorized(turnSemantics.action_authority, 'visit')
   if (greeting || courtesy) { reply = ''; audit = {}; businessScope = { kind: 'neutral', property_message: current, reply: '', uncertain: false } }
@@ -1166,6 +1167,14 @@ async function processConversationWithTone(rows: Row[], guard: Guard, trace: Aut
   if(!reply && ambiguousVisitAcceptance(current,text(state.ultima_respuesta), { semantics: turnSemantics, pendingQuestion, intent: turnIntent })) {
     reply='¿Se refiere a coordinar una visita?'
     audit={source:'visit_acceptance_clarification'}
+  }
+  if (!reply && !inbound.mediaFailed && courtesyContinuationCandidate({ semantica_turno: turnSemantics,
+    property_context: propertyTurn.context, pregunta_pendiente: pendingQuestion, contrato_turno: turnIntent,
+    recorrido_comercial: summary._commercial_journey, interaction_mode: interaction, reservation_context: reservationContext,
+    coordinacion_visita: visitDraft, propuestas: proposals, financiamiento: finance })) {
+    reply = 'Podemos continuar desde la decisión pendiente.'
+    audit = { source: 'courtesy_continuation' }
+    businessScope = { kind: 'property', property_message: current, reply: '', uncertain: false }
   }
   if (!reply && !inbound.mediaFailed && isCourtesyOnly(current) && !acceptsVisitInvitation(current,text(state.ultima_respuesta), { semantics: turnSemantics, pendingQuestion, intent: turnIntent }) && !proposals.some(p => p.status === 'awaiting_client')) {
     if (object(previousSummary._last_operational_step).kind === 'courtesy') {

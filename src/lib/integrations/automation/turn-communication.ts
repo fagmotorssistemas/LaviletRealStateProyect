@@ -1,8 +1,9 @@
 import { object,text,type Row } from './data'
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { currentQuote } from './current-quote'
+import { courtesyContinuationCandidate } from './courtesy-continuation'
 
-export const TURN_COMMUNICATION_KINDS = ['greeting_only', 'courtesy_only', 'substantive', 'ambiguous', 'reaction_only'] as const
+export const TURN_COMMUNICATION_KINDS = ['greeting_only', 'courtesy_only', 'closing_only', 'substantive', 'ambiguous', 'reaction_only'] as const
 export type TurnCommunicationKind = typeof TURN_COMMUNICATION_KINDS[number]
 export type TurnCommunication = {
   kind: TurnCommunicationKind
@@ -54,6 +55,7 @@ export function communicationWritingGoal(kind: Exclude<TurnCommunicationKind, 's
   const goals: Record<Exclude<TurnCommunicationKind, 'substantive'>, string> = {
     greeting_only: 'Atienda el saludo con una bienvenida amable cuando el contrato autorice iniciar la conversación, identifique el proyecto y ofrezca ayuda mediante una invitación abierta. Si ya recibió la bienvenida, retome con naturalidad. No presuponga intención de compra, categoría ni finalidad y no solicite perfil, presupuesto, dormitorios o unidad por faltarle esos datos. Conserve internamente las decisiones y gestiones vigentes; el saludo no las reinicia ni exige repetirlas. Redacción libre, sin una frase obligatoria.',
     courtesy_only: 'Responda brevemente la cortesía si corresponde, con redacción propia y sin reiniciar la bienvenida, el catálogo ni una pregunta comercial. Conserve las decisiones y gestiones pendientes sin exigir otra respuesta ni atribuir una autorización nueva.',
+    closing_only: 'Respete la despedida o la petición explícita de terminar por ahora. Puede despedirse brevemente sin retomar preguntas pendientes ni iniciar gestiones. Conserve la memoria, selecciones y solicitudes existentes; cerrar este intercambio no las cancela ni equivale a una baja de comunicaciones.',
     reaction_only: 'La intervención es una reacción sin consulta ni decisión nueva. No inicie una respuesta comercial ni capture datos; conserve la conversación y las gestiones vigentes.',
     ambiguous: 'Invite amablemente a aclarar en qué podemos ayudarle o qué desea consultar, con una pregunta abierta y redacción libre. No reduzca esa aclaración a elegir vivienda o local ni solicite nombre, residencia, presupuesto, dormitorios o una unidad por faltarle datos al perfil. Conserve la memoria y no inicie gestiones.',
   }
@@ -79,6 +81,7 @@ export function communicationPlanForTurn(info: Row, audit: Row = {}): Row | null
   const communication = Object.hasOwn(semantics, 'communication') ? semantics.communication
     : Object.hasOwn(intent, 'communication') ? intent.communication : audit.communication
   const kind = turnCommunicationKind(communication)
+  if (kind === 'courtesy_only' && courtesyContinuationCandidate(info)) return null
   if (kind && kind !== 'substantive') return communicationOnlyPlan(kind)
   const requests = [info.solicitudes_interpretadas, semantics.requests, intent.requests]
     .flatMap(value => Array.isArray(value) ? value.map(object) : [])

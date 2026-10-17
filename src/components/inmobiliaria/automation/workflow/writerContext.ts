@@ -22,3 +22,12 @@ export function writerContextSlices(step: WorkflowExecutionStep) {
     protected: snapshot.privacy_filtered === true,
   }
 }
+
+/** The actual nested object, including an explicit null; no historical replay. */
+export function recordedWriterObjective(step: WorkflowExecutionStep) {
+  const capture = writerContextSlices(step)
+  if (!capture) return null
+  const contract = object(capture.input.contrato_redaccion)
+  return Object.hasOwn(contract, 'objetivo_siguiente')
+    ? { value: contract.objetivo_siguiente, limited: capture.limited, protected: capture.protected } : null
+}

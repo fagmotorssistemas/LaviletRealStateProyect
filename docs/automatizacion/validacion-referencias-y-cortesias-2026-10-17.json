@@ -1,0 +1,107 @@
+{
+  "recordedAt": "2026-10-17T18:04:54.910Z",
+  "findings": [
+    {
+      "event": "02f3de45-57dd-4422-90d6-f8a980f0ffd4",
+      "stage": "voice_to_text",
+      "recordedText": "Oh, entiendo, entiendo. No, no, mejor prefiero revisar la otra opci?n, no la 304, prefiero la 308.",
+      "customerClarification": "302 was intended",
+      "extractorModel": "gpt-6-luna",
+      "recordedTranscriptionModel": null,
+      "localDefaultTranscriptionModel": "whisper-1",
+      "status": "The wrong number was already present before extraction. Original audio not reevaluated."
+    },
+    {
+      "event": "428f0dd8-499a-4a30-84a4-4146457b8646",
+      "stage": "planning",
+      "recordedAction": "clarify_purchase",
+      "recordedQuestionId": null,
+      "fix": "Known selected option receives a bounded confirm_unit continuation when no higher-priority authorized action applies."
+    },
+    {
+      "event": "73c5d488-4638-4c3d-bd5e-9040e4ab3cdb",
+      "stage": "courtesy_routing",
+      "recordedSource": "courtesy",
+      "writerCalled": false,
+      "fix": "Neutral acknowledgement can resume a real pending decision once; explicit closing is a separate model-owned interpretation."
+    }
+  ],
+  "changes": [
+    "A prominent expanded panel displays the exact captured contrato_redaccion.objetivo_siguiente and links to the full writer call; no-writer traces show an explicit absence notice.",
+    "courtesy_only and closing_only are distinct typed interpretations; code consumes those values without customer-word matching.",
+    "A delivered decision may be restated once after courtesy, preserving its identifiers; no consent or missing-profile capture is invented.",
+    "Selected-option continuation and the affirmative response are remembered separately from unit selection and transactional consent.",
+    "The extractor can declare an ambiguous property reference. Code requests clarification while preserving the previous query and selection instead of autocorrecting a unit number."
+  ],
+  "validation": {
+    "contracts": {
+      "tests": 430,
+      "passed": 430,
+      "failed": 0
+    },
+    "live": {
+      "cases": [
+        {
+          "id": "selected-unit-thanks-continuity",
+          "status": "passed",
+          "turns": 4
+        },
+        {
+          "id": "ambiguous-transcribed-unit",
+          "status": "passed",
+          "turns": 3
+        }
+      ],
+      "calls": 21,
+      "estimatedUsd": 0.036171129999999996,
+      "models": [
+        "gpt-6-luna"
+      ],
+      "originalAudio": false,
+      "realMessages": false,
+      "databaseWrites": false,
+      "totalTurns": 7
+    },
+    "initialAttempt": {
+      "path": "tmp/continuation-review-2026-10-17/live-unit-continuation-attempt-1.json",
+      "status": "failed",
+      "details": "The courtesy behavior worked but one assertion assumed an explicit none instead of absent continuation metadata; the ambiguous-number case still chose 308. Test assertion and semantic reference instructions were corrected; final separate run preserved above."
+    },
+    "browser": {
+      "widths": [
+        1440,
+        768,
+        390
+      ],
+      "checks": [
+        "prominent original JSON open and copyable",
+        "actual absent writer distinguished",
+        "sticky message",
+        "background selection preserved",
+        "manual clipboard fallback"
+      ],
+      "status": "passed"
+    },
+    "typescript": "passed",
+    "eslintChangedTypescript": "passed",
+    "productionBuild": "passed"
+  },
+  "deployment": {
+    "newChangesLocal": true,
+    "migrationsAdded": false,
+    "reviewerEnabled": false,
+    "aiPlannerInstalled": false
+  },
+  "pending": [
+    "Original audio transcription accuracy and production transcription-model provenance need dedicated evaluation.",
+    "432 historical failing checks remain deferred.",
+    "Separate preexisting architecture-map minimap navigation issue remains unresolved.",
+    "Broader naturalness beyond these cases is not certified by passing structural tests."
+  ],
+  "recommendation": {
+    "mode": "bounded hybrid planning",
+    "status": "recommendation only",
+    "approach": "Keep authoritative state, catalog calculations and action permissions in code. Compare a constrained conversational AI planner in shadow mode on the same historical cases before granting control."
+  },
+  "sourceVersionReviewed": "df7827273ac772d6278d637835109d6f3cddc584"
+}

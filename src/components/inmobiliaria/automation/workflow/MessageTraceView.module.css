@@ -46,6 +46,10 @@
 .messageDock .messageContent { max-height: min(22vh, 180px); overflow: auto; overscroll-behavior: contain; }
 .writerContext { padding: 12px; border: 1px solid #d6c7ee; border-radius: 6px; background: #fff; margin: 12px 0; }
 .writerContext textarea { display: block; width: 100%; min-height: 150px; }
+.writerDecision { margin: 16px 0; padding: 16px; border: 2px solid #8362ac; border-left: 6px solid #684292; border-radius: 8px; background: #f8f3ff; }
+.writerDecision h4 { margin: 0 0 8px; color: #4a2869; font-size: 16px; }
+.writerDecision pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; padding: 12px; border: 1px solid #cdb8e3; border-radius: 6px; background: #fff; color: #38204c; font-size: 12px; }
+.writerDecision textarea { display: block; width: 100%; min-height: 150px; }
 .messageHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .messageHeading h3 { margin: 4px 0 0; font-size: 21px; font-weight: 600; }
 .eyebrow { color: #6b765f; font-size: 11px; }

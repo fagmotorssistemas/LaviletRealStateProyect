@@ -95,6 +95,40 @@ for (const current of ['eh\nhola amigo', 'holaaaa pana', 'bonjour, mon ami']) {
   })
 }
 
+test('typed runtime: a courtesy with a delivered unit decision reaches the real writer and keeps the question', async t => {
+  live(t)
+  const current = 'muchas gracias', raw = typedTurnFixture(current)
+  raw.communication.kind = 'courtesy_only'
+  const unit = { id: 'u302', unit_number: '302', category: 'departamento', bedrooms: 3, floor_number: 3, published_commercial_price: 241660, status: 'disponible', is_published: true }
+  const pending = { id: 'unit_choice', act: 'confirm_unit', question: '¿Le gustaría continuar con la unidad 302?', target_ids: ['u302'], candidate_ids: ['u302'] }
+  const summary = { _lead_profile: { full_name: 'Carlos', residence_city: 'Loja', name_status: 'confirmed', residence_status: 'confirmed' },
+    _lead_introduction: { status: 'complete', request_sent: true, brochure_sent: true },
+    _pending_question: pending, _commercial_journey: {},
+    _interpretation_memory: { budget: { status: 'no_defined_budget', amount: null, confidence: 'high', evidence: 'No lo tengo definido' } },
+    _property_context: { selected_ids: ['u302'], offered_ids: ['u302'], pending_question: pending,
+      query: { category: 'departamento', group: 'residential', scope: 'selected', operation: 'none', filters: {} } } }
+  let writerCalls = 0
+  const h = conversationHarness({ summary, reviewEnabled: false, realCommercial: true, extracted: raw, catalog: [unit],
+    commercialInfo: { catalogo: [unit], catalog_read: { complete: true }, politica_comercial: { precios_autorizados: true } },
+    turnComplete: input => currentContractCoverage(input, async (_rules, context, _schema, _image, _file, _tone, task) => {
+      assert.equal(task, 'writing'); writerCalls++
+      assert.equal(context.contrato_redaccion.continuacion_del_turno.required, true)
+      assert.equal(context.contrato_redaccion.objetivo_siguiente.question_id, 'unit_choice')
+      return { reply: 'Con gusto, ¿le gustaría continuar con la unidad 302?', requests: [],
+        question: { text: '¿Le gustaría continuar con la unidad 302?', purpose: 'choose_property', continuation_id: 'unit_choice', continuation_act: 'confirm_unit' } }
+    }) })
+  h.rows[0].payload.text = current
+  await h.process([h.rows[0]], async () => {})
+  assert.equal(writerCalls, 1)
+  const sent = h.calls.find(call => call.name === 'register_outbound_message').args
+  assert.equal(sent.p_tool_calls.source, 'courtesy_continuation')
+  assert.match(sent.p_content, /continuar con la unidad 302/)
+  const saved = JSON.parse(h.calls.filter(call => call.name === 'update:conversations').at(-1).args.summary)
+  assert.equal(saved._pending_question.id, 'unit_choice')
+  assert.equal(saved._commercial_journey.courtesy_resumed_question_keys.length, 1)
+  assert.equal(h.calls.some(call => ['lv_collect_visit_intake', 'process_financing_message_v3', 'lv_request_reservation_handoff'].includes(call.name)), false)
+})
+
 test('typed runtime: choosing 605 and asking its price preserves the independent choice and final writer text', async t => {
   live(t)
   const current = 'Entonces el 605 me gusta más, ¿qué precio tenía?', raw = typedTurnFixture(current)

@@ -8,7 +8,7 @@ const { aiJson, mediaText } = require('../src/lib/integrations/automation/ai.ts'
 const { interpretConversationTurn, rememberInterpretedTurn } = require('../src/lib/integrations/automation/turn-interpretation.ts')
 const { resolveTurnIntent } = require('../src/lib/integrations/automation/turn-intent.ts')
 const { resolvePropertyTurn, rememberPropertyReply } = require('../src/lib/integrations/automation/property-context.ts')
-const { commercialJourneyPlan, rememberCommercialJourney } = require('../src/lib/integrations/automation/commercial-journey.ts')
+const { commercialJourneyPlan, rememberCommercialJourney, interpretCommercialJourney } = require('../src/lib/integrations/automation/commercial-journey.ts')
 const { rememberSalesReply } = require('../src/lib/integrations/automation/sales-policy.ts')
 const { leadIntroductionTurn, rememberLeadIntroduction } = require('../src/lib/integrations/automation/lead-introduction.ts')
 const { confirmedLeadProfile, mergeLeadProfile } = require('../src/lib/integrations/automation/lead-profile.ts')
@@ -236,6 +236,41 @@ cases.push({ id: 'residence-and-bedroom-scope', useScope: true, catalog: apartme
     assert.doesNotMatch(turns[3].reply, /120[,.]83|27[,.]03/)
     assert.ok(turns[4].writer_evidence.units.some(unit => unit.bedrooms === 3))
   } })
+const unitReferenceCatalog = [
+  { id: 'eval-r302', unit_number: '302', category: 'departamento', bedrooms: 3, floor_number: 3, published_commercial_price: 241660 },
+  { id: 'eval-r304', unit_number: '304', category: 'departamento', bedrooms: 2, floor_number: 3, published_commercial_price: 230349 },
+  { id: 'eval-r308', unit_number: '308', category: 'suite', bedrooms: 1, floor_number: 3, published_commercial_price: 169878 },
+].map(unit => ({ ...unit, status: 'disponible', is_published: true, bathrooms_full: 2 }))
+const unitReferenceSummary = { _lead_profile: { full_name: 'Carlos', name_status: 'confirmed', residence_city: 'Loja', residence_status: 'confirmed' },
+  _lead_introduction: { status: 'complete', request_sent: true, brochure_sent: true, presentation_sent: true },
+  _interpretation_memory: { budget: { status: 'no_defined_budget', amount: null, confidence: 'high', evidence: 'No lo tengo definido' } },
+  _commercial_journey: {}, _property_context: { offered_ids: ['eval-r304', 'eval-r302'], selected_ids: [],
+    query: { group: 'residential', category: 'departamento', operation: 'none', scope: 'offered', filters: {} } } }
+cases.push({ id: 'selected-unit-thanks-continuity', useScope: true, catalog: unitReferenceCatalog, summary: unitReferenceSummary,
+  history: [{ role: 'bot', content: 'La suite 308 tiene un dormitorio.' }],
+  messages: ['No, dije la 302, no la 308. Sigo hablando de los departamentos, no me interesan las suites.', 'Muchas gracias', 'Gracias', 'Muchas gracias, hasta luego'],
+  check(turns) {
+    assert.deepEqual(turns[0].selected, ['eval-r302'])
+    assert.equal(turns[0].plan.action, 'confirm_selected_option')
+    assert.equal(turns[0].question.continuation_act, 'confirm_unit')
+    assert.equal(turns[1].plan.action, 'resume_pending_decision')
+    assert.equal(turns[1].question.continuation_act, 'confirm_unit')
+    assert.match(turns[1].reply, /302/)
+    assert.ok(!turns[2].question.continuation_id || turns[2].question.continuation_id === 'none')
+    assert.equal(turns[3].semantics.communication.kind, 'closing_only')
+    for (const turn of turns) assert.equal(turn.reservation_authorized, false)
+  } })
+cases.push({ id: 'ambiguous-transcribed-unit', useScope: true, catalog: unitReferenceCatalog, summary: unitReferenceSummary,
+  history: [{ role: 'bot', content: 'En esa planta están el departamento 304 de dos dormitorios y el departamento 302 de tres dormitorios. ¿Le gustaría continuar con el 304?' }],
+  messages: ['Oh, entiendo. Mejor prefiero revisar la otra opción, no la 304, prefiero la 308.', 'Me refiero al departamento 302; fue un error lo de la 308.', 'Muchas gracias'],
+  check(turns) {
+    assert.equal(turns[0].semantics.property.reference_kind, 'ambiguous')
+    assert.equal(turns[0].plan.action, 'clarify_unit_reference')
+    assert.deepEqual(turns[0].selected, [])
+    assert.doesNotMatch(turns[0].reply, /https?:\/\//)
+    assert.deepEqual(turns[1].selected, ['eval-r302'])
+    assert.equal(turns[2].plan.action, 'resume_pending_decision')
+  } })
 cases.push({ id: 'visual-luna', visual: true, messages: [] })
 for (const id of selected) if (!cases.some(fixture => fixture.id === id)) throw Error('EVALUATION_UNKNOWN_CASE: ' + id)
 const realFetch = global.fetch, measurements = [], requests = [], results = []
@@ -318,6 +353,8 @@ async function run() {
         const semantics = interpreted.semantics
         const profile = confirmedLeadProfile(mergeLeadProfile(summary._lead_profile, interpreted.extracted.lead_profile))
         const property = resolvePropertyTurn(catalog, current, summary, history, semantics)
+        summary._commercial_journey = interpretCommercialJourney(object(summary._commercial_journey), semantics,
+          object(summary._pending_question), property.context.selected_ids)
         const intent = resolveTurnIntent({ current, history, semantics, requests: interpreted.requests, scope: scopeDecision,
           previous: summary._turn_intent, pendingQuestion: summary._pending_question })
         const mode = interactionMode(summary._interaction_mode, semantics)
