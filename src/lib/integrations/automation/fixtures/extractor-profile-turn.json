@@ -27,11 +27,6 @@
     "preferred_category": null,
     "purchase_purpose": null
   },
-  "action_evidence": {
-    "requested_advisor": null,
-    "opt_out": null,
-    "consent_granted": null
-  },
   "qualification": {
     "actividad_comercial": null,
     "area_buscada": null,
@@ -43,16 +38,13 @@
   "unit_id": null,
   "preferred_visit_time_text": null,
   "visit_needs_help": false,
-  "requested_advisor": false,
-  "opt_out": false,
-  "consent_granted": false,
-  "financing_consent": null,
   "financing_partner": null,
   "financing_partner_choice": {
     "kind": "none",
     "name": null,
     "evidence": "",
-    "confidence": "high"
+    "confidence": "high",
+    "reference_kind": "none"
   },
   "material_request": {
     "kind": "none",
@@ -77,7 +69,35 @@
   "job_title": null,
   "monthly_income": null,
   "ruc": null,
-  "visit_preference": null,
+  "visit_preference": {
+    "version": "visit-preference-v2",
+    "decision": "none",
+    "uncertain_fields": [],
+    "location_type": null,
+    "evidence": "",
+    "confidence": "low",
+    "date": {
+      "kind": "none",
+      "year": null,
+      "month": null,
+      "day": null,
+      "offset_days": null,
+      "weekday": null,
+      "week_offset": null,
+      "occurrence": null
+    },
+    "time": {
+      "kind": "none",
+      "hour": null,
+      "minute": null,
+      "meridiem": null,
+      "period": null
+    },
+    "source": {
+      "kind": "current",
+      "message_id": null
+    }
+  },
   "visit_intent": {
     "kind": "none",
     "purpose": "none",
@@ -115,7 +135,8 @@
       "kind": "none",
       "evidence": "",
       "unit_numbers": [],
-      "confidence": "high"
+      "confidence": "high",
+      "reference_kind": "none"
     },
     "property": {
       "group": null,
@@ -186,6 +207,83 @@
       "category": null,
       "evidence": "",
       "confidence": "high"
+    },
+    "preference_change": {
+      "kind": "none",
+      "bedrooms": null,
+      "bedroom_decision": "unspecified",
+      "evidence": "",
+      "confidence": "low"
     }
-  }
+  },
+  "communication": {
+    "kind": "substantive",
+    "evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
+    "confidence": "high",
+    "greeting_present": false
+  },
+  "action_authority": {
+    "version": "action-authority-v1",
+    "advisor": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "visit": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "financing": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "reservation": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    },
+    "tracking": {
+      "decision": "none",
+      "attribution": "none",
+      "target": "unspecified",
+      "scope": "none",
+      "evidence": "",
+      "confidence": "low"
+    }
+  },
+  "routing": {
+    "repair_requested": false,
+    "team_attendance": false,
+    "visit_help": false,
+    "visit_response": "none",
+    "proposal_id": null,
+    "option_index": null,
+    "all_options_declined": false,
+    "location_target": "none",
+    "visual_target": "none",
+    "visual_only": false,
+    "house_request": false,
+    "evidence": "claro, mi nombre es Elena Diaz y vivo en Loja",
+    "confidence": "high",
+    "location_kind": "none",
+    "address_preference": "unspecified",
+    "map_preference": "unspecified",
+    "visual_preference": "unspecified",
+    "photo_requested": false
+  },
+  "visit_preferences": []
 }

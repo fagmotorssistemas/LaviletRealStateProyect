@@ -4,6 +4,7 @@ import { object, type Row } from './data'
 import { deliveredPendingQuestion } from './continuation-question'
 import { normalizedPendingQuestion, normalizedReservation } from './turn-semantics'
 import { reservationRequest } from './reservation-action'
+import { authorityFixture } from './fixtures/typed-turn.fixture'
 
 const unit: Row = { id: 'u605', unit_number: '605', category: 'penthouse', status: 'disponible', is_published: true }
 const other: Row = { ...unit, id: 'u602', unit_number: '602' }
@@ -14,9 +15,11 @@ const delivered = (question: string, changes: Row = {}, catalog = [unit, other])
   `Podemos ayudarle a iniciar la reserva del penthouse 605. ${question}`, { plan, metadata: { ...metadata(question), ...changes } }, catalog)
 const answer = (current: string, changes: Row = {}): Row => ({ question_id: 'reservation_invitation',
   kind: 'affirmative', evidence: current, confidence: 'high', ...changes })
-const accept = (pending: Row, current = 'Sí', changes: Row = {}) => normalizedReservation({ kind: 'none' }, current, pending, answer(current, changes))
-const request = (reservation: Row, current = 'Sí', catalog = [unit, other], selected = [unit]) => reservationRequest(
-  reservation, [{ externalId: 'current', text: current }], catalog, selected)
+const permission = (current: string, attribution = 'self') => authorityFixture(current, 'reservation', 'accept', attribution)
+const accept = (pending: Row, current = 'Sí', changes: Row = {}, authority = permission(current)) =>
+  normalizedReservation({ kind: 'none' }, current, pending, answer(current, changes), authority)
+const request = (reservation: Row, current = 'Sí', catalog = [unit, other], selected = [unit], authority = permission(current)) => reservationRequest(
+  reservation, [{ externalId: 'current', text: current }], catalog, selected, authority)
 
 for (const question of ['¿Damos ese paso con la unidad elegida?',
   '¿Quiere que avancemos con su solicitud para este espacio?', '¿Comenzamos esa gestión para el 605?']) {
@@ -35,13 +38,13 @@ for (const question of ['¿Damos ese paso con la unidad elegida?',
 
 test('a delivered reservation receipt still needs a confident current answer to that same act', () => {
   const pending = delivered('¿Damos ese paso?')
-  for (const [current, changes] of [
-    ['Sí', { evidence: 'Una respuesta anterior' }], ['Sí', { confidence: 'low' }],
-    ['Sí', { question_id: 'unit_choice' }], ['No, gracias', { kind: 'negative' }],
-    ['No, gracias', {}], ['Sí, pero primero necesito saber el precio', {}],
-    ['Sí, solo si me aprueban el crédito', {}], ['Mi asesor reserva la unidad', {}],
-  ] as [string, Row][]) {
-    const reservation = accept(pending, current, changes)
+  for (const [current, changes, attribution, decision] of [
+    ['Sí', { evidence: 'Una respuesta anterior' }, 'self', 'accept'], ['Sí', { confidence: 'low' }, 'self', 'accept'],
+    ['Sí', { question_id: 'unit_choice' }, 'self', 'accept'], ['No, gracias', { kind: 'negative' }, 'self', 'decline'],
+    ['Sí, pero primero necesito saber el precio', {}, 'conditional', 'accept'],
+    ['Sí, solo si me aprueban el crédito', {}, 'conditional', 'accept'], ['Mi asesor reserva la unidad', {}, 'reported', 'request'],
+  ] as [string, Row, string, string][]) {
+    const reservation = accept(pending, current, changes, authorityFixture(current, 'reservation', decision, attribution))
     assert.equal(reservation.kind, 'none', current + JSON.stringify(changes))
     assert.equal(request(reservation, current), null)
   }
@@ -106,10 +109,13 @@ test('normalization rejects malformed reservation provenance without parsing its
 
 test('explicit current reservation requests remain independent of legacy invitation memory and keep their permission checks', () => {
   const current = 'Quiero reservar el penthouse 605'
-  const raw = { kind: 'request', evidence: current, unit_numbers: ['605'], confidence: 'high' }
-  assert.deepEqual(request(normalizedReservation(raw, current), current)?.unit_ids, ['u605'])
-  for (const current of ['No quiero reservar el penthouse 605',
-    'Quiero reservar el penthouse 605 solo si me aprueban el crédito']) {
-    assert.equal(request(normalizedReservation(raw, current), current), null)
+  const raw = { kind: 'request', reference_kind: 'explicit', evidence: current, unit_numbers: ['605'], confidence: 'high' }
+  const authority = authorityFixture(current, 'reservation')
+  assert.deepEqual(request(normalizedReservation(raw, current, {}, {}, authority), current, [unit, other], [unit], authority)?.unit_ids, ['u605'])
+  for (const [current, decision, attribution] of [['No quiero reservar el penthouse 605', 'decline', 'self'],
+    ['Quiero reservar el penthouse 605 solo si me aprueban el crédito', 'request', 'conditional']]) {
+    const rejectedAuthority = authorityFixture(current, 'reservation', decision, attribution)
+    const normalized = normalizedReservation({ ...raw, evidence: current }, current, {}, {}, rejectedAuthority)
+    assert.equal(request(normalized, current, [unit, other], [unit], rejectedAuthority), null)
   }
 })

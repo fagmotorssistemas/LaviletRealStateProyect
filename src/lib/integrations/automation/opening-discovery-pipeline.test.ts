@@ -26,6 +26,7 @@ const catalog: Row[] = [
 
 function extraction(current: string, intent: string, questionId = 'none'): Row {
   const raw: Row = structuredClone(fixture)
+  raw.communication = { kind: 'substantive', evidence: current, confidence: 'high', greeting_present: false }
   raw.full_name = raw.residence_city = raw.residence_country = null
   raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
   raw.catalog_request = { purpose: 'none', metric: null, evidence: '', confidence: 'low', requirements: [], semantic_preferences: [] }
@@ -86,9 +87,11 @@ for (const mode of ['normal', 'demonstration', 'disabled'] as const) {
         property.group = 'residential'; property.evidence = current
         object(object(raw.turn_semantics).answer_to_previous).kind = 'affirmative'
       } else {
-        raw.purchase_purpose = 'vivir'
-        raw.declaration_evidence = { preferred_category: null, purchase_purpose: current }
-        raw.events = ['declared_purchase_purpose']
+        // The common AI distinguishes housing scope from its intended use.
+        // Code cannot reinterpret the words to veto a purpose classified by AI.
+        raw.purchase_purpose = null
+        raw.declaration_evidence = { preferred_category: null, purchase_purpose: null }
+        raw.events = []
         property.group = 'residential'; property.operation = 'search'; property.evidence = current
       }
       let extractionCalls = 0

@@ -17,9 +17,12 @@ import { normalizedVisitPreference, normalizedVisitIntent } from './conversation
 import { resolvedCatalogQuery } from './resolved-catalog-query'
 import { deliveredPendingQuestion } from './continuation-question'
 import { financingInvitationReceipt } from './financing-invitation'
+import { authorityFixture } from './fixtures/typed-turn.fixture'
+import { visitPreferenceFixture } from './fixtures/visit-preference.fixture'
 
 function extraction(current: string, confidence = 'medium'): Row {
   const raw: Row = structuredClone(fixture)
+  raw.communication = { kind: 'substantive', evidence: current, confidence, greeting_present: false }
   raw.full_name = raw.residence_city = raw.residence_country = null
   raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
   raw.requests = [{ domain: 'property', topics: ['project_overview'], request: current, evidence: current, confidence }]
@@ -118,7 +121,7 @@ test('medium still requires current evidence and cannot validate a historical am
   object(raw.turn_semantics).budget = { status: 'maximum_total', amount: 400000, evidence: 'Tengo 400 mil', confidence: 'medium' }
   assert.ok(interpretationSourceIssues(raw, current).includes('non_current_evidence:budget'))
   assert.equal(object(normalizeTurnSemantics(raw, current, {}).budget).status, 'not_discussed')
-  object(raw.turn_semantics).budget = { status: 'maximum_total', amount: 400000, evidence: current, confidence: 'medium' }
+  object(raw.turn_semantics).budget = { status: 'maximum_total', amount: -1, evidence: current, confidence: 'medium' }
   assert.ok(interpretationSourceIssues(raw, current).includes('invalid_budget_amount'))
   object(raw.turn_semantics).primary_evidence = 'Quiero información de ayer'
   assert.ok(interpretationSourceIssues(raw, current).includes('non_current_evidence:primary_intent'))
@@ -137,22 +140,24 @@ test('medium accepts only the actual reservation invitation and keeps conditiona
   const pending = deliveredPendingQuestion(question, { plan: { question_id: 'reservation_invitation', question_act: 'reservation', selected_unit_id: 'd202' },
     metadata: { text: question, purpose: 'permission_to_continue', continuation_id: 'reservation_invitation', continuation_act: 'reservation' } }, catalog)
   const answer = { question_id: pending.id, kind: 'affirmative', evidence: 'Sí', confidence: 'medium' }
-  const reservation = normalizedReservation({ kind: 'none' }, 'Sí', pending, answer)
+  const authority = authorityFixture('Sí', 'reservation', 'accept')
+  object(authority.reservation).confidence = 'medium'
+  const reservation = normalizedReservation({ kind: 'none' }, 'Sí', pending, answer, authority)
   assert.equal(reservation.kind, 'request'); assert.equal(reservation.confidence, 'medium')
-  assert.deepEqual(reservationRequest(reservation, [{ externalId: 'yes', text: 'Sí' }], catalog, [catalog[0]])?.unit_ids, ['d202'])
-  assert.equal(reservationRequest(reservation, [{ externalId: 'yes', text: 'Sí' }], catalog, [catalog[1]]), null)
-  assert.equal(normalizedReservation({ kind: 'none' }, 'Sí', { ...pending, act: 'confirm_unit' }, answer).kind, 'none')
+  assert.deepEqual(reservationRequest(reservation, [{ externalId: 'yes', text: 'Sí' }], catalog, [catalog[0]], authority)?.unit_ids, ['d202'])
+  assert.equal(reservationRequest(reservation, [{ externalId: 'yes', text: 'Sí' }], catalog, [catalog[1]], authority), null)
+  assert.equal(normalizedReservation({ kind: 'none' }, 'Sí', { ...pending, act: 'confirm_unit' }, answer, authority).kind, 'none')
   const conditional = 'Quiero reservar el departamento 202 solo si me aprueban el crédito'
   const explicit = normalizedReservation({ kind: 'request', evidence: 'Quiero reservar el departamento 202',
-    confidence: 'medium', unit_numbers: ['202'] }, conditional)
-  assert.equal(reservationPermission(explicit, conditional).kind, 'information')
+    confidence: 'medium', unit_numbers: ['202'] }, conditional, {}, {}, authorityFixture(conditional, 'reservation', 'request', 'conditional'))
+  assert.equal(reservationPermission(explicit, conditional).kind, 'none')
   assert.equal(reservationRequest({ kind: 'request', evidence: 'quiero reservar el departamento 202',
     confidence: 'medium', unit_numbers: ['202'] }, [{ externalId: 'no', text: 'No quiero reservar el departamento 202' }], catalog, [catalog[0]]), null)
 })
 
 test('medium financing consent still belongs to the real operational question, not an informational question or lender name', () => {
   const context = { partners: ['Cooperativa JEP'], current: {} }, current = 'Sí'
-  const yes = { financing_consent: true, turn_semantics: { primary_intent: 'ask_financing', confidence: 'medium',
+  const yes = { action_authority: authorityFixture(current, 'financing', 'accept'), turn_semantics: { primary_intent: 'ask_financing', confidence: 'medium',
     answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: current, confidence: 'medium' } } }
   const operational = '¿Desea que continuemos con el proceso de financiamiento?'
   assert.equal(financingInputs(yes, current, operational, context, { kind: 'financing_consent', reply: operational,
@@ -164,12 +169,16 @@ test('medium financing consent still belongs to the real operational question, n
 })
 
 test('medium visit data retains its label while alternative dates, rejected visits and noncurrent quotes remain invalid', () => {
-  const preference = { evidence: 'viernes a las 10 am', date_text: 'viernes', time_text: 'a las 10 am', location_type: 'office', confidence: 'medium' }
-  assert.equal(normalizedVisitPreference(preference, 'viernes a las 10 am')?.confidence, 'medium')
-  assert.equal(normalizedVisitPreference(preference, 'viernes a las 10 am o lunes'), null)
+  const preference = visitPreferenceFixture({ evidence: 'viernes a las 10 am', location_type: 'office', confidence: 'medium',
+    date: { kind: 'weekday', weekday: 5, week_offset: 0 }, time: { kind: 'clock', hour: 10, minute: 0, meridiem: 'am' } })
+  const source = { sourceMessageId: 'visit-source', sourceAt: '2026-10-16T20:00:00Z' }
+  assert.equal(normalizedVisitPreference(preference, 'viernes a las 10 am', source)?.confidence, 'medium')
+  const ambiguous = visitPreferenceFixture({ decision: 'ambiguous', evidence: 'viernes a las 10 am o lunes',
+    uncertain_fields: ['date'], confidence: 'medium' })
+  assert.equal(normalizedVisitPreference(ambiguous, 'viernes a las 10 am o lunes', source)?.decision, 'ambiguous')
   const intent = { kind: 'request_visit', purpose: 'coordination', target: 'project', destination: 'office',
     evidence: 'Quiero una cita', confidence: 'medium' }
   assert.equal(normalizedVisitIntent(intent, 'Quiero una cita')?.confidence, 'medium')
-  assert.equal(normalizedVisitIntent({ ...intent, evidence: 'No quiero una cita' }, 'No quiero una cita'), null)
+  assert.equal(normalizedVisitIntent({ ...intent, kind: 'decline_visit', purpose: 'decline', evidence: 'No quiero una cita' }, 'No quiero una cita')?.kind, 'decline_visit')
   assert.equal(normalizedVisitIntent(intent, '¿Cuál es el horario?'), null)
 })

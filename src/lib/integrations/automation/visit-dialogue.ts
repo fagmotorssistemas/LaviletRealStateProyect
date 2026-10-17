@@ -1,7 +1,8 @@
-import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
-import { object, text, type Row } from './data'
-import { readinessInvitation, readinessPlacePhrase, type ProjectReadiness, type VisitPlace } from '@/lib/inmobiliaria/projectReadiness'
+import { readinessInvitation,readinessPlacePhrase,type ProjectReadiness,type VisitPlace } from '@/lib/inmobiliaria/projectReadiness'
 import type { BusinessScopeDecision } from './business-scope'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence,combinedExtractorConfidence } from './extractor-confidence'
+import { VISIT_PREFERENCE_VERSION } from './visit-preference-contract'
 
 const places = ['office', 'site', 'work_area', 'model', 'completed_unit']
 const rows = (value: unknown) => Array.isArray(value) ? value.map(object) : []
@@ -12,7 +13,7 @@ export const VISIT_DIALOGUE_PLAN_VERSION = 'visit-dialogue-plan-v1'
 
 /** The requested destination and an offered alternative are different decisions. */
 export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown; preference?: unknown; readiness: ProjectReadiness;
-  intake?: unknown; proposals?: unknown; current: string; sourceMessageId?: string; sourceAt?: string; pendingQuestion?: unknown }) {
+  preferences?: unknown; intake?: unknown; proposals?: unknown; current: string; sourceMessageId?: string; sourceAt?: string; pendingQuestion?: unknown }) {
   const previous = object(input.previous), intent = object(input.intent), preference = object(input.preference)
   const readiness = input.readiness, intake = object(input.intake)
   const valid = acceptedExtractorConfidence(intent.confidence) && literal(intent.evidence, input.current) && intent.target !== 'other'
@@ -31,7 +32,7 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
   if (Array.isArray(input.proposals) && !knownProposal && intake.status !== 'collecting'
     && ['awaiting_advisor', 'awaiting_client', 'confirmed'].includes(text(state.status))) {
     state = { ...state, status: 'none', request_id: null, missing_fields: [], pending_preference: null,
-      reconciliation: 'no_active_visit_in_authoritative_snapshot' }
+      pending_preferences: [], reconciliation: 'no_active_visit_in_authoritative_snapshot' }
   }
   if (knownProposal) state = { ...state, status: knownProposal.status, request_id: knownProposal.request_id || knownProposal.id,
     effective_destination: place(knownProposal.preferred_location_type) || state.effective_destination }
@@ -41,11 +42,20 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
     && (!currentDestination || currentDestination === offered) && state.status === 'offered'
     && (pending.id === 'visit_destination' || previous.version === VISIT_DIALOGUE_VERSION)
   if (currentKind === 'decline' || currentKind === 'cancel') state = { ...state, status: currentKind === 'cancel' ? 'cancellation_requested' : 'declined',
-    offered_destination: null, effective_destination: null, alternative_accepted: false, pending_preference: null, missing_fields: [] }
-  const preferenceGiven = valid && acceptedExtractorConfidence(preference.confidence) && literal(preference.evidence, input.current)
-    && (preference.date_text || preference.time_text)
-  if (preferenceGiven && ['coordination', 'preference'].includes(currentKind)) state.pending_preference = { ...preference,
-    source_message_id: input.sourceMessageId || null, source_at: input.sourceAt || null }
+    offered_destination: null, effective_destination: null, alternative_accepted: false, pending_preference: null, pending_preferences: [], missing_fields: [] }
+  const components = [...rows(input.preferences), preference].filter(item => valid && item.version === VISIT_PREFERENCE_VERSION
+    && acceptedExtractorConfidence(item.confidence) && literal(item.evidence, input.current)
+    && (object(item.date).kind !== 'none' || object(item.time).kind !== 'none'))
+  if (components.length && ['coordination', 'preference'].includes(currentKind)) {
+    const retained = rows(state.pending_preferences).length ? rows(state.pending_preferences)
+      : Object.keys(object(state.pending_preference)).length ? [object(state.pending_preference)] : []
+    const unique = new Map([...retained, ...components.map((item): Row => ({ ...item,
+      source_message_id: text(object(item.source).message_id) || input.sourceMessageId || null,
+      source_at: text(item.source_at) || input.sourceAt || null }))].map(item => [JSON.stringify([
+      item.source_message_id, item.date, item.time, item.decision, item.evidence]), item]))
+    state.pending_preferences = [...unique.values()].slice(-12)
+    state.pending_preference = (state.pending_preferences as Row[]).at(-1)
+  }
   if (currentDestination && ['coordination', 'preference', 'access_information'].includes(currentKind)) state.requested_destination = currentDestination
   const requested = text(state.requested_destination)
   const requestedPlace = requested === 'building' ? readiness.enabledPlaces.includes('completed_unit') ? 'completed_unit' : null : place(requested)
@@ -71,8 +81,8 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
   const operational = ['coordination', 'preference', 'accept_alternative'].includes(currentKind)
     && !!place(state.effective_destination) && readiness.enabledPlaces.includes(state.effective_destination as VisitPlace)
     && state.status !== 'declined'
-  if (operational) state.missing_fields = [!object(state.pending_preference).date_text && !intake.requested_date && 'date',
-    !object(state.pending_preference).time_text && !intake.has_time && 'time'].filter(Boolean)
+  if (operational) state.missing_fields = [!['absolute', 'relative_day', 'weekday', 'month_day'].includes(text(object(object(state.pending_preference).date).kind)) && !intake.requested_date && 'date',
+    !['clock', 'period'].includes(text(object(object(state.pending_preference).time).kind)) && !intake.has_time && 'time'].filter(Boolean)
   state.readiness_signature = signature
   let question = '', questionId = ''
   if (['coordination', 'preference', 'availability_information', 'access_information'].includes(currentKind) && state.status === 'offered' && state.offered_destination) {
@@ -90,9 +100,9 @@ export function visitDialogueTurn(input: { previous?: unknown; intent?: unknown;
     instruction: currentKind === 'other' ? state.status === 'none'
       ? 'Responda la consulta actual y siga el paso comercial vigente; no arrastre una visita que ya no está activa.'
       : 'Responda la consulta actual. La visita pendiente queda conservada, pero no repita restricciones ni ofrezca inmuebles o trámites por esa coordinación.'
-      : currentKind === 'availability_information' ? 'Responda con los horarios de atención verificados, diferenciándolos de cupos libres. No cree una solicitud ni tome esta consulta como aceptación del lugar alternativo. Conserve la decisión pendiente indicada.'
+      : currentKind === 'availability_information' ? 'Responda directamente con los horarios de atención verificados, sin afirmar cupos libres ni añadir un descargo rutinario. No cree una solicitud ni tome esta consulta como aceptación del lugar alternativo. Conserve la decisión pendiente indicada.'
         : explainRestriction ? 'Explique la limitación física verificada, independientemente de la etapa comercial, y ofrezca únicamente el lugar autorizado indicado. No cambie el lugar elegido ni registre una cita antes de aceptar la alternativa.'
-          : 'Atienda la gestión actual sin repetir una restricción ya explicada. Conserve las preferencias declaradas; una solicitud recibida no es una cita confirmada.' }
+          : 'Atienda la gestión actual y conserve las preferencias declaradas. El resultado operativo indica si debe pedir un dato pendiente, comunicar el registro de la solicitud o confirmar la cita. Continúe con esa acción en lenguaje cercano y positivo; no cierre con un simple eco de la fecha ni repita restricciones ya explicadas.' }
   return plan
 }
 
@@ -116,12 +126,17 @@ export function visitDialoguePendingQuestion(planInput: unknown): Row {
 export function visitDialogueIntakeSnapshot(planInput: unknown, intentInput: unknown, preferenceInput: unknown, currentSourceId: string): Row {
   const plan = object(planInput), intent = object(intentInput), current = object(preferenceInput), state = object(plan.state)
   const retained = object(state.pending_preference)
+  const retainedComponents = rows(state.pending_preferences).length ? rows(state.pending_preferences) : [retained]
   const interpreted = Object.keys(current).length ? current : plan.current_kind === 'accept_alternative' && plan.operation_allowed === true
-    ? { evidence: intent.evidence, confidence: intent.confidence, canonical_text: null, date_text: null, time_text: null, location_type: plan.effective_destination } : null
+    ? { version: VISIT_PREFERENCE_VERSION, decision: 'specified', evidence: intent.evidence, confidence: intent.confidence,
+      date: { kind: 'none', year: null, month: null, day: null, offset_days: null, weekday: null, week_offset: null, occurrence: null },
+      time: { kind: 'none', hour: null, minute: null, meridiem: null, period: null }, uncertain_fields: [],
+      source: { kind: 'current', message_id: currentSourceId }, location_type: plan.effective_destination } : null
   const restore = plan.current_kind === 'accept_alternative' && plan.alternative_accepted === true
     && retained.source_message_id && retained.source_message_id !== currentSourceId && acceptedExtractorConfidence(retained.confidence)
   return { ...(interpreted ? { _interpreted_visit: interpreted } : {}),
-    ...(restore ? { _visit_dialogue_consent: { current_intent: intent, source_preference: retained } } : {}) }
+    ...(restore ? { _visit_dialogue_consent: { current_intent: intent, source_preference: retained,
+      source_preferences: retainedComponents } } : {}) }
 }
 
 export function visitDialogueBaseReply(planInput: unknown, readiness: ProjectReadiness) {
@@ -142,4 +157,4 @@ export function rememberVisitDialogue(previousInput: unknown, planInput: unknown
   return state
 }
 
-export const VISIT_DIALOGUE_RULES = 'visit_dialogue_plan es el contrato compartido de esta visita. requested_destination es el lugar pedido, offered_destination sólo una alternativa y effective_destination el lugar realmente elegido o aceptado. No convierta preguntar días/horarios, rechazar un lugar o hablar de otro tema en aceptar la oficina ni en crear/confirmar citas. Con explain_restriction=false no repita la negativa histórica; si pregunta expresamente por el acceso o cambia el estado físico puede explicarla de nuevo. Con current_kind=other atienda la consulta sin arrastrar negativas ni ofertas de inmuebles y conserve la visita pendiente. Con information_only=true informe horarios verificados, no cupos libres ni una solicitud registrada. Incluya la pregunta concreta del plan cuando exista, conectándola con la respuesta; no sustituya la aceptación del lugar por datos personales, presupuesto o una elección de inmueble. La oficina en el sitio del proyecto sigue siendo oficina: no concede acceso a la obra o unidades. La etapa comercial no acredita avance físico. La revisión debe comprobar estas mismas decisiones y la respuesta a la solicitud actual, no sólo que la política descrita sea cierta.'
+export const VISIT_DIALOGUE_RULES = 'visit_dialogue_plan es el contrato compartido de esta visita. requested_destination es el lugar pedido, offered_destination sólo una alternativa y effective_destination el lugar realmente elegido o aceptado. No convierta preguntar días/horarios, rechazar un lugar o hablar de otro tema en aceptar la oficina ni en crear/confirmar citas. Con explain_restriction=false no repita la negativa histórica; si pregunta expresamente por el acceso o cambia el estado físico puede explicarla de nuevo. Con current_kind=other atienda la consulta sin arrastrar negativas ni ofertas de inmuebles y conserve la visita pendiente. Con information_only=true informe los horarios verificados de forma directa, sin atribuir cupos libres ni añadir un descargo de confirmación. En una coordinación activa, el resultado operativo determina la acción pendiente: pida solo el dato que falta, informe una solicitud registrada o comunique una cita confirmada. Reconocer una preferencia no sustituye avanzar o formular la pregunta necesaria. Incluya la pregunta concreta del plan cuando exista, conectándola con la respuesta; no sustituya la aceptación del lugar por datos personales, presupuesto o una elección de inmueble. La oficina en el sitio del proyecto sigue siendo oficina: no concede acceso a la obra o unidades. La etapa comercial no acredita avance físico. La revisión factual comprueba hechos y promesas; las preguntas, la calidez y la continuidad corresponden al redactor.'

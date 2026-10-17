@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import { financingInputs } from './financing'
 import { financingInvitationReceipt, operationalFinancingInvitation } from './financing-invitation'
 import { financingJourney } from './financing-stage'
+import { authorityFixture } from './fixtures/typed-turn.fixture'
 
 const context = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} }
 const question = (text: string) => ({ text, continuation_id: 'financing_invitation', continuation_act: 'financing', purpose: 'permission_to_continue' })
-const answer = { financing_consent: true, turn_semantics: { primary_intent: 'answer_previous',
+const answer = { action_authority: authorityFixture('Sí, por supuesto', 'financing', 'accept'), turn_semantics: { primary_intent: 'answer_previous',
   answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: 'Sí, por supuesto', confidence: 'high' } } }
 
 test('equivalent writer invitations authorize the same current answer through metadata, independently of vocabulary', () => {
@@ -37,7 +38,8 @@ test('a delivered invitation cannot turn refusal, a condition, or an information
   const reply = 'Podemos revisar su caso. ¿Damos ese paso?'
   const step = { kind: 'financing_consent', reply, invitation: financingInvitationReceipt(question(reply)) }
   for (const [current, kind] of [['No, gracias', 'negative'], ['Sí, solo si aseguran la aprobación', 'affirmative']]) {
-    const extracted = { financing_consent: true, turn_semantics: { answer_to_previous: {
+    const extracted = { action_authority: authorityFixture(current, 'financing', kind === 'negative' ? 'decline' : 'accept',
+      kind === 'negative' ? 'self' : 'conditional'), turn_semantics: { answer_to_previous: {
       question_id: 'financing_invitation', kind, evidence: current, confidence: 'high' } } }
     assert.equal(financingInputs(extracted, current, reply, context, step).consent, null)
   }
@@ -50,7 +52,7 @@ test('a grounded acceptance containing solo is not mistaken for conditional perm
   const reply = 'Podemos revisar su caso. ¿Damos ese paso?'
   const step = { kind: 'financing_consent', reply, invitation: financingInvitationReceipt(question(reply)) }
   for (const current of ['Sí, solo avancemos con la revisión', 'Sí, solamente deseo que iniciemos esa revisión']) {
-    const extracted = { financing_consent: true, turn_semantics: { primary_intent: 'answer_previous',
+    const extracted = { action_authority: authorityFixture(current, 'financing', 'accept'), turn_semantics: { primary_intent: 'answer_previous',
       answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: current, confidence: 'high' } } }
     assert.equal(financingInputs(extracted, current, reply, context, step).consent, true)
   }
@@ -67,13 +69,15 @@ test('consulting a previous evaluation cannot start a new review through lexical
 
 test('a new current evidenced AI request can authorize review independently of its particular phrasing', () => {
   for (const current of ['Deseo que iniciemos mi revisión financiera', 'Quiero hacer la prueba con la JEP']) {
-    const extracted = { financing_consent: true, turn_semantics: { primary_intent: 'ask_financing', confidence: 'high',
+    const extracted = { action_authority: authorityFixture(current, 'financing'), turn_semantics: { primary_intent: 'ask_financing', confidence: 'high',
       primary_evidence: current, requests: [{ domain: 'financing', evidence: current, confidence: 'high' }] } }
     assert.equal(financingInputs(extracted, current, '', context).consent, true)
-    assert.equal(financingInputs({ ...extracted, turn_semantics: { ...extracted.turn_semantics,
-      confidence: 'low', requests: [] } }, current, '', context).consent, null)
-    assert.equal(financingInputs({ ...extracted, turn_semantics: { ...extracted.turn_semantics,
-      primary_evidence: 'Un mensaje anterior', requests: [] } }, current, '', context).consent, null)
+    const low = structuredClone(extracted)
+    low.action_authority.financing = { ...low.action_authority.financing, confidence: 'low' }
+    assert.equal(financingInputs(low, current, '', context).consent, null)
+    const historical = structuredClone(extracted)
+    historical.action_authority.financing = { ...historical.action_authority.financing, evidence: 'Un mensaje anterior' }
+    assert.equal(financingInputs(historical, current, '', context).consent, null)
   }
 })
 

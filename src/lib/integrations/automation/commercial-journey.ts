@@ -1,21 +1,26 @@
-import { informationOnly, INFORMATION_ONLY_WRITER_RULES } from './interaction-mode'
-import { acceptedExtractorConfidence } from './extractor-confidence'
+import { botVisitPolicy,visitInvitation } from '@/lib/inmobiliaria/botVisits'
 import { createHash } from 'node:crypto'
-import { object, text, type Row } from './data'
-import { selectedFinancingUnit, financingStage } from './financing-stage'
-import { leadBudget, budgetQuestion, budgetKindQuestion, reviewedFinancingCovers, propertyPurchasePriceLimit } from './budget-state'
-import { catalogQuery, filterCatalog, partitionCatalog, catalogRequirementAlternative, alternativeFloorQuestion,
-  canOfferLowerFloorBedrooms, catalogLowerFloorBedroomAlternative } from './catalog-dialogue'
-import { botVisitPolicy, visitInvitation } from '@/lib/inmobiliaria/botVisits'
+import { budgetClaimContract,budgetMentionPolicy,evaluateBudgetOptions } from './budget-evaluation'
+import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
+import { budgetKindQuestion,budgetQuestion,leadBudget,propertyPurchasePriceLimit,reviewedFinancingCovers } from './budget-state'
+import {
+alternativeFloorQuestion,
+canOfferLowerFloorBedrooms,catalogLowerFloorBedroomAlternative,
+catalogQuery,
+catalogRequirementAlternative,
+filterCatalog,partitionCatalog
+} from './catalog-dialogue'
 import { deliveredPendingQuestion } from './continuation-question'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { financingStage,selectedFinancingUnit } from './financing-stage'
+import { INFORMATION_ONLY_WRITER_RULES,informationOnly } from './interaction-mode'
+import { projectObjectionRequests } from './project-objections'
+import { reconcileReservationOperation,RESERVATION_OPERATION_VERSION } from './reservation-operation-context'
+import { prioritizesInteriorSpace,prioritizesViews,selectionPreferences,spaciousOptions,unrestrictedBedrooms,withoutBedroomConstraint } from './selection-preferences'
+import { communicationPlanForTurn } from './turn-communication'
 import { normalizedPropertyQuery } from './turn-semantics'
 import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
-import { BUDGET_ORIENTATION_RULES } from './budget-orientation-rules'
-import { isPassivePurchaseEvidence } from './purchase-evidence'
-import { evaluateBudgetOptions, budgetClaimContract, budgetMentionPolicy } from './budget-evaluation'
-import { selectionPreferences, unrestrictedBedrooms, prioritizesInteriorSpace, prioritizesViews, withoutBedroomConstraint, spaciousOptions } from './selection-preferences'
-import { projectObjectionRequests } from './project-objections'
-import { reconcileReservationOperation, RESERVATION_OPERATION_VERSION } from './reservation-operation-context'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const ids = (value: unknown): string[] => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -28,14 +33,12 @@ function declaredCommercialInterest(info: Row) {
   const context = object(info.property_context), query = object(context.query)
   const memory = object(info.hechos_confirmados), current = object(object(info.semantica_turno).property)
   const usable = (value: Row) => acceptedExtractorConfidence(value.confidence) && !!text(value.evidence).trim()
-    && !isPassivePurchaseEvidence(value.evidence)
   const currentProperty = usable(current) ? current : {}, saved = object(memory.property)
   const knownProperty = usable(saved) ? saved : {}
   const preference = object(context.category_preference)
   const confirmedCategory = preference.confirmed === true ? assetCategory(preference.category) : ''
   const exploration = object(context.exploration_state)
   const acceptedExploration = exploration.authorized === true && !!text(exploration.evidence).trim()
-    && !isPassivePurchaseEvidence(exploration.evidence)
   // Older delivered selection receipts did not carry declaration metadata. A
   // genuine floor/unit decision still retains its established category.
   const advancedCategory = ['choose_floor', 'choose_unit', 'review_unit'].includes(text(context.phase))
@@ -45,8 +48,7 @@ function declaredCommercialInterest(info: Row) {
     : assetGroup(assetCategory(property.category)) || (typeof object(property.filters).bedrooms === 'number' ? 'residential' : '')
   const qualificationPurpose = text(object(memory.qualification).proposito).trim()
   const rawPurpose = text(object(info.lead).purchase_purpose || qualificationPurpose)
-  const purpose = ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(rawPurpose)
-    && !(qualificationPurpose && isPassivePurchaseEvidence(qualificationPurpose)) ? rawPurpose : ''
+  const purpose = ['vivir', 'invertir', 'segunda_vivienda', 'negocio'].includes(rawPurpose) ? rawPurpose : ''
   const group = declaredGroup(currentProperty) || assetGroup(confirmedCategory) || declaredGroup(knownProperty)
     || assetGroup(advancedCategory) || (acceptedExploration && ['residential', 'commercial'].includes(text(query.group)) ? text(query.group) : '')
     || (['vivir', 'segunda_vivienda'].includes(purpose) ? 'residential' : purpose === 'negocio' ? 'commercial' : '')
@@ -146,6 +148,8 @@ export function purchaseReadiness(info: Row): Row {
 
 /** One shared next step for writer, reviewer, memory and the lead card. */
 export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
+  const communicationPlan = communicationPlanForTurn(info, audit)
+  if (communicationPlan) return communicationPlan
   const clarification = object(object(info.semantica_turno).interpretation_clarification)
   if (Array.isArray(clarification.fields) && clarification.fields.length) return {
     version: 'commercial-journey-v1', action: 'clarify_interpretation', question_id: '',

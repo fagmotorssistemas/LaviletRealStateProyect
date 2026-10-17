@@ -3,8 +3,6 @@ import { object, text, type Row } from './data'
 import { confirmedInterpretationMemory } from './interpretation-memory'
 import { financingAmountStatements } from './financing-amounts'
 import { reconcilePrimaryAfterBudgetIsolation } from './interpretation-consistency'
-import { focusedNumericMentions } from './focused-numeric-syntax'
-import { normalizeCatalogRequest } from './catalog-request'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const citation = (value: unknown) => text(value).trim().normalize('NFKC').toLowerCase()
@@ -24,7 +22,7 @@ export function reconcileConfirmedBudgetEcho(raw: Row, input: Row, current: stri
   // establish the amount or its role. Both remain backed by accepted memory.
   const historicalQuote = [...rows(input.historial), ...rows(input.historial_reciente)]
     .some(message => contained(budget.evidence, message.content))
-    && focusedNumericMentions(text(budget.evidence)).some(mention => mention.value === known.amount)
+
   if (!monetary.has(text(budget.status)) || !monetary.has(text(known.status))
     || !acceptedExtractorConfidence(known.confidence) || typeof known.amount !== 'number' || known.amount <= 0
     || budget.amount !== known.amount || contained(budget.evidence, current)
@@ -32,23 +30,10 @@ export function reconcileConfirmedBudgetEcho(raw: Row, input: Row, current: stri
   // These are conservative vetoes, not vocabulary rules assigning a role.
   // A current monetary reference must be interpreted rather than dropped just
   // because the extractor also copied the old budget block.
-  const value = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const catalog = normalizeCatalogRequest(raw.catalog_request, current)
-  const currentPhysicalNumbers = [
-    ...rows(catalog?.requirements).filter(requirement => requirement.field !== 'published_commercial_price')
-      .flatMap(requirement => [requirement.value, requirement.upper_value]),
-    ...rows(semantics.housing_quantities).filter(quantity => acceptedExtractorConfidence(quantity.confidence) && contained(quantity.evidence, current))
-      .flatMap(quantity => Array.isArray(quantity.values) ? quantity.values : []),
-    ...Object.entries(object(object(semantics.property).filters)).filter(([field]) =>
-      contained(object(object(semantics.property).filter_evidence)[field], current))
-      .flatMap(([, quantity]) => Array.isArray(quantity) ? quantity : [quantity]),
-    ...(acceptedExtractorConfidence(object(semantics.property).confidence) && contained(object(semantics.property).evidence, current)
-      ? (Array.isArray(object(semantics.property).unit_numbers) ? object(semantics.property).unit_numbers as unknown[] : []).map(Number) : []),
-  ].filter((number): number is number => typeof number === 'number' && Number.isFinite(number))
-  if (/\b(?:presupuest\w*|entrad\w*|capital|credito|prestamo|financ\w*|dolar\w*|dinero|monto|fondos|ahorros|invertir|inversion)\b|[$€£]/.test(value)
-    || focusedNumericMentions(current).some(mention => mention.value === known.amount || !currentPhysicalNumbers.includes(mention.value))
-    || financingAmountStatements(raw.financing_amounts, current).length
-    || contained(object(raw.qualification).presupuesto_texto, current)) return { raw, fields: [] }
+  if (financingAmountStatements(raw.financing_amounts, current).length
+    || contained(object(raw.qualification).presupuesto_texto, current)
+    || rows(raw.requests).some(request => request.domain === 'financing' && acceptedExtractorConfidence(request.confidence)
+      && contained(request.evidence, current))) return { raw, fields: [] }
 
   const neutral: Row = { ...raw, turn_semantics: { ...semantics,
     budget: { status: 'not_discussed', amount: null, evidence: '', confidence: 'low' } } }

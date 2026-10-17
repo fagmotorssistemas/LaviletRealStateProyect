@@ -1,13 +1,11 @@
-import { object, text, type Row } from './data'
 import { ecuadorYmd } from '@/lib/inmobiliaria/agendaTime'
+import { object,text,type Row } from './data'
+import { turnCommunicationKind } from './turn-communication'
 
 export const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
-export function isGreetingOnly(message: string) {
-  const value = normalized(message)
-  if (!value) return !/[\p{L}\p{N}]/u.test(message)
-  // Match the WHOLE turn. A salutation before a real question is not a greeting-only turn.
-  const greeting = '(?:hola+|holi|holis|saludos(?: cordiales)?|cordiales saludos|(?:muy )?buen(?:[oa]s?)? (?:dias?|tardes|noches)|benos dias|buenas|que tal|como (?:esta|estan|estas|le va|les va|van)|un gusto saludarle)'
-  return new RegExp(`^(?:${greeting})(?: (?:${greeting}|a todos|a todas|a ustedes|con todos|para todos|equipo|amigos|lavilet|la vilet))*$`).test(value)
+export function isGreetingOnly(message: string, interpretation: unknown = {}) {
+  void message
+  return turnCommunicationKind(interpretation) === 'greeting_only'
 }
 
 export function sdrState(lead: Row, history: unknown, excludedIds: string[] = []) {
@@ -33,45 +31,17 @@ export function qualifiedFacts(raw: Row, message: string): Row {
   return facts
 }
 
-function discoveryQuestion(key: string, question: string) {
-  const purposes: Record<string, string> = {
-    categoria: 'Elegir qué catálogo y material mostrar: vivienda o local.',
-    proposito: 'Comparar distribución, área y uso de la unidad; no evaluar aprobación bancaria ni asumir ingresos futuros.',
-    actividad_comercial: 'Comprobar si el espacio y las condiciones de uso sirven al negocio previsto.',
-    dormitorios: 'Seleccionar unidades cuya distribución cubra la necesidad indicada.',
-    prioridad: 'Comparar características concretas de unidades, no prolongar el chat.',
-    presupuesto: 'Filtrar precios de unidades y ofrecer orientación financiera si hace falta.',
-    plazo_compra: 'Acordar el siguiente paso y momento útil de seguimiento, sin presionar.',
-    visita: 'Solicitar una preferencia para coordinar una visita sujeta a confirmación del equipo.',
-    unidad: 'Identificar la unidad elegida antes de continuar con reserva o revisión financiera.',
-  }
-  return { key, question, purpose: purposes[key] }
-}
-
-export function nextDiscoveryQuestion(lead: Row): { key: string; question: string; purpose: string } {
-  const sdr = object(object(lead.behavior_signals).sdr), category = text(lead.preferred_category)
-  if (!category) return discoveryQuestion('categoria', '¿Le interesa una vivienda o un local comercial?')
-  if (!lead.budget && !lead.budget_max && !sdr.presupuesto_texto) return discoveryQuestion('presupuesto', '¿Qué presupuesto tiene previsto para la compra?')
-  if (category === 'local') {
-    if (lead.purchase_purpose === 'negocio' && !sdr.actividad_comercial) return discoveryQuestion('actividad_comercial', '¿Qué tipo de negocio le gustaría instalar?')
-    if (!sdr.prioridad) return discoveryQuestion('prioridad', '¿Qué sería lo más importante para usted al elegir el local?')
-  } else {
-    if (['vivienda', 'residential', 'departamento', 'penthouse'].includes(category) && !lead.preferred_bedrooms && !sdr.dormitorios_texto) return discoveryQuestion('dormitorios', '¿Cuántos dormitorios necesita?')
-  }
-  if (!sdr.plazo_compra) return discoveryQuestion('plazo_compra', '¿Para cuándo le gustaría tomar una decisión de compra?')
-  return discoveryQuestion('unidad', '¿Cuál de las unidades que revisamos le interesa?')
+export function nextDiscoveryQuestion(lead: Row, currentPlan: Row = {}): { key: string; question: string; purpose: string } {
+  void lead
+  const question = text(currentPlan.question), key = text(currentPlan.question_id)
+  if (!question || !key || currentPlan.continuation_optional === true) return { key: 'none', question: '', purpose: '' }
+  return { key, question, purpose: text(currentPlan.instruction) }
 }
 
 export const reviewReasons = ['unsupported_fact', 'unsupported_action', 'ignored_question', 'repeated_greeting', 'repeated_question', 'style', 'missing_next_step'] as const
 export const reviewSchema = { type: 'object', properties: { aprobada: { type: 'boolean' }, motivos: { type: 'array', items: { type: 'string', enum: reviewReasons } }, requiere_asesor: { type: 'boolean' } }, required: ['aprobada', 'motivos', 'requiere_asesor'], additionalProperties: false }
 export function styleIssues(reply: string, alreadyWelcomed: boolean): string[] {
-  const issues: string[] = []
-  if (/no todos(?: los (?:departamentos|inmuebles|locales|espacios))? (?:tienen|cuentan|incluyen)|(?:el|la) (?:unidad )?\d+ no (?:lo )?(?:incluye|tiene|cuenta)|otros como (?:el|la) \d+ no/i.test(reply)) issues.push('unsupported_fact')
-  if (alreadyWelcomed && /^(hola\b|buenos d[ií]as\b|buenas (tardes|noches)\b|bienvenid[oa]\b)/i.test(reply.trim())) issues.push('repeated_greeting')
-  if (/para vivir en la vilet,?\s+(?:usted\s+)?dispone de/i.test(reply)) issues.push('style')
-  if ((reply.match(/\?/g) || []).length > 1 || /\p{Extended_Pictographic}/u.test(reply)
-    || /soy (?:su|tu|el|la) asesor|mi nombre es/i.test(reply)
-    || /amenidades|gracias por (?:compartir|comentarlo|aclararlo)|entiendo que busca|as[ií] podr[eé] orientarle/i.test(reply)
-    || (reply.match(/la\s*vilet/gi) || []).length > 1) issues.push('style')
-  return issues
+  void reply
+  void alreadyWelcomed
+  return []
 }

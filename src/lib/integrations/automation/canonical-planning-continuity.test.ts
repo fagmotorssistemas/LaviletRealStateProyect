@@ -13,6 +13,7 @@ import { commercialJourneyPlan } from './commercial-journey'
 import { financingStage, rememberedFinancingPartner } from './financing-stage'
 import { normalizedPendingQuestion } from './turn-semantics'
 import profileFixture from './fixtures/extractor-profile-turn.json'
+import { typedTurnFixture, authorityFixture } from './fixtures/typed-turn.fixture'
 
 const demo = { enabled: true, observationOnly: true, updatedAt: null }
 const pass = { review_contract: 'content-review-v1', verdict: 'pass', findings: [] }
@@ -95,7 +96,7 @@ for (const [mode, policy] of [
   const receiptAgain = deliveredPendingQuestion(result.reply, { metadata: result.audit.question, candidates: [receipt] })
   assert.equal(object(receiptAgain.amount_reference).amount, 400000, JSON.stringify({ receiptAgain, receipt, metadata: result.audit.question }))
   const current = 'Sí, ese monto'
-  const raw: Row = structuredClone(profileFixture)
+  const raw: Row = { ...structuredClone(profileFixture), communication: typedTurnFixture(current).communication }
   raw.full_name = raw.residence_city = raw.residence_country = null
   raw.profile_evidence = { full_name: null, residence_city: null, residence_country: null }
   raw.requests = [{ domain: 'financing', request: 'Confirmar entrada', evidence: current, confidence: 'high' }]
@@ -149,9 +150,9 @@ for (const verdict of ['block', 'unavailable']) test('demonstration preserves an
   assert.equal(object(result.audit.follow_up).usable, true)
   const receipt = deliveredPendingQuestion(reply, { metadata: result.audit.question, plan: result.audit.commercial_journey })
   assert.equal(receipt.id, 'financing_invitation')
-  const acceptance = financingInputs({ financing_consent: true, turn_semantics: {
+  const acceptance = financingInputs({ action_authority: authorityFixture('Sí, continuemos con JEP', 'financing', 'accept'), turn_semantics: {
     answer_to_previous: { question_id: receipt.id, kind: 'affirmative', confidence: 'high', evidence: 'Sí, continuemos con JEP' },
-  }, financing_partner_choice: { kind: 'select', name: 'Cooperativa JEP', evidence: 'Sí, continuemos con JEP', confidence: 'high' } },
+  }, financing_partner_choice: { kind: 'select', reference_kind: 'explicit', name: 'Cooperativa JEP', evidence: 'Sí, continuemos con JEP', confidence: 'high' } },
   'Sí, continuemos con JEP', reply, { partners: ['Cooperativa JEP'], current: {} }, { kind: 'financing_consent', reply,
     invitation: financingInvitationReceipt(result.audit.question) })
   assert.equal(acceptance.consent, true)

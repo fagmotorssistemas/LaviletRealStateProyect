@@ -2,10 +2,20 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 require('./test-typescript.cjs')
-const { interpretConversationTurn, rememberInterpretedTurn, TURN_EXTRACTION_SCHEMA, CONVERSATION_CONTRACT_VERSION } = require('../src/lib/integrations/automation/turn-interpretation.ts')
+const { interpretConversationTurn: interpretModelTurn, rememberInterpretedTurn, TURN_EXTRACTION_SCHEMA, CONVERSATION_CONTRACT_VERSION } = require('../src/lib/integrations/automation/turn-interpretation.ts')
+const { typedTurnFixture, authorityFixture } = require('../src/lib/integrations/automation/fixtures/typed-turn.fixture.ts')
 const { TURN_SEMANTICS_SCHEMA } = require('../src/lib/integrations/automation/turn-semantics.ts')
 const { unreadMediaMarker } = require('../src/lib/integrations/automation/media-format.ts')
 const { confirmedLeadName, confirmedLeadProfile, mergeLeadProfile } = require('../src/lib/integrations/automation/lead-profile.ts')
+
+// Historical cases override only the fields under test. Supply the neutral v4
+// envelope explicitly; this helper never derives meaning from their wording.
+function interpretConversationTurn(input, dependencies) {
+  return interpretModelTurn(input, { ...dependencies, aiJson: async (...args) => {
+    const raw = await dependencies.aiJson(...args)
+    return args[2]?.properties?.communication ? typedTurnFixture(args[1].mensaje_actual, raw) : raw
+  } })
+}
 
 test('scope reconciliation restores the same extracted profile without repeating the model call', async () => {
   const current = 'soy David Villa y ahora mismo vivo en portugal. hay algun inconveniente?'
@@ -80,10 +90,10 @@ test('the entire extraction schema is closed recursively, including nullable obj
   assert.ok(TURN_EXTRACTION_SCHEMA.required.includes('requests'))
 })
 
-test('pure greetings and unreadable-only media never call prompts or inherit operational events', async () => {
+test('unreadable-only media never call prompts or inherit operational events', async () => {
   const forbidden = async () => { throw Error('UNEXPECTED_DEPENDENCY_CALL') }
   const dependencies = { activePrompt: forbidden, aiJson: forbidden }
-  for (const [current, method] of [['Hola', 'literal_greeting'], ['[Sticker recibido]', 'unreadable_input'], [unreadMediaMarker({ type: 'audio' }), 'unreadable_input']]) {
+  for (const [current, method] of [['[Sticker recibido]', 'unreadable_input'], [unreadMediaMarker({ type: 'audio' }), 'unreadable_input']]) {
     const result = await interpretConversationTurn({ mensaje_actual: current, resumen: { requested_visit: true, opt_out: true }, historial: [{ role: 'cliente', content: 'quiero visitar mañana' }] }, dependencies)
     assert.equal(result.method, method)
     assert.deepEqual(result.extracted.events, [])
@@ -103,7 +113,8 @@ test('readable text accompanying a failed attachment is interpreted once with a 
       calls.push({ instructions, input, schema })
       return { events: [], requests: [{ request: 'opciones de la quinta planta', evidence: current, confidence: 'high' }], turn_semantics: {
         primary_intent: 'select_property', primary_evidence: current, confidence: 'high',
-        property: { category: 'departamento', reference_kind: 'explicit', unit_numbers: ['502'], evidence: current, confidence: 'high' },
+        property: { category: 'departamento', operation: 'search', reference_kind: 'none', unit_numbers: [],
+          filters: { floor_number: 5 }, filter_evidence: { floor_number: current }, evidence: current, confidence: 'high' },
       } }
     },
   }
@@ -114,7 +125,7 @@ test('readable text accompanying a failed attachment is interpreted once with a 
   assert.deepEqual(Object.fromEntries(Object.entries(calls[1].schema.properties).filter(([key]) => key !== 'catalog_request')), TURN_EXTRACTION_SCHEMA.properties)
   assert.equal(calls[1].schema.additionalProperties, false)
   assert.ok(calls[1].schema.required.includes('catalog_request'))
-  assert.match(calls[1].instructions, /lavilet-dialogue-v3/)
+  assert.ok(calls[1].instructions.includes(CONVERSATION_CONTRACT_VERSION))
   assert.equal(result.semantics.property.filters.floor_number, 5)
   assert.equal(result.semantics.property.operation, 'search')
   assert.equal(result.diagnostic.filters.floor_number, 5)
@@ -133,7 +144,7 @@ test('only requests evidenced in this turn survive and telemetry omits identity 
       { request: 'evidencia ausente', evidence: '', confidence: 'high' },
     ],
     turn_semantics: { primary_intent: 'select_property', primary_evidence: 'Me interesa vivienda', confidence: 'high',
-      property: { category: 'departamento', operation: 'select', evidence: 'Me interesa vivienda', confidence: 'high' } },
+      property: { group: 'residential', category: null, operation: 'search', evidence: 'Me interesa vivienda', confidence: 'high' } },
   }
   let calls = 0
   const result = await interpretConversationTurn({ mensaje_actual: current, historial: [{ role: 'cliente', content: 'quiero ir mañana a las diez' }] }, {
@@ -194,14 +205,14 @@ test('stale advisor, opt-out and follow-up flags cannot turn an ordinary request
   }
 })
 
-test('literal action evidence and explicit legacy requests preserve authorized actions', async () => {
+test('current structured action authority preserves authorized actions', async () => {
   const run = (current, raw) => interpretConversationTurn({ mensaje_actual: current }, { activePrompt: async () => 'Prompt', aiJson: async () => raw })
-  assert.equal((await run('Quiero hablar con una persona', {})).extracted.requested_advisor, true)
+  assert.equal((await run('Quiero hablar con una persona', { action_authority: authorityFixture('Quiero hablar con una persona', 'advisor') })).extracted.requested_advisor, true)
   assert.equal((await run('No quiero hablar con un asesor', { requested_advisor: true })).extracted.requested_advisor, false)
-  assert.equal((await run('No me escriban más', {})).extracted.opt_out, true)
-  assert.equal((await run('Acepto recibir novedades', {})).extracted.tracking_consent, true)
+  assert.equal((await run('No me escriban más', { action_authority: authorityFixture('No me escriban más', 'tracking', 'decline', 'self', 'all_contact') })).extracted.opt_out, true)
+  assert.equal((await run('Acepto recibir novedades', { action_authority: authorityFixture('Acepto recibir novedades', 'tracking', 'accept', 'self', 'all_contact') })).extracted.tracking_consent, true)
   const current = 'Me gustaría que alguien del equipo atienda mi caso'
-  assert.equal((await run(current, { requested_advisor: true, action_evidence: { requested_advisor: current } })).extracted.requested_advisor, true)
+  assert.equal((await run(current, { action_authority: authorityFixture(current, 'advisor') })).extracted.requested_advisor, true)
 })
 
 test('request domains keep a visit acceptance separate from additional property and financing questions', async () => {
@@ -216,7 +227,7 @@ test('request domains keep a visit acceptance separate from additional property 
     assert.ok(schema.properties.requests.items.required.includes('domain'))
     return { requests }
   } })
-  assert.deepEqual(result.requests, requests)
+  assert.deepEqual(result.requests, requests.map(request => ({ ...request, topics: [] })))
   assert.equal(result.requests.filter(request => request.domain !== 'visit').length, 2)
 })
 
@@ -248,6 +259,7 @@ test('mixed scope limits advisor evidence to the property fragment while opt-out
   const current = `${outside}. ${property}. No me escriban más`
   const result = await interpretConversationTurn({ mensaje_actual: current, mensaje_accion: property }, { activePrompt: async () => 'Prompt', aiJson: async () => ({
     requested_advisor: true, opt_out: true, consent_granted: true,
+    action_authority: authorityFixture('No me escriban más', 'tracking', 'decline', 'self', 'all_contact'),
     action_evidence: { requested_advisor: outside, opt_out: 'No me escriban más', consent_granted: outside },
     requests: [{ request: 'asesor para revisar vuelo', domain: 'other', evidence: outside, confidence: 'high' },
       { request: 'precio del departamento', domain: 'property', evidence: property, confidence: 'high' },
@@ -276,9 +288,15 @@ test('profile extraction separates residence from origin and never infers a coun
   assert.equal(mistakenOrigin.extracted.residence_city, null)
 })
 
-const profileTurn = (current, raw, input = {}) => interpretConversationTurn({ mensaje_actual: current, ...input }, {
-  activePrompt: async () => 'Prompt', aiJson: async () => raw,
-})
+const profileTurn = (current, raw, input = {}) => {
+  const confirmation = raw.residence_confirmation
+  const answer = confirmation && input.pregunta_pendiente?.id === 'lead_residence_confirmation'
+    ? { question_id: 'lead_residence_confirmation', kind: confirmation.decision === 'confirm' ? 'affirmative' : 'negative',
+      evidence: confirmation.evidence, confidence: confirmation.confidence } : null
+  const value = answer && !raw.turn_semantics?.answer_to_previous
+    ? { ...raw, turn_semantics: { ...raw.turn_semantics, answer_to_previous: answer } } : raw
+  return interpretConversationTurn({ mensaje_actual: current, ...input }, { activePrompt: async () => 'Prompt', aiJson: async () => value })
+}
 const confirmationInput = (city = 'Cuenca', country = null) => ({
   perfil_inicial: { residence_status: 'pending_confirmation', residence_candidate: { city, country, evidence: `Soy de ${city || country}` } },
   pregunta_pendiente: { id: 'lead_residence_confirmation', residence_candidate: { city, country, evidence: `Soy de ${city || country}` } },
@@ -542,8 +560,8 @@ test('one extraction preserves reservation, prior refusal and simultaneous quest
     activePrompt: async () => 'Prompt', aiJson: async (rules, _input, schema) => {
       assert.ok(schema.properties.turn_semantics.required.includes('reservation'))
       assert.match(rules, /asked_reservation.*nunca (?:reemplaza|sustituye) esa distinción/)
-      return { events: [], requests: [
-        { domain: 'advisor', request: 'Iniciar la separación del 605', evidence: 'quiero separar el departametno 605', confidence: 'high' },
+      return { events: ['asked_reservation'], action_authority: authorityFixture('quiero separar el departametno 605', 'reservation'), requests: [
+        { domain: 'property', topics: ['reservation'], request: 'Iniciar la separación del 605', evidence: 'quiero separar el departametno 605', confidence: 'high' },
         { domain: 'property', request: 'Documentos necesarios', evidence: '¿Y qué documentos necesito?', confidence: 'high' },
       ], turn_semantics: {
         primary_intent: 'answer_previous', primary_evidence: 'Por ahora no', confidence: 'high',
@@ -558,8 +576,8 @@ test('one extraction preserves reservation, prior refusal and simultaneous quest
   assert.equal(result.semantics.reservation.kind, 'request')
   assert.ok(result.extracted.events.includes('asked_reservation'))
   assert.equal(result.extracted.requested_advisor, false)
-  assert.equal(result.requests.length, 1)
-  assert.deepEqual(result.requests.map(request => request.domain), ['property'])
+  assert.equal(result.requests.length, 2)
+  assert.deepEqual(result.requests.map(request => request.domain), ['property', 'property'])
   assert.equal(result.diagnostic.reservation.kind, 'request')
   assert.equal(result.diagnostic.interpretation.extractor_primary_intent, 'answer_previous')
 })
@@ -576,7 +594,10 @@ test('an old reservation event alone is scoring evidence and cannot manufacture 
 test('reservation outside the authorized action fragment cannot start the real estate process', async () => {
   const current = 'Quiero reservar un vuelo; además, ¿dónde está La Vilet?'
   const result = await interpretConversationTurn({ mensaje_actual: current, mensaje_accion: '¿dónde está La Vilet?' }, {
-    activePrompt: async () => 'Prompt', aiJson: async () => ({ turn_semantics: {
+    activePrompt: async () => 'Prompt', aiJson: async () => ({ action_authority: {
+      ...authorityFixture('Quiero reservar un vuelo', 'reservation'), reservation: {
+        decision: 'request', attribution: 'self', target: 'other', scope: 'operation', evidence: 'Quiero reservar un vuelo', confidence: 'high',
+      } }, turn_semantics: {
       primary_intent: 'request_reservation', primary_evidence: 'Quiero reservar un vuelo', confidence: 'high',
       reservation: { kind: 'request', evidence: 'Quiero reservar un vuelo', unit_numbers: [], confidence: 'high' },
     } }),

@@ -377,7 +377,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
   if(!input.current.trim()) throw new InvalidWriterTransportError('EMPTY_CUSTOMER_TURN')
   const history=(Array.isArray(input.history)? input.history:[]).map(object).slice(-8)
     .map(row => ({ role: text(row.role), content: text(row.content).slice(0, 1800) }))
-  const memory=commercialMemory(input.verified.memoria_comercial, input.history, input.current)
+  const memory=commercialMemory(input.verified.memoria_comercial, input.history, input.current, input.verified)
   const writerVerifiedContext=experienceContext({ ...input.verified, historial: input.history }, input.current, memory)
   delete writerVerifiedContext.razonamiento_contextual
   const context={

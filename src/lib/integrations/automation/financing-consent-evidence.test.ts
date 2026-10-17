@@ -2,9 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { financingInputs } from './financing'
 import { financingInvitationReceipt } from './financing-invitation'
+import { authorityFixture } from './fixtures/typed-turn.fixture'
 
 const context = { partners: ['Banco Pichincha', 'Cooperativa JEP'], current: {} }
-const yes = { financing_consent: true, turn_semantics: { primary_intent: 'ask_financing', confidence: 'high',
+const yes = { action_authority: authorityFixture('Sí', 'financing', 'accept'), turn_semantics: { primary_intent: 'ask_financing', confidence: 'high',
   answer_to_previous: { question_id: 'financing_invitation', kind: 'affirmative', evidence: 'Sí', confidence: 'high' } } }
 
 test('a stale formal label cannot authorize a review from an informational or unrelated emitted question', () => {

@@ -1,51 +1,20 @@
-import { acceptedExtractorConfidence } from './extractor-confidence'
-import { object, text, type Row } from './data'
-import { financingAmountStatements } from './financing-amounts'
 import { leadBudget } from './budget-state'
-import { focusedNumericMentions } from './focused-numeric-syntax'
-import { replyQuestions } from './reply-question'
-import { normalized } from './sdr-rules'
-import { simpleReservationAcceptance } from './reservation-invitation'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { financingAmountStatements } from './financing-amounts'
 
 export const FINANCING_ENTRY_QUESTION = 'Para orientar el financiamiento, ¿qué monto tendría disponible para la entrada inicial?'
 const literal = (quote: unknown, current: string) => !!text(quote).trim()
   && current.normalize('NFKC').toLowerCase().includes(text(quote).trim().normalize('NFKC').toLowerCase())
 
 const formattedAmount = (amount: number) => `$${new Intl.NumberFormat('es-EC', { maximumFractionDigits: 2 }).format(amount)}`
-const normalizedQuestion = (value: unknown) => text(value).normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
-
-const entryRole = (value: string) => /\bentrada(?:\s+inicial)?\b|\b(?:cuota|pago)\s+inicial\b/.test(normalized(value))
-// A demonstrative points to the unique delivered monetary proposal; it does not
-// need to repeat the entry role or a number. Meaning still requires the typed
-// affirmative answer to this exact question and the verified receipt below.
-const monetaryReference = (value: string) => /\b(?:es(?:[ea]|t[ea])|aquel(?:la)?|el mismo|la misma)\s+(?:monto|importe|presupuesto|dinero|capital|cantidad|suma)\b/.test(normalized(value))
-const unqualified = (value: string) => {
-  if (/[¿?]/.test(value)) return false
-  const answer = normalized(value)
-  // Strip the acknowledgement, never a subordinate condition. A remaining
-  // "si" introduces an unresolved premise even when the model says affirmative.
-  const remainder = answer.replace(/^si\b\s*/, '')
-  return (!/\bsi\b/.test(remainder) || simpleReservationAcceptance(value))
-    && !/\b(?:no|nunca|tampoco|pero|solo|solamente|parte|parcial|otra|otro|distint[oa]|depende|quizas|tal vez|siempre que|a condicion|en caso|fuera|fuese|hubiera|hubiese|tuviera|tuviese|pudiera|pudiese)\b/.test(answer)
-}
-
-/** Recognize the collection actually emitted, including an indirect request
- * followed by a generic confirmation. The latter is not an independent decision
- * and cannot inherit a planned meaning without the explicit entry proposition. */
-export function actualFinancingEntryQuestion(reply: string): Row | null {
-  const questions = replyQuestions(reply)
-  if (!questions.length) return null
-  const entryQuestions = questions.filter(entryRole)
-  const last = questions.at(-1)!
-  const genericConfirmation = /\bconfirm\w*\b/.test(normalized(last))
-    && !/\b(?:nombre|residencia|presupuesto|credito|financiamiento|unidad|departamento|suite|penthouse|local|planta|piso|dormitorios?|visita|reserva)\b/.test(normalized(last))
-  if (entryQuestions.length !== 1 || questions.some(question => question !== entryQuestions[0]
-    && !(question === last && genericConfirmation))) return null
-  const entry = entryQuestions[0]
-  if (!/\b(?:que|cual|cuanto|cuanta|cuantos|cuantas|si|destinar\w*|usar\w*|utilizar\w*|dispon\w*|previst\w*|tendr\w*)\b/.test(normalized(entry))) return null
-  // A question about a price or lender condition is information, not collection.
-  if (/\b(?:cuesta|costo|precio|minim[oa]|requisitos|exige|requiere|requieren|obligatori[oa])\b/.test(normalized(entry))) return null
-  return { id: 'financing_down_payment', act: 'financing', question: questions.join(' '), entry_question: entry }
+/** Metadata identifies the delivered collection. Historical prose is opaque. */
+export function actualFinancingEntryQuestion(_reply: string, questionRaw: unknown = {}): Row | null {
+  const question = object(questionRaw)
+  const id = text(question.id || question.continuation_id), act = text(question.act || question.continuation_act)
+  const display = text(question.question || question.text).trim()
+  return id === 'financing_down_payment' && act === 'financing' && display
+    ? { id, act, question: display, entry_question: display } : null
 }
 
 /** The known total is offered as a possible entry, not silently reassigned.
@@ -72,21 +41,10 @@ export function deliveredFinancingEntryReference(reply: string, reference: Row):
   const amount = reference.amount
   if (reference.kind !== 'proposed_down_payment' || reference.original_role !== 'total_budget'
     || !text(reference.evidence).trim() || typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return null
-  const actual = actualFinancingEntryQuestion(reply)
-  if (!actual) return null
-  const question = text(actual.entry_question)
-  const preceding = reply.slice(0, reply.lastIndexOf(question))
-  // The amount may appear inside the question itself, or in its immediately
-  // preceding total-budget proposition. Only that delivered reference is used.
-  const budgetReference = [...preceding.matchAll(/\bpresupuesto\b/gi)].at(-1)
-  const proposition = budgetReference ? preceding.slice(budgetReference.index) + question : question
-  if (!/\bpresupuesto\b/.test(normalized(proposition))
-    || !/\b(?:destin\w*|usar\w*|utiliz\w*|correspond\w*|seria|es|entrada)\b/.test(normalized(question))) return null
-  const quantities = focusedNumericMentions(proposition.replace(/(?<=\d)\.(?=\s+(?:\p{L}|¿)|\s*$)/gu, ' '))
-  if (quantities.length !== 1 || quantities[0].value !== amount
-    || /\b(?:pesos|euros?|eur|libras|yuanes|yenes)\b|[€£¥]/i.test(proposition)) return null
-  return { ...reference, question_source: reply.trim(), delivered_question: actual.question,
-    resolution: 'delivered_total_budget_entry_proposal' }
+  if (reference.resolution !== 'writer_structured_total_budget_entry_proposal'
+    || text(reference.question_source) !== reply.trim() || !text(reference.delivered_question).trim()
+    || reference.currency != null && reference.currency !== 'USD') return null
+  return reference
 }
 
 export function confirmedFinancingEntryReference(raw: Row, current: string, pending: Row): Row | null {
@@ -98,39 +56,14 @@ export function confirmedFinancingEntryReference(raw: Row, current: string, pend
   // their identities, evidence or amounts (including invalid reference IDs).
   if (budget.amount_reference_id != null || (Array.isArray(raw.financing_amounts)
     && raw.financing_amounts.some(item => object(item).amount_reference_id != null))) return null
-  const structured = reference.resolution === 'writer_structured_total_budget_entry_proposal'
-  let delivered: Row | null
-  if (structured) {
-    // The delivered writer receipt owns the proposition's meaning. These are
-    // identity, amount, currency and source checks, not a second reading of
-    // its freely worded question. The customer's answer is checked below.
-    if (pending.act !== 'financing' || reference.kind !== 'proposed_down_payment'
-      || reference.original_role !== 'total_budget' || typeof reference.amount !== 'number'
-      || !Number.isFinite(reference.amount) || reference.amount <= 0 || !text(reference.evidence).trim()
-      || reference.currency != null && reference.currency !== 'USD'
-      || !text(reference.question_source).trim() || !text(reference.delivered_question).trim()
-      || text(pending.question) !== text(reference.delivered_question).trim().slice(0, 500)) return null
-    delivered = reference
-  } else {
-    // Compatibility for imported historical receipts that predate writer
-    // metadata. New writer receipts never enter this prose classifier.
-    const source = text(reference.question_source)
-    delivered = deliveredFinancingEntryReference(source, reference)
-    const actualQuestion = actualFinancingEntryQuestion(source)
-    const questions = replyQuestions(source)
-    const receiptWordings = [source, text(actualQuestion?.question), ...questions]
-    if (!receiptWordings.flatMap(question => [normalizedQuestion(question), normalizedQuestion(question.trim().slice(0, 500))])
-      .includes(normalizedQuestion(pending.question))) return null
-  }
-  const currentQuantities = focusedNumericMentions(current)
-  const interpretedEntry = budget.status === 'initial_capital' && budget.amount === reference.amount
-    && acceptedExtractorConfidence(budget.confidence) && literal(budget.evidence, current)
+  // A historical sentence without the writer's amount receipt grants nothing.
+  const delivered = deliveredFinancingEntryReference(text(reference.question_source), reference)
+  if (!delivered || pending.act !== 'financing'
+    || text(pending.question) !== text(reference.delivered_question).trim().slice(0, 500)) return null
   if (pending.id !== 'financing_down_payment' || !delivered
     || answer.question_id !== pending.id || answer.kind !== 'affirmative' || !acceptedExtractorConfidence(answer.confidence)
-    || !literal(answer.evidence, current) || !unqualified(current)
-    || !(simpleReservationAcceptance(current) || entryRole(current) || monetaryReference(current) || interpretedEntry)
-    || currentQuantities.some(quantity => quantity.value !== reference.amount)
-    || !['', 'not_discussed', 'amount_pending', 'initial_capital'].includes(text(budget.status))) return null
+    || !literal(answer.evidence, current)
+    || !['', 'not_discussed', 'initial_capital'].includes(text(budget.status))) return null
   const statements = financingAmountStatements(raw.financing_amounts || semantics.financing_amounts, current)
   if (statements.some(item => item.role !== 'down_payment' || item.amount !== reference.amount || item.replaces_role)
     || typeof budget.amount === 'number' && (budget.amount !== reference.amount || budget.status !== 'initial_capital')) return null

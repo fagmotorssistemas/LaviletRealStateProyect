@@ -1,19 +1,19 @@
 import { acceptedExtractorConfidence } from './extractor-confidence'
 import { responseSupportsContinuity } from '@/lib/inmobiliaria/responseReview'
 import { object, text, type Row } from './data'
-import { isGreetingOnly, normalized } from './sdr-rules'
-import { conversationalFirstName, isCourtesyOnly } from './conversation-style'
+import { normalized } from './sdr-rules'
+import { conversationalFirstName } from './conversation-style'
 import { BROCHURE_URL, brochureDeliveryIntent } from './project-material'
 import { confirmedLeadProfile, mergeLeadProfile } from './lead-profile'
 import { replyQuestions } from './reply-question'
 import { continuationMetadata } from './continuation-question'
 import { configuredProjectIntroduction, generalProjectIntroductionTurn, projectIntroductionForTurn } from './project-introduction-context'
-import { isPassivePurchaseEvidence } from './purchase-evidence'
+import { turnCommunicationKind } from './turn-communication'
 import { showroomButtonReply } from '@/lib/tour/showroomInterest'
 
 export const PROFILE_INVITATION = 'Nos gustaría compartirle el brochure con la información del proyecto. ¿Podría indicarnos su nombre y en qué ciudad o país reside actualmente?'
 const BROCHURE_PURPOSE = 'Nos gustaría compartirle el brochure con la información del proyecto. '
-const PROJECT_INTRODUCTION = 'Claro que sí, con mucho gusto. La Vilet es un proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, que propone vivir con tranquilidad, privacidad y comodidad.'
+const PROJECT_INTRODUCTION = 'La Vilet es un proyecto inmobiliario ubicado en Puertas del Sol, Cuenca, que propone vivir con tranquilidad, privacidad y comodidad.'
 const CATEGORY_LABELS: Record<string, string> = { suite: 'suites', departamento: 'departamentos', penthouse: 'penthouses', local: 'locales comerciales', local_comercial: 'locales comerciales' }
 const rows = (value: unknown) => Array.isArray(value) ? value.map(object) : []
 const join = (...parts: string[]) => parts.filter(part => part.trim()).join('\n\n')
@@ -51,22 +51,8 @@ function collectionStatus(profile: Row, prior: Row, declined = false) {
   if (declined || prior.collection_status === 'declined' || prior.status === 'skipped') return 'declined'
   return profileRequestWasSent(prior) ? prior.status === 'pending' ? 'awaiting' : 'deferred' : 'not_requested'
 }
-function withoutBrochure(reply: string, url: string) {
-  return reply.split(/(?<=[.!?])\s+|\n+/).filter(sentence => !/brochure|folleto/i.test(sentence)
-    && !sentence.includes(url) && !sentence.includes(BROCHURE_URL)).join(' ').trim()
-}
-function lastQuestion(reply: string) { return reply.match(/¿[^¿?]+\?\s*$/)?.[0].trim() || '' }
-function withoutLastQuestion(reply: string) { return reply.replace(/\s*¿[^¿?]+\?\s*$/, '').trim() }
-function generalInformation(current: string, audit: Row) {
+function generalInformation(audit: Row) {
   return ['project_overview', 'project_information_choice'].includes(text(audit.source))
-    || isPassivePurchaseEvidence(current) && /\b(?:informacion|info|informes|detalles)\b/.test(normalized(current))
-}
-function explicitBrochure(current: string) {
-  const value = normalized(current)
-  return /brochure|brochur|folleto|\bpdf\b/.test(value) && !/\bno\b.{0,25}(?:quiero|necesito|envie|mande|brochure|folleto)/.test(value)
-}
-function concreteRequest(current: string) {
-  return /precio|cuesta|cuestan|vale|valor|presupuesto|monto|dispongo|financ|credito|cuota|departamento|departmento|suite|penthouse|local|inver|vivir|dormitorio|habitacion|cuarto|visita|agend|reserv|ubicacion|direccion|constru|terminad|entrega|plano|modelo|recorrido|brochure|folleto|piscina|gimnasio|terraza|parqueader|area|metros|tamano|ampli|grande|espacio|opciones|informacion/.test(normalized(current))
 }
 function currentEvidence(raw: unknown, current: string) {
   const evidence = normalized(text(raw)).trim()
@@ -147,10 +133,11 @@ export function isProfileOnlyTurn(current: string, extractedRaw: unknown) {
     && acceptedExtractorConfidence(semantics.confidence)
   const budget = object(semantics.budget)
   return !currentCommercialIntent && !(acceptedExtractorConfidence(budget.confidence) && budget.status !== 'not_discussed')
-    && !concreteRequest(current) && (hasProfileAnswer(extracted.lead_profile) || declinedProfile(current))
+    && hasProfileAnswer(extracted.lead_profile)
 }
-function declinedProfile(current: string) {
-  return /\b(?:no quiero|no deseo|prefiero no|no voy a|no le voy a)\b.{0,35}(?:dar|decir|compartir|nombre|datos|resido|vivo)|\b(?:no importa|no es necesario)\b.{0,20}(?:nombre|donde|datos)/.test(normalized(current))
+function declinedProfile(extracted: Row) {
+  const profile = object(extracted.lead_profile)
+  return profile.residence_status === 'declined' || object(profile.name_response).status === 'declined'
 }
 function knownProfile(input: LeadIntroductionInput) {
   return confirmedLeadProfile(mergeLeadProfile(confirmedLeadProfile({ ...object(object(input.summary)._lead_profile), ...object(input.profile) }), confirmedLeadProfile(object(input.extracted).lead_profile)))
@@ -288,7 +275,7 @@ function categoryFor(input: LeadIntroductionInput) {
   const category = text(extracted.preferred_category) || text(object(semantic.property).category)
     || text(object(object(semantic.property).filters).category)
   if (category in CATEGORY_LABELS) return category
-  return Object.keys(CATEGORY_LABELS).find(key => new RegExp(`\\b${key === 'departamento' ? 'depart(?:a|e)mento' : key}s?\\b`).test(normalized(input.current))) || ''
+  return ''
 }
 function categoryIntroduction(input: LeadIntroductionInput, category: string) {
   const semantics = object(object(input.extracted).turn_semantics)
@@ -296,24 +283,12 @@ function categoryIntroduction(input: LeadIntroductionInput, category: string) {
   // resolved price/financing/detail answer merely because its wording varies.
   if (object(input.audit).source === 'unit_price'
     || acceptedExtractorConfidence(semantics.confidence) && !['select_property', 'project_information'].includes(text(semantics.primary_intent))) return ''
-  if (!category || /precio|cuesta|financ|cuota|credito|\d|dormitorio|habitacion|area|metro|tamano|grande|espacio|ampli|plano|visita|entrega|constru|ubicacion|direccion|piscina|terraza|parqueader|incluy|tiene|tienen|hay/.test(normalized(input.current))) return ''
+  if (!category || !genericPropertyOpening(input.current, object(input.extracted))) return ''
   const units = catalogFor(input).filter(unit => unit.category === category)
   if (!units.length) return ''
   const bedrooms = [...new Set(units.map(unit => Number(unit.bedrooms)).filter(count => Number.isInteger(count) && count > 0))].sort((a,b) => a-b)
   const counts = new Intl.ListFormat('es', { style: 'long', type: 'conjunction' }).format(bedrooms.map(String))
-  return `Claro que sí, con mucho gusto. En La Vilet contamos con ${CATEGORY_LABELS[category]}${bedrooms.length ? ` de ${counts} ${bedrooms.length === 1 && bedrooms[0] === 1 ? 'dormitorio' : 'dormitorios'}` : ''}.`
-}
-function commercialContinuation(input: LeadIntroductionInput, category: string, overview: boolean) {
-  if (overview || !category) return 'La Vilet reúne suites, departamentos, penthouses y locales comerciales. ¿Le gustaría que le compartamos información de alguna de estas opciones?'
-  const semanticFilters = object(object(object(input.extracted).turn_semantics).property)
-  const previousFilters = object(object(object(object(input.summary)._property_context).query).filters)
-  const bedroomsKnown = Number(object(input.extracted).preferred_bedrooms) > 0
-    || Number(object(semanticFilters.filters).bedrooms) > 0 || Number(previousFilters.bedrooms) > 0
-    || (Array.isArray(object(semanticFilters.filters).bedrooms_any) && (object(semanticFilters.filters).bedrooms_any as unknown[]).length > 0)
-    || (Array.isArray(previousFilters.bedrooms_any) && previousFilters.bedrooms_any.length > 0)
-    || /\b\d\s*(?:dormitorio|habitacion|cuarto)/.test(normalized(input.current))
-  if (!bedroomsKnown && catalogFor(input).filter(unit => unit.category === category).some(unit => Number(unit.bedrooms) > 0)) return '¿Cuántos dormitorios está buscando?'
-  return lastQuestion(input.reply) || '¿Qué le gustaría conocer de estas opciones?'
+  return `En La Vilet contamos con ${CATEGORY_LABELS[category]}${bedrooms.length ? ` de ${counts} ${bedrooms.length === 1 && bedrooms[0] === 1 ? 'dormitorio' : 'dormitorios'}` : ''}.`
 }
 
 /** Plans the opening exchange without performing writes or changing the user's message. */
@@ -328,15 +303,15 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
   const commercialRequest = interpretedCommercialRequest(input.current, extracted, audit)
   // A bare greeting keeps the short greeting route, including after a test reset.
   // Ask for the profile only once the lead expresses an actual request.
-  if (!input.current.trim() || isGreetingOnly(input.current)
-    || !suppliedProfile && !commercialRequest && isCourtesyOnly(input.current)) return unchanged
+  const communication = turnCommunicationKind(extracted.communication || extracted.turn_semantics)
+  if (!input.current.trim() || communication && communication !== 'substantive') return unchanged
   const recognition = nameRecognition(profile, prior)
   const suppliedCandidate = Boolean(object(currentProfile.residence_candidate).city || object(currentProfile.residence_candidate).country)
     && profile.residence_status === 'pending_confirmation'
   const asked = profileRequestWasSent(prior)
   const declined = currentProfile.residence_status === 'declined' || profile.residence_status === 'declined'
     || object(currentProfile.name_response).status === 'declined' || object(profile.name_response).status === 'declined'
-    || declinedProfile(input.current) || prior.collection_status === 'declined' || prior.status === 'skipped'
+    || declinedProfile(extracted) || prior.collection_status === 'declined' || prior.status === 'skipped'
   const deferredDecision = leadProfileCollectionDecision({ question_purpose: 'none', profile_declined: declined,
     collection_reason: declined ? 'profile_declined' : !missing.length ? 'profile_complete'
       : Number(prior.reminder_count || 0) >= 1 ? 'reminder_limit_reached' : 'continue_current_need' }, profile, prior)
@@ -358,7 +333,7 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
     return acknowledgeOnly()
   }
   if (prior.collection_status === 'declined' || prior.status === 'skipped') return acknowledgeOnly()
-  if (prior.status === 'complete' && !resumed && !declinedProfile(input.current)
+  if (prior.status === 'complete' && !resumed && !declinedProfile(extracted)
     && (asked || !missing.length && prior.brochure_sent === true)) return acknowledgeOnly()
   const pending = prior.status === 'pending' || resumed, onlyProfile = pending && isProfileOnlyTurn(input.current, extracted)
   if (protectedCurrentOperation(audit, extracted)) return acknowledgeOnly()
@@ -368,12 +343,12 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
   const hasSemanticRequests = rows(introductionInfo.solicitudes_interpretadas).some(request => acceptedExtractorConfidence(request.confidence))
     || rows(object(introductionInfo.contrato_turno).requests).some(request => acceptedExtractorConfidence(request.confidence))
   const category = categoryFor(input), overview = semanticOverview
-    || !hasSemanticRequests && generalInformation(input.current, audit) || genericPropertyOpening(input.current, extracted)
+    || !hasSemanticRequests && generalInformation(audit) || genericPropertyOpening(input.current, extracted)
   const approvedPresentation = semanticOverview ? projectIntroductionForTurn(introductionInfo)
     : overview && !hasSemanticRequests ? configuredProjectIntroduction(introductionInfo) : null
   const presentationText = text(object(approvedPresentation).summary) || PROJECT_INTRODUCTION
-  if (!pending && !overview && !category && !commercialRequest && !concreteRequest(input.current) && !explicitBrochure(input.current)) return acknowledgeOnly()
-  const base = withoutBrochure(input.reply, url)
+  if (!pending && !overview && !category && !commercialRequest && !material.requested) return acknowledgeOnly()
+  const base = input.reply
   const materialRequested = material.requested
   const deliver = pending || suppliedProfile || materialRequested || missing.length === 0 || declined
   const firstPresentation = overview && prior.presentation_sent !== true && prior.brochure_sent !== true
@@ -392,15 +367,16 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
   if (!deliver) {
     question = profileQuestion(missing, prior.brochure_sent === true)
     purpose = questionPurpose(missing)
-    result = join(overview && prior.presentation_sent !== true ? presentationText : categoryIntroduction(input, category) || withoutLastQuestion(base), question)
+    result = join(overview && prior.presentation_sent !== true ? presentationText : categoryIntroduction(input, category) || base, question)
     state = { ...prior, version: 3, status: 'pending', reminder_count: 0, brochure_sent: prior.brochure_sent === true,
-      category, continuation_reply: commercialContinuation(input, category, overview) }
+      category, continuation_reply: '' }
   } else {
     // A mixed profile/consultation answer may already advance the needs. Keep
     // its current commercial question while the one profile reminder is asked;
     // a prior generic presentation must not replace that newer continuation.
-    const continuation = !onlyProfile && lastQuestion(base) || text(prior.continuation_reply)
-      || commercialContinuation(input, category, overview)
+    // Continuation is planned from structured state by the common final writer.
+    // A question in the base or old introduction prose cannot recreate it.
+    const continuation = ''
     // Clarifying a supplied place is progress, not a second generic reminder.
     // Persist a separate limit so an evasive answer cannot cause an endless loop.
     const denial = object(currentProfile.residence_confirmation).decision === 'deny'
@@ -420,7 +396,7 @@ function leadIntroductionTurnCore(input: LeadIntroductionInput) {
       else { question = profileQuestion(missing, prior.brochure_sent === true || deliverBrochure); purpose = questionPurpose(missing); if (asked) reminderCount += 1 }
     }
     const contextual = onlyProfile ? '' : overview && !pending && prior.presentation_sent !== true ? presentationText : base
-    result = join(remind ? withoutLastQuestion(contextual) : contextual, brochure, remind ? question : onlyProfile || overview ? continuation : '')
+    result = join(contextual, brochure, remind ? question : onlyProfile || overview ? continuation : '')
     state = { ...prior, version: 3, status: remind ? 'pending' : 'complete', reminder_count: reminderCount,
       brochure_sent: deliverBrochure || prior.brochure_sent === true, category: text(prior.category) || category, continuation_reply: continuation,
       ...(confirm ? { confirmation_asked: true, confirmation_candidate: candidate } : {}),

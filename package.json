@@ -84,7 +84,8 @@
     "test:writer-authority": "node --require ./scripts/test-typescript.cjs --test --test-concurrency=4 src/lib/integrations/automation/writer-authority.test.ts src/lib/integrations/automation/writer-content-review.test.ts src/lib/integrations/automation/response-review-policy.test.ts src/lib/integrations/automation/mandatory-server-guards.test.ts src/lib/integrations/automation/continuation-question.test.ts src/lib/integrations/automation/continuation-metadata-authority.test.ts src/lib/integrations/automation/financing-entry.test.ts src/lib/integrations/automation/writer-memory-receipts.test.ts scripts/writer-sidepaths.test.cjs scripts/operational-copy.test.cjs scripts/writer-authority-conversation.test.cjs scripts/reservation-assignment.pglite.test.cjs src/lib/integrations/automation/reservation-action-evidence.test.ts src/lib/integrations/automation/financing-consent-evidence.test.ts src/lib/integrations/automation/visit-dialogue.test.ts src/lib/integrations/automation/lead-introduction.test.ts src/lib/integrations/automation/commercial-engagement.continuation.test.ts src/lib/integrations/automation/price-conditions.test.ts src/lib/integrations/automation/audit-prompt-alignment.test.ts",
     "test:audit-corrections": "node scripts/run-automation-audit-tests.cjs",
     "test:lead-pipeline-refresh-ui": "node --test scripts/lead-pipeline-refresh.ui.test.cjs",
-    "automation:healthcheck": "node scripts/automation-healthcheck.mjs"
+    "automation:healthcheck": "node scripts/automation-healthcheck.mjs",
+    "test:conversation-contract": "node scripts/run-conversation-contract-tests.cjs"
   },
   "engines": {
     "node": "24.x"

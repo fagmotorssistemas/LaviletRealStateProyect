@@ -1,0 +1,74 @@
+{
+  "status": "local_changes_general_validation_incomplete",
+  "productionChanged": false,
+  "migrationApplied": false,
+  "realModelCalls": false,
+  "realMessages": false,
+  "specific": {
+    "command": "npm run test:conversation-contract",
+    "startedAt": "2026-10-16T22:48:29.388Z",
+    "finishedAt": "2026-10-16T22:48:48.251Z",
+    "tests": 338,
+    "passed": 338,
+    "failed": 0,
+    "groups": [
+      {
+        "name": "contracts",
+        "exitCode": 0,
+        "tests": 322,
+        "passed": 322,
+        "failed": 0
+      },
+      {
+        "name": "runtime",
+        "exitCode": 0,
+        "tests": 16,
+        "passed": 16,
+        "failed": 0
+      }
+    ],
+    "output": "tmp/conversation-contract-validation/"
+  },
+  "full": {
+    "command": "npm run test:audit-corrections",
+    "startedAt": "2026-10-16T22:48:50.525Z",
+    "finishedAt": "2026-10-16T22:50:14.523Z",
+    "baseCommit": "cb37290bef5c8f961434e7994df1e9e06b25efc8",
+    "fileCount": 213,
+    "tests": 2637,
+    "passed": 2165,
+    "failed": 472,
+    "exitCode": 1,
+    "output": "tmp/audit-corrections/"
+  },
+  "baseline": {
+    "startedAt": "2026-10-16T21:42:51.669Z",
+    "finishedAt": "2026-10-16T21:44:13.892Z",
+    "baseCommit": "cb37290bef5c8f961434e7994df1e9e06b25efc8",
+    "fileCount": 205,
+    "tests": 2546,
+    "passed": 2545,
+    "failed": 1,
+    "exitCode": 1
+  },
+  "typeScript": {
+    "command": "npx tsc --noEmit",
+    "exitCode": 0
+  },
+  "eslint": {
+    "modifiedAndNewFiles": 89,
+    "errors": 0,
+    "warnings": 0
+  },
+  "diffCheck": {
+    "command": "git diff --check",
+    "exitCode": 0
+  },
+  "limitations": [
+    "Full historical suite is failing and is not individually classified.",
+    "Test counts are not counts of production defects or conflicting rules.",
+    "Specific and full suites overlap; do not add their totals.",
+    "Mocked providers do not evaluate actual AI interpretation or writing quality."
+  ],
+  "migration": "supabase/migrations/20261017000000_typed_visit_preferences.sql"
+}

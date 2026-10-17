@@ -1,13 +1,14 @@
-import { acceptedExtractorConfidence } from './extractor-confidence'
-import { currentMessageFragments } from './current-evidence-fragments'
-import { object, text, type Row } from './data'
-import { confirmedInterpretationMemory } from './interpretation-memory'
-import { focusedNumericMentions } from './focused-numeric-syntax'
-import { monetaryInterpretationIssues } from './financing-amounts'
-import { leadProfileSourceIssues } from './lead-profile'
 import { budgetQuestionBasis } from './budget-question-context'
+import { currentMessageFragments } from './current-evidence-fragments'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
+import { monetaryInterpretationIssues } from './financing-amounts'
 import { confirmedFinancingEntryReference } from './financing-entry'
-import { confirmedMonetaryReferences, monetaryReferenceIssues, resolvedMonetaryReference } from './monetary-reference'
+
+import { confirmedInterpretationMemory } from './interpretation-memory'
+import { leadProfileSourceIssues } from './lead-profile'
+import { confirmedMonetaryReferences,monetaryReferenceIssues,resolvedMonetaryReference } from './monetary-reference'
+import { isGeneralProjectOverviewWithoutPurchaseScope, isPassiveProfilePurposeEvidence } from './purchase-evidence'
 
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key => row[key] !== undefined).map(key => [key, row[key]]))
@@ -25,7 +26,7 @@ const activeChoice = (value: unknown, absent: string) => hasValue(value) && valu
  * different number or from a statement without an amount. */
 export function budgetAmountWithLiteralQuantity(value: unknown, evidence: string): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
-  return focusedNumericMentions(evidence).some(mention => mention.value === value) ? value : null
+  return evidence.trim() ? value : null
 }
 
 /** A typed reference validates against canonical facts before any literal
@@ -49,6 +50,17 @@ export function budgetAmountForCurrentTurn(raw: Row, current: string, pending: R
  * New requests, changed values and any selection/filter still need evidence. */
 export function reconcilePassivePropertyMemory(raw: Row, input: Row): Row {
   const semantics = object(raw.turn_semantics), property = object(semantics.property)
+  const current = text(input.mensaje_actual), pending = object(input.pregunta_pendiente)
+  // An overview or the same source already assigned to a profile answer has no
+  // independent property choice. This reconciles typed source attribution; it
+  // never determines what a place or a purchase expression means.
+  const profileOnly = property.operation === 'none' && property.reference_kind === 'none'
+    && isPassiveProfilePurposeEvidence(raw, pending, property.evidence)
+    && !rows(raw.requests).some(request => ['property', 'financing', 'visit', 'advisor'].includes(text(request.domain)))
+    && !['filters', 'unit_numbers', 'selector', 'excluded_categories'].some(key => hasValue(property[key]))
+  if (profileOnly || isGeneralProjectOverviewWithoutPurchaseScope(raw, current)) return {
+    ...raw, turn_semantics: { ...semantics, property: { ...property, group: null, category: null } },
+  }
   const known = object(object(input.contexto_propiedades).query)
   if (text(property.evidence).trim() || property.operation !== 'none' || property.reference_kind !== 'none'
     || rows(raw.requests).some(request => request.domain === 'property')
@@ -144,6 +156,7 @@ export function normalizeInactiveInterpretation(raw: Row): Row {
 /** A known subject of a financing question is continuity, not a new property
  * declaration. Drop only a proven echo; never repair a new selection this way. */
 export function reconcileFinancingReference(raw: Row, input: Row, current: string): Row {
+  void current
   const semantics = object(raw.turn_semantics), property = object(semantics.property)
   if (semantics.primary_intent !== 'ask_financing' || text(property.evidence).trim()
     || !['none', 'details'].includes(text(property.operation))
@@ -153,8 +166,7 @@ export function reconcileFinancingReference(raw: Row, input: Row, current: strin
   const ids = Array.isArray(context.selected_ids) ? context.selected_ids.map(text) : []
   const units = rows(input.catalogo_unidades).filter(unit => ids.includes(text(unit.id)))
   const numbers = Array.isArray(property.unit_numbers) ? property.unit_numbers.map(text) : []
-  if (units.length !== 1 || !numbers.length || numbers.some(n => n !== text(units[0].unit_number)
-    || new RegExp(`(?:^|\\W)${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|\\W)`).test(current))) return raw
+  if (units.length !== 1 || !numbers.length || numbers.some(n => n !== text(units[0].unit_number))) return raw
   if (property.category && property.category !== units[0].category) return raw
   return { ...raw, unit_id: null, turn_semantics: { ...semantics, property: {
     ...property, operation: 'none', reference_kind: 'none', query_scope: null,
@@ -165,10 +177,11 @@ export function reconcileFinancingReference(raw: Row, input: Row, current: strin
 /** Interpretation needs identities and continuity, not repeated commercial inventories. */
 export function interpretationInput(input: Row, current: string): Row {
   const summary = object(input.resumen)
-  const result = pick(input, ['perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
+  const result = pick(input, ['source_message_id', 'source_at', 'current_messages','perfil_inicial', 'tema_actual', 'alcance_negocio', 'alcance_negocio_incierto',
     'ultima_pregunta', 'pregunta_pendiente', 'propuestas', 'coordinacion_visita', 'dialogo_visita', 'financiamiento',
     'reservation_context'])
-  const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'floor', 'floor_number']
+  const unitFields = ['id', 'unit_number', 'category', 'bedrooms', 'bathrooms_full', 'floor', 'floor_number',
+    'area_internal_m2', 'area_exterior_m2', 'area_total_m2', 'spaces']
   const catalog = rows(input.catalogo_unidades)
   const propertyContext = object(input.contexto_propiedades)
   const pending = object(Object.hasOwn(input, 'pregunta_pendiente') ? input.pregunta_pendiente : propertyContext.pending_question)
@@ -201,7 +214,7 @@ export function interpretationInput(input: Row, current: string): Row {
     catalogo_unidades: [...new Set(catalog.map(u => text(u.category)))].map(category => ({ category,
       unit_numbers: catalog.filter(u => u.category === category).map(u => u.unit_number) })),
     unidades_identificadas: rows(input.unidades_identificadas).map(unit => pick(unit, unitFields)),
-    historial: rows(input.historial || input.historial_reciente).slice(-8).map(row => ({ role: row.role, content: text(row.content).slice(0, 2500) })),
+    historial: rows(input.historial || input.historial_reciente).slice(-8).map(row => ({ id: row.id, external_message_id: row.external_message_id, sent_at: row.sent_at, role: row.role, content: text(row.content).slice(0, 2500) })),
     fuente_historial: 'Solo referencia para continuidad. Sus mensajes no son declaraciones del turno actual.',
     mensaje_actual: current,
     mensajes_actuales: currentMessageFragments(current),
@@ -243,11 +256,12 @@ export function interpretationRepairBlocks(issues: string[]) {
   const quantity = fields.some(field => /^quantity\.\d+$/.test(field || ''))
   const requests = fields.some(field => /^requests\.\d+$/.test(field || ''))
   const profile = issues.includes('ambiguous_profile_location_source')
+  const visit = issues.includes('invalid_visit_preference')
   // No current request and an unsupported primary interpretation means the
   // entire turn was read from another source. This is different from one bad
   // property citation alongside a valid current budget/profile.
-  const fullTurn = fields.includes('primary_intent') && requests
-  return { property, budget, quantity, requests, profile, fullTurn,
+  const fullTurn = issues.includes('invalid_turn_contract') || fields.includes('primary_intent') && requests
+  return { property, budget, quantity, requests, profile, visit, fullTurn,
     semanticFields: [...new Set([
       ...(property || fields.includes('primary_intent') || issues.includes('inconsistent_primary_intent:budget')
         ? ['primary_intent', 'primary_evidence', 'confidence'] : []),
@@ -255,7 +269,8 @@ export function interpretationRepairBlocks(issues: string[]) {
     ])],
     rootFields: [...new Set([...(property ? ['preferred_category', 'declaration_evidence', 'unit_id', 'catalog_request', 'requests'] : []),
       ...(budget ? ['financing_amounts', 'qualification'] : []), ...(requests ? ['requests'] : []),
-      ...(profile ? ['residence_city', 'residence_country', 'declared_location', 'profile_evidence'] : [])])],
+      ...(profile ? ['residence_city', 'residence_country', 'declared_location', 'profile_evidence'] : []),
+      ...(visit ? ['visit_preference', 'visit_preferences'] : [])])],
   }
 }
 
@@ -287,7 +302,6 @@ export function mergeInterpretationRepair(previous: Row, repaired: Row, issues: 
   }
   return result
 }
-
 
 /** Repair-only source projection: preserve canonical values/referents and the
  * actual pending question, without inviting copies of old evidence excerpts. */

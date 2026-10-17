@@ -1,5 +1,9 @@
 # Automatización de La Vilet: referencia canónica
 
+**Interpretación y continuidad, revisión local del 16/10/2026:** [Antes, cambios, ejemplos, migración y límites de validación](correccion-interpretacion-y-continuidad-2026-10-16.md). La IA interpreta saludos, consultas y permisos; el código valida datos y ejecuta operaciones. Se sustituyen los analizadores textuales de citas por preferencias tipificadas y se conserva la memoria mediante referencias guardadas. Requiere `20261017000000_typed_visit_preferences.sql` y despliegue. La validación general todavía debe cerrarse antes de producción; no se enviaron mensajes ni se aplicó SQL.
+
+**Diagnóstico de la cita del miércoles:** [Causa comprobada y primera iteración](incidencia-cita-miercoles-2026-10-16.md). El extractor entendía la fecha y hora, pero sus formatos eran descartados antes del registro. La primera solución fue sustituida por el contrato de interpretación descrito arriba; sus cifras de pruebas son históricas.
+
 **Correcciones de la auditoría, implementación local del 16/10/2026:** [Informe completo de lo anterior, los cambios y los resultados esperados](informe-correcciones-auditoria-2026-10-16.md). Reúne los 20 hallazgos, las reparaciones de continuidad descubiertas durante las pruebas y la separación entre código local y pendientes productivos. El revisor continúa desactivado; no se enviaron mensajes ni se aplicó SQL durante esta intervención.
 
 **Panel de diagnóstico de conversaciones, implementación local del 16/10/2026:** [Recorridos, señales con evidencia, cohortes y revisión del equipo](panel-diagnostico-conversaciones-2026-10-16.md). Conserva la navegación y amplía el contenido central de Análisis de conversaciones. Requiere dos migraciones y despliegue; las pruebas de interfaz usan datos ficticios y no acreditan funcionamiento productivo ni precisión del modelo real.

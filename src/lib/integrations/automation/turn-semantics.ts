@@ -1,21 +1,17 @@
-import { INTERACTION_GOAL_SCHEMA, INTERACTION_GOAL_RULES, normalizedInteractionGoal } from './interaction-mode'
-import { LEAD_NURTURE_SCHEMA, LEAD_NURTURE_EXTRACTION_RULES, normalizedNurtureRequest } from './lead-nurture-state'
-import { acceptedExtractorConfidence, combinedExtractorConfidence } from './extractor-confidence'
-import { PROPERTY_CATEGORIES } from './property-category-contract'
-import { object, text, type Row } from './data'
-import { bedroomComparison, type BedroomComparison } from './bedroom-comparison'
-import { normalized } from './sdr-rules'
-import { bedroomOptions, bedroomOptionsFromText } from './bedroom-options'
-import { normalizeCatalogRequest } from './catalog-request'
-import { replyQuestions } from './reply-question'
-import { budgetAmountForCurrentTurn } from './turn-interpretation-input'
-import { groundedCurrentCategoryExclusions, isGeneralProjectOverviewWithoutPurchaseScope, isPassivePurchaseEvidence } from './purchase-evidence'
-import { floorEvidence, floorInvitationTarget } from './floor-evidence'
-import { operationalReservationInvitation, simpleReservationAcceptance, explicitReservationAction, verifiedReservationInvitation } from './reservation-invitation'
-import { categoryInvitationTarget } from './category-offer'
+import { actionAuthorized, actionDecision, normalizedActionAuthority } from './action-authority'
+import { bedroomComparison,type BedroomComparison } from './bedroom-comparison'
+import { bedroomOptions } from './bedroom-options'
+import { object,text,type Row } from './data'
+import { DISCOUNT_REQUEST_EXTRACTION_RULES,DISCOUNT_REQUEST_SCHEMA,normalizedDiscountRequest } from './discount-request'
+import { acceptedExtractorConfidence,combinedExtractorConfidence } from './extractor-confidence'
+import { INTERACTION_GOAL_RULES,INTERACTION_GOAL_SCHEMA,normalizedInteractionGoal } from './interaction-mode'
+import { LEAD_NURTURE_EXTRACTION_RULES,LEAD_NURTURE_SCHEMA,normalizedNurtureRequest } from './lead-nurture-state'
 import { AMOUNT_REFERENCE_SCHEMA } from './monetary-reference'
-import { DISCOUNT_REQUEST_SCHEMA, DISCOUNT_REQUEST_EXTRACTION_RULES, normalizedDiscountRequest } from './discount-request'
-import { SELECTION_PREFERENCES_SCHEMA, SELECTION_PREFERENCES_RULES, VIEWS_PREFERENCE_RULES, normalizedSelectionPreferences } from './selection-preferences'
+import { PROPERTY_CATEGORIES } from './property-category-contract'
+import { explicitReservationAction,simpleReservationAcceptance,verifiedReservationInvitation } from './reservation-invitation'
+
+import { SELECTION_PREFERENCES_RULES,SELECTION_PREFERENCES_SCHEMA,VIEWS_PREFERENCE_RULES,normalizedSelectionPreferences } from './selection-preferences'
+import { budgetAmountForCurrentTurn } from './turn-interpretation-input'
 
 export const questionIds = [
   'reservation_invitation',
@@ -84,16 +80,20 @@ export const TURN_SEMANTICS_SCHEMA = strictObject({
   nurture_request: LEAD_NURTURE_SCHEMA,
   discount_request: DISCOUNT_REQUEST_SCHEMA,
   selection_preferences: SELECTION_PREFERENCES_SCHEMA,
-  unit_choice: strictObject({ kind: { ...enumSchema(['selected', 'conditional', 'none']), description: 'Decisión independiente de primary_intent. «El 605 me gusta más, ¿qué precio tenía?» elige 605 y también consulta precio. Solo preguntar su precio o cómo verlo no elige. Una condición pendiente o negación no es selected. No use historial como aceptación actual.' },
+  unit_choice: strictObject({ kind: { ...enumSchema(['selected', 'conditional', 'rejected', 'none']), description: 'Decisión independiente de primary_intent. «El 605 me gusta más, ¿qué precio tenía?» elige 605 y también consulta precio. Solo preguntar su precio o cómo verlo no elige. rejected identifica las unidades expresamente descartadas. Una condición pendiente o negación no es selected. No use historial como aceptación actual.' },
     unit_numbers: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string' }, confidence: confidenceSchema }),
   category_choice: strictObject({kind:{...enumSchema(['selected','conditional','none']),description:'Preferencia actual por un tipo de espacio, independiente de la consulta principal. «Me quedo con los penthouses; ¿qué precio tienen?» elige categoría y consulta precio. Consultar precios de una categoría sin preferirla no la elige. No selecciona una unidad ni autoriza trámites.'},
     category:nullableEnumSchema(propertyCategories),evidence:{type:'string'},confidence:confidenceSchema}),
+  preference_change: strictObject({ kind: enumSchema(['cheaper', 'fewer_bedrooms', 'none']),
+    bedrooms: { type: ['integer', 'null'], minimum: 1, maximum: 30 },
+    bedroom_decision: enumSchema(['keep', 'reduce', 'specified', 'unspecified']),
+    evidence: { type: 'string' }, confidence: confidenceSchema }),
   housing_quantities: { type: 'array', description: 'Solo cantidades declaradas o evaluadas en mensaje_actual; [] si no hay. Nunca copie cantidades del catálogo, de una pregunta previa ni del historial. No cree elementos vacíos.', items: strictObject({ dimension: enumSchema(housingQuantityDimensions),
     values: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 1000 } },
     role: { ...enumSchema(housingQuantityRoles), description: 'requirement busca/restringe; evaluation consulta si las opciones sirven; context describe la familia; unknown es ambiguo. Evaluar capacidad no impone otra búsqueda.' }, count_basis: enumSchema(housingQuantityBases), evidence: { type: 'string' }, confidence: confidenceSchema }) },
   answer_to_previous: strictObject({ question_id: enumSchema([...questionIds, 'none']), kind: enumSchema(answerKinds), evidence: { type: 'string' }, confidence: confidenceSchema }),
   reservation: strictObject({ kind: enumSchema(reservationKinds), evidence: { type: 'string' },
-    unit_numbers: { type: 'array', items: { type: 'string' } }, confidence: confidenceSchema }),
+    unit_numbers: { type: 'array', items: { type: 'string' } }, reference_kind: enumSchema(['explicit', 'contextual', 'none']), confidence: confidenceSchema }),
   property: strictObject({
     group: nullableEnumSchema(['residential', 'commercial']), category: nullableEnumSchema(propertyCategories),
     excluded_categories: { type: 'array', items: enumSchema(propertyCategories) }, operation: enumSchema(operations),
@@ -132,56 +132,26 @@ export function normalizedPropertyQuery(raw: unknown): Row {
   }
 }
 
-const numberWords: Record<string, number> = { cero: 0, un: 1, una: 1, uno: 1, primera: 1, primer: 1, dos: 2, segunda: 2, segundo: 2, tres: 3, tercera: 3, tercer: 3, cuatro: 4, cuarta: 4, cuarto: 4, cinco: 5, quinta: 5, quinto: 5, seis: 6, sexta: 6, sexto: 6, siete: 7, septima: 7, septimo: 7, ocho: 8, octava: 8, octavo: 8, nueve: 9, novena: 9, noveno: 9, diez: 10, decima: 10, decimo: 10 }
-const numberToken = '(?:\\d{1,2}(?:ta|to|ra|ro|da|do|ma|mo|va|vo)?|' + Object.keys(numberWords).join('|') + ')'
-// Before/after a floor noun, un/una are indefinite articles ("un piso
-// exacto"), not evidence that the customer chose the first floor. "Uno",
-// ordinals and actual digits retain their numeric meanings.
-const floorNumberToken = '(?:\\d{1,2}(?:ta|to|ra|ro|da|do|ma|mo|va|vo)?|'
-  + Object.keys(numberWords).filter(word => !['un', 'una'].includes(word)).join('|') + ')'
-const tokenNumber = (value: string) => numberWords[value] ?? Number.parseInt(value, 10)
+/** Retired text parser: filters come only from the current extractor contract. */
+export function propertyFiltersFromText(_current: string, _pendingId = ''): PropertyFilters { void _pendingId;  return emptyPropertyFilters() }
 
-/** Conservative spelling compatibility; model values still carry the original evidence. */
-export function propertyFiltersFromText(current: string, pendingId = ''): PropertyFilters {
-  const value = normalized(current).replace(/(?<![a-z])(?:habiataciones|habitacones|abitaciones)\b/g, 'habitaciones')
-  const filters = emptyPropertyFilters()
-  const floor = value.match(new RegExp('\\b(?:planta|piso|nivel)\\s*(?:numero\\s*)?(' + floorNumberToken + ')\\b'))
-    || value.match(new RegExp('\\b(' + floorNumberToken + ')\\s*(?:planta|piso|nivel)\\b'))
-    || (pendingId === 'property_floor' ? value.match(new RegExp('^(?:la |el )?(' + floorNumberToken + ')$')) : null)
-  if (floor) filters.floor_number = tokenNumber(floor[1])
-  if (/\bplanta baja\b/.test(value)) filters.floor_number = 0
-  const bedrooms = value.match(new RegExp('(?:^|[^a-z0-9])(?:de\\s*)?(' + numberToken + ')\\s*(?:dormitorios?|habitaciones?|cuartos?)\\b'))
-  if (bedrooms) filters.bedrooms = tokenNumber(bedrooms[1])
-  const choices = bedroomOptionsFromText(current)
-  if (choices.length > 1) { filters.bedrooms = null; filters.bedrooms_any = choices }
-  if (bedrooms && !/\bno (?:es|son|necesito|necesariamente|tienen que ser)\b/.test(value)
-    && (/\b(?:exactamente|indispensables?|obligatori[oa]s?|obligatoriamente|necesariamente)\b/.test(value)
-      || /\b(?:menos|otra cantidad)\b.{0,25}\bno me sirve\b|\bno (?:acepto|quiero) menos\b/.test(value))) filters.bedrooms_required = true
-  const area = value.match(/\b(al menos|minimo|desde|hasta|maximo|menos de|mas de)\s*(\d+(?:[.,]\d+)?)\s*(?:m2|m²|metros)/)
-  if (area) filters[/hasta|maximo|menos de/.test(area[1]) ? 'max_area_m2' : 'min_area_m2'] = Number(area[2].replace(',', '.'))
-  return normalizedPropertyFilters(filters)
-}
-
-/** A request to change options is distinct from ranking the options already shown. */
 export function propertyPreferenceChange(current: string, previousQuery: unknown, semantics?: unknown): Row {
-  const value = normalized(current)
   const previous = normalizedPropertyFilters(object(previousQuery).filters)
-  const previousBedrooms = previous.bedrooms ?? (previous.bedrooms_any?.length ? Math.min(...previous.bedrooms_any) : null)
-  const bedrooms = propertyFiltersWithQuantityMeaning(propertyFiltersFromText(current), semantics).bedrooms
-  const fewer = /\b(?:menos|menor cantidad de|menor numero de)\s+(?:dormitorios?|habitaciones?|cuartos?)\b/.test(value)
-    && !/\bno\s+(?:quiero|deseo|acepto|busco|necesito)\s+(?:algo\s+con\s+)?menos\b|\bmenos\s+(?:dormitorios?|habitaciones?|cuartos?)\s+no\b/.test(value)
-  const cheaper = /\b(?:mas\s+(?:economic[oa]s?|barat[oa]s?|accesibles?)|menor\s+precio|precio\s+mas\s+bajo)\b/.test(value)
-    && !/\b(?:cual(?:es)? (?:es|son)|que opcion es)\b/.test(value)
-    && !/^(?:(?:prefiero|quiero|elijo|escojo) )?(?:el|la) mas (?:barat[oa]|economic[oa])(?: de es[at][oa]s)?$/.test(value)
-    && !/\b(?:cual|cuales|la|el)\b[^.!?]{0,35}\b(?:mas\s+(?:economic[oa]s?|barat[oa]s?)|menor\s+precio)\b[^.!?]{0,20}\b(?:de es[at]as|entre es[at]as)\b/.test(value)
-    && !/\bno\s+(?:quiero|deseo|busco|necesito)\s+(?:algo\s+)?mas\s+(?:economic|barat)/.test(value)
-    && !/\bno\s+(?:algo\s+)?mas\s+(?:economic|barat|accesible)/.test(value)
-  const reducingCount = bedrooms !== null && previousBedrooms !== null && bedrooms < previousBedrooms
-  const fewerBedrooms = fewer || reducingCount
-  const kind = cheaper ? 'cheaper' : fewerBedrooms ? 'fewer_bedrooms' : null
-  return { kind, bedrooms, previous_bedrooms: previousBedrooms, fewer_bedrooms: fewerBedrooms,
-    requires_bedroom_confirmation: kind === 'cheaper' && bedrooms === null && !fewerBedrooms,
-    evidence: kind ? current.trim().slice(0, 240) : '' }
+  const property = object(object(semantics).property)
+  const filters = acceptedExtractorConfidence(property.confidence) ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
+  const before = previous.bedrooms ?? (previous.bedrooms_any?.length ? Math.min(...previous.bedrooms_any) : null)
+  const fewer = before !== null && filters.bedrooms !== null && filters.bedrooms < before
+  const change = object(object(semantics).preference_change)
+  const valid = acceptedExtractorConfidence(change.confidence) && !!literalEvidence(change.evidence, current)
+    && ['cheaper', 'fewer_bedrooms'].includes(text(change.kind))
+  const specified = typeof change.bedrooms === 'number' && Number.isInteger(change.bedrooms)
+    && change.bedrooms > 0 && change.bedrooms <= 30 ? change.bedrooms : filters.bedrooms
+  const reduce = valid && (change.kind === 'fewer_bedrooms' || change.bedroom_decision === 'reduce')
+  const bedrooms = valid && change.bedroom_decision === 'keep' ? before : specified
+  return { kind: valid ? change.kind : fewer ? 'fewer_bedrooms' : null, bedrooms, previous_bedrooms: before,
+    fewer_bedrooms: reduce || fewer,
+    requires_bedroom_confirmation: valid && change.kind === 'cheaper' && change.bedroom_decision === 'unspecified' && bedrooms === null,
+    evidence: valid ? change.evidence : fewer ? property.evidence : '' }
 }
 
 export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
@@ -217,6 +187,7 @@ export function normalizedPendingQuestion(raw: unknown, catalog?: Row[]): Row {
   return { id, act: questionActs.has(text(row.act)) ? text(row.act) : id === 'unit_choice' ? 'choose_unit' : id === 'property_floor' ? 'choose_floor'
     : id === 'property_category' ? 'choose_category' : id === 'reservation_invitation' ? 'reservation' : id === 'brochure_offer' ? 'material'
     : id.startsWith('financing') ? 'financing' : id.startsWith('budget') ? 'budget' : id.startsWith('visit') ? 'visit' : 'other',
+  ...(id === 'financing_data' && Array.isArray(row.requested_fields) ? { requested_fields: row.requested_fields.filter(value => typeof value === 'string') } : {}),
   question: text(row.question).trim().slice(0, 500), target_ids: targets, candidate_ids: comparisonCandidates ?? ids(row.candidate_ids),
   ...(comparisonCategories.length > 1 ? { comparison_categories: comparisonCategories, comparison_bedrooms: comparisonBedrooms } : {}),
   ...(entryReference ? { amount_reference: entryReference } : {}),
@@ -233,6 +204,7 @@ ${DISCOUNT_REQUEST_EXTRACTION_RULES}
 ${SELECTION_PREFERENCES_RULES}
 ${VIEWS_PREFERENCE_RULES}
 Devuelva SIEMPRE turn_semantics conforme al esquema JSON estricto adjunto; sus campos, tipos y valores permitidos se definen allí.
+preference_change interpreta si ahora pide opciones más económicas o menos dormitorios, con cualquier redacción. bedroom_decision distingue mantener la cantidad actual, reducirla, indicar otra cantidad o dejarla sin definir. No adivine una cantidad para «menos» ni suponga que buscar algo más económico autoriza reducir dormitorios. Una unidad descartada se registra en unit_choice.kind=rejected con sus códigos; una consulta de características no descarta ni elige. Estos significados se interpretan aquí, no mediante palabras clave posteriores.
 Interprete el mensaje actual junto con historial_reciente y pregunta_pendiente. El historial aclara referencias como "sí", "esa", "ese precio" o "no estoy seguro", pero la evidencia siempre debe copiar palabras del mensaje ACTUAL.
 reservation distingue la intención de iniciar la separación/reserva (request), consultar condiciones o requisitos sin iniciar (information), rechazar o posponer ese proceso (declined) y ausencia de esa intención (none). «Quiero separar el 605», «ayúdeme a iniciar la reserva de esa unidad» y sus errores evidentes de escritura son request; «¿cuánto se paga para reservar?» o «¿cómo funciona la separación?» son information. «Por ahora no, entonces quiero separar el departamento 605» responde negativamente a la propuesta anterior y pide una reserva NUEVA: conserve answer_to_previous y use primary_intent=request_reservation, reservation.kind=request. La unidad mencionada identifica el objeto de la reserva, no convierte el turno en una nueva presentación ni en un recorrido. Copie evidencia literal de la petición completa, incluidas negaciones, condiciones y correcciones relevantes; no cite solo el verbo de una frase negada. Una reserva hipotética o condicionada no satisfecha no inicia el trámite. primary_intent=ask_reservation para information. El evento asked_reservation sirve para puntuar interés, nunca demuestra por sí solo que desea iniciar ahora. unit_numbers conserva los códigos realmente referidos y el catálogo comprobará su existencia; en referencias como «esa» puede usar una unidad inequívoca del contexto, nunca elegir entre varias. Solicitar el proceso requiere atención del asesor; no afirma disponibilidad, pago, reserva confirmada, cita, consentimiento financiero ni asesor asignado. No convierta la aceptación de detalles, una cifra de precio, un «sí» sin pregunta de reserva ni el historial en una solicitud nueva.
 En property.filters declare únicamente restricciones expresadas en el mensaje ACTUAL y copie en filter_evidence la frase literal que sustenta cada campo; deje vacío el resto. Las características de unidades ya ofrecidas pertenecen al contexto, no son filtros nuevos. Para comparar, pedir detalles o clasificar esas opciones, use operation, reference_kind, query_scope y unit_numbers; no repita sus dormitorios, planta o áreas como restricciones actuales. Una nueva restricción sí puede refinar el conjunto referido y necesita su propia evidencia, aunque esté expresada de forma natural y sin cifras.
@@ -274,26 +246,11 @@ function literalEvidence(value: unknown, current: string) {
   // its negations and corrections. Membership bounds the quote to the actual
   // turn, instead of accepting it at extraction and silently discarding it here.
   if (!evidence) return ''
-  return normalized(current).includes(normalized(evidence)) ? evidence : ''
+  return current.normalize('NFKC').toLowerCase().includes(evidence.normalize('NFKC').toLowerCase()) ? evidence : ''
 }
 
 /** A missing duplicate boolean quote may reuse a constraint's current evidence.
  * Required catalogue strength alone does not make a bedroom count inflexible. */
-function sharedBedroomRigidityEvidence(requirement: Row | null, quantities: Row[], current: string): string {
-  if (!requirement || !['eq', 'gte', 'lte', 'between'].includes(text(requirement.operator))) return ''
-  const evidence = literalEvidence(requirement.evidence, current)
-  const declaration = current.replace(/«[^»]*»|“[^”]*”|"[^"]*"/g, '')
-  if (!evidence || !normalized(declaration).includes(normalized(evidence))) return ''
-  const lexical = propertyFiltersFromText(evidence)
-  if (lexical.bedrooms_required !== true || lexical.bedrooms !== requirement.value) return ''
-  const compatibleQuantity = quantities.some(quantity => quantity.dimension === 'bedrooms'
-    && quantity.role === 'requirement' && acceptedExtractorConfidence(quantity.confidence)
-    && Array.isArray(quantity.values) && quantity.values.includes(requirement.value)
-    && (normalized(evidence).includes(normalized(text(quantity.evidence)))
-      || normalized(text(quantity.evidence)).includes(normalized(evidence))))
-  return compatibleQuantity ? evidence : ''
-}
-
 /** The model owns the meaning of quantities; normalization only checks its typed,
  * current evidence and keeps people and catalogue constraints in separate domains. */
 function normalizedHousingQuantities(raw: unknown, current: string): Row[] {
@@ -324,6 +281,7 @@ export function propertyFiltersWithQuantityMeaning(rawFilters: unknown, semantic
   const filters = normalizedPropertyFilters(rawFilters), data = object(semantics)
   if (!Object.hasOwn(data, 'housing_quantities')) return filters
   const quantities = Array.isArray(data.housing_quantities) ? data.housing_quantities.map(object) : []
+  if (!quantities.length) return filters
   const requested = quantities.filter(quantity => quantity.dimension === 'bedrooms' && quantity.role === 'requirement' && acceptedExtractorConfidence(quantity.confidence))
     .flatMap(quantity => Array.isArray(quantity.values) ? quantity.values : [])
   const values = filters.bedrooms_any?.length ? filters.bedrooms_any : filters.bedrooms !== null ? [filters.bedrooms] : []
@@ -334,11 +292,14 @@ export function propertyFiltersWithQuantityMeaning(rawFilters: unknown, semantic
 }
 
 /** Current, typed model evidence authorizes a request to start; catalogue and execution validate the result separately. */
-export function normalizedReservation(raw: unknown, current: string, pendingRaw?: unknown, answerRaw?: unknown): Row {
+export function normalizedReservation(raw: unknown, current: string, pendingRaw?: unknown, answerRaw?: unknown, authorityRaw?: unknown): Row {
   const reservation = object(raw)
+  const authority = normalizedActionAuthority(authorityRaw, current)
+  const authorized = actionAuthorized(authority, 'reservation')
   const evidence = literalEvidence(reservation.evidence, current)
   const valid = acceptedExtractorConfidence(reservation.confidence) && !!evidence && reservationKinds.has(text(reservation.kind)) && reservation.kind !== 'none'
   const result: Row = valid ? { kind: text(reservation.kind), evidence, confidence: reservation.confidence,
+    reference_kind: ['explicit', 'contextual', 'none'].includes(text(reservation.reference_kind)) ? reservation.reference_kind : 'none',
     unit_numbers: Array.isArray(reservation.unit_numbers)
       ? [...new Set(reservation.unit_numbers.map(text).filter(code => /^(?:LC-?)?\d{1,4}$/i.test(code)))].slice(0, 12) : [],
   } : { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' }
@@ -346,15 +307,16 @@ export function normalizedReservation(raw: unknown, current: string, pendingRaw?
   const answerEvidence = literalEvidence(answer.evidence, current)
   // Rebuild this proof from the caller's delivered receipt and current typed
   // answer every time; never preserve a model-supplied accepted_invitation.
-  if (['none', 'request'].includes(text(result.kind)) && pending.id === 'reservation_invitation'
+  if (authorized && ['none', 'request'].includes(text(result.kind)) && pending.id === 'reservation_invitation'
     && pending.act === 'reservation' && verifiedReservationInvitation(pending.reservation_invitation, pending.target_ids as string[])
     && answer.question_id === pending.id && answer.kind === 'affirmative' && acceptedExtractorConfidence(answer.confidence)
-    && answerEvidence && simpleReservationAcceptance(current)
+    && answerEvidence && simpleReservationAcceptance(current, answer)
     && Array.isArray(pending.target_ids) && pending.target_ids.length === 1) {
     return { kind: 'request', evidence: answerEvidence, confidence: answer.confidence, unit_numbers: [],
       accepted_invitation: { ...object(pending.reservation_invitation), target_ids: [...pending.target_ids] } }
   }
-  return result.kind === 'request' && !explicitReservationAction(text(result.evidence))
+  return result.kind === 'request' && (!authorized || actionDecision(authority, 'reservation').decision !== 'request'
+    || !explicitReservationAction(text(result.evidence), result))
     ? { kind: 'none', evidence: null, unit_numbers: [], confidence: 'low' } : result
 }
 
@@ -362,57 +324,14 @@ export function normalizedReservation(raw: unknown, current: string, pendingRaw?
  * Compatibility classifier for replies already sent before question memory was
  * introduced. New turns persist the returned id explicitly in the summary.
  */
-export function pendingQuestionFromReply(reply: string): Row {
-  const question = replyQuestions(reply).at(-1) || ''
-  if (!question) return {}
-  const value = normalized(question)
-  let id: PendingQuestionId | null = null
-  let act: string | undefined
-  const asksName = /\b(?:su nombre|tu nombre|como (?:se llama|te llamas)|con (?:que|cual) nombre|con quien (?:tenemos|tengo) el gusto)\b/.test(value)
-  const asksResidence = /\bresid(?:e|es|en|ir)\b|\b(?:su|tu|lugar de) residencia\b|\bresidencia (?:actual|habitual)\b|\b(?:donde|en que (?:ciudad|pais|lugar)).*\bviv(?:e|es|en|ir)\b/.test(value)
-  const unitReferent = /\b(?:unidad(?:es)?|departamentos?|suites?|penthouses?|local(?:es)?)\s*(?:numero\s*)?(?:lc[- ]?)?\d{1,4}\b(?!\s*(?:dormitorios?|habitaciones?|cuartos?|banos?|metros?|m2))/.test(normalized(reply))
-  if (asksName || asksResidence) id = asksName && asksResidence ? 'lead_profile' : asksName ? 'lead_profile_name' : 'lead_profile_residence'
-  else if (/\b(?:que|cual) (?:entidad|banco|cooperativa)\b/.test(value)
-    || /\b(?:prefiere|elige|escoge)\b/.test(value) && /\bpichincha\b.*\bjep\b|\bjep\b.*\bpichincha\b/.test(value)) id = 'financing_partner'
-  else if (operationalReservationInvitation(reply)) id = 'reservation_invitation'
-  else if (/visita|cita|recibirle|visitarnos|conocer el proyecto/.test(value)
-    && /que dia|cual dia|fecha|que hora|horario|cuando/.test(value)) id = 'visit_date_time'
-  else if (/visita|cita|visitarnos|conocer el proyecto|conocerlo en persona/.test(value)
-    && /gustaria|desea|quiere|coordin|agend|animaria/.test(value)) id = 'visit_invitation'
-  else if (/\b(?:destinaria|destinarias|aportaria|aportarias|utilizaria|usaria)\b.*\b(?:ese|este|el|esa|esta)\s+(?:monto|importe|dinero|cantidad)\b.*\bentrada\b/.test(value)) id = 'financing_down_payment'
-  else if ((/presupuesto total|monto total|valor total|toda la compra/.test(value)
-    && /entrada|capital inicial|aporte inicial/.test(value))
-    || /(?:ese|este|el) (?:monto|importe|dinero|valor).*(?:corresponde|destinad|para|es).*(?:entrada|capital inicial)/.test(value)) id = 'budget_kind'
-  else if (/\b(?:que monto|cuanto|cuanta cantidad|que cantidad)\b/.test(value)
-    && /\b(?:entrada|aporte propio|aportacion propia)\b/.test(value)) id = 'financing_down_payment'
-  else if (/presupuesto|cuanto.*(?:invertir|dispone|cuenta|entrada|capital)|capital aproximado|monto disponible|capital inicial|entrada/.test(value)) id = 'budget_amount'
-  else if (/vivir.*invertir|invertir.*vivir|residencia.*inversion|inversion.*residencia/.test(value)) id = 'property_purpose'
-  else if (floorInvitationTarget(question) !== null) { id = 'property_requirements'; act = 'explore_alternatives' }
-  else if (categoryInvitationTarget(question)) id = 'property_category'
-  else if (/que tipo de espacio|suite.*departamento|departamento.*suite|departamento.*penthouse|penthouse.*departamento|vivienda.*local|local.*vivienda/.test(value)) id = 'property_category'
-  else if (/que planta|cual.*planta|que piso|cual.*piso/.test(value)) id = 'property_floor'
-  else if (/cuantos? (?:dormitorios?|habitaciones?|cuartos?)/.test(value)) id = 'property_bedrooms'
-  else if (/dormitorios?|habitaciones?|cuartos?/.test(value) && /revis|explor|evalu|acept|consider|servir/.test(value)) {
-    id = 'property_bedrooms'; act = 'explore_alternatives'
-  }
-  else if (/que (?:area|superficie|tamano)|cuantos metros/.test(value)) id = 'property_area'
-  else if (unitReferent && /(?:\b(?:desea|quiere|gustaria|confirmar)\b[^.!?]*(?:continuar|seguir)|\b(?:continuamos|seguimos)|\ble parece(?: bien)? (?:continuar|seguir))\s+con\s+(?:(?:el|la|este|esta|ese|esa)\s+)?(?:unidad|opcion|departamento|suite|penthouse|local)\b/.test(value)
-    && !/financi|credito|banco|reserva|visita|cita|pago/.test(value)) {
-    id = 'unit_choice'; act = 'confirm_unit'
-  }
-  else if (unitReferent && /cual.*(?:revisar|explorar|conocer|prefiere|interesa)|que opcion|(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer)/.test(value)) {
-    id = 'unit_choice'
-    if (/(?:desea|gustaria|quiere).*(?:detalles|distribucion|conocer)/.test(value)) act = 'show_unit_details'
-  }
-  else if (/cuando.*decision|plazo.*compra/.test(value)) id = 'purchase_timing'
-  return id ? normalizedPendingQuestion({ id, question, ...(act ? { act } : {}) }) : {}
-}
+/** Legacy prose has no authority to recreate a delivered question receipt. */
+export function pendingQuestionFromReply(_reply: string): Row { void _reply;  return {} }
 
 export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw: unknown, monetaryReferences: Row[] = []): Row {
   const data = object(object(raw).turn_semantics)
   const choice = object(data.unit_choice), choiceEvidence = literalEvidence(choice.evidence, current)
   const choiceValid = acceptedExtractorConfidence(choice.confidence) && !!choiceEvidence
-    && ['selected', 'conditional'].includes(text(choice.kind))
+    && ['selected', 'conditional', 'rejected'].includes(text(choice.kind))
   const categoryChoice=object(data.category_choice),categoryChoiceEvidence=literalEvidence(categoryChoice.evidence,current)
   const categoryChoiceValid=acceptedExtractorConfidence(categoryChoice.confidence)&&!!categoryChoiceEvidence
     && ['selected','conditional'].includes(text(categoryChoice.kind))&&propertyCategories.has(text(categoryChoice.category))
@@ -423,10 +342,10 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
     ? text(data.primary_intent) : 'other'
   const answer = object(data.answer_to_previous)
   const answerEvidence = literalEvidence(answer.evidence, current)
-  let answerQuestionId = acceptedExtractorConfidence(answer.confidence) && answerEvidence && pendingId
+  const answerQuestionId = acceptedExtractorConfidence(answer.confidence) && answerEvidence && pendingId
     && text(answer.question_id) === pendingId && answerKinds.has(text(answer.kind)) && answer.kind !== 'none'
     ? pendingId : ''
-  const reservation = normalizedReservation(data.reservation, current, pending, answer)
+  const reservation = normalizedReservation(data.reservation, current, pending, answer, object(raw).action_authority)
   const decisions: Row[] = []
   // A validated affirmative belongs to its delivered operational invitation.
   // Merely liking a unit, accepting details, an ambiguous alternative, or a
@@ -450,214 +369,34 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
   const property = object(data.property)
   const propertyEvidence = literalEvidence(property.evidence, current)
   const propertyConfident = acceptedExtractorConfidence(property.confidence) && !!propertyEvidence
-  const excluded = groundedCurrentCategoryExclusions(property, current, pending)
-  let category = propertyConfident && propertyCategories.has(text(property.category)) && !excluded.includes(text(property.category))
+  const excluded = propertyConfident && Array.isArray(property.excluded_categories) ? [...new Set(property.excluded_categories.map(text).filter(category => propertyCategories.has(category)))] : []
+  const category = propertyConfident && propertyCategories.has(text(property.category)) && !excluded.includes(text(property.category))
     ? text(property.category) : null
-  const value = normalized(current)
   const normalizationIssues: string[] = []
-  if (propertyConfident && Array.isArray(property.excluded_categories)
-    && property.excluded_categories.some(value => !excluded.includes(text(value))))
-    normalizationIssues.push('category_exclusion_without_current_referent')
   const housingQuantities = normalizedHousingQuantities(data.housing_quantities, current)
   const hasQuantityContract = Object.hasOwn(data, 'housing_quantities')
-  const mentionedCategories = [...propertyCategories].filter(candidate => new RegExp(candidate === 'departamento'
-    ? '\\b(?:departamentos?|departametnos?|departametos?|apartamentos?)\\b' : `\\b${candidate}s?\\b`).test(value))
-  if (!propertyConfident && mentionedCategories.length === 1 && !/\b(?:no quiero|no prefiero|no me interesa|descarto)\b/.test(value)) category = mentionedCategories[0]
-  const genericResidential = !isPassivePurchaseEvidence(current)
-    && /\bviviendas?|residencial|(?:algo|opciones?|espacio) para vivir\b/.test(value)
-    && !/\bsuites?|depart\w*ment\w*|apartamentos?|penthouses?|locales?\b/.test(value)
-  if (genericResidential && category) { category = null; normalizationIssues.push('generic_residential_is_not_category') }
-  let group = genericResidential ? 'residential' : category === 'local' ? 'commercial'
-    : category ? 'residential' : propertyConfident && ['residential', 'commercial'].includes(text(property.group)) ? text(property.group) : null
-  const lexicalFilters = propertyFiltersFromText(current, pendingId)
-  const semanticFilters = propertyConfident ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
-  const structuredCatalog = normalizeCatalogRequest(object(raw).catalog_request, current)
-  const bedroomRequirements = Array.isArray(structuredCatalog?.requirements) ? structuredCatalog.requirements.map(object)
-    .filter(requirement => requirement.field === 'bedrooms' && requirement.strength === 'required') : []
-  const bedroomRequirement = bedroomRequirements.length === 1 ? bedroomRequirements[0] : null
-  const filterEvidence = Object.fromEntries(Object.keys(object(property.filter_evidence))
-    .map(key => [key, propertyConfident ? literalEvidence(object(property.filter_evidence)[key], current) : '']))
-  if (semanticFilters.bedrooms_required === true && !filterEvidence.bedrooms_required) {
-    const sharedEvidence = sharedBedroomRigidityEvidence(bedroomRequirement, housingQuantities, current)
-    if (sharedEvidence) filterEvidence.bedrooms_required = sharedEvidence
-  }
-  // Legacy extractions have no per-field evidence. New extractions cannot turn
-  // historical attributes into current constraints merely by repeating them.
-  if (property.filter_evidence !== undefined) {
-    for (const key of Object.keys(semanticFilters) as (keyof PropertyFilters)[]) {
-      if (semanticFilters[key] != null && !filterEvidence[key]) {
-        delete semanticFilters[key]
-        normalizationIssues.push(`property_filter_without_current_evidence:${key}`)
-      }
-    }
-    Object.assign(semanticFilters, normalizedPropertyFilters(semanticFilters))
-  }
-  const preferenceChange = propertyPreferenceChange(current, {})
-  if (preferenceChange.fewer_bedrooms === true && lexicalFilters.bedrooms === null) {
-    semanticFilters.bedrooms = null; semanticFilters.bedrooms_required = false; delete semanticFilters.bedrooms_any
-    if (category && !mentionedCategories.includes(category)) { category = null; normalizationIssues.push('fewer_bedrooms_does_not_choose_category') }
-  }
-  if (semanticFilters.bedrooms_required === true && lexicalFilters.bedrooms_required !== true && !filterEvidence.bedrooms_required) {
-    semanticFilters.bedrooms_required = null
-    normalizationIssues.push('bedrooms_requirement_without_explicit_evidence')
-  }
-  const filters: PropertyFilters = { ...semanticFilters }
-  // These are two representations of the same current constraint. A validated
-  // catalogue condition supplies its own evidence; an omitted duplicate quote
-  // must not change "at least two" into "exactly two" in durable filters.
-  // Multiple conditions and strict gt/lt remain in the catalogue contract.
-  if (propertyConfident && bedroomRequirement && ['eq', 'gte', 'lte', 'between'].includes(text(bedroomRequirement.operator))
-    && Number.isInteger(bedroomRequirement.value) && Number(bedroomRequirement.value) >= 1 && Number(bedroomRequirement.value) <= 30
-    && (bedroomRequirement.operator !== 'between' || Number.isInteger(bedroomRequirement.upper_value)
-      && Number(bedroomRequirement.upper_value) >= Number(bedroomRequirement.value) && Number(bedroomRequirement.upper_value) <= 30)) {
-    const before = JSON.stringify(filters)
-    filters.bedrooms = Number(bedroomRequirement.value)
-    delete filters.bedrooms_any; delete filters.bedrooms_operator; delete filters.bedrooms_upper
-    if (bedroomRequirement.operator !== 'eq') filters.bedrooms_operator = bedroomRequirement.operator as 'gte' | 'lte' | 'between'
-    if (bedroomRequirement.operator === 'between') filters.bedrooms_upper = Number(bedroomRequirement.upper_value)
-    filterEvidence.bedrooms = text(bedroomRequirement.evidence)
-    filterEvidence.bedrooms_operator = text(bedroomRequirement.evidence)
-    if (bedroomRequirement.operator === 'between') filterEvidence.bedrooms_upper = text(bedroomRequirement.evidence)
-    if (before !== JSON.stringify(filters)) normalizationIssues.push('catalog_requirement_supplies_bedroom_relation')
-  }
-  for (const [key, lexicalValue] of Object.entries(lexicalFilters)) {
-    if (structuredCatalog) continue
-    if (lexicalValue === null) continue
-    const field = key as keyof PropertyFilters, semanticValue = semanticFilters[field]
-    // An omitted current-field quote in the typed contract is not permission
-    // to promote a floor described in a document/history into a new constraint.
-    // A literal value answering the actual floor question remains recoverable.
-    if (field === 'floor_number' && property.filter_evidence !== undefined && !filterEvidence.floor_number
-      && !(answerQuestionId === 'property_floor' && answer.kind === 'value')) continue
-    const groundedSemanticValue = propertyConfident && !!filterEvidence[field] && semanticValue != null
-    if (groundedSemanticValue) {
-      if (JSON.stringify(semanticValue) !== JSON.stringify(lexicalValue)) normalizationIssues.push(`extractor_filter_precedes_keywords:${field}`)
-    } else Object.assign(filters, { [field]: lexicalValue })
-  }
-  const floorSource = filterEvidence.floor_number || current
-  const declaredFloor = floorEvidence(floorSource, pendingId === 'property_floor')
-  const currentFloorRequirement = Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(requirement =>
-    object(requirement).field === 'floor_number')
-  const floorIsConstraint = !!filterEvidence.floor_number || currentFloorRequirement
-    || answerQuestionId === 'property_floor' && answer.kind === 'value'
-    || property.filter_evidence === undefined && propertyConfident && filters.floor_number !== null
-  if (floorIsConstraint && declaredFloor.kind === 'exact' && filters.floor_number !== declaredFloor.number) {
-    filters.floor_number = declaredFloor.number
-    filterEvidence.floor_number = floorSource
-    normalizationIssues.push('floor_number_corrected_from_current_evidence')
-  } else if (declaredFloor.kind === 'relative' && filters.floor_number !== null) {
-    filters.floor_number = null
-    filterEvidence.floor_number = ''
-    normalizationIssues.push('relative_floor_does_not_supply_number')
-  } else if (declaredFloor.kind === 'other' && filters.floor_number !== null) {
-    filters.floor_number = null
-    filterEvidence.floor_number = ''
-    normalizationIssues.push('floor_evidence_does_not_supply_exact_number')
-  }
-  if (filters.bedrooms !== null && !semanticFilters.bedrooms_any?.includes(filters.bedrooms)) delete filters.bedrooms_any
-  else if (filters.bedrooms_any?.length) filters.bedrooms = null
-  // A syntactically valid integer is insufficient: the same number may refer
-  // to people or evaluate existing options. Do not let the lexical fallback
-  // recreate a filter that the typed current interpretation does not support.
-  if (hasQuantityContract) {
-    const groundedFilters = propertyFiltersWithQuantityMeaning(filters, { housing_quantities: housingQuantities })
-    if (groundedFilters.bedrooms !== filters.bedrooms || JSON.stringify(groundedFilters.bedrooms_any) !== JSON.stringify(filters.bedrooms_any)) {
-      filters.bedrooms = null; delete filters.bedrooms_any; filters.bedrooms_required = null
-      filterEvidence.bedrooms = ''; filterEvidence.bedrooms_any = ''; filterEvidence.bedrooms_required = ''
-      normalizationIssues.push('bedroom_filter_without_bedroom_requirement')
+  const group = category === 'local' ? 'commercial' : category ? 'residential'
+    : propertyConfident && ['residential', 'commercial'].includes(text(property.group)) ? text(property.group) : null
+  const filterEvidence = Object.fromEntries(Object.entries(object(property.filter_evidence))
+    .map(([key, evidence]) => [key, propertyConfident ? literalEvidence(evidence, current) : '']))
+  const filters = propertyConfident ? normalizedPropertyFilters(property.filters) : emptyPropertyFilters()
+  for (const key of Object.keys(filters) as (keyof PropertyFilters)[]) {
+    if (filters[key] != null && !filterEvidence[key]) {
+      delete filters[key]
+      normalizationIssues.push('property_filter_without_current_evidence:' + key)
     }
   }
-  // A bedroom answer is not a category choice. Keep a genuinely mentioned
-  // category; older confirmed preferences are inherited by property-context.
-  const bedroomRequest = filters.bedrooms != null || !!filters.bedrooms_any?.length
-    || Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(r => object(r).field === 'bedrooms')
-  if (bedroomRequest && category && !mentionedCategories.includes(category)
-    && !['explicit', 'relative', 'comparison'].includes(text(property.reference_kind))) {
-    category = null
-    group = 'residential'
-    normalizationIssues.push('bedroom_requirement_does_not_choose_category')
-  }
-  const otherConstraint = filters.floor_number != null || filters.min_area_m2 != null || filters.max_area_m2 != null
-    || declaredFloor.kind === 'relative'
-    || Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(r =>
-      ['floor_number', 'area_internal_m2', 'area_exterior_m2', 'area_total_m2', 'bathrooms_full'].includes(text(object(r).field)))
-  if (otherConstraint && category && !mentionedCategories.includes(category)
-    && !['explicit', 'relative', 'comparison', 'followup'].includes(text(property.reference_kind))) {
-    category = null
-    // Reject the group inferred from that same unsupported type as well. A
-    // floor, area or bathroom preference cannot move an established local
-    // search into housing (or the reverse). Keep only independent current
-    // asset evidence; property-context inherits the previously accepted scope.
-    const mentionedGroups = [...new Set(mentionedCategories.map(type => type === 'local' ? 'commercial' : 'residential'))]
-    group = genericResidential || bedroomRequest ? 'residential' : mentionedGroups.length === 1 ? mentionedGroups[0] : null
-    normalizationIssues.push('property_requirement_does_not_choose_category')
-  }
-  if ((bedroomRequest || otherConstraint) && !mentionedCategories.length
-    && !['explicit', 'relative', 'comparison', 'followup'].includes(text(property.reference_kind)) && excluded.length) {
-    excluded.length = 0
-    normalizationIssues.push('property_requirement_does_not_exclude_categories')
-  }
-  // The interpreter has already identified bedrooms, not commercial rooms or
-  // household size. Apply that typed meaning without scanning the message.
-  if (propertyConfident && !category && group !== 'residential' && (filters.bedrooms != null || filters.bedrooms_any?.length
-    || Array.isArray(structuredCatalog?.requirements) && structuredCatalog.requirements.some(r => object(r).field === 'bedrooms'))
-    && housingQuantities.some(q => q.dimension === 'bedrooms' && q.role === 'requirement')) {
-    group = 'residential'
-    normalizationIssues.push('bedroom_requirement_establishes_residential_search')
-  }
-  const hasFilters = Object.values(filters).some(value => value !== null)
-  if (hasFilters && pendingId.startsWith('budget') && /habit|dormitor|cuarto|planta|piso|opciones/.test(value)) {
-    answerQuestionId = ''; normalizationIssues.push('property_query_is_not_budget_answer')
-  }
+  Object.assign(filters, normalizedPropertyFilters(filters))
   const selector = propertyConfident && unitSelectors.has(text(property.selector)) ? text(property.selector) : null
-  const asksRanking = /\b(?:cual|cuales|que|cuanto)\b.*\b(?:mas grande|mas amplio|mayor|mas pequen|mas barat|mas economic|menor)/.test(value)
-  const asksDetails = /\b(?:detalles|distribucion|que (?:tiene|incluye|ofrece))\b/.test(value)
-  // Answering a previous question does not restate a historical category as a
-  // new catalogue request. Keep genuine current constraints and explicit acts;
-  // an answer with operation=none cannot erase an already confirmed selection.
-  const passivePropertyAnswer = primaryIntent === 'answer_previous' && property.operation === 'none'
-    && !hasFilters && !genericResidential && !mentionedCategories.length && !asksRanking && !asksDetails && !structuredCatalog
-    && !selector && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)
-    && !['explicit', 'relative', 'comparison', 'followup'].includes(text(property.reference_kind))
-  if (passivePropertyAnswer) {
-    category = null; group = null; excluded.length = 0
-    normalizationIssues.push('previous_answer_does_not_restart_property_search')
-  }
-  const overviewWithoutScope = isGeneralProjectOverviewWithoutPurchaseScope(raw, current)
-  if (property.operation === 'none' && !selector && !hasFilters
-    && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)
-    && (isPassivePurchaseEvidence(propertyEvidence) || overviewWithoutScope) && (group || category)) {
-    group = null; category = null
-    normalizationIssues.push('property_scope_from_passive_source')
-  }
   let operation = propertyConfident && operations.has(text(property.operation)) ? text(property.operation) : 'none'
-  const explicitOperation = propertyConfident && operations.has(text(property.operation)) && property.operation !== 'none'
-  if (explicitOperation) {
-    if (asksRanking && operation !== 'rank') normalizationIssues.push('extractor_operation_precedes_ranking_keywords')
-  } else if (asksRanking) operation = 'rank'
-  else if (hasFilters || genericResidential) operation = 'search'
-  else if (propertyConfident) {
-    if (property.reference_kind === 'comparison') operation = 'compare'
-    else if (asksDetails && !overviewWithoutScope) operation = 'details'
-    else if (category && property.reference_kind !== 'relative' && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) operation = 'search'
-    else if (primaryIntent === 'select_property' || property.reference_kind === 'relative') operation = 'select'
+  const hasUnit = Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0
+  if (operation === 'select' && !hasUnit && !selector && !['relative', 'followup'].includes(text(property.reference_kind))) {
+    operation = 'search'; normalizationIssues.push('constraint_does_not_select_unit')
   }
-  if (operation === 'select' && category && !['relative', 'followup'].includes(text(property.reference_kind))
-    && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
-    operation = 'search'; normalizationIssues.push('category_choice_refines_search')
-  }
-  if (genericResidential && operation === 'select' && !selector && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
-    operation = 'search'; normalizationIssues.push('generic_group_does_not_select_unit')
-  }
-  if (operation === 'select' && hasFilters && !selector && !['explicit', 'relative', 'comparison'].includes(text(property.reference_kind))
-    && !(Array.isArray(property.unit_numbers) && property.unit_numbers.length)) {
-    operation = 'search'; normalizationIssues.push('property_filter_does_not_select_unit')
-  }
-  const queryScope = !passivePropertyAnswer && propertyConfident && queryScopes.has(text(property.query_scope)) ? text(property.query_scope)
-    : operation === 'rank' && /\b(?:de es[at]as|entre es[at]as|de las (?:que|opciones))\b/.test(value) ? 'offered'
-      : operation === 'rank' || operation === 'search' ? 'catalog' : null
+  const queryScope = propertyConfident && queryScopes.has(text(property.query_scope)) ? text(property.query_scope) : null
 
   return {
+    action_authority: normalizedActionAuthority(object(raw).action_authority, current),
     primary_intent: primaryIntent,
     primary_evidence: primaryIntent === 'other' ? null : reservationIntent ? reservation.evidence : primaryEvidence,
     confidence: primaryIntent === 'other' ? 'low' : reservationIntent ? reservation.confidence : data.confidence,
@@ -670,6 +409,9 @@ export function normalizeTurnSemantics(raw: unknown, current: string, pendingRaw
       : { kind: 'none', evidence: null, confidence: 'low', unit_numbers: [] },
     category_choice:categoryChoiceValid?{kind:categoryChoice.kind,category:categoryChoice.category,evidence:categoryChoiceEvidence,confidence:categoryChoice.confidence}
       :{kind:'none',category:null,evidence:null,confidence:'low'},
+    preference_change: acceptedExtractorConfidence(object(data.preference_change).confidence)
+      && literalEvidence(object(data.preference_change).evidence, current)
+      ? object(data.preference_change) : { kind: 'none', bedrooms: null, bedroom_decision: 'unspecified', evidence: '', confidence: 'low' },
     ...(data.discount_request !== undefined ? { discount_request: normalizedDiscountRequest(data.discount_request, current) } : {}),
     ...(hasQuantityContract ? { housing_quantities: housingQuantities, household: householdFromQuantities(housingQuantities) } : {}),
     interpretation: { extractor_primary_intent: extractedPrimaryIntent, canonical_primary_intent: primaryIntent, decisions },

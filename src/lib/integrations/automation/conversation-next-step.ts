@@ -1,27 +1,28 @@
 import { object, text, type Row } from './data'
-import { normalized } from './sdr-rules'
+import { acceptedExtractorConfidence } from './extractor-confidence'
 
 /** Acknowledgement alone cannot identify which property the client chooses. */
-export function isBareAffirmative(current: string): boolean {
-  return /^(?:si(?: claro| por favor| esta bien| me parece bien)?|claro(?: que si)?|de acuerdo|esta bien|me parece bien|perfecto|por supuesto|revisemos|veamos)(?: gracias)?$/.test(normalized(current))
+export function isBareAffirmative(current: string, interpreted: unknown = {}): boolean {
+  const row = object(interpreted), answer = object(object(row.turn_semantics || row.semantica_turno || row).answer_to_previous)
+  return answer.kind === 'affirmative' && acceptedExtractorConfidence(answer.confidence)
+    && !!text(answer.evidence).trim() && current.includes(text(answer.evidence))
 }
 
 /** A yes accepts continuing, but cannot choose between the alternatives in a
  * delivered question. This guard never turns an acknowledgement into an action. */
-export function unresolvedChoice(current: string, pending: Row): Row | null {
+export function unresolvedChoice(current: string, pending: Row, interpreted: unknown = {}): Row | null {
   if (!['unit_choice', 'property_category', 'property_floor', 'property_bedrooms', 'property_area'].includes(text(pending.id))) return null
-  const answer = current.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[.!¡,¿?]/g, '').trim()
-  const yes = isBareAffirmative(current)
-  const unspecifiedUnit = /^(?:si )?(?:hay|tengo) una (?:unidad|opcion) (?:que me interesa|que quisiera|que quiero)(?: revisar| ver| conocer)?(?: primero)?$/.test(answer)
-  const alternatives = /\s(?:o|u)\s/i.test(text(pending.question))
+  const row = object(interpreted), semantics = object(row.turn_semantics || row.semantica_turno || row)
+  const answer = object(semantics.answer_to_previous), property = object(semantics.property)
+  if (answer.question_id !== pending.id || !acceptedExtractorConfidence(answer.confidence)
+    || !text(answer.evidence).trim() || !current.includes(text(answer.evidence))) return null
   const multiple = Array.isArray(pending.candidate_ids) && pending.candidate_ids.length > 1
   const choice = ['choose_unit', 'choose_floor', 'choose_category'].includes(text(pending.act))
-  const asksWhich = /\b(?:cu[aá]l|qu[eé] (?:planta|piso|tipo)|prefiere)\b/i.test(text(pending.question))
-  if (!(yes && (alternatives || choice && multiple && asksWhich) || unspecifiedUnit && pending.id === 'unit_choice')) return null
-  const question = unspecifiedUnit || !alternatives && pending.id === 'unit_choice' ? '¿Cuál de las unidades le interesa revisar primero?'
-    : !alternatives && pending.id === 'property_floor' ? '¿En qué planta le gustaría revisar las opciones?'
-      : text(pending.question)
-  return { question,
+  const resolved = object(semantics.unit_choice).kind === 'selected' || !!property.category
+    || Array.isArray(property.unit_numbers) && property.unit_numbers.length > 0
+    || Object.values(object(property.filters)).some(value => typeof value === 'number')
+  if (resolved || !choice || !(answer.kind === 'uncertain' || answer.kind === 'affirmative' && (multiple || pending.act !== 'choose_unit'))) return null
+  return { question: text(pending.question),
     instruction: 'La respuesta afirmativa no elige entre las alternativas de la pregunta anterior. Pregunte cuál prefiere con el tono habitual, nombrando las opciones. Solo hace falta aclarar la elección: no añada precios, plantas, medidas ni una nueva descripción del proyecto. No elija una por su cuenta, no haga todavía la comparación ni repita el catálogo.' }
 }
 

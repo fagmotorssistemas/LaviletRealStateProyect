@@ -1,14 +1,13 @@
-import { normalized } from './sdr-rules'
-import { object, text, type Row } from './data'
+import { object,text,type Row } from './data'
+import { acceptedExtractorConfidence } from './extractor-confidence'
 
 /** A short acceptance has no separate information request. The caller still
  * needs an actual process invitation; these words alone authorize nothing. */
-export function simpleFinancingAcceptance(current: string): boolean {
-  const message = normalized(current)
-  if (/[¿?]/.test(current) || /\b(?:pero|solo|siempre que|a condicion|antes de|si me (?:aprueban|aseguran|garantizan))\b/.test(message)) return false
-  if (/^(si|si claro|claro|si por favor|si esta bien|si me parece bien|esta bien|bueno esta bien|adelante|de acuerdo|continuemos|si continuemos|por supuesto|si por supuesto|hagamoslo|me gustaria)$/.test(message)) return true
-  return /^(?:(?:si|claro|bueno|de acuerdo|adelante|por supuesto) )?(?:continuemos|sigamos|avancemos)(?: (?:por favor|con (?:el |la |banco |cooperativa )?[a-z .'-]+))?$/.test(message)
-    && !/\b(?:cuanto|cual|como|que|entrada|cuotas?|tasa|porcentaje|plazo|mensualidad|requisitos|saber|explicar|informacion)\b/.test(message)
+export function simpleFinancingAcceptance(current: string, answerRaw: unknown = {}): boolean {
+  const answer = object(answerRaw), quote = text(answer.evidence).trim()
+  return answer.question_id === 'financing_invitation' && answer.kind === 'affirmative'
+    && acceptedExtractorConfidence(answer.confidence) && !!quote
+    && current.normalize('NFKC').toLowerCase().includes(quote.normalize('NFKC').toLowerCase())
 }
 
 export const FINANCING_INVITATION_RECEIPT_VERSION = 'financing-invitation-v1'
