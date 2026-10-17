@@ -1,0 +1,167 @@
+{
+  "generatedAt": "2026-10-17T16:03:50.889Z",
+  "baseCommit": "27ad152c845c976f6cd789672164c05959b4ff24",
+  "status": "local_uncommitted_not_deployed",
+  "changes": [
+    {
+      "id": "batch-source",
+      "before": "Una cita con espacios en vez de saltos de l?nea degradaba una interpretaci?n v?lida a ambigua.",
+      "after": "Reconstrucci?n del fragmento contiguo actual por formato; conserva palabras, cifras, negaciones y orden. Las contradicciones entre bloques vuelven al extractor.",
+      "expected": "Atender todas las consultas y declaraciones del lote sin iniciar una aclaraci?n gen?rica por formato."
+    },
+    {
+      "id": "material-profile",
+      "before": "Consultar contenido del brochure deten?a tambi?n el recordatorio aunque se aportara nombre en el mismo turno.",
+      "after": "Entrega, explicaci?n del contenido y captura de perfil tienen decisiones independientes. Solo se solicita el dato pendiente autorizado; se conserva el l?mite del recordatorio y las excepciones de entrega.",
+      "expected": "Explicar el brochure y preguntar solo residencia tras recibir el nombre; petici?n expresa permite entregarlo."
+    },
+    {
+      "id": "discovery",
+      "before": "Consultar precios de todas las categor?as pod?a desactivar el siguiente paso comercial; la captura inicial quedaba opcional.",
+      "after": "El alcance general de la informaci?n no activa el modo de pausa. Se conserva la pregunta nueva pertinente; una pregunta ya formulada se difiere sin repetirla por rutina.",
+      "expected": "Responder primero y continuar con la decisi?n pertinente, respetando pausas, negativas y datos conocidos."
+    },
+    {
+      "id": "current-plan",
+      "before": "Una pregunta hist?rica pod?a reaparecer como objetivo pese a que el plan actual la hab?a diferido.",
+      "after": "El objetivo de redacci?n se obtiene primero del plan actual y las consultas temporales de altura expiran al siguiente turno.",
+      "expected": "La respuesta y la continuaci?n usan el mismo alcance actual."
+    },
+    {
+      "id": "floor-query",
+      "before": "La respuesta sobre quinta planta pod?a terminar preguntando por 206/207; las comparaciones inclu?an opciones de otras plantas.",
+      "after": "La IA declara altura y referente en floor_query. El c?digo ejecuta comparaciones num?ricas del cat?logo, conserva requisitos simult?neos y presupuesto, y distingue datos incompletos. Se retira el lector textual de plantas del normalizador de solicitudes.",
+      "expected": "Comparar solo las opciones consultadas, explicar una diferencia de precio pertinente y pedir consentimiento antes de explorarlas; no elegir otra categor?a, aumentar presupuesto ni iniciar financiamiento."
+    },
+    {
+      "id": "batch-completeness",
+      "before": "En una simulaci?n el extractor omiti? la preferencia por suites del primer mensaje y conserv? solo la petici?n de algo peque?o del segundo.",
+      "after": "Instrucci?n expl?cita de integraci?n de cada mensaje del lote, con elecciones independientes de la intenci?n principal. El simulador registra las salidas originales y las normalizadas.",
+      "expected": "Conservar la elecci?n de categor?a junto con consultas o preferencias adicionales."
+    }
+  ],
+  "verification": {
+    "offline": {
+      "tests": 403,
+      "passed": 403,
+      "failed": 0,
+      "groups": [
+        {
+          "name": "contracts",
+          "exitCode": 0,
+          "tests": 384,
+          "passed": 384,
+          "failed": 0
+        },
+        {
+          "name": "runtime",
+          "exitCode": 0,
+          "tests": 19,
+          "passed": 19,
+          "failed": 0
+        }
+      ],
+      "evidence": "tmp/conversation-contract-validation/result.json"
+    },
+    "lint": {
+      "exitCode": 0,
+      "files": [
+        "scripts/evaluate-conversation-stability.cjs",
+        "scripts/run-conversation-contract-tests.cjs",
+        "src/lib/integrations/automation/catalog-request.ts",
+        "src/lib/integrations/automation/catalog-result.test.ts",
+        "src/lib/integrations/automation/commercial-journey.ts",
+        "src/lib/integrations/automation/current-evidence-fragments.ts",
+        "src/lib/integrations/automation/interpretation-neutral.test.ts",
+        "src/lib/integrations/automation/lead-introduction.ts",
+        "src/lib/integrations/automation/property-context.ts",
+        "src/lib/integrations/automation/response-plan.ts",
+        "src/lib/integrations/automation/turn-communication.ts",
+        "src/lib/integrations/automation/turn-interpretation.ts",
+        "src/lib/integrations/automation/current-quote.ts",
+        "src/lib/integrations/automation/catalog-floor-query.ts",
+        "src/lib/integrations/automation/batched-flow-continuity.test.ts"
+      ]
+    },
+    "build": {
+      "startedAt": "2026-10-17T16:01:47.626Z",
+      "finishedAt": "2026-10-17T16:03:09.305Z",
+      "exitCode": 0
+    },
+    "realModelCases": [
+      {
+        "file": "tmp/batched-flow/live-full-flow-v4.json",
+        "id": "carlos-batched-full-flow",
+        "status": "passed",
+        "turns": 11,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "realMessages": false,
+        "databaseWrites": false,
+        "reviewerEnabled": false
+      },
+      {
+        "file": "tmp/batched-flow/live-variants.json",
+        "id": "brochure-mixed-profile-variant",
+        "status": "passed",
+        "turns": 3,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "realMessages": false,
+        "databaseWrites": false,
+        "reviewerEnabled": false
+      },
+      {
+        "file": "tmp/batched-flow/live-floor-final.json",
+        "id": "floor-batched-reference-variant",
+        "status": "passed",
+        "turns": 3,
+        "models": [
+          "gpt-6-luna"
+        ],
+        "realMessages": false,
+        "databaseWrites": false,
+        "reviewerEnabled": false
+      }
+    ],
+    "distinctSelectedTurns": 17,
+    "priorAttempts": [
+      {
+        "file": "tmp/batched-flow/live-full-flow.json",
+        "status": "interrupted",
+        "reason": "Simulador no transmit?a la memoria confirmada entre turnos."
+      },
+      {
+        "file": "tmp/batched-flow/live-full-flow-v2.json",
+        "status": "interrupted",
+        "reason": "Alineaci?n del objetivo actual de redacci?n y correcci?n del identificador de pregunta del evaluador."
+      },
+      {
+        "file": "tmp/batched-flow/live-full-flow-v3.json",
+        "status": "failed",
+        "reason": "Detect? omisi?n de categor?a suite en la extracci?n y persistencia de consulta temporal de altura; se corrigieron antes de v4."
+      }
+    ],
+    "limitations": [
+      "La simulaci?n usa cat?logo y operaciones ficticias; no acredita entrega de WhatsApp ni recepci?n productiva de alertas.",
+      "Las comprobaciones actuales no equivalen a verificar todas las variantes posibles ni a revisar la totalidad hist?rica.",
+      "La naturalidad de todas las conversaciones no queda demostrada por estas secuencias.",
+      "El build final conserva el aviso previo test_contacts_action_failed/UNKNOWN durante prerender, con salida satisfactoria."
+    ]
+  },
+  "release": {
+    "newSqlMigrations": [],
+    "productionChanges": false,
+    "reviewerEnabled": false,
+    "realLeadMessagesSent": false,
+    "commitCreated": false,
+    "pushed": false,
+    "deployed": false
+  },
+  "historicalReview": {
+    "status": "not_run_remains_deferred",
+    "previousInventoryFailures": 432
+  }
+}

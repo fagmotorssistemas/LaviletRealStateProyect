@@ -144,7 +144,100 @@ cases.push({ id: 'contextual-commercial-choice', useScope: true,
     assert.equal(turns[2].semantics.property.group, 'residential')
     for (const turn of turns) assert.doesNotMatch(turn.reply, /(?:vivienda.{0,20}o.{0,20}local|local.{0,20}o.{0,20}vivienda)/i)
   } })
+const suiteCatalog = [['206', 2, 99720], ['207', 2, 99720], ['505', 5, 114678], ['508', 5, 169878]].map(([id, floor, price]) => ({
+  id: 'eval-s' + id, unit_number: id, category: 'suite', bedrooms: 1, bathrooms_full: 1, floor_number: floor,
+  area_internal_m2: id === '508' ? 73.86 : 49.86, area_exterior_m2: 12.68, spaces: id === '508' ? ['Balcón', 'Estudio'] : ['Balcón'],
+  published_commercial_price: price, status: 'disponible', is_published: true,
+}))
+cases.push({ id: 'carlos-batched-full-flow', useScope: true, catalog: [...catalog, ...suiteCatalog],
+  messages: [
+    ['Hola', 'Buenas noches podría ayudarme con info porfavor'],
+    ['Y que incluye ese brochure?', 'Bueno me llamo Carlos'],
+    ['Bueno envíeme el brochure por favor', 'Para ver más sobre el proyecto'],
+    ['Muchas gracias', 'Y qué precios tiene?'],
+    ['Entiendo', 'Pero si estan caros'], 'Bueno está bien',
+    ['Entiendo mejor suites', 'Quieor algo pequeño'],
+    ['Bueno más o menos unos 100 mil tengo pensado gastar', 'Para esta compra'],
+    'Oh ya, y en la última planta no tiene algo disponible?',
+    'Y qué precio tiene las de la quinta planta?',
+    ['Y más arriba tiene algo disponible?', 'O sea en otro piso más alto'],
+  ], check(turns) {
+    assert.equal(turns[1].semantics.communication.kind, 'substantive')
+    assert.equal(turns[1].profile.full_name, 'Carlos')
+    assert.deepEqual(turns[1].profile_decision.allowed_fields, ['current_residence'])
+    assert.equal(turns[1].receipts.brochure_shared, false)
+    assert.equal(turns[1].question.continuation_id, 'lead_profile_residence')
+    assert.equal(turns[2].receipts.brochure_shared, true)
+    assert.equal(turns[2].question.continuation_id, 'property_category')
+    assert.equal(turns[3].plan.action, 'answer_current_question')
+    assert.equal(turns[6].plan.question_id, 'budget_amount')
+    assert.deepEqual(turns[7].plan.selection_scope.unit_ids.sort(), ['eval-s206', 'eval-s207'])
+    assert.equal(turns[8].plan.action, 'explore_floor_options')
+    assert.deepEqual(turns[8].plan.selection_scope.floors, [5])
+    assert.equal(turns[8].plan.budget_guidance.comparison.coverage, 'none')
+    assert.equal(turns[10].semantics.communication.kind, 'substantive')
+    assert.equal(turns[10].plan.action, 'explore_floor_options')
+    assert.equal(turns[10].plan.floor_exploration.matching_unit_ids.length, 0)
+    assert.equal(turns[10].plan.floor_exploration.highest_available_floor, 5)
+    for (const index of [8, 9, 10]) {
+      assert.doesNotMatch(turns[index].reply, /206|207/)
+      assert.equal(turns[index].selected.length, 0)
+    }
+  } })
+cases.push({ id: 'brochure-mixed-profile-variant', useScope: true,
+  messages: ['Buenas, me ayuda con información del proyecto porfa',
+    ['¿Qué viene en ese PDF?', 'Me puede llamar Elena'], 'Actualmente vivo en Loja'],
+  check(turns) {
+    assert.equal(turns[1].semantics.communication.kind, 'substantive')
+    assert.deepEqual(turns[1].profile_decision.allowed_fields, ['current_residence'])
+    assert.equal(turns[1].question.continuation_id, 'lead_profile_residence')
+    assert.equal(turns[1].receipts.brochure_shared, false)
+    assert.equal(turns[2].receipts.brochure_shared, true)
+    assert.equal(turns[2].profile.residence_city, 'Loja')
+  } })
+cases.push({ id: 'floor-batched-reference-variant', useScope: true, catalog: [...catalog, ...suiteCatalog],
+  summary: { _lead_profile: { full_name: 'Elena', name_status: 'confirmed', residence_city: 'Loja', residence_status: 'confirmed' },
+    _lead_introduction: { status: 'complete', brochure_sent: true, presentation_sent: true, request_sent: true },
+    _interpretation_memory: { budget: { status: 'maximum_total', amount: 100000, confidence: 'high', evidence: 'unos 100 mil para esta compra' },
+      property: { category: 'suite', group: 'residential', confidence: 'high', evidence: 'quiero una suite' } },
+    _property_context: { query: { group: 'residential', category: 'suite', operation: 'search', scope: 'catalog', filters: {} },
+      offered_ids: ['eval-s206', 'eval-s207'], selected_ids: [], pending_question: { id: 'unit_choice', act: 'choose_unit', candidate_ids: ['eval-s206', 'eval-s207'] } } },
+  messages: [['¿Qué hay en el piso más alto?', 'Estoy hablando de suites'], '¿Y cuánto cuestan las de la quinta planta?', ['¿Y arriba de eso?', '¿En el piso siguiente?']],
+  check(turns) {
+    assert.equal(turns[0].plan.action, 'explore_floor_options')
+    assert.deepEqual(turns[0].plan.selection_scope.floors, [5])
+    assert.equal(turns[0].plan.budget_guidance.comparison.coverage, 'none')
+    assert.equal(turns[1].property_context.current_floor_query, undefined)
+    assert.equal(turns[2].plan.action, 'explore_floor_options')
+    assert.equal(turns[2].plan.floor_exploration.matching_unit_ids.length, 0)
+    for (const turn of turns) assert.doesNotMatch(turn.reply, /206|207/)
+  } })
+const apartmentCatalog = [2, 3, 4, 5].flatMap(floor => [
+  { id: 'eval-d' + floor + '02', unit_number: floor + '02', bedrooms: 3, floor_number: floor, area_internal_m2: 120.83, area_exterior_m2: 27.03, published_commercial_price: 229577 + floor * 7000 },
+  ...(floor === 2 ? [] : [{ id: 'eval-d' + floor + '04', unit_number: floor + '04', bedrooms: 2, floor_number: floor, area_internal_m2: 109.69, area_exterior_m2: 34.59, published_commercial_price: 230349 + (floor - 3) * 10969 }]),
+].map(unit => ({ ...unit, category: 'departamento', bathrooms_full: 2, status: 'disponible', is_published: true })))
+cases.push({ id: 'residence-and-bedroom-scope', useScope: true, catalog: apartmentCatalog,
+  messages: ['¿Cuál es el precio base de los departamentos de 2 habitaciones?', ['gracias', 'me llamo carlos', 'vivi en ecuador'],
+    'Ahora vivo en Loja', 'Aún no lo tengo definido la verdad',
+    '¿Esas medidas son solo de los departamentos de dos habitaciones o también de los de tres?'],
+  check(turns) {
+    assert.equal(turns[1].profile.residence_status, 'unknown')
+    assert.equal(turns[1].profile.declared_location.country, 'Ecuador')
+    assert.equal(turns[1].writer_contract.estado_comercial.brochure.accion, 'await_profile')
+    assert.equal(turns[1].writer_contract.estado_comercial.objetivo_presentacion.offer_project_brochure, false)
+    assert.doesNotMatch(turns[1].reply, /brochure|folleto|informaci.n y planos/i)
+    assert.equal(turns[1].question.continuation_id, 'lead_profile_residence')
+    assert.equal(turns[2].profile.residence_city, 'Loja')
+    assert.equal(turns[2].receipts.brochure_shared, true)
+    assert.equal(turns[3].plan.presentation, 'floors')
+    assert.deepEqual(turns[3].writer_evidence.presentation_scope.bedroom_counts, [2])
+    assert.ok(turns[3].writer_evidence.units.every(unit => unit.bedrooms === 2))
+    assert.match(turns[3].reply, /(?:2|dos) (?:dormitorios|habitaciones)/i)
+    assert.doesNotMatch(turns[3].reply, /120[,.]83|27[,.]03/)
+    assert.ok(turns[4].writer_evidence.units.some(unit => unit.bedrooms === 3))
+  } })
 cases.push({ id: 'visual-luna', visual: true, messages: [] })
+for (const id of selected) if (!cases.some(fixture => fixture.id === id)) throw Error('EVALUATION_UNKNOWN_CASE: ' + id)
 const realFetch = global.fetch, measurements = [], requests = [], results = []
 const cost = usage => executionCost(usage.map(item => ({ key: 'model_request', input: { model: item.model }, output: { token_usage: item.usage } }))).estimatedUsd
 global.fetch = async (url, options) => {
@@ -164,11 +257,11 @@ global.fetch = async (url, options) => {
   record.status = response.status
   return response
 }
-let lastWriterContext = {}, lastExtraction = {}
+let lastWriterContext = {}, lastExtraction = {}, currentExtractions = []
 const generate = async (rules, input, schema, _image, _file, _tone, task = 'data') => {
   if (task === 'writing') lastWriterContext = clone(input)
   const output = await aiJson(rules, input, schema, undefined, undefined, DEFAULT_TONE, task)
-  if (schema?.properties?.turn_semantics) lastExtraction = clone(output)
+  if (schema?.properties?.turn_semantics) { lastExtraction = clone(output); currentExtractions.push(clone(output)) }
   return output
 }
 const save = () => {
@@ -182,6 +275,7 @@ async function run() {
   if (!process.env.OPENAI_API_KEY) throw Error('OPENAI_NOT_CONFIGURED')
   const extractorPrompt = fs.readFileSync('supabase/prompts/extractor-eventos.md', 'utf8')
   for (const fixture of cases.filter(c => !selected.length || selected.includes(c.id))) {
+    const caseCatalog = fixture.catalog || catalog
     const record = { id: fixture.id, turns: [], status: 'running' }; results.push(record)
     if (fixture.visual) {
       const download = require('../src/lib/integrations/automation/media-download.ts'), previousDownload = download.downloadMedia
@@ -203,12 +297,15 @@ async function run() {
     let summary = clone(fixture.summary || {}), history = clone(fixture.history || []), reservation = null
     let calendar = {}, visitRequest = null, visitState = {}, slot = {}
     try {
-      for (const [index, current] of fixture.messages.entries()) {
+      for (const [index, turn] of fixture.messages.entries()) {
+        currentExtractions = []
+        const catalog = caseCatalog
+        const messages = Array.isArray(turn) ? turn : [turn], current = messages.join('\n')
         const sourceId = 'synthetic-' + fixture.id + '-' + index
         const classified = fixture.useScope ? await classifyBusinessScope(current, history, true, object(summary._turn_intent).scope, summary._pending_question)
           : { kind: 'property', property_message: current, uncertain: false }
         let interpreted = await interpretConversationTurn({ mensaje_actual: current, source_message_id: sourceId,
-          source_at: '2026-10-16T21:00:00Z', current_messages: [{ external_message_id: sourceId, content: current, sent_at: '2026-10-16T21:00:00Z' }],
+          source_at: '2026-10-16T21:00:00Z', current_messages: messages.map((content, i) => ({ external_message_id: sourceId + '-' + i, content, sent_at: '2026-10-16T21:00:00Z' })),
           historial: history.slice(-10), resumen: summary, contexto_propiedades: summary._property_context,
           catalogo_unidades: catalog, pregunta_pendiente: summary._pending_question, perfil_inicial: summary._lead_profile,
           reservation_context: reservation ? projectReservationOperation({ catalog, lead: { id: 'synthetic-lead',
@@ -249,7 +346,8 @@ async function run() {
           audit = { ...audit, source: 'visit_intake', action: visitRequest ? 'submitted' : 'collecting', preference: slot,
             registration_verified: !!visitRequest, request_id: visitRequest?.request_id }
         }
-        let info = { ...clone(verified), historial: history, lead: {}, perfil_lead: profile, semantica_turno: semantics,
+        let info = { ...clone(verified), catalogo: catalog, historial: history, lead: {}, perfil_lead: profile, semantica_turno: semantics,
+          hechos_confirmados: summary._interpretation_memory,
           solicitudes_interpretadas: interpreted.requests, contrato_turno: intent, property_context: property.context,
           referencia_unidad: property, interaction_mode: mode, _sales_memory: summary._sales_memory,
           recorrido_comercial: summary._commercial_journey,
@@ -287,11 +385,13 @@ async function run() {
         record.turns.push({ current, reply: written.reply, mode: mode.mode, profile, profile_decision: audit.profile_collection_decision || {},
           selected: object(summary._property_context).selected_ids || [], property_context: clone(summary._property_context),
           semantics: clone(semantics), scope: scopeDecision, introduction: clone(audit.profile_introduction || {}),
+          raw_interpretations: clone(currentExtractions), interpretation_diagnostic: clone(interpreted.diagnostic),
           saved_introduction: clone(summary._lead_introduction || {}), requests: interpreted.requests, plan, receipts,
           reservation_authorized: reservationAuthorized,
           writer_facts: object(lastWriterContext.contexto_verificado).instalaciones || [], question: written.audit.question,
+          ...(fixture.id === 'residence-and-bedroom-scope' ? { writer_contract: clone(lastWriterContext.contrato_redaccion), writer_evidence: clone(lastWriterContext.evidencia_turno) } : {}),
           ...(dialogue ? { visit_preference: slot, visit_registered: !!visitRequest } : {}) })
-        history.push({ role: 'cliente', content: current, external_message_id: sourceId },
+        history.push(...messages.map((content, i) => ({ role: 'cliente', content, external_message_id: sourceId + '-' + i })),
           { role: 'bot', content: written.reply, tool_calls: { writer_receipts: receipts } })
         save()
         console.log(JSON.stringify({ case: fixture.id, turn: index + 1, mode: mode.mode, reply: written.reply }))

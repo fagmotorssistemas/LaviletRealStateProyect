@@ -1,4 +1,5 @@
 import { object, text, type Row } from './data'
+import { currentQuote } from './current-quote'
 
 export const EVIDENCE_SOURCES_SCHEMA = { type: 'array', maxItems: 30, items: { type: 'object', additionalProperties: false,
   properties: { field: { type: 'string', description: 'property, primary_intent, catalog_request o requests.N; nunca permisos, dinero ni identidad.' },
@@ -7,6 +8,8 @@ const comparable = (value: string) => value.normalize('NFKC').toLowerCase().repl
 
 /** Restore complete source lines, never change numbers, negations or order. */
 export function formattedEvidenceQuote(value: unknown, current: string): string {
+  const source = currentQuote(value, current)
+  if (source) return source
   const quote = text(value).trim()
   if (!quote || current.normalize('NFKC').toLowerCase().includes(quote.normalize('NFKC').toLowerCase())) return quote
   const unwrapped = quote.replace(/^(?:«([\s\S]*)»|“([\s\S]*)”|"([\s\S]*)")$/, (_m, a, b, c) => a ?? b ?? c)
@@ -57,7 +60,7 @@ export function currentMessageFragments(current: string): Row[] {
 /** Restore the actual source span of a multi-message informational quotation.
  * No paraphrases, historical fragments, reordering or operational permissions. */
 export function informationalEvidenceQuote(value: unknown, current: string): string {
-  const quote = text(value).trim(), normalized = current.normalize('NFKC').toLowerCase()
+  const quote = formattedEvidenceQuote(value, current), normalized = current.normalize('NFKC').toLowerCase()
   if (!quote || normalized.includes(quote.normalize('NFKC').toLowerCase())) return quote
   const fragments = quote.split(/\r?\n/).map(part => part.trim()).filter(Boolean)
   if (fragments.length < 2 || fragments.length > 12) return quote
@@ -98,7 +101,8 @@ export function reconcileInformationalEvidence(raw: Row, current: string): Row {
   return { ...raw,
     requests: Array.isArray(raw.requests) ? raw.requests.map(value => {
       const request = object(value)
-      return request.domain === 'property' ? { ...request, evidence: informationalEvidenceQuote(request.evidence, current) } : request
+      return { ...request, evidence: request.domain === 'property' ? informationalEvidenceQuote(request.evidence, current)
+        : formattedEvidenceQuote(request.evidence, current) }
     }) : raw.requests,
     catalog_request: raw.catalog_request ? { ...object(raw.catalog_request),
       evidence: informationalEvidenceQuote(object(raw.catalog_request).evidence, current) } : raw.catalog_request,

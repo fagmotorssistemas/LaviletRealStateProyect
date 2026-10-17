@@ -1,0 +1,102 @@
+{
+  "recordedAt": "2026-10-17T17:08:12.340Z",
+  "changes": [
+    "Separate the initial brochure offer from profile reminders and preserve declared-location meaning.",
+    "Project recommendation evidence onto structured presentation members; retain independent current queries.",
+    "Expose original writer decision/profile/data JSON and extractor repair reason in the workflow UI.",
+    "Keep selected message visible during scrolling and preserve selected conversation on background loads."
+  ],
+  "validation": {
+    "contracts": {
+      "tests": 413,
+      "passed": 413,
+      "failed": 0
+    },
+    "realModel": {
+      "case": "residence-and-bedroom-scope",
+      "status": "passed",
+      "turns": 5,
+      "calls": 15,
+      "estimatedUsd": 0.031170180000000002,
+      "models": [
+        "gpt-6-luna"
+      ],
+      "realMessages": false,
+      "databaseWrites": false
+    },
+    "browser": {
+      "status": "passed",
+      "widths": [
+        1440,
+        768,
+        390
+      ],
+      "checks": [
+        "sticky selected message",
+        "exact JSON copy",
+        "clipboard fallback",
+        "extractor repair JSON",
+        "no horizontal overflow",
+        "background arrivals preserve selected message and open JSON"
+      ]
+    },
+    "typescript": "passed",
+    "eslintChangedTsFiles": "passed",
+    "productionBuild": "passed",
+    "additionalArchitectureBrowser": {
+      "status": "failed",
+      "node": "embedding_bypassed",
+      "causeObserved": "Pointer intercepted by minimap during navigation.",
+      "reproducedWithStickyDisabled": true,
+      "fixedInThisChange": false,
+      "limitation": "Separate existing architecture-map navigation issue. Architecture-map implementation changes were reverted; sticky header applies to the message-step view."
+    },
+    "additionalRealModel": {
+      "case": "brochure-mixed-profile-variant",
+      "status": "passed",
+      "turns": 3,
+      "calls": 9,
+      "estimatedUsd": 0.019947549999999998,
+      "realMessages": false,
+      "databaseWrites": false,
+      "assessment": "Structured flow checks passed. Naturalness remains a separate judgment: the name acknowledgement in turn 2 (Puede llamarla Elena) was awkward. Passing these assertions does not certify every phrase."
+    },
+    "totalSyntheticTurns": 8,
+    "totalModelCalls": 24
+  },
+  "limits": {
+    "localChangesOnly": true,
+    "productionMutations": false,
+    "newMigrations": false,
+    "reviewerEnabled": false,
+    "historicalSuiteRerun": false,
+    "guaranteeForAllConversations": false,
+    "pendingChecks": [
+      "Historical 432 failing checks remain deferred.",
+      "Separate architecture-map minimap navigation failure remains unresolved."
+    ]
+  },
+  "capturedProductionInputs": [
+    "altura-entrada-redactor.json",
+    "residencia-entrada-redactor.json",
+    "departamentos-entrada-redactor.json"
+  ],
+  "findings": [
+    {
+      "event": "883593cb-8b1a-4d0b-90e6-4048ff60f180",
+      "finding": "Extractor repair requested by literal evidence validation; old plan contained ambiguous communication and contradictory continuation goals.",
+      "issue": "non_current_evidence:primary_intent",
+      "localFix": "Whitespace-safe current-batch evidence restoration and current-journey goal precedence, preserved from previous work."
+    },
+    {
+      "event": "543f6eb0-5516-4c1f-9b9e-d04de21ca921",
+      "finding": "Profile retained a former location, but writer contract ordered another brochure offer on the residence reminder.",
+      "localFix": "Distinct await_profile action; recognize typed location meaning; clarify only missing current residence."
+    },
+    {
+      "event": "0ec9c2bf-a7c8-4d6c-bc85-612753838f07",
+      "finding": "Planner selected 304/404/504 but writer evidence also contained three-bedroom apartment aggregates.",
+      "localFix": "Presentation-member evidence projection, scoped group aggregates, explicit subset descriptions, independent current comparisons preserved."
+    }
+  ]
+}

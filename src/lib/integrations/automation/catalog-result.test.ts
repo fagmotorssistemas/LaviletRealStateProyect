@@ -32,6 +32,7 @@ const exteriorMessage = 'Cómo está, busco un local con espacio exterior'
 const countMessage = 'Y cuantos departamos de 3 dormitorios tiene?'
 const requirement = (field: string, operator: string, value: number | string, extra: Row = {}): Row => ({field,operator,value,upper_value:null,strength:'required',evidence:'espacio exterior',...extra})
 const request = (purpose='search', requirements=[requirement('area_exterior_m2','gt',0)], extra: Row = {}): Row => ({
+  floor_query: { kind: 'none', reference_floor: null, evidence: '', confidence: 'high' },
   version:'catalog-request-v1',surface_basis:'none',price_comparison:null,purpose,metric:purpose === 'count' ? 'unit_count' : null, requirements, semantic_preferences:[],
   evidence:exteriorMessage,confidence:'high',...extra })
 const info = (req=request(), category='local'): Row => ({
@@ -60,6 +61,7 @@ test('one extractor call preserves typed comparisons with embeddings enabled or 
     semantics.answer_to_previous={question_id:'none',kind:'none',evidence:'',confidence:'high'}
     Object.assign(property,{group:category==='local'?'commercial':'residential',category,operation:'search',query_scope:'catalog',evidence:message})
     raw.catalog_request={...req};delete object(raw.catalog_request).version
+    raw.communication = { kind: 'substantive', evidence: message, confidence: 'high', greeting_present: false }
     let calls=0
     const result=await interpretConversationTurn({mensaje_actual:message,catalog_search:{embeddingsEnabled:enabled}}, {
       activePrompt:async()=> 'Extraer el turno',aiJson:async(_rules,_data,schema)=>{

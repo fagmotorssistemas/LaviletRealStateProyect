@@ -16,6 +16,7 @@ import { ReviewDiagnostics, ReviewReferenceLegend, DiagnosticJson } from './Revi
 import { reviewDiagnostics, reviewStepRejected } from './reviewDiagnostics'
 import { CatalogSummarySection } from './CatalogSummaryPanel'
 import { messageReviewMarker } from './messageReviewMarker'
+import { WriterContextPanel } from './WriterContextPanel'
 
 const formatUsd = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value)
 
@@ -31,6 +32,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
   const [stepOrder, setStepOrder] = useState<number | null>(null)
   const pendingRequest = useRef<AbortController | null>(null)
   const panel = useRef<HTMLElement>(null)
+  const messageDock = useRef<HTMLElement>(null)
   const load = useCallback(async (cursor?: string, background = false) => {
     if (background && pendingRequest.current) return
     pendingRequest.current?.abort()
@@ -47,6 +49,11 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
       if (!response.ok) throw new Error(body.error || 'No se pudo leer la bitácora')
       if (controller.signal.aborted) return
       const incoming: WorkflowExecution[] = Array.isArray(body.executions) ? body.executions : []
+      const initialGroup = conversationGroups(incoming)[0]
+      if (initialGroup) {
+        setGroupId(previous => previous || initialGroup.id)
+        setBatchId(previous => previous || initialGroup.batches[0]?.members[0]?.id || '')
+      }
       setExecutions(previous => {
         const merged = [...new Map([...previous, ...incoming].map(item => [item.id, item])).values()]
         return merged.sort((a, b) => (b.receivedAt || b.occurredAt).localeCompare(a.receivedAt || a.occurredAt) || b.id.localeCompare(a.id))
@@ -72,16 +79,22 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
   const group = groups.find(item => item.id === groupId) || groups[0]
   const batch = group?.batches.find(item => item.id === batchId || item.members.some(member => member.id === batchId)) || group?.batches[0]
   const execution = batch?.execution
+  useEffect(() => {
+    const element = messageDock.current
+    if (!element) return
+    const resize = () => element.parentElement?.style.setProperty('--trace-message-offset', `${Math.ceil(element.getBoundingClientRect().height) + 24}px`)
+    resize()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(resize)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [execution?.id])
   const steps = useMemo(() => [...(execution?.steps || [])].sort((a, b) => a.order - b.order), [execution])
   const reviewMarker = useMemo(() => messageReviewMarker(steps), [steps])
   const step = steps.find(item => item.order === stepOrder) || steps.find(item => item.key === 'dialogue_decision') || steps[0]
   const attempts = step?.key === 'response_coverage' ? responseAttempts(steps, step) : []
   const explanation = execution && step ? explainStep(execution, step) : null
   const processing = execution && ['pending', 'processing'].includes(execution.status)
-  useEffect(() => {
-    if (group && !groupId) setGroupId(group.id)
-    if (batch && !batchId) setBatchId(batch.members[0].id)
-  }, [group, batch, groupId, batchId])
   const handoffs = steps.filter(item => item.key === 'advisor_handoff')
   const selectStep = (order: number) => { setStepOrder(order); requestAnimationFrame(() => { panel.current?.focus(); panel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) }
 
@@ -97,7 +110,7 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
     {view === 'maintenance' && <p className={styles.maintenanceNote}>Tareas programadas del sistema, como revisión de visitas y seguimientos. Una ejecución completada no significa que se haya enviado un mensaje.</p>}
     <div className={styles.filters}>
       {view === 'conversations' && <label><span>Buscar lead en todo el historial</span><div className={styles.search}><Search size={15} /><input value={query} maxLength={100} onChange={event => { resetResults(); setQuery(event.target.value) }} placeholder="Nombre del lead o ID de Kommo" /></div></label>}
-      <label><span>Conversación</span><select aria-label="Conversación" value={group?.id || ''} onChange={event => { setGroupId(event.target.value); setBatchId(''); setStepOrder(null) }} disabled={!groups.length}>
+      <label><span>Conversación</span><select aria-label="Conversación" value={group?.id || ''} onChange={event => { setGroupId(event.target.value); setBatchId(groups.find(item => item.id === event.target.value)?.batches[0]?.members[0]?.id || ''); setStepOrder(null) }} disabled={!groups.length}>
         {!groups.length && <option value="">Sin registros</option>}
         {groups.map((item, index) => <option value={item.id} key={item.id}>{item.label} · {item.id.startsWith('lead:') ? 'Historial del lead' : item.known ? `Conversación ${index + 1}` : 'Conversación no identificada'} · {item.batches.length} mensajes o lotes</option>)}
       </select></label>
@@ -131,12 +144,14 @@ export function MessageTraceView({ architecture = false }: { architecture?: bool
           </button>})}
         </nav>}
         <div className={styles.main}>
+          <section className={styles.messageDock} data-sticky={!architecture} ref={messageDock} aria-label="Mensaje analizado">
           <header className={styles.messageHeading}>
             <div><span className={styles.eyebrow}>{batch && batch.total > 1 ? 'Mensajes procesados juntos' : 'Mensaje seleccionado'} · {formatDate(execution.receivedAt || execution.occurredAt)}</span>
               <h3>{execution.leadName}</h3></div>
             <span className={styles.badge} data-tone={execution.traceAvailable && !execution.traceWarning ? 'observed' : 'missing'}>{processing ? execution.outcome : execution.traceAvailable && !execution.traceWarning ? 'Pasos registrados' : 'Evidencia incompleta'}</span>
           </header>
           <div className={styles.messageContent}>{batch?.members.map(member => <blockquote key={member.id}>{member.message || 'El contenido del mensaje no está disponible en esta bitácora.'}</blockquote>)}</div>
+          </section>
           {batch && batch.total > batch.members.length && <p className={styles.notice}>El registro indica {batch.total} mensajes en este lote; hay {batch.members.length} vistas previas cargadas. Los pasos son compartidos, no una ejecución independiente por cada mensaje.</p>}
           {batch && batch.total > 1 && batch.total === batch.members.length && <p className={styles.muted}>Estos mensajes pertenecen al mismo lote registrado y comparten el recorrido.</p>}
           <p className={styles.outcome}>{execution.outcome}{execution.action === 'accepted' ? ' · Entrega y lectura en WhatsApp sin confirmar.' : ''}</p>
@@ -221,6 +236,12 @@ function AIExchange({ step, onCause }: { step: WorkflowExecutionStep; onCause?: 
     <PromptCopyButton step={step} />
     <AgentCallCost step={step} />
     <p>Modelo: {String(step.input.model || 'No registrado')}. Se muestran los valores conservados de esta llamada.</p>
+    <WriterContextPanel step={step} />
+    {!!input.recuperacion_interpretacion && typeof input.recuperacion_interpretacion === 'object' && <section aria-label="Motivo de la nueva extracción">
+      <h5>Nueva interpretación solicitada por el sistema</h5>
+      <p>El sistema pidió corregir los bloques indicados. Esta llamada corresponde al extractor, no a la IA revisora.</p>
+      <details className={styles.technical}><summary>JSON del motivo y los campos por corregir</summary><pre>{JSON.stringify(input.recuperacion_interpretacion, null, 2)}</pre></details>
+    </section>}
     <ReviewReferenceLegend step={step} />
     {attempts.length > 0 && <details className={styles.technical} open={step.status === 'failed'}>
       <summary>Conexión con la IA · {attempts.length} intento(s)</summary>

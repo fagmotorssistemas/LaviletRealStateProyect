@@ -1,5 +1,6 @@
 import { object,text,type Row } from './data'
 import { acceptedExtractorConfidence } from './extractor-confidence'
+import { currentQuote } from './current-quote'
 
 export const TURN_COMMUNICATION_KINDS = ['greeting_only', 'courtesy_only', 'substantive', 'ambiguous', 'reaction_only'] as const
 export type TurnCommunicationKind = typeof TURN_COMMUNICATION_KINDS[number]
@@ -22,16 +23,17 @@ export const communicationSchema = {
 }
 
 export const COMMUNICATION_INTERPRETATION_RULES = `communication identifica por IA la función comunicativa del turno completo; no depende de listas de saludos, idioma, ortografía ni palabras clave del código. Lea todos los mensajes actuales juntos, incluidas muletillas, audios transcritos y correcciones. greeting_only significa que solo está iniciando o retomando el contacto con un saludo social, aunque incluya vacilaciones o formas coloquiales. courtesy_only es una cortesía de cierre o devolución sin consulta, decisión, dato solicitado ni autorización nueva. reaction_only es una reacción sin contenido que requiera respuesta. substantive identifica una consulta, declaración, respuesta a la pregunta pendiente, decisión, autorización o rechazo que deba atenderse. ambiguous significa que no puede determinar qué solicita; no equivale a una necesidad comercial sin categoría.
-La presencia de un saludo no convierte todo el turno en greeting_only: saludo más consulta, aceptación, rechazo, baja o datos pendientes es substantive y conserva todas esas solicitudes. Un sí que responde a una decisión pendiente es substantive, no una cortesía ni una nueva autorización genérica. Un saludo y una muletilla no declaran interés en vivienda o comercio. greeting_present registra el saludo de forma independiente, sin autorizar repetir una bienvenida ya entregada. evidence cita literalmente el turno actual; el historial ayuda a resolver respuestas y referencias, pero no aporta una petición nueva. Si la función comunicativa es ambigua o la confianza es baja, pida ayuda abierta para entender la consulta, sin iniciar calificación por faltarle datos al perfil. Esta interpretación se realiza en la misma extracción del turno; no redacta el mensaje al cliente ni decide operaciones.`
+La presencia de un saludo no convierte todo el turno en greeting_only: saludo más consulta, aceptación, rechazo, baja o datos pendientes es substantive y conserva todas esas solicitudes. Un sí que responde a una decisión pendiente es substantive, no una cortesía ni una nueva autorización genérica. Un saludo y una muletilla no declaran interés en vivienda o comercio. greeting_present registra el saludo de forma independiente, sin autorizar repetir una bienvenida ya entregada. evidence cita literalmente el turno actual; el historial ayuda a resolver respuestas y referencias, pero no aporta una petición nueva. Si la función comunicativa es ambigua o la confianza es baja, pida ayuda abierta para entender la consulta, sin iniciar calificación por faltarle datos al perfil. Esta interpretación se realiza en la misma extracción del turno; no redacta el mensaje al cliente ni decide operaciones.
+INTEGRIDAD DEL LOTE: revise cada mensajes_actuales por separado y después integre el turno completo en el JSON. Un segundo mensaje que añade una característica no sustituye una elección declarada en el primero; solo una corrección o rechazo real la modifica. Una preferencia puede ser breve, coloquial o tener errores: «mejor suites» seguido de «quiero algo pequeño» declara categoría suite y una preferencia por tamaño compacto, no solo una búsqueda residencial genérica. «Mejor algo comercial» puede declarar locales según el contexto, sin exigir la palabra local. Registre la preferencia en category_choice y property, además de las demás consultas y datos. Una duda sobre el brochure junto con nombre conserva ambas cosas. No limite requests ni las declaraciones al último mensaje. Antes de entregar el JSON compruebe que ninguna consulta, respuesta o elección actual se perdió al atender otra; las citas de cada campo pueden corresponder a mensajes distintos del mismo lote. Una aceptación de una propuesta conversacional se interpreta contra esa propuesta real, aunque no fuera una pregunta literal; no la convierta por rutina en reacción o cierre. Esto no autoriza trámites ni una elección que el cliente no haya declarado.`
 
 /** Validate the model's structured interpretation and its source. This function
  * does not recognize words or infer meaning from customer/writer prose. */
 export function normalizedTurnCommunication(raw: unknown, current: string): TurnCommunication {
-  const value = object(raw), evidence = text(value.evidence).trim()
+  const value = object(raw), evidence = currentQuote(value.evidence, current) || ''
   const validKind = TURN_COMMUNICATION_KINDS.includes(value.kind as TurnCommunicationKind)
   const confidence = ['high', 'medium', 'low'].includes(text(value.confidence))
     ? value.confidence as TurnCommunication['confidence'] : 'low'
-  const grounded = !!evidence && current.includes(evidence)
+  const grounded = !!evidence
   if (!validKind || !grounded || typeof value.greeting_present !== 'boolean' || !acceptedExtractorConfidence(confidence))
     return { kind: 'ambiguous', evidence: grounded ? evidence : '', confidence: 'low', greeting_present: false }
   return { kind: value.kind as TurnCommunicationKind, evidence, confidence, greeting_present: value.greeting_present }

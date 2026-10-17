@@ -19,6 +19,7 @@ import { projectObjectionRequests } from './project-objections'
 import { reconcileReservationOperation,RESERVATION_OPERATION_VERSION } from './reservation-operation-context'
 import { prioritizesInteriorSpace,prioritizesViews,selectionPreferences,spaciousOptions,unrestrictedBedrooms,withoutBedroomConstraint } from './selection-preferences'
 import { communicationPlanForTurn } from './turn-communication'
+import { floorExplorationPlan } from './catalog-floor-query'
 import { normalizedPropertyQuery } from './turn-semantics'
 import { VISIT_DIALOGUE_PLAN_VERSION } from './visit-dialogue'
 
@@ -168,7 +169,9 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
     || Object.keys(object(audit.reservation)).length > 0 && object(audit.reservation).existing_request !== true
       && audit.source !== 'reservation_information'
     || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
-  if (object(audit.profile_introduction).material_question === true && !newOperation && reservationContext.active !== true) return {
+  if (object(audit.profile_introduction).material_question === true
+    && !['capture', 'remind', 'confirm'].includes(text(object(audit.profile_collection_decision).action))
+    && !newOperation && reservationContext.active !== true) return {
     version: 'commercial-journey-v1', action: 'answer_material_question', question: '', question_id: '',
     financing_offer_allowed: false, visit_offer_allowed: false,
     instruction: 'Responda la consulta sobre el material con su descripción autorizada y conserve las decisiones pendientes. El cliente está resolviendo una duda antes de decidir. No repita nombre, residencia ni vivienda/local y no adjunte el brochure si su entrega no está autorizada en este turno. Atienda también las demás consultas actuales.',
@@ -201,7 +204,7 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   }
   const operation = audit.action || audit.reservation || audit.financing_collection
     || /^(?:advisor|visit_|financing_handoff)/.test(text(audit.source))
-  if ((information || broadInformation) && !operation) return {
+  if (information && !operation) return {
     version: 'commercial-journey-v1', action: information ? 'information_only' : 'answer_project_categories',
     question_id: '', continuation_optional: true, financing_offer_allowed: false, visit_offer_allowed: false,
     open_topic_question: information && goal.mode === 'information_only' && goal.specific_topic !== true,
@@ -213,6 +216,9 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
   const currentComparison = object(comparisonSemantics.property).operation === 'compare' && acceptedExtractorConfidence(object(comparisonSemantics.property).confidence)
     || comparisonAnswer.question_id === 'property_comparison' && comparisonAnswer.kind === 'affirmative' && acceptedExtractorConfidence(comparisonAnswer.confidence)
   const plan = buildCommercialJourneyPlan(info, audit)
+  const floorPlan = !operation && !['introduction', 'visit_destination', 'visit_information', 'continue_financing', 'clarify_financing_down_payment'].includes(text(plan.action))
+    ? floorExplorationPlan(info) : null
+  if (floorPlan) return floorPlan
   const comparisonUnits = rows(info.catalogo_verificacion || info.catalogo).filter(unit => comparisonIds.includes(text(unit.id)))
   const comparisonCategories = [...new Set(comparisonUnits.map(unit => text(unit.category)))]
   if (currentComparison && !['current_operation', 'introduction'].includes(text(plan.action)) && object(context.query).operation === 'compare' && comparisonIds.length > 1 && comparisonUnits.length === comparisonIds.length && comparisonCategories.length > 1) return {
@@ -273,13 +279,13 @@ export function commercialJourneyPlan(info: Row, audit: Row = {}): Row {
         ...(plan.question_amount_reference ? { amount_reference: plan.question_amount_reference } : {}) },
       instruction: topics.includes('cash_payment')
         ? 'Atienda primero las condiciones verificadas del pago al contado y la comparación con financiamiento. Si faltan condiciones, explique únicamente lo pendiente. Puede ofrecer comparar ambas modalidades sin exigir elegir una ni volver a solicitar ahora la entrada. Esta consulta no cambia la modalidad ni revoca la aceptación de financiamiento. Conserve internamente el siguiente dato pendiente.'
-        : 'Responda directamente la duda actual con amabilidad y los hechos verificados. Si se presentan unidades por primera vez, incluya también sus diferencias útiles de distribución, superficie o baños; una pregunta de precio no elimina esa presentación. Conserve las decisiones conocidas y deje internamente pendiente el dato solicitado; no repita la misma captura después de cada consulta. Retómela cuando ayude a continuar, sin una frase fija.'
+        : 'Responda directamente la duda actual con amabilidad y los hechos verificados. Si se presentan unidades por primera vez, incluya también sus diferencias útiles de distribución, superficie o baños; una pregunta de precio no elimina esa presentación. Conserve las decisiones conocidas y deje internamente pendiente el dato solicitado. La pregunta de deferred_question ya fue formulada: en esta respuesta atienda la duda sin volver a hacer esa misma pregunta ni sustituirla por un cierre genérico. Su respuesta posterior podrá retomarla cuando haya un avance o una decisión nueva.'
           + (object(plan.readiness).financing_accepted === true ? ' La aceptación de financiamiento ya existente se conserva.' : '')
           + (topics.includes('credit_approval') ? ' Explique la evaluación de la entidad sin introducir cuotas no solicitadas.' : '') }
   }
   if (capture && hasInquiry && !firstAcceptance && plan.presentation !== 'recommended_unit') return {
-    ...plan, continuation_optional: true,
-    instruction: 'Atienda primero la consulta actual con la información verificada. El siguiente dato por conocer sigue siendo el del objetivo comercial, pero su captura es opcional en esta respuesta: retómela únicamente si aporta una continuación natural. Puede responder sin pregunta y conservar el dato pendiente. No repita una fórmula de presupuesto ni exija esa cifra para resolver dudas.',
+    ...plan, continuation_optional: false,
+    instruction: text(plan.instruction) + ' Atienda primero todas las consultas actuales y enlace la respuesta con la única decisión pendiente indicada por este plan. Una petición de información general o del brochure no pausa la orientación comercial. Formule esa pregunta con naturalidad, respetando datos ya conocidos y sin convertirla en condición para recibir información.',
   }
   return plan
 }

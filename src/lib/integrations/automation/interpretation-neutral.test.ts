@@ -105,6 +105,7 @@ test('unknown budget is a real uncertainty, and every monetary budget status req
 test('neutral property does not lose an active budget or a current request for an advisor', async () => {
   for (const scenario of ['budget', 'advisor']) {
     const raw = fixture(), message = scenario === 'budget' ? 'Tengo 100 para la entrada' : 'Quiero hablar con un asesor'
+    raw.communication = { kind: 'substantive', evidence: message, confidence: 'high', greeting_present: false }
     const semantics = object(raw.turn_semantics)
     semantics.primary_intent = scenario === 'budget' ? 'discuss_budget' : 'other'
     semantics.primary_evidence = message

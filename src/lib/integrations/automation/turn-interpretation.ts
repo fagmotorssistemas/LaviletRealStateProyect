@@ -167,7 +167,7 @@ export async function interpretConversationTurn(input: Row, dependencies: Depend
   }
   const inconsistentSocialTurn = (value: Row) => {
     const communication = normalizedTurnCommunication(value.communication, readable)
-    if (!['greeting_only', 'courtesy_only', 'reaction_only'].includes(communication.kind)) return false
+    if (!['greeting_only', 'courtesy_only', 'reaction_only', 'ambiguous'].includes(communication.kind)) return false
     const authority = normalizedActionAuthority(value.action_authority, readable)
     const profile = object(value.profile_evidence), identity = object(value.financing_identity)
     const property = object(object(value.turn_semantics).property), contact = currentContactDecision(authority)

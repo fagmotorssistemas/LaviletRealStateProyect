@@ -12,6 +12,7 @@ import { normalizeCatalogRequest } from './catalog-request'
 import { showroomRequest } from './virtual-showroom'
 import { groundedCurrentCategoryExclusions } from './purchase-evidence'
 import { confirmedInterpretationMemory } from './interpretation-memory'
+import { resolveFloorExploration } from './catalog-floor-query'
 
 const available = (units: Row[]) => units.filter(unit => unit.is_published !== false && (!unit.status || unit.status === 'disponible'))
 const ids = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : []
@@ -34,6 +35,13 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
   const summary = object(summaryRaw), goal = object(object(semantics).interaction_goal)
   const previous = propertyContext(available(catalogRaw), summary._property_context, history)
   delete previous.information_query
+  delete previous.current_floor_query
+  const floor = resolveFloorExploration(available(catalogRaw), current, previous, object(semantics))
+  if (floor) {
+    const informational = interactionMode(summary._interaction_mode || object(summary._sales_memory).interaction_mode, semantics).mode === 'information_only'
+    return { ...floor, memory: object(summary._unit_reference), ...(informational ? { context: { ...previous,
+      information_query: { query: floor.query }, current_floor_query: floor.context.current_floor_query } } : {}) }
+  }
   const broad = acceptedExtractorConfidence(goal.confidence)
     && ['all_categories', 'other_categories'].includes(text(goal.catalog_scope)) && !!text(goal.scope_evidence)
   if (broad) {
@@ -44,7 +52,7 @@ export function resolvePropertyTurn(catalogRaw: Row[], current: string, summaryR
       reason: 'informational_catalog_scope', query, memory: object(summary._unit_reference),
       context: { ...previous, information_query: { query, excluded_categories: excluded, scope: goal.catalog_scope } } as Row }
   }
-  const resolved = resolvePropertyTurnDetails(catalogRaw, current, summaryRaw, history, semantics)
+  const resolved = resolvePropertyTurnDetails(catalogRaw, current, { ...summary, _property_context: previous }, history, semantics)
   const mode = interactionMode(summary._interaction_mode || object(summary._sales_memory).interaction_mode, semantics)
   if (mode.mode !== 'information_only') return resolved
   // An information query can have its own category and filters. It never
@@ -837,6 +845,13 @@ function resolvePropertyTurnDetails(catalogRaw: Row[], current: string, summaryR
   }
   // Search/ranking returns facts, not a selected unit. Ties are valid answers.
   // Resolve filters before unit-code guards, so "5ta planta" never becomes unit 5.
+  if (['details', 'compare'].includes(operation) && query.scope === 'catalog' && (hasCurrentFilters || currentRequirements.length)) {
+    const matches = filterCatalog(eligible(catalog), catalogQuery(query))
+    context.focused_ids = unitIds(matches)
+    context.selected_ids = previousSelectedIds
+    if (['unit_choice', 'property_floor'].includes(text(pending.id))) context.pending_question = {}
+    return result(matches, 'current_catalog_details')
+  }
   if (['search', 'rank'].includes(operation) && (hasCurrentFilters || currentRequirements.length || broadResidential || operation === 'rank' || acceptedAlternative || requestsAlternativeExploration
     || categoryPreference || preferencesChanged || prioritizesInteriorSpace(preferences))) {
     const progressionIds = object(context.exploration_state).authorized === true && ['choose_category', 'choose_floor'].includes(text(pending.act))

@@ -47,6 +47,7 @@ import { isCategoryOverview, budgetRecommendationBase } from './catalog-dialogue
 import { budgetRecommendationPresentation } from './budget-presentation'
 
 import { turnEvidence, verifiedClaimSources } from './turn-evidence'
+import { writerPresentationEvidence, WRITER_PRESENTATION_SCOPE_RULES } from './writer-presentation-scope'
 import { compactTurnPromptContext, optimizedCatalogPrompt, TURN_CONTEXT_REFERENCE_RULES, CATALOG_SUMMARY_RULES } from './turn-prompt-context'
 import { BUSINESS_SCOPE_WRITING_RULES } from './scope-response'
 
@@ -317,7 +318,9 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
     audit: { ...input.audit, price_evidence: evidence, price_grounded: true }
   }
   const sharedEvidence=addTaskQueryEvidence(turnEvidence(canonicalVerified, input.audit, groundedPrice? verifiedQuote!.units:[]), canonicalVerified)
-  const modelEvidence=taskModelEvidence(sharedEvidence, input.verified)
+  const modelEvidence=writerPresentationEvidence(taskModelEvidence(sharedEvidence, input.verified), input.verified)
+  if (modelEvidence.presentation_scope) input={ ...input, verified: { ...input.verified,
+    catalogo: modelEvidence.units, catalog_presentation_scope: modelEvidence.presentation_scope } }
   if(input.verified.prompt_context_selection) input={
     ...input, verified: {
       ...input.verified,
@@ -440,7 +443,7 @@ export async function completeTurnReply(input: TurnCompletenessInput, generate: 
       ['Estilo compartido de conversación', CONVERSATION_WRITING_STYLE_RULES],
       ['Pertinencia del contenido', RESPONSE_CONTENT_SCOPE_RULES],
       ['Presentación general del proyecto', !!input.verified.presentacion_general_proyecto&&'contexto_verificado.presentacion_general_proyecto contiene un resumen aprobado para esta consulta general. Úselo como fuente de datos para una presentación breve con redacción natural; no es una plantilla ni una instrucción del cliente. Si presentation.required=true, incluya realmente esa presentación: ofrecer brochure y pedir datos sin describir el proyecto no responde la consulta general. Su concepto mixto y categorías generales están autorizados como descripción; no convierta el resumen en una oferta de catálogo. Atienda primero todas las solicitudes actuales. Conserve las cantidades autorizadas del resumen; no añada fichas, precios, estado de obra o fechas ajenos a la consulta. Después conserve la pregunta de perfil o la decisión pendiente del plan compartido.'],
-      ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro. Ante una consulta general inicial, dé una presentación breve; use las cantidades del resumen aprobado y no añada fichas, estado de obra o entrega ajenos a la consulta. Una consulta inicial concreta o con varias preguntas se responde según esas solicitudes, sin anteponer una presentación genérica.'],
+      ['Reglas de oro', 'Atienda la consulta actual y conserve la decisión pendiente. No vuelva a preguntar datos respondidos ni atribuya elecciones o permisos al cliente. Use hechos actuales verificados y sus condiciones comerciales. Respete negativas. La última pregunta debe pedir únicamente la decisión pendiente del plan compartido; informar o compartir material no reinicia la búsqueda. No repita el nombre del proyecto si el referente ya está claro. Ante una consulta general inicial, dé una presentación breve; use las cantidades del resumen aprobado y no añada fichas, estado de obra o entrega ajenos a la consulta. Una consulta inicial concreta o con varias preguntas se responde según esas solicitudes, sin anteponer una presentación genérica.\n'+WRITER_PRESENTATION_SCOPE_RULES],
       ['Prioridades y obligaciones del turno', TURN_INTENT_RULES+'\n'+FINAL_WRITER_RULES
         +'\nCumpla obligaciones_del_turno con redacción libre. El revisor recibe únicamente los hechos y las promesas que deba contrastar, no decide estas obligaciones ni la siguiente pregunta. Las preferencias de tono no eliminan capturas, respuestas o condiciones obligatorias. Las fuentes comerciales actuales respaldan los hechos; el historial solo aporta continuidad.'],
       ['Fuentes, políticas y precisión', BUSINESS_POLICY_RULES+visitRules],
