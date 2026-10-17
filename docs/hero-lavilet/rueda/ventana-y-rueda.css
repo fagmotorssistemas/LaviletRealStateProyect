@@ -1,0 +1,45 @@
+/* ---------- La ventana de vidrio con LaVilēt y la rueda de palabras (heroWindow.js) ----------
+   Pegar al final de src/components/marketing/hero/HeroLaVilet.module.css, tal cual. */
+.pin .hero [data-part="winF"],
+.pin .hero [data-part="winI"],
+.pin .hero [data-part="winR"],
+.pin .hero [data-part="winT"] { position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0; }
+.pin .hero [data-part="winF"],
+.pin .hero [data-part="winI"],
+.pin .hero [data-part="winR"] { z-index: 4; }
+/* solo el marco es vidrio: medio transparente, con un filo de luz */
+.pin .hero [data-part="winF"] { background-color: rgb(241 234 218 / .045); box-shadow: inset 0 0 0 1px rgb(241 234 218 / .45), inset 0 0 0 2px rgb(255 255 255 / .05); }
+/* el centro es limpio: solo queda el filo donde termina el vidrio */
+.pin .hero [data-part="winI"] { box-shadow: inset 0 0 0 1px rgb(241 234 218 / .3); }
+/* reflejos: dos franjas nítidas que se mueven cuando el vidrio gira */
+.pin .hero [data-part="winR"] {
+  background-image: linear-gradient(112deg, transparent 0 40%, rgb(255 255 255 / .08) 40% 47%, transparent 47% 51%, rgb(255 255 255 / .05) 51% 53%, transparent 53%);
+  background-size: 260% 100%; background-repeat: no-repeat;
+}
+.pin .hero [data-part="winT"] { z-index: 5; aspect-ratio: 1540 / 628; }
+.pin .hero [data-part="winGl"] { position: absolute; display: block; height: auto; max-width: none; will-change: transform, opacity, filter; }
+/* un brillo que cruza el nombre de vez en cuando */
+.pin .hero [data-part="winGlint"] {
+  position: absolute; inset: 0; opacity: 0;
+  background-image: linear-gradient(105deg, transparent 0 46%, rgb(255 255 255 / .85) 46% 49%, transparent 49% 51%, rgb(255 255 255 / .5) 51% 52%, transparent 52%);
+  background-size: 300% 100%; background-repeat: no-repeat;
+  -webkit-mask: url("/hero/logo/lavilet-crema.webp") 0 0 / 100% 100% no-repeat;
+  mask: url("/hero/logo/lavilet-crema.webp") 0 0 / 100% 100% no-repeat;
+}
+/* bajo el nombre: qué hay, en inglés */
+.pin .hero [data-part="winS"] {
+  position: absolute; left: .6%; top: 104%; margin: 0; white-space: nowrap;
+  font-family: var(--font-body); font-weight: 300; text-transform: uppercase; letter-spacing: .26em; color: var(--ink);
+  opacity: 0; will-change: transform, opacity;
+}
+/* la rueda de la derecha */
+.pin .hero [data-part="wheel"] { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+.pin .hero [data-part="whSvg"] { position: absolute; left: 0; top: 0; overflow: visible; }
+.pin .hero [data-part="whArc"] { fill: none; stroke: rgb(241 234 218 / .34); stroke-width: 1; }
+.pin .hero [data-part="whTick"] { fill: rgb(241 234 218 / .55); }
+.pin .hero [data-part="whNow"] { fill: var(--ink); }
+.pin .hero [data-part="whWord"] {
+  position: absolute; left: 0; top: 0; margin: 0; white-space: nowrap; transform-origin: 0 0;
+  font-family: var(--font-display); font-weight: 400; text-transform: uppercase; letter-spacing: .1em; line-height: 1; color: var(--ink);
+  text-shadow: 0 0 22px rgb(42 41 36 / .45); opacity: 0; will-change: transform, opacity;
+}

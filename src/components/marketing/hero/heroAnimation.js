@@ -1,5 +1,6 @@
 // Reference logic; only component scoping, lifecycle cleanup and the approved navbar integration differ.
 import { createHeroNavbar } from './heroNavbarAnimation'
+import { createHeroWindow } from './heroWindow'
 
 export function createHeroAnimation(root, classes, state) {
   var AR = 1672 / 941, BASE = 0.86, BLD_AR = 1356 / 585, TL_END = 0.95;
@@ -21,35 +22,12 @@ export function createHeroAnimation(root, classes, state) {
   };
   function seg(T, start, dur, ease) { return EASE[ease](clamp((T - start) / dur, 0, 1)); }
 
-  /* ---------- build the text ---------- */
-  var real = [], ghosts = [];
-  "LA VILET".split("").forEach(function (ch, i) {
-    var a = document.createElement("span"), b = document.createElement("span");
-    if (ch === " ") { a.className = b.className = classes.sp; a.innerHTML = b.innerHTML = "&nbsp;"; }
-    else { a.textContent = b.textContent = ch; a.setAttribute("aria-hidden", "true"); if (i >= 3) a.dataset.v = "1"; real.push(a); ghosts.push(b); }
-    $("t").appendChild(a); $("gh").appendChild(b);
-  });
-  var claim = $("claim");
-  "El arte de vivir bien.".split(" ").forEach(function (w, i, arr) {
-    var s = document.createElement("span"); s.className = classes.w; s.setAttribute("aria-hidden", "true");
-    var it = document.createElement("i"); it.textContent = w; s.appendChild(it); claim.appendChild(s);
-    if (i < arr.length - 1) claim.appendChild(document.createTextNode(" "));
-  });
-  var claimW = [].slice.call(claim.querySelectorAll("i"));
-  var subL = [].slice.call($("sub").querySelectorAll("i"));
   var navbar = createHeroNavbar(root, geoForNavbar);
   function geoForNavbar() { return geo; }
-  var paths = {};
-  ["pH", "pV", "pB", "pR", "pU"].forEach(function (id) {
-    var el = $(id), L = el.getTotalLength();
-    el.style.strokeDasharray = L;
-    paths[id] = { el: el, L: L };
-  });
-  var dias = { dB: { el: $("dB"), cx: 334, cy: 231 }, dR: { el: $("dR"), cx: 295, cy: 522 } };
-  var INK = [241, 234, 218], ACC = [252, 185, 136];
+  var win = createHeroWindow(pin, hero, function () { return motionOn; });
 
   /* ---------- geometry ---------- */
-  var geo = { bh: 0, h: 0, s: 1 }, F = [];
+  var geo = { bh: 0, h: 0, s: 1 };
   function fitComp(w, h) {
     var portrait = w / h < 1.25;
     hero.classList.toggle(classes.portrait, portrait);
@@ -59,35 +37,13 @@ export function createHeroAnimation(root, classes, state) {
       comp.style.left = "0px"; comp.style.top = "0px";
       comp.style.transformOrigin = "0 0";
       comp.style.transform = "scale(" + s + ")";
-      $("gh").style.left = (w / 2 / s + 5) + "px";
-      $("sd").style.left = (w / 2 / s) + "px";
-      $("sd").style.top = ((h - 34) / s) + "px";
     } else {
       s = Math.min(w / 1672, h / 941);
       comp.style.left = "50%"; comp.style.top = "0px"; /* pinned to the top edge so the menu sits at the top */
       comp.style.transformOrigin = "50% 0";
       comp.style.transform = "translate(-50%, 0) scale(" + s + ")";
-      $("gh").style.left = "841px";
-      $("sd").style.left = "836px";
-      $("sd").style.top = "900px";
     }
-    $("sd").style.marginLeft = "-11px";
     geo.s = s;
-    /* user offsets, set in % of the screen and converted to canvas units */
-    $("gh").style.left = (parseFloat($("gh").style.left) + state.logoX / 100 * w / s).toFixed(1) + "px";
-    $("gh").style.top = (30 + state.logoY / 100 * h / s).toFixed(1) + "px";
-    $("blk").style.transform = "translate(" + (state.txtX / 100 * w / s).toFixed(1) + "px," + (state.txtY / 100 * h / s).toFixed(1) + "px)";
-    /* starting logo size, kept inside the screen width */
-    var gh = $("gh"), fs = 97.5 * state.logo / 100;
-    gh.style.fontSize = fs + "px";
-    var gw = gh.getBoundingClientRect().width;
-    if (gw > w * 0.94) gh.style.fontSize = (fs * w * 0.94 / gw).toFixed(2) + "px";
-    /* where each letter starts: its twin in the centered logo */
-    real.forEach(function (el) { el.style.transform = "none"; });
-    F = real.map(function (el, i) {
-      var a = ghosts[i].getBoundingClientRect(), b = el.getBoundingClientRect();
-      return { x: (a.left + a.width / 2 - b.left - b.width / 2) / s, y: (a.top + a.height / 2 - b.top - b.height / 2) / s, k: a.height / b.height };
-    });
   }
 
   function layout() {
@@ -144,6 +100,7 @@ export function createHeroAnimation(root, classes, state) {
     walker.top = (bh * 0.995 - mh).toFixed(1) + "px";
     geo.mh = mh; geo.mw = mw;
     fitComp(w, h);
+    win.layout(w, h);
     target = progress();
     render(current = target);
   }
@@ -154,12 +111,6 @@ export function createHeroAnimation(root, classes, state) {
     if (!motionOn || dist <= 0) return 1;
     return clamp(-pin.getBoundingClientRect().top / dist, 0, 1);
   }
-  function draw(id, k) { var p = paths[id]; p.el.style.strokeDashoffset = (p.L * (1 - k)).toFixed(2); }
-  function pop(id, k) {
-    var d = dias[id];
-    d.el.setAttribute("transform", "translate(" + d.cx + " " + d.cy + ") scale(" + Math.max(k, 0.0001).toFixed(4) + ") translate(" + (-d.cx) + " " + (-d.cy) + ")");
-    d.el.style.opacity = clamp(k, 0, 1).toFixed(3);
-  }
   function render(p) {
     /* scene */
     var pb = EASE.p3o(clamp(p / 0.85, 0, 1));
@@ -169,41 +120,13 @@ export function createHeroAnimation(root, classes, state) {
     applyTod(todForScroll(p));
     streetLife(p);
 
-    /* text and frame, timed like the Portada La Vilet timeline */
+    /* veil and navbar, timed like the Portada La Vilet timeline */
     var T = p * TL_END;
     veil.style.opacity = seg(T, 0.04, 0.42, "none").toFixed(3);
-    var sd = seg(T, 0, 0.1, "none");
-    $("sd").style.opacity = (1 - sd).toFixed(3);
-    $("sd").style.transform = "translateY(" + (12 * sd).toFixed(1) + "px)";
-
-    real.forEach(function (el, i) {
-      var k = seg(T, 0.05 + i * 0.042, 0.44, "p2io"), f = F[i] || { x: 0, y: 0, k: 1 };
-      el.style.transform = "translate(" + (f.x * (1 - k)).toFixed(2) + "px," + (f.y * (1 - k)).toFixed(2) + "px) scale(" + (f.k + (1 - f.k) * k).toFixed(4) + ")";
-      if (el.dataset.v) {
-        el.style.color = "rgb(" + INK.map(function (c, j) { return Math.round(c + (ACC[j] - c) * k); }).join(",") + ")";
-      }
-    });
-
-    navbar.align(paths);
-    draw("pV", seg(T, 0.06, 0.34, "p2io"));
-    draw("pH", seg(T, 0.10, 0.30, "p2io"));
     navbar.render(T);
-    draw("pU", seg(T, 0.26, 0.16, "p2o"));
-    draw("pB", seg(T, 0.30, 0.26, "p2io"));
-    pop("dB", seg(T, 0.54, 0.10, "back"));
-    var ke = seg(T, 0.36, 0.24, "p3o");
-    $("eye").style.opacity = ke.toFixed(3);
-    $("eye").style.transform = "translateX(" + (-56 * (1 - ke)).toFixed(1) + "px)";
-    draw("pR", seg(T, 0.46, 0.18, "p2io"));
-    pop("dR", seg(T, 0.62, 0.10, "back"));
-    claimW.forEach(function (el, i) {
-      var k = seg(T, 0.52 + i * 0.045, 0.26, "p3o");
-      el.style.transform = "translateY(" + (108 * (1 - k)).toFixed(1) + "%)";
-    });
-    subL.forEach(function (el, i) {
-      var k = seg(T, 0.66 + i * 0.07, 0.22, "p3o");
-      el.style.transform = "translate(" + (-34 * (1 - k)).toFixed(1) + "px," + (108 * (1 - k)).toFixed(1) + "%)";
-    });
+
+    /* the glass window with the logo and the word wheel */
+    win.render(p);
   }
 
   /* ---------- day / sunset / night ----------
@@ -306,6 +229,7 @@ export function createHeroAnimation(root, classes, state) {
   layout();
   return {
     start() {
+      win.start();
       window.addEventListener("scroll", onScroll, { passive: true });
       window.addEventListener("resize", onResize);
       media.addEventListener("change", onMotionChange);
@@ -342,7 +266,7 @@ export function createHeroAnimation(root, classes, state) {
       clearTimeout(settleTimer);
       cancelAnimationFrame(rafId);
       navbar.destroy();
-      ["t", "gh", "claim"].forEach(function (id) { $(id).replaceChildren(); });
+      win.destroy();
     }
   };
 }

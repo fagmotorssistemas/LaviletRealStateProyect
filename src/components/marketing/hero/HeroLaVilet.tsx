@@ -90,36 +90,7 @@ export function HeroLaVilet() {
     </div>
     <div className={styles['veil']} data-part="veil" aria-hidden="true"></div>
 
-    <div className={styles['comp']} data-part="comp">
-      <svg data-part="lines" viewBox="0 0 1672 941" fill="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="lavilet-hero-fade" x1="0" y1="79" x2="0" y2="893" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#f0a054"/>
-            <stop offset=".86" stopColor="#f0a054"/>
-            <stop offset="1" stopColor="#f0a054" stopOpacity="0"/>
-          </linearGradient>
-        </defs>
-        <path data-part="pH" d="M93.5 79.5 H1672"/>
-        <path data-part="pV" d="M93.5 79.5 V893"/>
-        <path data-part="pU" d="M1156 70 H1273"/>
-      </svg>
-
-
-      <div data-part="blk">
-        <svg data-part="lines2" viewBox="0 0 1672 941" fill="none" aria-hidden="true">
-          <path data-part="pB" d="M322 230.5 H153.5 A32 32 0 0 0 121.5 262.5 V651"/>
-          <path data-part="dB" d="M334 224 L341 231 L334 238 L327 231 Z"/>
-          <path data-part="pR" d="M146 522 H288"/>
-          <path data-part="dR" d="M295 515.5 L301.5 522 L295 528.5 L288.5 522 Z"/>
-        </svg>
-        <p data-part="eye">Suites &amp; Apartments</p>
-        <h1 data-part="t" aria-label="La Vilet"></h1>
-        <p data-part="claim" aria-label="El arte de vivir bien."></p>
-        <p data-part="sub"><span><i>Residencias y plaza comercial</i></span><span><i>en Puertas del Sol, Cuenca.</i></span></p>
-      </div>
-      <div data-part="gh" aria-hidden="true"></div>
-      <div data-part="sd" aria-hidden="true"><svg viewBox="0 0 22 12"><path d="M1 1 L11 10 L21 1"/></svg></div>
-    </div>
+    <div className={styles['comp']} data-part="comp"></div>
   </section>
 </div>
   )

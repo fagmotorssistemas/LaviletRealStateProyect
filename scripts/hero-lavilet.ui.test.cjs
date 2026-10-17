@@ -33,12 +33,21 @@ async function ready(page, url) {
     await document.fonts.ready
     await Promise.all(Array.from(document.querySelectorAll('#inicio img, #hero img'), img => img.decode().catch(() => {})))
   })
-  await page.waitForFunction(() => {
+  await page.waitForFunction(isApp => {
     const pin = document.querySelector('[data-part="pin"]') || document.getElementById('pin')
+    if (!pin?.style.getPropertyValue('--travel')) return false
+    // The app now draws the logo as nine images inside the glass window; the reference keeps the old title.
+    if (isApp) return document.querySelectorAll('[data-part="winGl"]').length === 9
     const title = document.querySelector('[data-part="t"]') || document.getElementById('t')
-    return pin?.style.getPropertyValue('--travel') && title?.children.length === 8
-  })
+    return title?.children.length === 8
+  }, url.startsWith(appUrl))
   await page.waitForTimeout(300)
+}
+
+// The app now shows the glass window and the wheel where the reference still shows the old design
+// block, so the pixel comparison hides both and stays on the scene: sky, street, building, actors and veil.
+async function sceneOnly(page) {
+  await page.addStyleTag({ content: '[data-part="winF"], [data-part="winI"], [data-part="winR"], [data-part="winT"], [data-part="wheel"], [data-part="comp"], #comp { visibility: hidden !important; }' })
 }
 
 async function geometry(page, part) {
@@ -69,10 +78,7 @@ async function snapshot(page) {
       const r = el.getBoundingClientRect(), css = getComputedStyle(el)
       return { x: r.x, y: r.y, width: r.width, height: r.height, opacity: Number(css.opacity), color: css.color }
     }
-    const parts = Object.fromEntries(['bld', 'ground', 'bgInner', 'walker', 'car', 'imgBgS', 'imgBgN', 'imgGroundS', 'imgGroundN', 'imgBldS', 'imgBldN', 'imgBldX', 'imgBldY', 'eye', 'claim', 'sub', 'sd', 'veil'].map(id => [id, describe(find(id))]))
-    parts.letters = Array.from(find('t').children, describe)
-    parts.words = Array.from(find('claim').querySelectorAll('i'), describe)
-    parts.subLines = Array.from(find('sub').querySelectorAll('i'), describe)
+    const parts = Object.fromEntries(['bld', 'ground', 'bgInner', 'walker', 'car', 'imgBgS', 'imgBgN', 'imgGroundS', 'imgGroundN', 'imgBldS', 'imgBldN', 'imgBldX', 'imgBldY', 'veil'].map(id => [id, describe(find(id))]))
     parts.walkFrames = parts.walker.opacity === 0 ? [] : Array.from(find('walker').querySelectorAll('img'), describe)
     return parts
   })
@@ -150,16 +156,6 @@ test('desktop navbar starts transparent and follows the hero instead of a timed 
       assert.ok(Math.abs(entrance[i].y - (-10 * (1 - expected))) < 0.1)
     }
     await seek(page, 0.5)
-    const alignment = await page.evaluate(() => {
-      const header = document.querySelector('[data-site-header]'), horizontal = document.querySelector('[data-part="pH"]'), underline = document.querySelector('[data-part="pU"]')
-      const link = Array.from(header.querySelectorAll('nav a')).find(el => el.getClientRects().length)
-      return { lineY: horizontal.getBoundingClientRect().y, bottom: header.getBoundingClientRect().bottom,
-        underline: underline.getBoundingClientRect().toJSON(), link: link.getBoundingClientRect().toJSON() }
-    })
-    assert.ok(Math.abs(alignment.lineY - alignment.bottom) <= 1)
-    assert.ok(Math.abs(alignment.underline.x - alignment.link.x) <= 1)
-    assert.ok(Math.abs(alignment.underline.width - alignment.link.width) <= 1)
-    assert.ok(Math.abs(alignment.underline.y - alignment.link.bottom - 2.5) <= 1)
     await page.locator('[data-site-header]').getByRole('link', { name: 'Contacto', exact: true }).click()
     await page.waitForURL('**/contacto')
     await page.waitForTimeout(700)
@@ -189,7 +185,7 @@ test('mobile navbar is usable from the start and hero control is released on oth
     assert.equal(await header.locator('[inert]').count(), 0)
     await header.getByRole('link', { name: 'La Vilet', exact: true }).click()
     await page.waitForURL('**/inicio')
-    await page.waitForFunction(() => document.querySelector('[data-part="t"]')?.children.length === 8)
+    await page.waitForFunction(() => document.querySelectorAll('[data-part="winGl"]').length === 9)
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })
@@ -205,6 +201,7 @@ test('scene, people and typography match reference at five scroll positions in a
       const errors = []
       actual.on('pageerror', error => errors.push(error.message))
       await Promise.all([ready(actual, `${appUrl}/inicio`), ready(expected, reference.url)])
+      await Promise.all([sceneOnly(actual), sceneOnly(expected)])
       for (const [name, p] of [['day', 0], ['afternoon', 0.5], ['pedestrian', 0.6799], ['car', 0.7539], ['night', 1]]) {
         const [aScroll, eScroll] = await Promise.all([seek(actual, p), seek(expected, p)])
         assert.equal(aScroll, eScroll, 'reference and app must use the same scroll offset')
@@ -243,6 +240,31 @@ test('car and pedestrian freeze without scroll and retrace the same positions on
     await seek(page, 0.7539)
     const trail = page.locator('[data-part="car"] span').nth(2)
     assert.equal(Number(await trail.evaluate(el => getComputedStyle(el).opacity)), 0, 'car trail must disappear after settling')
+  } finally { await browser.close() }
+})
+
+test('the glass window and the wheel show at the top and the wheel lands on Elegancia', { timeout: 120000 }, async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage({ viewport: { width: 1329, height: 942 } })
+    await ready(page, `${appUrl}/inicio`)
+    await seek(page, 0)
+    // the entrance runs on its own clock once the logo pieces decode: glass, then letters, dot and macron
+    await page.waitForTimeout(4000)
+    for (const part of ['winT', 'wheel']) {
+      const node = page.locator(`[data-part="${part}"]`)
+      const box = await node.boundingBox()
+      assert.ok(box && box.width > 0 && box.height > 0, `${part} must be laid out`)
+      assert.ok(Number(await node.evaluate(el => getComputedStyle(el).opacity)) > 0, `${part} must be visible`)
+    }
+    const letters = await page.locator('[data-part="winGl"]').evaluateAll(list => list.map(el => Number(getComputedStyle(el).opacity)))
+    assert.equal(letters.length, 9)
+    for (const opacity of letters) assert.ok(opacity > 0, 'every logo piece must have arrived')
+    await seek(page, 1)
+    const words = await page.locator('[data-part="whWord"]').evaluateAll(list =>
+      list.map(el => ({ text: el.textContent, opacity: Number(getComputedStyle(el).opacity) })))
+    assert.equal(words.length, 4)
+    assert.equal(words.reduce((a, b) => (b.opacity > a.opacity ? b : a)).text, 'Elegancia')
   } finally { await browser.close() }
 })
 
